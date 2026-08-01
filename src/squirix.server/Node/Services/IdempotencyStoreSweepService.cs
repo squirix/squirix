@@ -4,8 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
-#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
-
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Periodically sweeps expired idempotency records in addition to lazy per-access sweeps.</summary>
@@ -32,7 +30,6 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            //-V5606 //-V3163
             // Expected on host stop/dispose; do not fault BackgroundService (StopHost).
         }
     }

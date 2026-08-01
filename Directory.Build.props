@@ -117,5 +117,7 @@
          trees stay out of findings; without this link, test projects had no rules file. -->
     <ItemGroup Label="PvsStudioConfig" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory).pvsconfig" Link=".pvsconfig"/>
+        <!-- Solution-root suppress baseline; VS/plugin discovery needs a project item. -->
+        <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>
     </ItemGroup>
 </Project>

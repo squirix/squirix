@@ -63,6 +63,9 @@ jobs:
                           # NDepend project/rules edits must not trigger CodeQL analyze.
                           - '!**/*.ndproj'
                           - '!**/*.ndrules'
+                          # PVS-Studio suppress baselines must not trigger CodeQL analyze.
+                          - '!**/*.suppress'
+                          - '!**/*.suppress.json'
 
     analyze:
         name: Analyze C#

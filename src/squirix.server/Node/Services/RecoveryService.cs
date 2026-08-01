@@ -14,8 +14,6 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
-#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
-
 namespace Squirix.Server.Node.Services;
 
 /// <summary>
@@ -85,7 +83,6 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (OperationCanceledException)
         {
-            //-V5606 //-V3163
             // Host shutdown cancelled in-flight replay or the stop token expired.
         }
     }

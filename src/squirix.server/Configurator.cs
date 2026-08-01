@@ -133,12 +133,10 @@ public static class Configurator
             }
             catch (ObjectDisposedException)
             {
-                //-V5606 //-V3163
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
             catch (SocketException)
             {
-                //-V5606 //-V3163
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
         }
@@ -347,12 +345,10 @@ public static class Configurator
             }
             catch (ObjectDisposedException)
             {
-                //-V5606 //-V3163
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
             catch (SocketException)
             {
-                //-V5606 //-V3163
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
         }

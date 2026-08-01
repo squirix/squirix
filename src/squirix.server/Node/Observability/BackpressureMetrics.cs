@@ -5,8 +5,6 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using Squirix.Server.Utils;
 
-#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
-
 namespace Squirix.Server.Node.Observability;
 
 internal static class BackpressureMetrics
@@ -125,12 +123,10 @@ internal static class BackpressureMetrics
                 }
                 catch (ObjectDisposedException)
                 {
-                    //-V5606 //-V3163
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
                 }
                 catch (InvalidOperationException)
                 {
-                    //-V5606 //-V3163
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
                 }
             }

@@ -11,9 +11,9 @@
 //V_EXCLUDE_PATH */samples/*
 //V_EXCLUDE_PATH */benchmarks/*
 //
-// Do not globally disable V3163/V5606. Intentional empty dispose/drain/cleanup/shutdown catches
-// are marked in-source with False Alarm comments inside the catch body:
-//   //-V5606 //-V3163
-// (C# in-source //-V:: filters are unsupported; FA marks are the scoped mechanism.)
+// Intentional empty dispose/drain/cleanup/shutdown catches (comment-only bodies).
+// Hash-based suppress files break on any nearby edit; disable these diagnostics instead.
+// Correct disable syntax: //-V::NNNN (see PVS .pvsconfig manual).
+//-V::3163,5606
 //
-// Reports include remaining groups/levels. CI fails only on GA:1,2 (see .github/workflows/ci.yml).
+// CI fails on any remaining warning after suppress filtering (all groups/levels; see ci.yml).

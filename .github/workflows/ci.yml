@@ -71,6 +71,9 @@ jobs:
                           # NDepend project/rules edits must not trigger the code CI matrix.
                           - '!**/*.ndproj'
                           - '!**/*.ndrules'
+                          # PVS-Studio suppress baselines must not trigger the code CI matrix.
+                          - '!**/*.suppress'
+                          - '!**/*.suppress.json'
                         docs:
                           - '**/*.md'
                           - 'docs/**'
@@ -1282,6 +1285,7 @@ jobs:
                       -o pvs-studio-out/pvs-studio-report.json \
                       -c Release \
                       -C .pvsconfig \
+                      -u pvs-studio.suppress.json \
                       -r \
                       --disableLicenseExpirationCheck \
                       --selectProjects "Squirix;Squirix.Server;Squirix.Server.Host;Squirix.ProtocolModel;Squirix.Analyzers" \
@@ -1307,8 +1311,8 @@ jobs:
                       echo "PVS-Studio analyzer error (exit bit 2)." >&2
                       exit 1
                     fi
-                    # Bit 8 = any warning including L3. Gate only on High/Medium (GA:1,2).
-                    # L3 (often intentional empty best-effort catches) stays in the artifact report.
+                    # Bit 8 = warnings present. Gate via plog-converter on the JSON report
+                    # (post-suppress) with the same all-groups/all-level filter as artifacts.
                     if (( (exit_code & ~4 & ~8) != 0 )); then
                       echo "Unexpected pvs-studio-dotnet exit_code=${exit_code}" >&2
                       exit 1
@@ -1319,12 +1323,13 @@ jobs:
                       exit 1
                     fi
 
-                    # Show every analyzer group/level in CI logs and artifacts (plog-converter
-                    # defaults to GA:1,2 only unless -a is set).
+                    # plog-converter defaults to GA:1,2 only unless -a is set.
+                    pvs_all_groups='GA:1,2,3;64:1,2,3;OP:1,2,3;CS:1,2,3;MISRA:1,2,3;AUTOSAR:1,2,3;OWASP:1,2,3'
+
                     plog-converter \
                       pvs-studio-out/pvs-studio-report.json \
                       -t totals \
-                      -a 'GA:1,2,3;64:1,2,3;OP:1,2,3;CS:1,2,3;MISRA:1,2,3;AUTOSAR:1,2,3;OWASP:1,2,3' \
+                      -a "${pvs_all_groups}" \
                       -o pvs-studio-out/pvs-studio-totals.txt \
                       || true
                     if [[ -f pvs-studio-out/pvs-studio-totals.txt ]]; then
@@ -1340,7 +1345,7 @@ jobs:
                     plog-converter \
                       pvs-studio-out/pvs-studio-report.json \
                       -t errorfile \
-                      -a 'GA:1,2,3;64:1,2,3;OP:1,2,3;CS:1,2,3;MISRA:1,2,3;AUTOSAR:1,2,3;OWASP:1,2,3' \
+                      -a "${pvs_all_groups}" \
                       -o pvs-studio-out/pvs-studio-all.txt \
                       || true
                     if [[ -f pvs-studio-out/pvs-studio-all.txt ]]; then
@@ -1354,21 +1359,21 @@ jobs:
                       cat pvs-studio-out/pvs-studio-all.txt
                     fi
 
-                    # Bit 8 = any warning including L3. Gate only on High/Medium (GA:1,2).
+                    # Fail CI when any warning remains after suppress filtering (all groups/levels).
                     gate_code=0
                     plog-converter \
                       pvs-studio-out/pvs-studio-report.json \
                       -t totals \
-                      -a GA:1,2 \
+                      -a "${pvs_all_groups}" \
                       -o pvs-studio-out/pvs-studio-gate-totals.txt \
                       --indicate-warnings \
                       || gate_code=$?
                     if [[ -f pvs-studio-out/pvs-studio-gate-totals.txt ]]; then
-                      echo "--- gate filter GA:1,2 ---"
+                      echo "--- gate filter (all groups/levels) ---"
                       cat pvs-studio-out/pvs-studio-gate-totals.txt
                     fi
                     if [[ "$gate_code" -eq 2 ]]; then
-                      echo "PVS-Studio gate failed: High/Medium warnings remain (GA:1,2)." >&2
+                      echo "PVS-Studio gate failed: warnings remain (all groups/levels)." >&2
                       exit 1
                     fi
                     if [[ "$gate_code" -ne 0 ]]; then

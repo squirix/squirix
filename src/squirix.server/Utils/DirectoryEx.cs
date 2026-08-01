@@ -3,8 +3,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
-
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
@@ -125,12 +123,10 @@ internal static class DirectoryEx
         }
         catch (IOException)
         {
-            //-V5606 //-V3163
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
         }
         catch (UnauthorizedAccessException)
         {
-            //-V5606 //-V3163
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
         }
     }
