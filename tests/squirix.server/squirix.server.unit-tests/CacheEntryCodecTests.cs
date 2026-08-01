@@ -79,6 +79,31 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             });
     }
 
+    /// <summary>Numeric and JsonElement coercions used by typed journal reads succeed.</summary>
+    [Fact]
+    public void TryMapEntryCoercesNumericAndJsonElementValues()
+    {
+        Assert.True(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(42L, 1), out var asInt));
+        Assert.Equal(42, asInt!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(99L, 1), out var asLong));
+        Assert.Equal(99L, asLong!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<float>(new NodeCacheEntry<object?>(1.5d, 1), out var asFloat));
+        Assert.Equal(1.5f, asFloat!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<double>(new NodeCacheEntry<object?>(2.5d, 1), out var asDouble));
+        Assert.Equal(2.5d, asDouble!.Value);
+
+        using var document = JsonDocument.Parse("""{"k":1}""");
+        Assert.True(CacheEntryCodec.TryMapEntry<JsonElement>(new NodeCacheEntry<object?>(document.RootElement.Clone(), 1), out var asJson));
+        Assert.Equal(1, asJson!.Value.GetProperty("k").GetInt32());
+
+        Assert.False(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>("nope", 1), out _));
+        Assert.True(CacheEntryCodec.TryMapEntry<string>(new NodeCacheEntry<object?>(null, 1), out var asNull));
+        Assert.Null(asNull!.Value);
+    }
+
     private static bool ValueEquals(object? expected, object? actual) => expected switch
     {
         int i when actual is long l => i == l,

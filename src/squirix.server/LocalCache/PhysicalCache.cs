@@ -184,7 +184,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (stored.ExpiresUtc is not { } expires || expires > UtcNow)
             return false;
 
-        if (!_store.TryRemove(key, out _))
+        if (!_store.TryRemove(new KeyValuePair<CacheKey, StoredEntry>(key, stored)))
         {
             removedAndRetry = true;
             return true;

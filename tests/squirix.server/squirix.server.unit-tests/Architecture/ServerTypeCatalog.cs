@@ -29,8 +29,7 @@ internal static class ServerTypeCatalog
         ],
         StringComparer.Ordinal);
 
-    private static readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> DeclarationModifierLookup =
-        DeclarationModifiers.GetAlternateLookup<ReadOnlySpan<char>>();
+    private static readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> DeclarationModifierLookup = DeclarationModifiers.GetAlternateLookup<ReadOnlySpan<char>>();
 
     private static readonly Lock ScanGate = new();
 
@@ -221,9 +220,13 @@ internal static class ServerTypeCatalog
 
             case "record":
                 var afterRecord = remaining;
-                if (TryReadToken(ref afterRecord, out var optionalStruct) &&
-                    string.Equals(optionalStruct.ToString(), "struct", StringComparison.Ordinal))
-                    remaining = afterRecord;
+                if (TryReadToken(ref afterRecord, out var optionalRecordKind))
+                {
+                    var optionalKind = optionalRecordKind.ToString();
+                    if (string.Equals(optionalKind, "struct", StringComparison.Ordinal) || string.Equals(optionalKind, "class", StringComparison.Ordinal))
+                        remaining = afterRecord;
+                }
+
                 break;
 
             default:

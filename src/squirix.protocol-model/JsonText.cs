@@ -18,7 +18,7 @@ internal static class JsonText
                     _ = sb.Append("\\\"");
                     break;
                 case '\\':
-                    _ = sb.Append(@"\\");
+                    _ = sb.Append("\\\\");
                     break;
                 case '\b':
                     _ = sb.Append("\\b");
