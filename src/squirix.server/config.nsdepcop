@@ -194,7 +194,7 @@
 
   <!-- ═══ Node subsystems ═══ -->
 
-  <!-- Backpressure gate must stay independent from storage internals (enforced previously by ArchUnit). -->
+  <!-- Backpressure gate must stay independent from storage internals. -->
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Storage.*" />
 
   <!-- Hosted services orchestrate storage but must not depend on transport adapters. -->

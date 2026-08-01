@@ -1,9 +1,6 @@
-using System;
-using ArchUnitNET.Fluent.Syntax.Elements.Types;
-using ArchUnitNET.xUnitV3;
+using System.Threading.Tasks;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
-using static ArchUnitNET.Fluent.ArchRuleDefinition;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -12,45 +9,53 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures filter types stay at the REST adapter boundary.</summary>
     [Fact]
-    public void FilterTypesShouldLiveInAdaptersRestNamespace()
+    public async Task FilterTypesShouldLiveInAdaptersRestNamespace()
     {
-        RuleHelpers.AssertResideInOneOfNamespaces(
-            ServerArchitectureScope.Server.And().HaveNameEndingWith("Filter"),
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Filter", true, cancellationToken: DefaultCancellationToken);
+        ServerTypeCatalog.AssertResideInOneOfNamespaces(
+            types,
             [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
     }
 
     /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
     [Fact]
-    public void HandlerTypesLiveInNodeHostingSecurityNamespace()
+    public async Task HandlerTypesLiveInNodeHostingSecurityNamespace()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
-                                          .WithoutRequiringPositiveResults();
-
-        rule.Check(ServerArchitecture.Instance);
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Handler", true, cancellationToken: DefaultCancellationToken);
+        ServerTypeCatalog.AssertResideInNamespace(
+            types,
+            $"{ServerArchitectureNamespaces.Node}.Hosting.Security");
     }
 
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
     [Fact]
-    public void MetricsTypesShouldLiveInObservabilityNamespace()
+    public async Task MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Metrics").And().AreNot(Interfaces()).And()
-                                          .DoNotHaveFullName("Squirix.Server.Storage.Manifest.NoOpManifestRetentionFailureMetrics").Should()
-                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability");
-
-        rule.Check(ServerArchitecture.Instance);
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync(
+            "Metrics",
+            false,
+            ["Squirix.Server.Storage.Manifest.NoOpManifestRetentionFailureMetrics"],
+            DefaultCancellationToken);
+        ServerTypeCatalog.AssertResideInNamespace(
+            types,
+            $"{ServerArchitectureNamespaces.Node}.Observability");
     }
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
     [Fact]
-    public void OptionsTypesShouldLiveInApprovedNamespaces() => RuleHelpers.AssertResideInOneOfNamespaces(
-        ServerArchitectureScope.Server.And().HaveNameEndingWith("Options"),
-        Allowlists.ServerOptionsTypeNamespaces);
+    public async Task OptionsTypesShouldLiveInApprovedNamespaces()
+    {
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Options", true, cancellationToken: DefaultCancellationToken);
+        ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServerOptionsTypeNamespaces);
+    }
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
-    public void ServiceTypesShouldLiveInApprovedNamespaces() => RuleHelpers.AssertResideInOneOfNamespaces(
-        ServerArchitectureScope.Server.And().HaveNameEndingWith("Service"),
-        Allowlists.ServiceTypeNamespaces);
+    public async Task ServiceTypesShouldLiveInApprovedNamespaces()
+    {
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Service", true, cancellationToken: DefaultCancellationToken);
+        ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServiceTypeNamespaces);
+    }
 
     /// <summary>Centralized namespace allowlists for naming-convention architecture rules.</summary>
     private static class Allowlists
@@ -88,41 +93,5 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             $"{ServerArchitectureNamespaces.Node}.Context",
             "Squirix.Transport.Grpc",
         ];
-    }
-
-    /// <summary>ArchUnitNET composition helpers used across architecture tests.</summary>
-    private static class RuleHelpers
-    {
-        /// <summary>
-        /// Asserts every type matched by <paramref name="matchingTypes" /> resides in one of the given exact namespaces (disjunction).
-        /// </summary>
-        /// <param name="matchingTypes">The ArchUnitNET type predicate (for example name suffix <c>Options</c>).</param>
-        /// <param name="exactNamespaces">Exact namespace names; a type passes if its namespace equals any entry.</param>
-        /// <exception cref="ArgumentNullException"><paramref name="matchingTypes" /> or <paramref name="exactNamespaces" /> is <see langword="null" />.</exception>
-        /// <exception cref="ArgumentException"><paramref name="exactNamespaces" /> is empty.</exception>
-        internal static void AssertResideInOneOfNamespaces(GivenTypesConjunction matchingTypes, string[] exactNamespaces)
-        {
-            ArgumentNullException.ThrowIfNull(matchingTypes);
-            ArgumentNullException.ThrowIfNull(exactNamespaces);
-            if (exactNamespaces.Length is 0)
-                throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
-
-            foreach (var type in matchingTypes.GetObjects(ServerArchitecture.Instance))
-            {
-                var namespaceName = type.Namespace?.FullName ?? string.Empty;
-                Assert.True(ResidesInOneOfExactNamespaces(namespaceName, exactNamespaces));
-            }
-        }
-
-        private static bool ResidesInOneOfExactNamespaces(string typeNamespace, string[] exactNamespaces)
-        {
-            for (var namespaceIndex = 0; namespaceIndex < exactNamespaces.Length; namespaceIndex++)
-            {
-                if (string.Equals(typeNamespace, exactNamespaces[namespaceIndex], StringComparison.Ordinal))
-                    return true;
-            }
-
-            return false;
-        }
     }
 }

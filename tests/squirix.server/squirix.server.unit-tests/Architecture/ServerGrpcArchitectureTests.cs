@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using ArchUnitNET.xUnitV3;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -112,21 +111,27 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
     [Fact]
-    public void StorageShouldNotDependOnAdapters()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
-
-        rule.Check(ServerArchitecture.Instance);
-    }
+    public Task StorageShouldNotDependOnAdapters() => AssertStorageSourcesDoNotContainAsync(ServerArchitectureNamespaces.Adapters);
 
     /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
     [Fact]
-    public void StorageShouldNotDependOnNodeHosting()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
+    public Task StorageShouldNotDependOnNodeHosting() => AssertStorageSourcesDoNotContainAsync($"{ServerArchitectureNamespaces.Node}.Hosting");
 
-        rule.Check(ServerArchitecture.Instance);
+    private static async Task AssertStorageSourcesDoNotContainAsync(string forbiddenMarker)
+    {
+        var storageRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Storage");
+        Assert.True(Directory.Exists(storageRoot), $"Expected source root '{storageRoot}'.");
+
+        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
+        foreach (var path in Directory.GetFiles(storageRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            if (path.Contains(objMarker, StringComparison.Ordinal))
+                continue;
+
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            Assert.False(
+                text.Contains(forbiddenMarker, StringComparison.Ordinal),
+                $"Storage file '{path}' must not reference '{forbiddenMarker}'.");
+        }
     }
 }
