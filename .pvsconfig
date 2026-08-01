@@ -1,0 +1,7 @@
+// PVS-Studio diagnostic configuration for CI (pvs-studio-dotnet -C).
+// Exclude generated and build artifacts from analysis.
+//V_EXCLUDE_PATH **/bin/**
+//V_EXCLUDE_PATH **/obj/**
+//V_EXCLUDE_PATH **/*.g.cs
+//V_EXCLUDE_PATH **/*.AssemblyInfo.cs
+//V_EXCLUDE_PATH **/AssemblyInfo.cs

@@ -47,7 +47,6 @@ jobs:
                           - '.github/workflows/**'
                           - '.github/actions/**'
                           - '.github/codeql/**'
-                          - 'squirix.ndproj'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'
                           - 'global.json'
@@ -58,6 +57,9 @@ jobs:
                           - 'coverlet.runsettings'
                           - 'clean-bin-obj.bat'
                           - 'clean-bin-obj.sh'
+                          # NDepend project/rules edits must not trigger CodeQL analyze.
+                          - '!**/*.ndproj'
+                          - '!**/*.ndrules'
 
     analyze:
         name: Analyze C#

@@ -7,6 +7,7 @@ on:
     # Restore develop ubuntu-only fast-path later if the daily full matrix is no longer needed.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
+    # PVS-Studio (Team): same-repo code changes; requires secrets.PVS_STUDIO_CREDENTIALS ("name key").
     push:
         branches: [ main, develop ]
     pull_request:
@@ -50,7 +51,6 @@ jobs:
                           - 'samples/**'
                           - '.github/workflows/**'
                           - '.github/actions/**'
-                          - 'squirix.ndproj'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'
                           - 'global.json'
@@ -60,11 +60,15 @@ jobs:
                           - 'BannedSymbols.Storage.txt'
                           - '.globalconfig'
                           - '.editorconfig'
+                          - '.pvsconfig'
                           - 'squirix.slnx'
                           - 'squirix.slnx.DotSettings'
                           - 'coverlet.runsettings'
                           - 'clean-bin-obj.bat'
                           - 'clean-bin-obj.sh'
+                          # NDepend project/rules edits must not trigger the code CI matrix.
+                          - '!**/*.ndproj'
+                          - '!**/*.ndrules'
                         docs:
                           - '**/*.md'
                           - 'docs/**'
@@ -1186,6 +1190,151 @@ jobs:
                     dotnet build squirix.slnx --configuration Release --no-restore
                     .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
 
+    # PVS-Studio Team: full analysis of production packages; fail CI when warnings remain.
+    # Secret: PVS_STUDIO_CREDENTIALS = "<license-name> <license-key>"
+    # Skipped on fork PRs (secrets unavailable). No SARIF upload.
+    pvs-studio:
+        name: PVS-Studio
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        needs: [ changes ]
+        if: |
+            (needs.changes.outputs.code == 'true' ||
+             github.event_name == 'schedule' ||
+             github.event_name == 'workflow_dispatch') &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+            PVS_STUDIO_CREDENTIALS: ${{ secrets.PVS_STUDIO_CREDENTIALS }}
+        steps:
+            -   name: Require PVS_STUDIO_CREDENTIALS
+                shell: bash
+                run: |
+                    if [[ -z "${PVS_STUDIO_CREDENTIALS}" ]]; then
+                      echo "Missing secrets.PVS_STUDIO_CREDENTIALS." >&2
+                      echo "Add GitHub Actions secret PVS_STUDIO_CREDENTIALS as: <name> <license-key>" >&2
+                      exit 1
+                    fi
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+                with:
+                    global-json-file: global.json
+
+            -   name: Cache NuGet Packages
+                uses: actions/cache@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+                    restore-keys: |
+                        ${{ runner.os }}-dotnet10-nuget-
+
+            -   name: Install PVS-Studio
+                shell: bash
+                run: |
+                    set -euo pipefail
+                    wget -qO- https://files.pvs-studio.com/etc/pubkey.txt \
+                      | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/viva64.gpg
+                    sudo wget -O /etc/apt/sources.list.d/viva64.list \
+                      https://files.pvs-studio.com/etc/viva64.list
+                    sudo apt-get update
+                    sudo apt-get install -y pvs-studio-dotnet
+                    # Secret value is "<name> <key>"; word-splitting passes two args.
+                    # shellcheck disable=SC2086
+                    pvs-studio-analyzer credentials ${PVS_STUDIO_CREDENTIALS}
+
+            -   name: Restore
+                run: dotnet restore squirix.slnx
+
+            -   name: Build in-repo analyzers
+                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
+
+            -   name: Build
+                run: dotnet build squirix.slnx --configuration Release --no-restore
+
+            -   name: Analyze With PVS-Studio
+                id: analyze
+                shell: bash
+                run: |
+                    set -uo pipefail
+                    mkdir -p pvs-studio-out
+                    echo "report=false" >> "$GITHUB_OUTPUT"
+                    exit_code=0
+                    pvs-studio-dotnet \
+                      -t squirix.slnx \
+                      -o pvs-studio-out/pvs-studio-report.json \
+                      -c Release \
+                      -C .pvsconfig \
+                      -r \
+                      --disableLicenseExpirationCheck \
+                      --selectProjects "Squirix;Squirix.Server;Squirix.Server.Host;Squirix.ProtocolModel" \
+                      || exit_code=$?
+
+                    echo "pvs-studio-dotnet exit_code=${exit_code}"
+
+                    if [[ -f pvs-studio-out/pvs-studio-report.json ]]; then
+                      echo "report=true" >> "$GITHUB_OUTPUT"
+                    fi
+
+                    if (( (exit_code & 1) != 0 )); then
+                      echo "PVS-Studio license error (exit bit 1)." >&2
+                      exit 1
+                    fi
+                    if (( (exit_code & 2) != 0 )); then
+                      echo "PVS-Studio analyzer error (exit bit 2)." >&2
+                      exit 1
+                    fi
+                    if (( (exit_code & 8) != 0 )); then
+                      echo "PVS-Studio found warnings (exit bit 8). Fix or suppress before merge." >&2
+                      if command -v plog-converter >/dev/null 2>&1; then
+                        plog-converter \
+                          pvs-studio-out/pvs-studio-report.json \
+                          -t totals \
+                          -a GA:1,2,3 \
+                          -o pvs-studio-out/pvs-studio-totals.txt \
+                          || true
+                        if [[ -f pvs-studio-out/pvs-studio-totals.txt ]]; then
+                          cat pvs-studio-out/pvs-studio-totals.txt
+                        fi
+                      fi
+                      exit 1
+                    fi
+                    if (( (exit_code & ~4) != 0 )); then
+                      echo "Unexpected pvs-studio-dotnet exit_code=${exit_code}" >&2
+                      exit 1
+                    fi
+
+            -   name: Convert Report To HTML
+                if: always() && steps.analyze.outputs.report == 'true'
+                shell: bash
+                run: |
+                    set -euo pipefail
+                    plog-converter \
+                      pvs-studio-out/pvs-studio-report.json \
+                      -t fullhtml \
+                      -a GA:1,2,3 \
+                      -o pvs-studio-out/html \
+                      -n index
+
+            -   name: Upload PVS-Studio Report
+                if: always() && steps.analyze.outputs.report == 'true'
+                uses: actions/upload-artifact@v7
+                with:
+                    name: pvs-studio-report
+                    retention-days: 14
+                    if-no-files-found: warn
+                    path: |
+                        pvs-studio-out/pvs-studio-report.json
+                        pvs-studio-out/pvs-studio-totals.txt
+                        pvs-studio-out/html/**
+
     ci-success:
         name: CI success
         runs-on: ubuntu-latest
@@ -1204,6 +1353,7 @@ jobs:
             - verify-test-discovery
             - coverage
             - sonarcloud
+            - pvs-studio
         if: |
             always() && (
               needs.changes.outputs.docs == 'true' ||
@@ -1235,6 +1385,7 @@ jobs:
                     RESULT_DISCOVERY: ${{ needs.verify-test-discovery.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
+                    RESULT_PVS: ${{ needs.pvs-studio.result }}
                 run: |
                     set -euo pipefail
                     failed=0
@@ -1245,6 +1396,7 @@ jobs:
                     require_line_endings=false
                     require_benchmarks=false
                     require_sonar=false
+                    require_pvs=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docs=true
                     fi
@@ -1262,6 +1414,7 @@ jobs:
                     fi
                     if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
+                      require_pvs=true
                     fi
 
                     assert_success() {
@@ -1292,6 +1445,7 @@ jobs:
                     assert_success "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
                     assert_success "coverage" "$require_code" "$RESULT_COVERAGE"
                     assert_success "sonarcloud" "$require_sonar" "$RESULT_SONAR"
+                    assert_success "pvs-studio" "$require_pvs" "$RESULT_PVS"
 
                     if [[ "$failed" -ne 0 ]]; then
                       exit 1
