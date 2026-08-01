@@ -61,6 +61,8 @@ public static class Configurator
         target.NodeId = source.NodeId;
         target.Uri = source.Uri;
         target.VirtualNodes = source.VirtualNodes;
+        target.ReplicaCount = source.ReplicaCount;
+        target.ConfigurationGeneration = source.ConfigurationGeneration;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.DataDirectory = source.DataDirectory;
@@ -304,6 +306,8 @@ public static class Configurator
             NodeId = options.NodeId,
             Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
         };
     }
 

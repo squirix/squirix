@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Server.Cluster.Replication;
 
 namespace Squirix.Server.Cluster;
 
@@ -7,6 +8,7 @@ internal static class TopologyValidator
 {
     private const string ClusterIdRequired = "ClusterId is required.";
     private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
+    private const string ConfigurationGenerationMustBePositive = "ConfigurationGeneration must be greater than zero.";
     private const string DataDirectoryEmpty = "DataDirectory cannot be empty or whitespace.";
     private const string DataDirectoryRequiresPersistence = "DataDirectory requires persistence. Call UsePersistence() or pass --persist.";
     private const string DataDirectoryTooLong = "DataDirectory cannot exceed 1024 characters.";
@@ -28,6 +30,9 @@ internal static class TopologyValidator
     private const string PeersUriHttpsRequired = "Peers[].Uri must be an absolute https URI.";
     private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
     private const string PeersUriTooLong = "Peers[].Uri cannot exceed 2048 characters.";
+    private const string ReplicaCountAbovePeerCount = "ReplicaCount cannot exceed the number of configured peers.";
+    private const string ReplicaCountAboveProtocolMaximum = "ReplicaCount cannot exceed MaxReplicaCount (5).";
+    private const string ReplicaCountMustBePositive = "ReplicaCount must be greater than zero.";
     private const string UriHostRequired = "Uri must include a host.";
     private const string UriHttpsRequired = "Uri must be an absolute https URI.";
     private const string UriOriginRequired = "Uri must be an origin URI without credentials, path, query, or fragment.";
@@ -56,6 +61,8 @@ internal static class TopologyValidator
             NodeId = options.NodeId,
             NodeUri = options.Uri,
             VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
             PersistenceEnabled = persistenceEnabled,
             DataDirectory = dataDirectory,
         };
@@ -148,6 +155,25 @@ internal static class TopologyValidator
             failures.Add(PeersTooMany);
 
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
+        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, peers.Length is 0 ? 1 : peers.Length);
+    }
+
+    private static void ValidateReplicaSettings(List<string> failures, int replicaCount, ulong configurationGeneration, int peerCount)
+    {
+        if (configurationGeneration is 0)
+            failures.Add(ConfigurationGenerationMustBePositive);
+
+        if (replicaCount <= 0)
+        {
+            failures.Add(ReplicaCountMustBePositive);
+            return;
+        }
+
+        if (replicaCount > PolicyOptions.MaxReplicaCount)
+            failures.Add(ReplicaCountAboveProtocolMaximum);
+
+        if (replicaCount > peerCount)
+            failures.Add(ReplicaCountAbovePeerCount);
     }
 
     private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
@@ -189,6 +215,8 @@ internal static class TopologyValidator
     {
         internal required string? ClusterId { get; init; }
 
+        internal required ulong ConfigurationGeneration { get; init; }
+
         internal required string? DataDirectory { get; init; }
 
         internal required string? NodeId { get; init; }
@@ -196,6 +224,8 @@ internal static class TopologyValidator
         internal required Uri? NodeUri { get; init; }
 
         internal required bool PersistenceEnabled { get; init; }
+
+        internal required int ReplicaCount { get; init; }
 
         internal required int VirtualNodes { get; init; }
     }

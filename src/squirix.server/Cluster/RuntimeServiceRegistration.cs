@@ -9,6 +9,7 @@ using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 
@@ -110,6 +111,12 @@ internal static class RuntimeServiceRegistration
         _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
         _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
         _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(sp.GetRequiredService<INodeLocator>(), sp.GetRequiredService<TopologyOptions>()));
+
+        var physicalRing = new PhysicalNodeRing(GetPeerNodeIds(cluster));
+        _ = services.AddSingleton(physicalRing);
+        _ = services.AddSingleton<IReplicaGroupLocator>(new ReplicaGroupLocator(physicalRing, cluster.ReplicaCount));
+        _ = services.AddSingleton(FeatureState.Disabled);
+        _ = services.AddSingleton(sp => TopologyFingerprintFactory.Compute(cluster, sp.GetRequiredService<MtlsOptions>()));
     }
 
     /// <summary>

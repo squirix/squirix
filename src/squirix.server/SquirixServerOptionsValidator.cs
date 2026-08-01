@@ -28,6 +28,8 @@ internal static class SquirixServerOptionsValidator
             NodeId = options.NodeId,
             Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
         };
 
         return TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors);
