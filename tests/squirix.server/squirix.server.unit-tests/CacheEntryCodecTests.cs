@@ -104,6 +104,69 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         Assert.Null(asNull!.Value);
     }
 
+    /// <summary>NormalizeValue keeps encodable forms and serializes arbitrary objects once.</summary>
+    [Fact]
+    public void NormalizeValueKeepsEncodablesAndSerializesObjects()
+    {
+        Assert.Null(CacheEntryCodec.NormalizeValue(null));
+        Assert.True(Assert.IsType<bool>(CacheEntryCodec.NormalizeValue(true)));
+        Assert.Equal("x", CacheEntryCodec.NormalizeValue("x"));
+        byte[] bytes = [1, 2];
+        Assert.Same(bytes, CacheEntryCodec.NormalizeValue(bytes));
+        const sbyte tiny = 3;
+        Assert.Equal(tiny, CacheEntryCodec.NormalizeValue(tiny));
+        Assert.Equal(4m, CacheEntryCodec.NormalizeValue(4m));
+
+        var normalized = CacheEntryCodec.NormalizeValue(new NormalizeProbe { Id = 1 });
+        var element = Assert.IsType<JsonElement>(normalized);
+        Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
+        Assert.Equal(1, id.GetInt32());
+    }
+
+    /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
+    [Fact]
+    public void RoundTripsDecimalAndByteArrayValues()
+    {
+        RoundTripValue(12.5m);
+        byte[] payload = [9, 8, 7];
+        RoundTripValue(payload);
+    }
+
+    /// <summary>Write rejects destinations that are too small for the encoded entry.</summary>
+    [Fact]
+    public void WriteThrowsWhenDestinationIsTooSmall()
+    {
+        var entry = new NodeCacheEntry<object?> { Value = "abc", Version = 1 };
+        var length = CacheEntryCodec.ComputeEncodedLength(entry);
+        _ = Assert.Throws<ArgumentException>(() => CacheEntryCodec.Write(entry, new byte[length - 1]));
+    }
+
+    /// <summary>TryRead fails on truncated envelopes.</summary>
+    [Fact]
+    public void TryReadReturnsFalseForTruncatedEnvelope()
+    {
+        Assert.False(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead));
+        Assert.Equal(0, bytesRead);
+    }
+
+    private static void RoundTripValue(object? value)
+    {
+        var entry = new NodeCacheEntry<object?> { Value = value, Version = 4 };
+        var length = CacheEntryCodec.ComputeEncodedLength(entry);
+        BufferKit.WithBuffer(
+            length,
+            (entry, value),
+            static (ctx, buffer) =>
+            {
+                CacheEntryCodec.Write(ctx.entry, buffer);
+                Assert.True(CacheEntryCodec.TryRead<object?>(buffer, out var roundTrip, out _));
+                if (ctx.value is byte[] expectedBytes)
+                    Assert.Equal(expectedBytes, Assert.IsType<byte[]>(roundTrip!.Value));
+                else
+                    Assert.Equal(ctx.value, roundTrip!.Value);
+            });
+    }
+
     private static bool ValueEquals(object? expected, object? actual) => expected switch
     {
         int i when actual is long l => i == l,
@@ -112,4 +175,9 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         double d when actual is double r => Math.Abs(d - r) < 0.0001,
         _ => Equals(expected, actual),
     };
+
+    private sealed class NormalizeProbe
+    {
+        public int Id { get; init; }
+    }
 }

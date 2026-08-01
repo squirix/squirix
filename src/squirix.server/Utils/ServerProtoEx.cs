@@ -14,6 +14,8 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
+    private const string SingleFieldEnvelopeName = "value";
+
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -178,7 +180,7 @@ internal static class ServerProtoEx
         }
 
         var envelope = new Struct();
-        envelope.Fields.Add("value", boxed);
+        envelope.Fields.Add(SingleFieldEnvelopeName, boxed);
         return envelope;
     }
 
@@ -194,13 +196,13 @@ internal static class ServerProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue("value", out var onlyWrapped))
+            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(SingleFieldEnvelopeName, out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
             return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
-        if (s.Fields.Count is 1 && s.Fields.TryGetValue("value", out var only))
+        if (s.Fields.Count is 1 && s.Fields.TryGetValue(SingleFieldEnvelopeName, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
         var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
@@ -384,7 +386,7 @@ internal static class ServerProtoEx
         private static Struct CreateSingleFieldStruct(Value fieldValue)
         {
             var envelope = new Struct();
-            envelope.Fields.Add("value", fieldValue);
+            envelope.Fields.Add(SingleFieldEnvelopeName, fieldValue);
             return envelope;
         }
 
