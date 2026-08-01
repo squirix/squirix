@@ -1365,12 +1365,15 @@ jobs:
                 shell: bash
                 run: |
                     set -euo pipefail
+                    # fullhtml: -o is the output directory. With -n, plog-converter creates
+                    # "<o>/<n>.fullhtml" and requires the -o parent to already exist.
+                    mkdir -p pvs-studio-out
                     plog-converter \
                       pvs-studio-out/pvs-studio-report.json \
                       -t fullhtml \
                       -a 'GA:1,2,3;64:1,2,3;OP:1,2,3;CS:1,2,3;MISRA:1,2,3;AUTOSAR:1,2,3;OWASP:1,2,3' \
-                      -o pvs-studio-out/html \
-                      -n index
+                      -o pvs-studio-out \
+                      -n html
 
             -   name: Upload PVS-Studio Report
                 if: always() && steps.analyze.outputs.report == 'true'
@@ -1384,7 +1387,7 @@ jobs:
                         pvs-studio-out/pvs-studio-totals.txt
                         pvs-studio-out/pvs-studio-all.txt
                         pvs-studio-out/pvs-studio-gate-totals.txt
-                        pvs-studio-out/html/**
+                        pvs-studio-out/html.fullhtml/**
 
     ci-success:
         name: CI success

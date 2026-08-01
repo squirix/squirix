@@ -111,4 +111,9 @@
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
+
+    <!-- PVS-Studio project-level rules (solution item avoided). Visible under each analyzed src project. -->
+    <ItemGroup Label="PvsStudioConfig" Condition="'$(IsSquirixProductionProject)' == 'true' Or '$(IsSquirixProtocolModelProject)' == 'true'">
+        <None Include="$(MSBuildThisFileDirectory).pvsconfig" Link=".pvsconfig"/>
+    </ItemGroup>
 </Project>
