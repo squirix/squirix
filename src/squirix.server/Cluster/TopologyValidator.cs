@@ -152,20 +152,38 @@ internal static class TopologyValidator
 
     private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
-        if (value?.IsAbsoluteUri is not true || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (value is not { } uri || !IsAbsoluteHttpsUri(uri))
         {
             failures.Add(httpsRequiredMessage);
             return;
         }
 
+        CollectHttpsUriFailures(failures, uri, tooLongMessage, hostRequiredMessage, originRequiredMessage);
+    }
+
+    private static bool IsAbsoluteHttpsUri(Uri value) =>
+        value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+
+    private static void CollectHttpsUriFailures(
+        List<string> failures,
+        Uri value,
+        string tooLongMessage,
+        string hostRequiredMessage,
+        string originRequiredMessage)
+    {
         if (value.OriginalString.Length > MaxUrlLength)
             failures.Add(tooLongMessage);
         if (string.IsNullOrWhiteSpace(value.Host))
             failures.Add(hostRequiredMessage);
-        var userInfo = !string.IsNullOrEmpty(value.UserInfo);
-        if (userInfo || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
+        if (HasNonOriginParts(value))
             failures.Add(originRequiredMessage);
     }
+
+    private static bool HasNonOriginParts(Uri value) =>
+        !string.IsNullOrEmpty(value.UserInfo)
+        || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase)
+        || !string.IsNullOrEmpty(value.Query)
+        || !string.IsNullOrEmpty(value.Fragment);
 
     private sealed class TopologyValidationArgs
     {

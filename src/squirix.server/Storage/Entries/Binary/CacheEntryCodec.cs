@@ -228,40 +228,19 @@ internal static class CacheEntryCodec
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
         {
-            switch (value)
+            if (value is null)
             {
-                case null:
-                    result = default;
-                    return true;
-
-                case T ok:
-                    result = ok;
-                    return true;
-
-                case JsonElement je when typeof(T) == typeof(JsonElement):
-                    result = Reinterpret<T, JsonElement>(je);
-                    return true;
-
-                case long l when typeof(T) == typeof(int):
-                    result = Reinterpret<T, int>(int.CreateChecked(l));
-                    return true;
-
-                case long l when typeof(T) == typeof(long):
-                    result = Reinterpret<T, long>(l);
-                    return true;
-
-                case double d when typeof(T) == typeof(float):
-                    result = Reinterpret<T, float>(Convert.ToSingle(d));
-                    return true;
-
-                case double d when typeof(T) == typeof(double):
-                    result = Reinterpret<T, double>(d);
-                    return true;
-
-                default:
-                    result = default;
-                    return false;
+                result = default;
+                return true;
             }
+
+            if (value is T ok)
+            {
+                result = ok;
+                return true;
+            }
+
+            return TryCoerceNumericOrJson<T>(value, out result);
         }
 
         internal static bool TryReadInternal(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
@@ -297,6 +276,31 @@ internal static class CacheEntryCodec
             JsonElement je => JsonTreeCodec.WriteInternal(je, destination),
             _ => WriteSerializedObject(value, destination),
         };
+
+        private static bool TryCoerceNumericOrJson<T>(object value, out T? result)
+        {
+            switch (value)
+            {
+                case JsonElement je when typeof(T) == typeof(JsonElement):
+                    result = Reinterpret<T, JsonElement>(je);
+                    return true;
+                case long l when typeof(T) == typeof(int):
+                    result = Reinterpret<T, int>(int.CreateChecked(l));
+                    return true;
+                case long l when typeof(T) == typeof(long):
+                    result = Reinterpret<T, long>(l);
+                    return true;
+                case double d when typeof(T) == typeof(float):
+                    result = Reinterpret<T, float>(Convert.ToSingle(d));
+                    return true;
+                case double d when typeof(T) == typeof(double):
+                    result = Reinterpret<T, double>(d);
+                    return true;
+                default:
+                    result = default;
+                    return false;
+            }
+        }
 
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
             where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);

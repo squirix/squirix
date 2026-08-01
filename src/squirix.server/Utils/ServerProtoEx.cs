@@ -37,45 +37,19 @@ internal static class ServerProtoEx
         if (typeof(T) == typeof(object))
             return new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value)));
 
-        switch (value.KindCase)
-        {
-            case CacheValue.KindOneofCase.StringValue:
-                if (typeof(T) == typeof(string))
-                    return new ValueTask<T?>(ReinterpretReference<T, string>(value.StringValue));
-                break;
+        if (TryMapTypedPrimitive<T>(value, out var primitive))
+            return new ValueTask<T?>(primitive);
 
-            case CacheValue.KindOneofCase.BoolValue:
-                if (typeof(T) == typeof(bool))
-                    return new ValueTask<T?>(ReinterpretScalar<T, bool>(value.BoolValue));
-                break;
+        if (value.KindCase is CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None)
+            return new ValueTask<T?>(default(T?));
 
-            case CacheValue.KindOneofCase.Int32Value:
-                if (typeof(T) == typeof(int))
-                    return new ValueTask<T?>(ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value)));
-                break;
+        if (value.KindCase is CacheValue.KindOneofCase.StructValue && value.StructValue is { } structValue)
+            return new ValueTask<T?>(FromStruct<T>(structValue));
 
-            case CacheValue.KindOneofCase.Int64Value:
-                if (typeof(T) == typeof(long))
-                    return new ValueTask<T?>(ReinterpretScalar<T, long>(value.Int64Value));
-                break;
+        if (IsTypedPrimitiveKind(value.KindCase))
+            return new ValueTask<T?>(FromStruct<T>(CacheValueToStruct(value)));
 
-            case CacheValue.KindOneofCase.DoubleValue:
-                if (typeof(T) == typeof(double))
-                    return new ValueTask<T?>(ReinterpretScalar<T, double>(value.DoubleValue));
-                break;
-
-            case CacheValue.KindOneofCase.NullValue:
-            case CacheValue.KindOneofCase.None:
-                return new ValueTask<T?>(default(T?));
-
-            case CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue:
-                return new ValueTask<T?>(FromStruct<T>(structValue));
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
-        }
-
-        return new ValueTask<T?>(FromStruct<T>(CacheValueToStruct(value)));
+        throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
     }
 
     internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
@@ -103,6 +77,38 @@ internal static class ServerProtoEx
         ExpiresUtc = e.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
         Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
+
+    private static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) =>
+        kind is CacheValue.KindOneofCase.StringValue
+            or CacheValue.KindOneofCase.BoolValue
+            or CacheValue.KindOneofCase.Int32Value
+            or CacheValue.KindOneofCase.Int64Value
+            or CacheValue.KindOneofCase.DoubleValue;
+
+    private static bool TryMapTypedPrimitive<T>(CacheValue value, out T? result)
+    {
+        result = default;
+        switch (value.KindCase)
+        {
+            case CacheValue.KindOneofCase.StringValue when typeof(T) == typeof(string):
+                result = ReinterpretReference<T, string>(value.StringValue);
+                return true;
+            case CacheValue.KindOneofCase.BoolValue when typeof(T) == typeof(bool):
+                result = ReinterpretScalar<T, bool>(value.BoolValue);
+                return true;
+            case CacheValue.KindOneofCase.Int32Value when typeof(T) == typeof(int):
+                result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
+                return true;
+            case CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(long):
+                result = ReinterpretScalar<T, long>(value.Int64Value);
+                return true;
+            case CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double):
+                result = ReinterpretScalar<T, double>(value.DoubleValue);
+                return true;
+            default:
+                return false;
+        }
+    }
 
     private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
     {

@@ -12,38 +12,13 @@ internal static class DirectorySymlinkGuard
     /// <exception cref="IOException">Thrown when a non-allowlisted symlink or junction is found in the chain.</exception>
     internal static void EnsureNoSymlinksInChain(string full, string? baseFull)
     {
-        // Walk from base (if provided) or drive root towards the target, checking each existing segment.
-        var start = baseFull ?? Path.GetPathRoot(full)!;
-        var relative = full.AsSpan(start.Length);
-        while (relative.Length > 0 && DirectoryPathValidator.IsDirectorySeparator(relative[0]))
-            relative = relative[1..];
-
-        if (relative.IsEmpty)
+        if (!TryPrepareChainWalk(full, baseFull, out var cur, out var relative))
             return;
-
-        var trimmedStart = DirectoryPathValidator.TrimTrailingSeparators(start);
-
-        // Trimming trailing separators can turn a root-only path into an empty string
-        // (for example "/" on Unix). PathEx.Combine cannot start from empty, so when
-        // trimming empties a non-empty start, preserve the original root as the seed.
-        var cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
 
         while (DirectoryPathValidator.TryReadNextSegment(ref relative, out var segment))
         {
-            cur = Path.Join(cur.AsSpan(), segment);
-            var di = new DirectoryInfo(cur);
-            if (!di.Exists) // Not yet existing — will be created as regular directories
+            if (!TryAdvancePastExistingSegment(ref cur, segment))
                 break;
-
-            if (!IsSymlink(di))
-                continue;
-
-            // macOS ships compatibility symlinks (/var -> /private/var, /tmp -> /private/tmp, /etc -> /private/etc).
-            // Rejecting them breaks every DataDir under Path.GetTempPath() (/var/folders/...). Follow only those
-            // well-known OS links; any other symlink/junction in the chain remains forbidden.
-            if (!MacOsCompatibilitySymlink.TryFollow(di, out var resolved))
-                throw new IOException("Symlink/junction detected in path.");
-            cur = resolved;
         }
     }
 
@@ -100,5 +75,44 @@ internal static class DirectorySymlinkGuard
         {
             return false;
         }
+    }
+
+    private static bool TryPrepareChainWalk(string full, string? baseFull, out string cur, out ReadOnlySpan<char> relative)
+    {
+        var start = baseFull ?? Path.GetPathRoot(full)!;
+        relative = full.AsSpan(start.Length);
+        while (relative.Length > 0 && DirectoryPathValidator.IsDirectorySeparator(relative[0]))
+            relative = relative[1..];
+
+        if (relative.IsEmpty)
+        {
+            cur = string.Empty;
+            return false;
+        }
+
+        // Trimming trailing separators can turn a root-only path into an empty string
+        // (for example "/" on Unix). Preserve the original root as the seed when that happens.
+        var trimmedStart = DirectoryPathValidator.TrimTrailingSeparators(start);
+        cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
+        return true;
+    }
+
+    private static bool TryAdvancePastExistingSegment(ref string cur, ReadOnlySpan<char> segment)
+    {
+        cur = Path.Join(cur.AsSpan(), segment);
+        var di = new DirectoryInfo(cur);
+        if (!di.Exists)
+            return false;
+
+        if (!IsSymlink(di))
+            return true;
+
+        // macOS ships compatibility symlinks (/var -> /private/var, /tmp -> /private/tmp, /etc -> /private/etc).
+        // Follow only those well-known OS links; any other symlink/junction remains forbidden.
+        if (!MacOsCompatibilitySymlink.TryFollow(di, out var resolved))
+            throw new IOException("Symlink/junction detected in path.");
+
+        cur = resolved;
+        return true;
     }
 }

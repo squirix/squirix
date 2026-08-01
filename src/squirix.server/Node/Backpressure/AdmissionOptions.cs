@@ -33,6 +33,14 @@ internal sealed record AdmissionOptions
 
     internal void Validate()
     {
+        ValidateCapacityBounds();
+        ValidateThresholds();
+        ValidateNodeRateLimit();
+        ValidatePerClientRateLimit();
+    }
+
+    private void ValidateCapacityBounds()
+    {
         if (MaxInFlight <= 0)
             throw new InvalidOperationException("Backpressure MaxInFlight must be greater than zero.");
 
@@ -47,7 +55,10 @@ internal sealed record AdmissionOptions
 
         if (PerClientMaxQueue < 0)
             throw new InvalidOperationException("Backpressure PerClientMaxQueue cannot be negative.");
+    }
 
+    private void ValidateThresholds()
+    {
         if (SlowdownThreshold <= 0 || SlowdownThreshold > MaxInFlight)
             throw new InvalidOperationException("Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].");
 
@@ -62,9 +73,6 @@ internal sealed record AdmissionOptions
 
         if (MaxQueueWait <= TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
-
-        ValidateNodeRateLimit();
-        ValidatePerClientRateLimit();
     }
 
     private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)

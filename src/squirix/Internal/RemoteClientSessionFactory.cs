@@ -97,19 +97,35 @@ internal static class RemoteClientSessionFactory
         var count = 0;
 
         for (var index = 0; index < endpoints.Count; index++)
-        {
-            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
-            if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-                throw new ArgumentException("Endpoint must be an absolute Squirix server URI.", nameof(endpoints));
+            _ = TryAddUniqueEndpoint(endpoints[index], seen, buffer, ref count, nameof(endpoints));
 
-            GrpcTransportEndpoints.RequireHttps(endpoint);
-            var authority = endpoint.GetLeftPart(UriPartial.Authority);
-            if (!seen.Add(authority))
-                continue;
+        return TrimEndpoints(buffer, count);
+    }
 
-            buffer[count++] = endpoint;
-        }
+    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, ref int count, string paramName)
+    {
+        var validated = RequireAbsoluteEndpoint(endpoint, paramName);
+        GrpcTransportEndpoints.RequireHttps(validated);
+        if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
+            return false;
 
+        buffer[count++] = validated;
+        return true;
+    }
+
+    private static Uri RequireAbsoluteEndpoint(Uri? endpoint, string paramName)
+    {
+        if (endpoint is null)
+            throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName);
+
+        if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
+            throw new ArgumentException("Endpoint must be an absolute Squirix server URI.", paramName);
+
+        return endpoint;
+    }
+
+    private static Uri[] TrimEndpoints(Uri[] buffer, int count)
+    {
         if (count is 0)
             throw new InvalidOperationException("At least one Squirix server endpoint must be configured.");
 

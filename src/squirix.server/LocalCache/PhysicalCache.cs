@@ -153,21 +153,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (!_store.TryGetValue(key, out var stored))
                 return ValueTask.FromResult(false);
 
-            if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
+            if (TryRemoveExpired(key, stored, out var removedAndRetry))
             {
-                if (!_store.TryRemove(key, out _))
+                if (removedAndRetry)
                     continue;
-
-                _evictionIndex.Untrack(key);
                 return ValueTask.FromResult(false);
             }
 
             if (EqualityComparer<T?>.Default.Equals(stored.Value, value))
                 return ValueTask.FromResult(true);
 
-            var updated = stored with { Value = value };
-            if (!_store.TryUpdate(key, updated, stored))
+            if (!TryReplaceValue(key, stored, value))
                 continue;
+
             _evictionIndex.TouchExisting(key);
             return ValueTask.FromResult(true);
         }
@@ -179,6 +177,28 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         ExpiresUtc = stored.ExpiresUtc,
         Version = stored.Version,
     };
+
+    private bool TryRemoveExpired(CacheKey key, StoredEntry stored, out bool removedAndRetry)
+    {
+        removedAndRetry = false;
+        if (stored.ExpiresUtc is not { } expires || expires > UtcNow)
+            return false;
+
+        if (!_store.TryRemove(key, out _))
+        {
+            removedAndRetry = true;
+            return true;
+        }
+
+        _evictionIndex.Untrack(key);
+        return true;
+    }
+
+    private bool TryReplaceValue(CacheKey key, StoredEntry stored, T? value)
+    {
+        var updated = stored with { Value = value };
+        return _store.TryUpdate(key, updated, stored);
+    }
 
     private void EnforceCapacityIfNeeded()
     {
@@ -254,27 +274,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 if (!_meta.TryGetValue(key, out var m))
                     return;
 
-                switch (_options.Policy)
-                {
-                    case EvictionPolicyType.Fifo:
-                        break;
-
-                    case EvictionPolicyType.Lru:
-                        _order.Remove(m.Node);
-                        var newNode = _order.AddFirst(key);
-                        _meta[key] = (newNode, m.Freq + 1);
-                        break;
-
-                    case EvictionPolicyType.Lfu:
-                        _meta[key] = (m.Node, m.Freq + 1);
-                        break;
-
-                    default:
-                        _order.Remove(m.Node);
-                        var nn = _order.AddFirst(key);
-                        _meta[key] = (nn, m.Freq + 1);
-                        break;
-                }
+                ApplyTouchPolicy(key, m);
             }
         }
 
@@ -339,6 +339,22 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _order.Remove(m.Node);
                 _ = _meta.Remove(key);
             }
+        }
+
+        private void ApplyTouchPolicy(CacheKey key, (LinkedListNode<CacheKey> Node, long Freq) m)
+        {
+            if (_options.Policy is EvictionPolicyType.Fifo)
+                return;
+
+            if (_options.Policy is EvictionPolicyType.Lfu)
+            {
+                _meta[key] = (m.Node, m.Freq + 1);
+                return;
+            }
+
+            _order.Remove(m.Node);
+            var newNode = _order.AddFirst(key);
+            _meta[key] = (newNode, m.Freq + 1);
         }
 
         private CacheKey? GetLeastFrequentlyUsedKey()

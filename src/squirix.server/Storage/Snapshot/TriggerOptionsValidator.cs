@@ -12,6 +12,12 @@ internal sealed class TriggerOptionsValidator : IValidateOptions<TriggerOptions>
     public ValidateOptionsResult Validate(string? name, TriggerOptions options)
     {
         var failures = new List<string>();
+        CollectTriggerFailures(options, failures);
+        return OptionsValidator.ToResult(failures);
+    }
+
+    private static void CollectTriggerFailures(TriggerOptions options, List<string> failures)
+    {
         if (options.SnapshotInterval <= TimeSpan.Zero)
             failures.Add("Snapshot SnapshotInterval must be greater than zero.");
         if (options.SnapshotEveryNOps < 0)
@@ -26,7 +32,5 @@ internal sealed class TriggerOptionsValidator : IValidateOptions<TriggerOptions>
             failures.Add("Snapshot LatencySloMilliseconds must be a finite non-negative value.");
         if (options.LatencyThrottleDuration < TimeSpan.Zero)
             failures.Add("Snapshot LatencyThrottleDuration cannot be negative.");
-
-        return OptionsValidator.ToResult(failures);
     }
 }
