@@ -323,7 +323,7 @@ jobs:
                         ${{ runner.os }}-dotnet10-nuget-
 
             -   name: Download Build Outputs
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
@@ -448,7 +448,7 @@ jobs:
                         ${{ runner.os }}-dotnet10-nuget-
 
             -   name: Download Build Outputs
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
@@ -531,7 +531,7 @@ jobs:
                         ${{ runner.os }}-dotnet10-nuget-
 
             -   name: Download Build Outputs
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     name: build-output-${{ matrix.os }}-${{ matrix.framework }}
                     path: .
@@ -669,7 +669,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Download Build Outputs
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
@@ -774,7 +774,7 @@ jobs:
                         ${{ runner.os }}-dotnet10-nuget-
 
             -   name: Download Build Outputs
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
@@ -859,7 +859,7 @@ jobs:
             COVERAGE_MIN_LINE_RATE: "0.70"
         steps:
             -   name: Download Raw Coverage Files
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     pattern: coverage-raw-net10.0-*
                     merge-multiple: true
@@ -950,7 +950,7 @@ jobs:
         if: always()
         steps:
             -   name: Download TRX Artifacts
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     pattern: test-results-*
                     merge-multiple: true
@@ -1127,7 +1127,7 @@ jobs:
                     fi
 
             -   name: Download Coverage Reports
-                uses: actions/download-artifact@v7
+                uses: actions/download-artifact@v8
                 with:
                     pattern: coverage-raw-net10.0-*
                     merge-multiple: true
