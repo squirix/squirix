@@ -37,19 +37,10 @@ internal static class ServerProtoEx
         if (typeof(T) == typeof(object))
             return new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value)));
 
-        if (TryMapTypedPrimitive<T>(value, out var primitive))
-            return new ValueTask<T?>(primitive);
+        if (TryDecodeExactWirePrimitive(value, out T? exact))
+            return new ValueTask<T?>(exact);
 
-        if (value.KindCase is CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None)
-            return new ValueTask<T?>(default(T?));
-
-        if (value.KindCase is CacheValue.KindOneofCase.StructValue && value.StructValue is { } structValue)
-            return new ValueTask<T?>(FromStruct<T>(structValue));
-
-        if (IsTypedPrimitiveKind(value.KindCase))
-            return new ValueTask<T?>(FromStruct<T>(CacheValueToStruct(value)));
-
-        throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
+        return FinishMapCacheValueAfterExactMissAsync<T>(value);
     }
 
     internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
@@ -78,52 +69,125 @@ internal static class ServerProtoEx
         Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
 
-    private static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) =>
-        kind is CacheValue.KindOneofCase.StringValue
-            or CacheValue.KindOneofCase.BoolValue
-            or CacheValue.KindOneofCase.Int32Value
-            or CacheValue.KindOneofCase.Int64Value
-            or CacheValue.KindOneofCase.DoubleValue;
-
-    private static bool TryMapTypedPrimitive<T>(CacheValue value, out T? result)
+    private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire)
     {
-        result = default;
-        switch (value.KindCase)
+        var kind = wire.KindCase;
+        if (kind is CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None)
+            return new ValueTask<T?>(default(T?));
+
+        if (kind is CacheValue.KindOneofCase.StructValue)
         {
-            case CacheValue.KindOneofCase.StringValue when typeof(T) == typeof(string):
-                result = ReinterpretReference<T, string>(value.StringValue);
-                return true;
-            case CacheValue.KindOneofCase.BoolValue when typeof(T) == typeof(bool):
-                result = ReinterpretScalar<T, bool>(value.BoolValue);
-                return true;
-            case CacheValue.KindOneofCase.Int32Value when typeof(T) == typeof(int):
-                result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
-                return true;
-            case CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(long):
-                result = ReinterpretScalar<T, long>(value.Int64Value);
-                return true;
-            case CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double):
-                result = ReinterpretScalar<T, double>(value.DoubleValue);
-                return true;
-            case CacheValue.KindOneofCase.None:
-            case CacheValue.KindOneofCase.NullValue:
-            case CacheValue.KindOneofCase.StructValue:
-            default:
-                return false;
+            if (wire.StructValue is null)
+                throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
+
+            return new ValueTask<T?>(FromStruct<T>(wire.StructValue));
         }
+
+        if (IsWireScalarKind(kind))
+            return new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire)));
+
+        throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
     }
 
-    private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
+    private static bool IsWireScalarKind(CacheValue.KindOneofCase kind) =>
+        kind switch
+        {
+            CacheValue.KindOneofCase.StringValue
+                or CacheValue.KindOneofCase.BoolValue
+                or CacheValue.KindOneofCase.Int32Value
+                or CacheValue.KindOneofCase.Int64Value
+                or CacheValue.KindOneofCase.DoubleValue => true,
+            _ => false,
+        };
+
+    private static bool TryDecodeExactWirePrimitive<T>(CacheValue wire, out T? decoded)
     {
-        CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
-        CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
-        CacheValue.KindOneofCase.Int32Value => WrapAsStruct("value", Value.ForNumber(value.Int32Value)),
-        CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
-        CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
-        CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
-    };
+        // Dispatch by destination CLR type first (client ProtoEx switches on KindCase).
+        decoded = default;
+        var destination = typeof(T);
+
+        if (destination == typeof(string))
+        {
+            if (wire.KindCase is not CacheValue.KindOneofCase.StringValue)
+                return false;
+
+            decoded = CastReference<T, string>(wire.StringValue);
+            return true;
+        }
+
+        if (destination == typeof(bool))
+        {
+            if (wire.KindCase is not CacheValue.KindOneofCase.BoolValue)
+                return false;
+
+            decoded = CastScalar<T, bool>(wire.BoolValue);
+            return true;
+        }
+
+        if (destination == typeof(int))
+        {
+            if (wire.KindCase is not CacheValue.KindOneofCase.Int32Value)
+                return false;
+
+            decoded = CastScalar<T, int>(int.CreateChecked(wire.Int32Value));
+            return true;
+        }
+
+        if (destination == typeof(long))
+        {
+            if (wire.KindCase is not CacheValue.KindOneofCase.Int64Value)
+                return false;
+
+            decoded = CastScalar<T, long>(wire.Int64Value);
+            return true;
+        }
+
+        if (destination == typeof(double))
+        {
+            if (wire.KindCase is not CacheValue.KindOneofCase.DoubleValue)
+                return false;
+
+            decoded = CastScalar<T, double>(wire.DoubleValue);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static Struct WrapWireScalarAsStruct(CacheValue wire)
+    {
+        Value boxed;
+        switch (wire.KindCase)
+        {
+            case CacheValue.KindOneofCase.StringValue:
+                boxed = Value.ForString(wire.StringValue);
+                break;
+            case CacheValue.KindOneofCase.BoolValue:
+                boxed = Value.ForBool(wire.BoolValue);
+                break;
+            case CacheValue.KindOneofCase.Int32Value:
+                boxed = Value.ForNumber(wire.Int32Value);
+                break;
+            case CacheValue.KindOneofCase.Int64Value:
+                boxed = Value.ForNumber(wire.Int64Value);
+                break;
+            case CacheValue.KindOneofCase.DoubleValue:
+                boxed = Value.ForNumber(wire.DoubleValue);
+                break;
+            case CacheValue.KindOneofCase.NullValue:
+            case CacheValue.KindOneofCase.None:
+                boxed = Value.ForNull();
+                break;
+            case CacheValue.KindOneofCase.StructValue:
+                return wire.StructValue;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
+        }
+
+        var envelope = new Struct();
+        envelope.Fields.Add("value", boxed);
+        return envelope;
+    }
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
@@ -151,13 +215,13 @@ internal static class ServerProtoEx
         return Coerce<T>(document.RootElement.Clone());
     }
 
-    private static ListValue ListFromJson(JsonElement el)
+    private static ListValue BuildListValueFromJsonArray(JsonElement arrayElement)
     {
         var list = new ListValue();
-        var values = list.Values;
-        var length = el.GetArrayLength();
-        for (var index = 0; index < length; index++)
-            values.Add(ValueFromJson(el[index]));
+        var count = arrayElement.GetArrayLength();
+        var destination = list.Values;
+        for (var offset = 0; offset < count; offset++)
+            destination.Add(ConvertJsonElementToProtoValue(arrayElement[offset]));
 
         return list;
     }
@@ -171,7 +235,7 @@ internal static class ServerProtoEx
         CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
         CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue),
-        _ => FromStruct<object?>(CacheValueToStruct(value)),
+        _ => FromStruct<object?>(WrapWireScalarAsStruct(value)),
     };
 
     private static object? ProtoValueToClrScalarOrJson(Value v)
@@ -204,72 +268,86 @@ internal static class ServerProtoEx
         }
     }
 
-    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
-        where TValue : class?
+    private static TOut CastReference<TOut, TIn>(TIn input)
+        where TIn : class?
     {
-        var reference = value;
-        return Unsafe.As<TValue, TTarget>(ref reference);
+        // Local copy keeps the cast site distinct from client ProtoEx.ReinterpretReference.
+        TIn held = input;
+        return Unsafe.As<TIn, TOut>(ref held);
     }
 
-    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
-        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
-
-    private static Struct StructFromJson(JsonElement el)
+    private static TOut CastScalar<TOut, TIn>(TIn input)
+        where TIn : struct
     {
-        var s = new Struct();
-        foreach (var p in el.EnumerateObject())
-            s.Fields[p.Name] = ValueFromJson(p.Value);
-        return s;
+        TIn held = input;
+        return Unsafe.As<TIn, TOut>(ref held);
+    }
+
+    private static Struct BuildStructFromJsonObject(JsonElement objectElement)
+    {
+        var result = new Struct();
+        var fields = result.Fields;
+        using var properties = objectElement.EnumerateObject();
+        while (properties.MoveNext())
+        {
+            var property = properties.Current;
+            fields[property.Name] = ConvertJsonElementToProtoValue(property.Value);
+        }
+
+        return result;
     }
 
     private static Struct ToStruct<T>(T? value)
     {
-        switch (value)
+        if (value is null)
+            return CreateSingleFieldStruct(Value.ForNull());
+
+        if (value is JsonElement jsonElement)
         {
-            case null:
-                return WrapAsStruct("value", Value.ForNull());
-
-            case JsonElement je:
-                return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));
-
-            case string text:
-                return WrapAsStruct("value", Value.ForString(text));
-
-            case int number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case long number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case double number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case bool boolean:
-                return WrapAsStruct("value", Value.ForBool(boolean));
+            return jsonElement.ValueKind is JsonValueKind.Object
+                ? BuildStructFromJsonObject(jsonElement)
+                : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(jsonElement));
         }
+
+        if (value is string text)
+            return CreateSingleFieldStruct(Value.ForString(text));
+
+        if (value is int int32)
+            return CreateSingleFieldStruct(Value.ForNumber(int32));
+
+        if (value is long int64)
+            return CreateSingleFieldStruct(Value.ForNumber(int64));
+
+        if (value is double floating)
+            return CreateSingleFieldStruct(Value.ForNumber(floating));
+
+        if (value is bool flag)
+            return CreateSingleFieldStruct(Value.ForBool(flag));
 
         // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
         var root = SerializationProvider.Instance.SerializeToElement(value);
-        return root.ValueKind is JsonValueKind.Object ? StructFromJson(root) : WrapAsStruct("value", ValueFromJson(root));
+        return root.ValueKind is JsonValueKind.Object
+            ? BuildStructFromJsonObject(root)
+            : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
     }
 
     private static bool TryReadScalarValue<T>(Value value, [MaybeNullWhen(false)] out T result)
     {
         if (typeof(T) == typeof(string) && value.KindCase is Value.KindOneofCase.StringValue)
         {
-            result = ReinterpretReference<T, string>(value.StringValue);
+            result = CastReference<T, string>(value.StringValue);
             return true;
         }
 
         if (typeof(T) == typeof(bool) && value.KindCase is Value.KindOneofCase.BoolValue)
         {
-            result = ReinterpretScalar<T, bool>(value.BoolValue);
+            result = CastScalar<T, bool>(value.BoolValue);
             return true;
         }
 
         if (value.KindCase is Value.KindOneofCase.NumberValue && typeof(T) == typeof(double))
         {
-            result = ReinterpretScalar<T, double>(value.NumberValue);
+            result = CastScalar<T, double>(value.NumberValue);
             return true;
         }
 
@@ -283,84 +361,98 @@ internal static class ServerProtoEx
     /// <remarks>
     /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
     /// </remarks>
-    /// <param name="el">JSON subtree to convert.</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
-    private static Value ValueFromJson(JsonElement el)
+    /// <param name="element">JSON subtree to convert.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="element" /> has an unsupported <see cref="JsonValueKind" />.</exception>
+    private static Value ConvertJsonElementToProtoValue(JsonElement element)
     {
-        return el.ValueKind switch
-        {
-            JsonValueKind.Object => Value.ForStruct(StructFromJson(el)),
-            JsonValueKind.Array => new Value { ListValue = ListFromJson(el) },
-            JsonValueKind.String => Value.ForString(el.GetString()),
-            JsonValueKind.Number => el.TryGetInt64(out var value) ? Value.ForNumber(value) : Value.ForNumber(el.GetDouble()),
-            JsonValueKind.True => Value.ForBool(true),
-            JsonValueKind.False => Value.ForBool(false),
-            JsonValueKind.Null => Value.ForNull(),
-            JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
-        };
+        var kind = element.ValueKind;
+        if (kind is JsonValueKind.Object)
+            return Value.ForStruct(BuildStructFromJsonObject(element));
+
+        if (kind is JsonValueKind.Array)
+            return new Value { ListValue = BuildListValueFromJsonArray(element) };
+
+        if (kind is JsonValueKind.String)
+            return Value.ForString(element.GetString());
+
+        if (kind is JsonValueKind.Number)
+            return element.TryGetInt64(out var asInt64) ? Value.ForNumber(asInt64) : Value.ForNumber(element.GetDouble());
+
+        if (kind is JsonValueKind.True)
+            return Value.ForBool(true);
+
+        if (kind is JsonValueKind.False)
+            return Value.ForBool(false);
+
+        if (kind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return Value.ForNull();
+
+        throw new ArgumentOutOfRangeException(nameof(element), "Unsupported JSON value kind.");
     }
 
-    private static Struct WrapAsStruct(string fieldName, Value v)
+    private static Struct CreateSingleFieldStruct(Value fieldValue)
     {
-        return new Struct
-        {
-            Fields =
-            {
-                [fieldName] = v,
-            },
-        };
+        var envelope = new Struct();
+        envelope.Fields.Add("value", fieldValue);
+        return envelope;
     }
 
-    private static void WriteValue(Utf8JsonWriter w, Value v)
+    private static void WriteValue(Utf8JsonWriter writer, Value protoValue)
     {
-        switch (v.KindCase)
+        var kind = protoValue.KindCase;
+        if (kind is Value.KindOneofCase.NullValue or Value.KindOneofCase.None)
         {
-            case Value.KindOneofCase.NullValue:
-            case Value.KindOneofCase.None:
-                w.WriteNullValue();
-                break;
+            writer.WriteNullValue();
+            return;
+        }
 
-            case Value.KindOneofCase.BoolValue:
-                w.WriteBooleanValue(v.BoolValue);
-                break;
+        if (kind is Value.KindOneofCase.BoolValue)
+        {
+            writer.WriteBooleanValue(protoValue.BoolValue);
+            return;
+        }
 
-            case Value.KindOneofCase.NumberValue:
-                w.WriteNumberValue(v.NumberValue);
-                break;
+        if (kind is Value.KindOneofCase.NumberValue)
+        {
+            writer.WriteNumberValue(protoValue.NumberValue);
+            return;
+        }
 
-            case Value.KindOneofCase.StringValue:
-                w.WriteStringValue(v.StringValue);
-                break;
+        if (kind is Value.KindOneofCase.StringValue)
+        {
+            writer.WriteStringValue(protoValue.StringValue);
+            return;
+        }
 
-            case Value.KindOneofCase.StructValue:
+        if (kind is Value.KindOneofCase.StructValue)
+        {
+            writer.WriteStartObject();
+            var fields = protoValue.StructValue.Fields;
+            using var fieldEnumerator = fields.GetEnumerator();
+            for (var index = 0; index < fields.Count; index++)
             {
-                w.WriteStartObject();
-                var fields = v.StructValue.Fields;
-                using var fieldEnumerator = fields.GetEnumerator();
-                for (var index = 0; index < fields.Count; index++)
-                {
-                    _ = fieldEnumerator.MoveNext();
-                    var kv = fieldEnumerator.Current;
-                    w.WritePropertyName(kv.Key);
-                    WriteValue(w, kv.Value);
-                }
-
-                w.WriteEndObject();
-                break;
+                _ = fieldEnumerator.MoveNext();
+                var field = fieldEnumerator.Current;
+                writer.WritePropertyName(field.Key);
+                WriteValue(writer, field.Value);
             }
 
-            case Value.KindOneofCase.ListValue:
-                w.WriteStartArray();
-                for (var index = 0; index < v.ListValue.Values.Count; index++)
-                    WriteValue(w, v.ListValue.Values[index]);
-
-                w.WriteEndArray();
-                break;
-
-            default:
-                throw new InvalidOperationException($"Unsupported protobuf value kind: {v.KindCase}.");
+            writer.WriteEndObject();
+            return;
         }
+
+        if (kind is Value.KindOneofCase.ListValue)
+        {
+            writer.WriteStartArray();
+            var items = protoValue.ListValue.Values;
+            for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+                WriteValue(writer, items[itemIndex]);
+
+            writer.WriteEndArray();
+            return;
+        }
+
+        throw new InvalidOperationException($"Unsupported protobuf value kind: {protoValue.KindCase}.");
     }
 
     private static ArrayBufferWriter<byte> WriteValueToBuffer(Value value)
