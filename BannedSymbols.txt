@@ -24,3 +24,9 @@ M:System.Threading.Tasks.Task.Run``1(System.Func{``0});Use explicit infrastructu
 M:System.Threading.Tasks.Task.Run(System.Action,System.Threading.CancellationToken);Use explicit infrastructure threading instead.
 M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task},System.Threading.CancellationToken);Use explicit infrastructure threading instead.
 M:System.Threading.Tasks.Task.Run``1(System.Func{``0},System.Threading.CancellationToken);Use explicit infrastructure threading instead.
+// Path.Combine treats rooted second segments specially (can discard the root); Path.Join always concatenates.
+M:System.IO.Path.Combine(System.String,System.String);Use Path.Join instead of Path.Combine.
+M:System.IO.Path.Combine(System.String,System.String,System.String);Use Path.Join instead of Path.Combine.
+M:System.IO.Path.Combine(System.String,System.String,System.String,System.String);Use Path.Join instead of Path.Combine.
+M:System.IO.Path.Combine(System.String[]);Use Path.Join instead of Path.Combine.
+M:System.IO.Path.Combine(System.ReadOnlySpan{System.String});Use Path.Join instead of Path.Combine.

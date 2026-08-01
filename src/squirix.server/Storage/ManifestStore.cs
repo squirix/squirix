@@ -100,7 +100,7 @@ internal sealed class ManifestStore : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _allocator.EnsureNextManifestIndexInitializedAsync(cancellationToken).ConfigureAwait(false);
+            _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
             var nextIndex = _allocator.IncrementNextManifestIndex();
             await _publisher.PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
             _retentionWorker.ScheduleRetentionCleanup(manifest);
@@ -118,11 +118,7 @@ internal sealed class ManifestStore : IDisposable
         if (!File.Exists(_currentPath))
             return new State();
 
-        var pointerBytes = await PointerFile.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
-        if (!Pointer.IsValidPointer(pointerBytes))
-            throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
-
-        var index = Pointer.Read(pointerBytes);
+        var index = PointerFile.ReadIndex(_currentPath);
         var path = _allocator.BuildManifestFilePath(index);
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
         var manifest = FileCodec.Decode(bytes);

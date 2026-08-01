@@ -41,7 +41,7 @@ public static class JournalSegmentLeaseWait
                 return false;
         }
 
-        var currentPath = Path.Combine(dataDir, ManifestCurrentFileName);
+        var currentPath = Path.Join(dataDir, ManifestCurrentFileName);
         if (!File.Exists(currentPath))
             return true;
 
@@ -67,12 +67,10 @@ public static class JournalSegmentLeaseWait
     {
         try
         {
-            var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, BufferSize, FileOptions.Asynchronous);
-            await using (stream.ConfigureAwait(false))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                return true;
-            }
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, BufferSize, FileOptions.Asynchronous)
+               .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return true;
         }
         catch (IOException)
         {
