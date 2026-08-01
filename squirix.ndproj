@@ -647,7 +647,7 @@ select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severit
 // ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design.
 warnif count > 0
 from m in JustMyCode.Methods
-where m.IsUsing("System.Threading.Thread".AllowNoMatch()) &&
+where m.IsUsing("TYPE:System.Threading.Thread".AllowNoMatch()) &&
       !(m.IsConstructor &&
         m.ParentType != null &&
         (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||

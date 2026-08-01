@@ -32,7 +32,7 @@ if (string.IsNullOrWhiteSpace(repoRoot) || !Directory.Exists(repoRoot))
 
 repoRoot = Path.GetFullPath(repoRoot);
 
-var examplesDir = Path.Combine(repoRoot, "examples");
+var examplesDir = Path.Join(repoRoot, "examples");
 if (!Directory.Exists(examplesDir))
 {
     await Console.Error.WriteLineAsync("ERROR: examples directory not found.").ConfigureAwait(false);
@@ -131,7 +131,7 @@ static string? ResolveDotnetPath()
     var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
     if (!string.IsNullOrWhiteSpace(dotnetRoot))
     {
-        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         if (File.Exists(dotnetRootCandidate))
             return Path.GetFullPath(dotnetRootCandidate);
     }
@@ -152,7 +152,7 @@ static string? ResolveDotnetPath()
     var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
     foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     {
-        var pathCandidate = Path.Combine(segment, executableName);
+        var pathCandidate = Path.Join(segment, executableName);
         if (File.Exists(pathCandidate))
             return Path.GetFullPath(pathCandidate);
     }

@@ -60,6 +60,10 @@ public sealed class TestNodeHost : IAsyncDisposable
 
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
         _scope?.Dispose();
+
+        // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
+        // Offline compact and restart paths open those files immediately; wait until they are shareable.
+        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
     }
 
     /// <summary>
@@ -72,16 +76,7 @@ public sealed class TestNodeHost : IAsyncDisposable
 
         await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-
-        if (PersistenceEnabled && !string.IsNullOrWhiteSpace(DataDir))
-            try
-            {
-                await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // Best-effort: another teardown path may already have removed or released the segment files.
-            }
+        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
 
         _scope?.Dispose();
     }
@@ -95,6 +90,21 @@ public sealed class TestNodeHost : IAsyncDisposable
         catch (ObjectDisposedException)
         {
             // Best-effort teardown during test host shutdown.
+        }
+    }
+
+    private async ValueTask WaitForPersistenceReleaseBestEffortAsync()
+    {
+        if (!PersistenceEnabled || string.IsNullOrWhiteSpace(DataDir))
+            return;
+
+        try
+        {
+            await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Best-effort: another teardown path may already have removed or released the files.
         }
     }
 

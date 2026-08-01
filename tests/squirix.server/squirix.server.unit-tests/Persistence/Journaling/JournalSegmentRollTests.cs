@@ -101,7 +101,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
             await StoreTestSupport.WaitUntilAsync(
                 manifestStore,
-                static s => s.ReadCurrentOrDefaultBlocking().CurrentJournal is 2,
+                static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal is 2,
                 TimeSpan.FromSeconds(5),
                 DefaultCancellationToken);
 

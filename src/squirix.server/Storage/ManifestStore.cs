@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,14 +11,6 @@ using Index = Squirix.Server.Storage.Manifest.Index;
 namespace Squirix.Server.Storage;
 
 /// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
-[SuppressMessage(
-    "AsyncUsage",
-    "MA0045:Use await instead of GetResult()",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
-[SuppressMessage(
-    "Usage",
-    "VSTHRD002:Avoid problematic synchronous waits",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class ManifestStore : IDisposable
 {
     private readonly IndexAllocator _allocator;
@@ -93,14 +84,12 @@ internal sealed class ManifestStore : IDisposable
         }
     }
 
-    internal State ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
-
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _allocator.EnsureNextManifestIndexInitializedAsync(cancellationToken).ConfigureAwait(false);
+            _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
             var nextIndex = _allocator.IncrementNextManifestIndex();
             await _publisher.PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
             _retentionWorker.ScheduleRetentionCleanup(manifest);
@@ -118,11 +107,7 @@ internal sealed class ManifestStore : IDisposable
         if (!File.Exists(_currentPath))
             return new State();
 
-        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
-        if (!Pointer.IsValidPointer(pointerBytes))
-            throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
-
-        var index = Pointer.Read(pointerBytes);
+        var index = PointerFile.ReadIndex(_currentPath);
         var path = _allocator.BuildManifestFilePath(index);
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
         var manifest = FileCodec.Decode(bytes);

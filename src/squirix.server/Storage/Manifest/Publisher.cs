@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,10 +7,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Encodes and durably writes manifest files and the fixed-size CURRENT pointer.</summary>
-[SuppressMessage(
-    "AsyncUsage",
-    "MA0045:Do not use blocking calls in a sync method",
-    Justification = "Blocking manifest file I/O runs on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class Publisher : IDisposable
 {
     private const int DefaultEncodeBufferCapacity = 256;
@@ -78,7 +73,11 @@ internal sealed class Publisher : IDisposable
 
     internal State PublishRollCoreBlocking(int currentJournal, ulong nextSequence, int nextIndex)
     {
-        EnsureDataDirectoryExists();
+        if (!_dataDirEnsured)
+        {
+            _ = Directory.CreateDirectory(_dataDir);
+            _dataDirEnsured = true;
+        }
 
         var (previous, snapshotPathUtf8) = _readRollBaselineLocked();
         var format = previous.Format is 0 ? 1 : previous.Format;
@@ -102,15 +101,6 @@ internal sealed class Publisher : IDisposable
         };
         _setCache(manifest, nextIndex);
         return manifest;
-    }
-
-    private void EnsureDataDirectoryExists()
-    {
-        if (_dataDirEnsured)
-            return;
-
-        _ = Directory.CreateDirectory(_dataDir);
-        _dataDirEnsured = true;
     }
 
     private void EnsureEncodeBufferCapacity(int encodedLength)
