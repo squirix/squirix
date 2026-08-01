@@ -137,7 +137,6 @@ public class SnapshotWriteBreakdownBenchmarks
         {
             var snapshotIndex = _nextSnapshotIndex++;
             var snapshotPath = BuildSnapshotPath(snapshotIndex);
-            await File.WriteAllBytesAsync(snapshotPath, [], CancellationToken.None).ConfigureAwait(false);
 
             var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State

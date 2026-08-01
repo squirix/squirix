@@ -54,12 +54,34 @@ internal static class StoreTestSupport
         ArgumentNullException.ThrowIfNull(condition);
 
         var deadline = Environment.TickCount64 + Convert.ToInt64(timeout.TotalMilliseconds);
-        while (!await condition(state, cancellationToken).ConfigureAwait(false))
+        while (true)
         {
-            if (Environment.TickCount64 >= deadline)
+            var remainingMs = deadline - Environment.TickCount64;
+            if (remainingMs <= 0)
                 throw new TimeoutException("Timed out waiting for manifest retention side effects.");
 
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linkedCts.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
+
+            bool satisfied;
+            try
+            {
+                satisfied = await condition(state, linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
+            }
+
+            if (satisfied)
+                return;
+
+            remainingMs = deadline - Environment.TickCount64;
+            if (remainingMs <= 0)
+                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
+
+            var delayMs = remainingMs < 25 ? Convert.ToInt32(remainingMs) : 25;
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
         }
     }
 }

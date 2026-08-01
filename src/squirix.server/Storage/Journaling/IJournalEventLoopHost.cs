@@ -17,8 +17,6 @@ internal interface IJournalEventLoopHost
 
     void PublishRoll(int targetSegmentIndex);
 
-    int ReadQueuedAppends();
-
     void SetNextSequence(ulong value);
 
     void ThrowIfJournalThreadFailed();
