@@ -32,9 +32,11 @@ jobs:
                     persist-credentials: false
 
             -   name: Paths Filter
-                uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+                # Pin includes some-with-excludes so negated !**/*.ndproj|ndrules actually exclude.
+                uses: dorny/paths-filter@4711b7a31b4aa89103d8c6ffab2e3b8e7b6381c7 # master (some-with-excludes)
                 id: filter
                 with:
+                    predicate-quantifier: 'some-with-excludes'
                     filters: |
                         code:
                           - 'src/**'
