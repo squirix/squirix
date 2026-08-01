@@ -272,14 +272,14 @@ internal static class ServerProtoEx
         where TIn : class?
     {
         // Local copy keeps the cast site distinct from client ProtoEx.ReinterpretReference.
-        TIn held = input;
+        var held = input;
         return Unsafe.As<TIn, TOut>(ref held);
     }
 
     private static TOut CastScalar<TOut, TIn>(TIn input)
         where TIn : struct
     {
-        TIn held = input;
+        var held = input;
         return Unsafe.As<TIn, TOut>(ref held);
     }
 
