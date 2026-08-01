@@ -4,6 +4,9 @@
         <Platform Name="x64"/>
         <Platform Name="x86"/>
     </Configurations>
+    <Folder Name="/Solution Items/">
+        <File Path=".pvsconfig"/>
+    </Folder>
     <Folder Name="/src/">
         <Project Path="src/squirix.analyzers/Squirix.Analyzers.csproj"/>
         <Project Path="src/squirix.protocol-model/Squirix.ProtocolModel.csproj"/>
