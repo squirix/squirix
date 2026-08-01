@@ -15,13 +15,15 @@ internal sealed class JournalEventLoopDrainScheduler
         _segmentWriter = segmentWriter;
     }
 
-    internal void DrainDueGroupCommitBatches()
-    {
-        if (_owner.GroupCommit is null || _owner.Host.ReadQueuedAppends() > 0)
-            return;
-
-        _owner.GroupCommit.DrainDueBatchesOnJournalThread();
-    }
+    /// <summary>Drains due group-commit batches on the journal thread.</summary>
+    /// <remarks>
+    /// Waiters register only after their own append Completion fires, so every pending waiter already
+    /// covers bytes written to the active segment. Other producers may still hold queued-append
+    /// credits (ring slots not yet published, or frames still staged); those credits must not block
+    /// durability for waiters that are already due — otherwise a cancel storm can leave the journal
+    /// thread sleeping forever with an empty ring and starve the batch.
+    /// </remarks>
+    internal void DrainDueGroupCommitBatches() => _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
     internal bool RunJournalThreadIteration(ref JournalWorkItem? rollDeferredAppend)
     {
@@ -40,10 +42,10 @@ internal sealed class JournalEventLoopDrainScheduler
             // so every such waiter is covered by the pre-roll fsync. Service due batches while the
             // roll's manifest fsync is in flight instead of starving them for the whole roll, and bound
             // the wait by the next group-commit deadline.
-            DrainDueGroupCommitBatchesDuringRoll();
+            DrainDueGroupCommitBatches();
             var rollWaitMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
             _owner.Ring.WaitForWork(rollWaitMs, _owner.BackgroundToken);
-            DrainDueGroupCommitBatchesDuringRoll();
+            DrainDueGroupCommitBatches();
             return true;
         }
 
@@ -60,20 +62,14 @@ internal sealed class JournalEventLoopDrainScheduler
         if (hadWork)
             return true;
 
-        var timeoutMs = _owner.Host.ReadQueuedAppends() > 0 ? Timeout.Infinite : _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
+        // Always honor an armed group-commit deadline, even when queued-append credits remain.
+        // Credits can outlive an empty ring while a producer is between counter increment and publish.
+        // An infinite sleep then depends on another notify and can strand waiters under cancel storms.
+        var timeoutMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
         _owner.Ring.WaitForWork(timeoutMs, _owner.BackgroundToken);
         DrainDueGroupCommitBatches();
         return true;
     }
-
-    /// <summary>Drains due group-commit batches during a journal segment roll without the queued-append gate.</summary>
-    /// <remarks>
-    /// During a roll the write batch is empty and previously written bytes are already fsynced.
-    /// Queued appends are the deferred frame plus not-yet-staged frames whose producers are still blocked
-    /// on their Completion waiter and therefore cannot have registered a durability waiter yet.
-    /// Every pending group-commit waiter thus maps to an already-durable append.
-    /// </remarks>
-    private void DrainDueGroupCommitBatchesDuringRoll() => _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
     private bool DrainJournalRing(ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
     {
