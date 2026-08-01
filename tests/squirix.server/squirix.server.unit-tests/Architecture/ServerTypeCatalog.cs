@@ -124,7 +124,33 @@ internal static class ServerTypeCatalog
     private static Task<IReadOnlyList<DeclaredType>> AllDeclaredTypesAsync()
     {
         lock (ScanGate)
-            return _allDeclaredTypesTask ??= ScanAsync();
+        {
+            if (_allDeclaredTypesTask is { } existing)
+                return existing;
+
+            var box = new Task<IReadOnlyList<DeclaredType>>[1];
+            box[0] = RunScanAsync();
+            _allDeclaredTypesTask = box[0];
+            return box[0];
+
+            async Task<IReadOnlyList<DeclaredType>> RunScanAsync()
+            {
+                try
+                {
+                    return await ScanAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    lock (ScanGate)
+                    {
+                        if (ReferenceEquals(_allDeclaredTypesTask, box[0]))
+                            _allDeclaredTypesTask = null;
+                    }
+
+                    throw;
+                }
+            }
+        }
     }
 
     private static async Task<IReadOnlyList<DeclaredType>> ScanAsync()
@@ -133,7 +159,7 @@ internal static class ServerTypeCatalog
         var paths = ServerSourceFiles.EnumerateCsharpFiles();
         for (var pathIndex = 0; pathIndex < paths.Count; pathIndex++)
         {
-            var lines = await File.ReadAllLinesAsync(paths[pathIndex], CancellationToken.None);
+            var lines = await File.ReadAllLinesAsync(paths[pathIndex], CancellationToken.None).ConfigureAwait(false);
             string? currentNamespace = null;
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
@@ -178,6 +204,10 @@ internal static class ServerTypeCatalog
     private static string ParseNamespace(string trimmedNamespaceLine)
     {
         var value = trimmedNamespaceLine["namespace ".Length..].Trim();
+        var comment = value.IndexOf("//", StringComparison.Ordinal);
+        if (comment >= 0)
+            value = value[..comment].TrimEnd();
+
         if (value.Length > 0 && value[^1] is ';' or '{')
             value = value[..^1].TrimEnd();
         return value;

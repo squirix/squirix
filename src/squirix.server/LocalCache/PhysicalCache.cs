@@ -5,7 +5,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
+using Squirix.Server.Logging;
 
 namespace Squirix.Server.LocalCache;
 
@@ -14,13 +17,15 @@ namespace Squirix.Server.LocalCache;
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>, IAsyncDisposable
 {
     private readonly LocalEvictionIndex _evictionIndex;
+    private readonly ILogger _logger;
     private readonly ConcurrentDictionary<CacheKey, StoredEntry> _store = new();
     private readonly TimeProvider _timeProvider;
 
-    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null)
+    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null, ILogger? logger = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _evictionIndex = new LocalEvictionIndex(eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru });
+        _logger = logger ?? NullLogger.Instance;
     }
 
     int ILocalCacheStats.EntryCount => _store.Count;
@@ -156,6 +161,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        LogManager.PhysicalCacheUpdateRetriesExhausted(_logger, maxAttempts, key.Namespace, key.Key);
         return ValueTask.FromResult(false);
 
         bool TryApplyUpdate(CacheKey updateKey, T? updateValue, out bool completed)
@@ -252,9 +258,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return true;
         }
 
-        // Skip Untrack when a concurrent SetAsync already tracked a replacement for the same key.
-        if (!_store.ContainsKey(key))
-            _evictionIndex.Untrack(key);
+        _evictionIndex.Untrack(key);
+        if (_store.ContainsKey(key))
+            _evictionIndex.TrackNew(key);
         return true;
     }
 
