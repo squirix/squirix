@@ -60,6 +60,20 @@ public sealed class TestNodeHost : IAsyncDisposable
 
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
         _scope?.Dispose();
+
+        // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
+        // Offline compact and restart paths open those files immediately; wait until they are shareable.
+        if (PersistenceEnabled && !string.IsNullOrWhiteSpace(DataDir))
+        {
+            try
+            {
+                await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Best-effort: another teardown path may already have removed or released the files.
+            }
+        }
     }
 
     /// <summary>

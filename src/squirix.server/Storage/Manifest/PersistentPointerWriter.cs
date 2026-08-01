@@ -39,7 +39,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
         ReleaseHandle();
 
         var options = FileDurability.GetPointerFileOptions();
-        _handle = File.OpenHandle(_currentPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
+        _handle = File.OpenHandle(_currentPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, PointerFile.CompatibleShare, options);
         if (RandomAccess.GetLength(_handle) != Pointer.Size)
             RandomAccess.SetLength(_handle, Pointer.Size);
     }

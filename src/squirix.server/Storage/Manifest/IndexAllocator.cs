@@ -142,7 +142,7 @@ internal sealed class IndexAllocator
         }
     }
 
-    private byte[] ReadCurrentPointerBytes() => File.ReadAllBytes(_currentPath);
+    private byte[] ReadCurrentPointerBytes() => PointerFile.ReadAllBytes(_currentPath);
 
     private async Task<int> ResolveNextIndexFromDiskAsync(CancellationToken cancellationToken)
     {
@@ -150,7 +150,7 @@ internal sealed class IndexAllocator
         if (!File.Exists(_currentPath))
             return maxOnDisk + 1;
 
-        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
+        var pointerBytes = await PointerFile.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
         return ResolveNextIndexFromPointer(pointerBytes, maxOnDisk, _currentPath);
     }
 

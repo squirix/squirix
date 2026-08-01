@@ -118,7 +118,7 @@ internal sealed class ManifestStore : IDisposable
         if (!File.Exists(_currentPath))
             return new State();
 
-        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
+        var pointerBytes = await PointerFile.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
         if (!Pointer.IsValidPointer(pointerBytes))
             throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
 
