@@ -1,0 +1,19 @@
+// PVS-Studio diagnostic configuration for CI and IDE (pvs-studio-dotnet -C / project-linked .pvsconfig).
+// Exclude generated and build artifacts from analysis.
+// Path masks use * / ? only (no git-style **); directories recurse implicitly.
+//V_EXCLUDE_PATH */bin/*
+//V_EXCLUDE_PATH */obj/*
+//V_EXCLUDE_PATH *.g.cs
+//V_EXCLUDE_PATH *.AssemblyInfo.cs
+//V_EXCLUDE_PATH */AssemblyInfo.cs
+// Keep analysis aligned with the production CI project set (tests/samples/benchmarks out of scope).
+//V_EXCLUDE_PATH */tests/*
+//V_EXCLUDE_PATH */samples/*
+//V_EXCLUDE_PATH */benchmarks/*
+//
+// Intentional empty dispose/drain/cleanup/shutdown catches (comment-only bodies).
+// Hash-based suppress files break on any nearby edit; disable these diagnostics instead.
+// Correct disable syntax: //-V::NNNN (see PVS .pvsconfig manual).
+//-V::3163,5606
+//
+// CI fails on any remaining warning after suppress filtering (all groups/levels; see ci.yml).
