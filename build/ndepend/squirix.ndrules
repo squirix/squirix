@@ -418,14 +418,11 @@ select new {
 }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2500" Group="System.Threading"><![CDATA[// <Name>Don't create threads explicitly</Name>
 // <Id>ND2500:DontCreateThreadsExplicitly</Id>
-// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design.
+// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design
+// (excluded via notmycode "Exclude durability dedicated threads from ND2500").
 warnif count > 0
 from m in JustMyCode.Methods
-where m.IsUsing("TYPE:System.Threading.Thread".AllowNoMatch()) &&
-      !(m.IsConstructor &&
-        m.ParentType != null &&
-        (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
-         m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher"))
+where m.CreateA("TYPE:System.Threading.Thread".AllowNoMatch())
 select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1901" Group="Immutability"><![CDATA[// <Name>Avoid non-readonly static fields</Name>
 // <Id>ND1901:AvoidNonReadonlyStaticFields</Id>
