@@ -526,8 +526,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             Volatile.Read(ref _coordinator.NextSequenceField),
             () => _durabilityPipeline.OnManifestRollSucceeded());
 
-        int IJournalEventLoopHost.ReadQueuedAppends() => Volatile.Read(ref _coordinator.QueuedAppendsCounter.Value);
-
         void IJournalEventLoopHost.SetNextSequence(ulong value) => Volatile.Write(ref _coordinator.NextSequenceField, value);
 
         void IJournalEventLoopHost.ThrowIfJournalThreadFailed() => _durabilityPipeline.ThrowIfJournalThreadFailed();

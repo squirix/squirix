@@ -5,22 +5,27 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.TestKit.IO;
 
-/// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
+/// <summary>
+/// Waits until persistence files in a data directory can be opened with the same sharing mode used by
+/// writers (journal segments and the <c>man-current</c> pointer).
+/// </summary>
 public static class JournalSegmentLeaseWait
 {
     private const int BufferSize = 64 * 1024;
     private const string JournalSegmentGlob = "jrn-*.jsqx";
+    private const string ManifestCurrentFileName = "man-current";
 
     /// <summary>
-    /// Waits until all journal segment files in <paramref name="dataDir" /> are not locked by another handle.
+    /// Waits until journal segment files and <c>man-current</c> in <paramref name="dataDir" /> are not locked
+    /// incompatibly by another handle.
     /// </summary>
-    /// <param name="dataDir">Node data directory containing journal segments.</param>
+    /// <param name="dataDir">Node data directory containing journal segments and manifest pointer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
     public static Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
-        return PollUntilJournalSegmentsReleasedAsync(dataDir, cancellationToken);
+        return PollUntilPersistenceFilesReleasedAsync(dataDir, cancellationToken);
     }
 
     private static async Task<bool> CanAcquireRepairLeaseAsync(string dataDir, CancellationToken cancellationToken)
@@ -29,9 +34,6 @@ public static class JournalSegmentLeaseWait
             return true;
 
         var files = Directory.GetFiles(dataDir, JournalSegmentGlob);
-        if (files.Length is 0)
-            return true;
-
         for (var i = 0; i < files.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -39,10 +41,14 @@ public static class JournalSegmentLeaseWait
                 return false;
         }
 
-        return true;
+        var currentPath = Path.Join(dataDir, ManifestCurrentFileName);
+        if (!File.Exists(currentPath))
+            return true;
+
+        return await TryOpenRepairLeaseAsync(currentPath, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task PollUntilJournalSegmentsReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
@@ -54,19 +60,17 @@ public static class JournalSegmentLeaseWait
             await Task.Delay(25, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TimeoutException($"journal segments in '{dataDir}' remained locked after shutdown.");
+        throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
     }
 
     private static async Task<bool> TryOpenRepairLeaseAsync(string path, CancellationToken cancellationToken)
     {
         try
         {
-            var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize, FileOptions.Asynchronous);
-            await using (stream.ConfigureAwait(false))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                return true;
-            }
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, BufferSize, FileOptions.Asynchronous)
+               .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return true;
         }
         catch (IOException)
         {

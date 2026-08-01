@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -43,36 +43,34 @@ public class SnapshotWriteBreakdownBenchmarks
     /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
-    public void ManifestWriteOnly()
+    public async Task ManifestWriteOnlyAsync()
     {
         var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.WriteManifestOnly();
+            await session.WriteManifestOnlyAsync().ConfigureAwait(false);
     }
 
     /// <summary>Full binary snapshot publish path (tmp write + rename).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
-    public void PublishSnapshot()
+    public async Task PublishSnapshotAsync()
     {
         var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.PublishSnapshot();
+            await session.PublishSnapshotAsync().ConfigureAwait(false);
     }
 
     /// <summary>Writes a complete temp snapshot file and flushes it to disk (no publish rename).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
-    public void WriteTempFileOnly()
+    public async Task WriteTempFileOnlyAsync()
     {
         var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.WriteTempFileOnly();
+            await session.WriteTempFileOnlyAsync().ConfigureAwait(false);
     }
 
     /// <summary>Hosts warmed binary snapshot items for write-path breakdown benchmarks.</summary>
-    [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
-    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
     private sealed class Session : IDisposable
     {
         private readonly TempDirectory _dataDir;
@@ -131,16 +129,16 @@ public class SnapshotWriteBreakdownBenchmarks
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
-        internal void PublishSnapshot() => _ = _writer.WriteAsync(1, _items, [], CancellationToken.None).GetAwaiter().GetResult();
+        internal async Task PublishSnapshotAsync() =>
+            _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
 
         /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
-        internal void WriteManifestOnly()
+        internal async Task WriteManifestOnlyAsync()
         {
             var snapshotIndex = _nextSnapshotIndex++;
             var snapshotPath = BuildSnapshotPath(snapshotIndex);
-            File.WriteAllBytes(snapshotPath, []);
 
-            var previous = _manifestStore.ReadCurrentOrDefaultBlocking();
+            var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State
             {
                 Format = previous.Format is 0 ? 1 : previous.Format,
@@ -156,23 +154,23 @@ public class SnapshotWriteBreakdownBenchmarks
                 },
             };
 
-            _manifestStore.WriteAsync(updated, CancellationToken.None).GetAwaiter().GetResult();
+            await _manifestStore.WriteAsync(updated, CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <summary>Writes a complete binary snapshot temp file and flushes it to disk.</summary>
-        internal void WriteTempFileOnly()
+        internal async Task WriteTempFileOnlyAsync()
         {
             var path = BuildTempPath(_nextFileIndex++);
-            using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
-            var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
-            WriteFileBlocking(fs, totalFileSize);
+            var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
+            await using (fs.ConfigureAwait(false))
+            {
+                var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
+                await SnapshotFileEncoder.WriteFileAsync(fs, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
+            }
         }
 
         private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
         private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
-
-        private void WriteFileBlocking(FileStream destination, long totalFileSize) =>
-            SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).GetAwaiter().GetResult();
     }
 }

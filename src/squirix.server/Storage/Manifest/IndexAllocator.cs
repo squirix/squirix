@@ -1,18 +1,12 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Owns and resolves the next numbered manifest file index from cache, disk scan, or CURRENT pointer.</summary>
-[SuppressMessage(
-    "AsyncUsage",
-    "MA0045:Do not use blocking calls in a sync method",
-    Justification = "Blocking manifest file I/O runs on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class IndexAllocator
 {
     private readonly string _currentPath;
@@ -37,7 +31,7 @@ internal sealed class IndexAllocator
 
     internal int AllocateNextManifestIndex()
     {
-        EnsureNextManifestIndexInitialized();
+        EnsureNextManifestIndexInitialized(CancellationToken.None);
         return IncrementNextManifestIndex();
     }
 
@@ -54,7 +48,7 @@ internal sealed class IndexAllocator
             FileExtensions.Manifest.CopyTo(suffix[charsWritten..]);
         });
 
-    internal async Task EnsureNextManifestIndexInitializedAsync(CancellationToken cancellationToken)
+    internal void EnsureNextManifestIndexInitialized(CancellationToken cancellationToken)
     {
         if (_nextIndexInitialized)
             return;
@@ -73,7 +67,7 @@ internal sealed class IndexAllocator
             }
         }
 
-        var nextFromDisk = await ResolveNextIndexFromDiskAsync(cancellationToken).ConfigureAwait(false);
+        var nextFromDisk = ResolveNextIndexFromDisk(cancellationToken);
 
         lock (_nextIndexInitLock)
         {
@@ -117,50 +111,20 @@ internal sealed class IndexAllocator
         return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 
-    private static int ResolveNextIndexFromPointer(ReadOnlySpan<byte> pointerBytes, int maxOnDisk, string currentPath)
+    private static int ResolveNextIndexFromPointer(int fromCurrent, int maxOnDisk)
     {
-        if (!Pointer.IsValidPointer(pointerBytes))
-            throw new InvalidDataException($"Manifest current pointer is invalid: {currentPath}");
-
-        var fromCurrent = Pointer.Read(pointerBytes);
         var baseline = fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
         return baseline + 1;
     }
 
-    private void EnsureNextManifestIndexInitialized()
+    private int ResolveNextIndexFromDisk(CancellationToken cancellationToken)
     {
-        if (_nextIndexInitialized)
-            return;
-
-        lock (_nextIndexInitLock)
-        {
-            if (_nextIndexInitialized)
-                return;
-
-            _nextManifestIndex.Set(_readCurrentIndexForInit() ?? ResolveNextIndexFromDiskLocked() - 1);
-            _nextIndexInitialized = true;
-        }
-    }
-
-    private byte[] ReadCurrentPointerBytes() => File.ReadAllBytes(_currentPath);
-
-    private async Task<int> ResolveNextIndexFromDiskAsync(CancellationToken cancellationToken)
-    {
+        cancellationToken.ThrowIfCancellationRequested();
         var maxOnDisk = ScanMaxManifestIndexOnDisk();
         if (!File.Exists(_currentPath))
             return maxOnDisk + 1;
 
-        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
-        return ResolveNextIndexFromPointer(pointerBytes, maxOnDisk, _currentPath);
-    }
-
-    private int ResolveNextIndexFromDiskLocked()
-    {
-        var maxOnDisk = ScanMaxManifestIndexOnDisk();
-        if (!File.Exists(_currentPath))
-            return maxOnDisk + 1;
-
-        return ResolveNextIndexFromPointer(ReadCurrentPointerBytes(), maxOnDisk, _currentPath);
+        return ResolveNextIndexFromPointer(PointerFile.ReadIndex(_currentPath), maxOnDisk);
     }
 
     private int ScanMaxManifestIndexOnDisk()

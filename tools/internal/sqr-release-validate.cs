@@ -49,9 +49,9 @@ if (dotnetPath is null)
 }
 
 var repoRootResolved = Path.GetFullPath(repoRoot);
-var artifactsPath = Path.GetFullPath(Path.Combine(repoRootResolved, options.ArtifactsDirectory));
-var packageOutputPath = Path.Combine(artifactsPath, "packages");
-var smokePackageOutputPath = Path.Combine(repoRootResolved, "artifacts", "packages");
+var artifactsPath = Path.GetFullPath(Path.Join(repoRootResolved, options.ArtifactsDirectory));
+var packageOutputPath = Path.Join(artifactsPath, "packages");
+var smokePackageOutputPath = Path.Join(repoRootResolved, "artifacts", "packages");
 
 try
 {
@@ -66,7 +66,7 @@ try
     await StepAsync("Validate required docs").ConfigureAwait(false);
     foreach (var relativePath in requiredDocs)
     {
-        var path = Path.Combine(repoRootResolved, relativePath);
+        var path = Path.Join(repoRootResolved, relativePath);
         if (!File.Exists(path))
             throw new FileNotFoundException($"Required file is missing: {path}");
     }
@@ -163,7 +163,7 @@ try
         Directory.Delete(smokePackageOutputPath, true);
     _ = Directory.CreateDirectory(smokePackageOutputPath);
     foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.*nupkg", SearchOption.TopDirectoryOnly))
-        File.Copy(package, Path.Combine(smokePackageOutputPath, Path.GetFileName(package)));
+        File.Copy(package, Path.Join(smokePackageOutputPath, Path.GetFileName(package)));
 
     await StepAsync("Build external package smoke against packed artifacts").ConfigureAwait(false);
     await RunDotnetOrThrowAsync(
@@ -179,7 +179,7 @@ try
     await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
     var smokeRunCode = await RunDotnetAsync(
         dotnetPath,
-        Path.Combine(repoRootResolved, "samples", "external-package-smoke"),
+        Path.Join(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
     if (smokeRunCode is not 0)
         throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");
@@ -293,7 +293,7 @@ string ResolveRepoRoot()
     var dir = new DirectoryInfo(entryDir);
     while (dir is not null)
     {
-        if (File.Exists(Path.Combine(dir.FullName, "squirix.slnx")))
+        if (File.Exists(Path.Join(dir.FullName, "squirix.slnx")))
             return dir.FullName;
 
         dir = dir.Parent;
@@ -319,7 +319,7 @@ static string? ResolveDotnetPath()
     var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
     if (!string.IsNullOrWhiteSpace(dotnetRoot))
     {
-        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         if (File.Exists(dotnetRootCandidate))
             return Path.GetFullPath(dotnetRootCandidate);
     }
@@ -340,7 +340,7 @@ static string? ResolveDotnetPath()
     var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
     foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     {
-        var pathCandidate = Path.Combine(segment, executableName);
+        var pathCandidate = Path.Join(segment, executableName);
         if (File.Exists(pathCandidate))
             return Path.GetFullPath(pathCandidate);
     }

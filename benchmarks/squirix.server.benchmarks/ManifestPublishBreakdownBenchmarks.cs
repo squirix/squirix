@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Globalization;
-using System.Text;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -153,9 +152,6 @@ public class ManifestPublishBreakdownBenchmarks
             var store = new ManifestStore(options);
             store.PublishRollBlocking(1, 1);
 
-            var current = store.ReadCurrentOrDefaultBlocking();
-            var snapshotPathUtf8 = current.LastSnapshot?.Path is { Length: > 0 } path ? Encoding.UTF8.GetBytes(path) : [];
-
             var encodeBuffer = ArrayPool<byte>.Shared.Rent(EncodeBufferSize);
             var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);
             var currentPath = PathEx.Combine(dataDir.Path, $"{FilePrefixes.Manifest}current");
@@ -167,9 +163,9 @@ public class ManifestPublishBreakdownBenchmarks
                 pointerWriter,
                 new SessionWarmup
                 {
-                    Format = current.Format is 0 ? 1 : current.Format,
-                    Snapshot = current.LastSnapshot,
-                    SnapshotPathUtf8 = snapshotPathUtf8,
+                    Format = 1,
+                    Snapshot = null,
+                    SnapshotPathUtf8 = [],
                     EncodeBuffer = encodeBuffer,
                     ManifestFileNamePrefix = manifestFileNamePrefix,
                 });
