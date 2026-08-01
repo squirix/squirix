@@ -151,28 +151,35 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_store.TryGetValue(key, out var stored))
-                return ValueTask.FromResult(false);
-
-            if (TryRemoveExpired(key, stored, out var removedAndRetry))
-            {
-                if (removedAndRetry)
-                    continue;
-                return ValueTask.FromResult(false);
-            }
-
-            if (EqualityComparer<T?>.Default.Equals(stored.Value, value))
-                return ValueTask.FromResult(true);
-
-            if (!TryReplaceValue(key, stored, value))
-                continue;
-
-            _evictionIndex.TouchExisting(key);
-            return ValueTask.FromResult(true);
+            if (TryApplyUpdate(key, value, out var completed))
+                return ValueTask.FromResult(completed);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(false);
+
+        bool TryApplyUpdate(CacheKey updateKey, T? updateValue, out bool completed)
+        {
+            completed = false;
+            if (!_store.TryGetValue(updateKey, out var stored))
+                return true;
+
+            if (TryRemoveExpired(updateKey, stored, out var removedAndRetry))
+                return !removedAndRetry;
+
+            if (EqualityComparer<T?>.Default.Equals(stored.Value, updateValue))
+            {
+                completed = true;
+                return true;
+            }
+
+            if (!TryReplaceValue(updateKey, stored, updateValue))
+                return false;
+
+            _evictionIndex.TouchExisting(updateKey);
+            completed = true;
+            return true;
+        }
     }
 
     private static NodeCacheEntry<T> ToEntry(StoredEntry stored) => new()
