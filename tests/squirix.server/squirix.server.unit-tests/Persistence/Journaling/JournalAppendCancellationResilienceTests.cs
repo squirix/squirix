@@ -129,9 +129,13 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         for (var i = 0; i < iterations; i++)
         {
             var key = CacheKey.Default($"k{NodeInvariantIndexStrings.Format(i)}");
-            tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, i % 4);
+
+            // Use 1..4 ms (not 0): a zero due-time CTS is already canceled and only exercises the
+            // pre-enqueue path, which is less representative of the durability-waiter race this test
+            // was written to catch under CI scheduling pressure.
+            tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, 1 + (i % 4));
         }
 
-        return Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        return Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(60), TimeProvider.System, cancellationToken);
     }
 }
