@@ -72,7 +72,7 @@
                           ReferenceOutputAssembly="false"
                           OutputItemType="Analyzer"
                           PrivateAssets="all"
-                          SetTargetFramework="TargetFramework=netstandard2.0"
+                          SetTargetFramework="TargetFramework=netstandard2.1"
                           GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishAot;PublishTrimmed;PublishSingleFile;PublishReadyToRun"/>
     </ItemGroup>
 
