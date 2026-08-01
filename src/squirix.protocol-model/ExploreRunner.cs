@@ -771,11 +771,21 @@ internal static class ExploreRunner
                     index = outcome.MatchIndex;
                 }
 
-                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(msg.To, msg.From))
+                // Response travels receiver → original sender (swap relative to request From/To).
+                var responseFrom = msg.To;
+                var responseTo = msg.From;
+                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
                     messages.Add(
                         new InFlightMessage(
                             nextId++,
-                            MessagePayload.AppendResponse(msg.To, msg.From, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, success, index)));
+                            MessagePayload.AppendResponse(
+                                responseFrom,
+                                responseTo,
+                                nodes[msg.To].CurrentTerm,
+                                msg.LastLogIndex,
+                                msg.LastLogTerm,
+                                success,
+                                index)));
 
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
@@ -824,8 +834,19 @@ internal static class ExploreRunner
                 if (msg.Term > receiver.CurrentTerm)
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
 
-                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(msg.To, msg.From))
-                    messages.Add(new InFlightMessage(nextId++, MessagePayload.ReadResponse(msg.To, msg.From, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex)));
+                // Response travels receiver → original sender (swap relative to request From/To).
+                var responseFrom = msg.To;
+                var responseTo = msg.From;
+                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
+                    messages.Add(
+                        new InFlightMessage(
+                            nextId++,
+                            MessagePayload.ReadResponse(
+                                responseFrom,
+                                responseTo,
+                                Math.Max(msg.Term, nodes[msg.To].CurrentTerm),
+                                ok,
+                                msg.ReadIndex)));
 
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
@@ -867,8 +888,18 @@ internal static class ExploreRunner
                 if (msg.Term == receiver.CurrentTerm)
                     grant = ModelRpcCommit.TryGrantVote(msg, nodes, broken, receiver);
 
-                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(msg.To, msg.From))
-                    messages.Add(new InFlightMessage(nextId++, MessagePayload.VoteResponse(msg.To, msg.From, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), grant)));
+                // Response travels receiver → original sender (swap relative to request From/To).
+                var responseFrom = msg.To;
+                var responseTo = msg.From;
+                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
+                    messages.Add(
+                        new InFlightMessage(
+                            nextId++,
+                            MessagePayload.VoteResponse(
+                                responseFrom,
+                                responseTo,
+                                Math.Max(msg.Term, nodes[msg.To].CurrentTerm),
+                                grant)));
 
                 scratch.NextMessageId = nextId;
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
