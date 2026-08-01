@@ -144,7 +144,7 @@ internal static class ServerTypeCatalog
                     continue;
                 }
 
-                if (currentNamespace?.Contains(ServerArchitectureNamespaces.Root, StringComparison.Ordinal) is not true)
+                if (currentNamespace is null || !IsUnderServerRoot(currentNamespace))
                     continue;
 
                 if (!TryParseTypeName(trimmed, out var typeName, out var isInterface))
@@ -155,6 +155,13 @@ internal static class ServerTypeCatalog
         }
 
         return matches;
+    }
+
+    private static bool IsUnderServerRoot(string namespaceName)
+    {
+        const string root = ServerArchitectureNamespaces.Root;
+        return string.Equals(namespaceName, root, StringComparison.Ordinal) ||
+               namespaceName.StartsWith(root + ".", StringComparison.Ordinal);
     }
 
     private static bool IsExcludedFullName(string fullName, string[] excludeFullNames)

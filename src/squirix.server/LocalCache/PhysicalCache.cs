@@ -147,9 +147,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        while (true)
+        const int maxAttempts = 64;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!_store.TryGetValue(key, out var stored))
                 return ValueTask.FromResult(false);
 
@@ -169,6 +170,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _evictionIndex.TouchExisting(key);
             return ValueTask.FromResult(true);
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(false);
     }
 
     private static NodeCacheEntry<T> ToEntry(StoredEntry stored) => new()
@@ -177,28 +181,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         ExpiresUtc = stored.ExpiresUtc,
         Version = stored.Version,
     };
-
-    private bool TryRemoveExpired(CacheKey key, StoredEntry stored, out bool removedAndRetry)
-    {
-        removedAndRetry = false;
-        if (stored.ExpiresUtc is not { } expires || expires > UtcNow)
-            return false;
-
-        if (!_store.TryRemove(new KeyValuePair<CacheKey, StoredEntry>(key, stored)))
-        {
-            removedAndRetry = true;
-            return true;
-        }
-
-        _evictionIndex.Untrack(key);
-        return true;
-    }
-
-    private bool TryReplaceValue(CacheKey key, StoredEntry stored, T? value)
-    {
-        var updated = stored with { Value = value };
-        return _store.TryUpdate(key, updated, stored);
-    }
 
     private void EnforceCapacityIfNeeded()
     {
@@ -232,18 +214,47 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     private bool TryGetLive(CacheKey key, out StoredEntry stored)
     {
-        if (!_store.TryGetValue(key, out stored))
+        while (true)
+        {
+            if (!_store.TryGetValue(key, out stored))
+                return false;
+
+            if (TryRemoveExpired(key, stored, out var removedAndRetry))
+            {
+                if (removedAndRetry)
+                    continue;
+
+                stored = default;
+                return false;
+            }
+
+            _evictionIndex.TouchExisting(key);
+            return true;
+        }
+    }
+
+    private bool TryRemoveExpired(CacheKey key, StoredEntry stored, out bool removedAndRetry)
+    {
+        removedAndRetry = false;
+        if (stored.ExpiresUtc is not { } expires || expires > UtcNow)
             return false;
 
-        if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
+        if (!_store.TryRemove(new KeyValuePair<CacheKey, StoredEntry>(key, stored)))
         {
-            _ = _store.TryRemove(key, out _);
-            _evictionIndex.Untrack(key);
-            return false;
+            removedAndRetry = true;
+            return true;
         }
 
-        _evictionIndex.TouchExisting(key);
+        // Skip Untrack when a concurrent SetAsync already tracked a replacement for the same key.
+        if (!_store.ContainsKey(key))
+            _evictionIndex.Untrack(key);
         return true;
+    }
+
+    private bool TryReplaceValue(CacheKey key, StoredEntry stored, T? value)
+    {
+        var updated = stored with { Value = value };
+        return _store.TryUpdate(key, updated, stored);
     }
 
     private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version);

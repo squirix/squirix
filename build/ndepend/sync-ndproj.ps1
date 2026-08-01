@@ -1,4 +1,4 @@
-# Restores squirix.ndproj settings after Visual NDepend rewrites them.
+﻿# Restores squirix.ndproj settings after Visual NDepend rewrites them.
 # Custom notmycode rules live in build/ndepend/squirix.ndrules and are inlined into
 # squirix.ndproj <Queries>/Defining JustMyCode — Visual NDepend drops external RuleFiles references on save.
 #

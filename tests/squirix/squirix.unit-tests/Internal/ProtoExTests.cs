@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
@@ -10,50 +11,6 @@ namespace Squirix.UnitTests.Internal;
 /// <summary>Covers ProtoEx object and typed primitive mapping arms.</summary>
 public sealed class ProtoExTests
 {
-    /// <summary>Struct-wrapped protobuf values deserialize to untyped objects.</summary>
-    /// <param name="kind">Value kind to wrap.</param>
-    [Theory]
-    [InlineData("string")]
-    [InlineData("bool")]
-    [InlineData("number")]
-    [InlineData("null")]
-    public async Task FromCacheValueAsyncObjectReadsWrappedValues(string kind)
-    {
-        var serializer = new SystemTextJsonSerializer();
-        var wrapped = kind switch
-        {
-            "string" => Value.ForString("hello"),
-            "bool" => Value.ForBool(true),
-            "number" => Value.ForNumber(3.5),
-            _ => Value.ForNull(),
-        };
-
-        var cacheValue = new CacheValue
-        {
-            StructValue = new Struct
-            {
-                Fields = { ["value"] = wrapped },
-            },
-        };
-
-        var result = await ProtoEx.FromCacheValueAsync<object>(cacheValue, serializer);
-        switch (kind)
-        {
-            case "string":
-                Assert.Equal("hello", result);
-                break;
-            case "bool":
-                Assert.True(Assert.IsType<bool>(result));
-                break;
-            case "number":
-                Assert.Equal(3.5d, result);
-                break;
-            default:
-                Assert.Null(result);
-                break;
-        }
-    }
-
     /// <summary>Exact typed primitive wire forms decode without struct wrapping.</summary>
     /// <param name="kind">Wire kind under test.</param>
     [Theory]
@@ -109,24 +66,48 @@ public sealed class ProtoExTests
         Assert.Equal(5d, await ProtoEx.FromCacheValueAsync<double>(wire, serializer));
     }
 
-    /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>
-    [Fact]
-    public async Task MapEntryRoundTripsTypedValueAndExpiration()
+    /// <summary>Struct-wrapped protobuf values deserialize to untyped objects.</summary>
+    /// <param name="kind">Value kind to wrap.</param>
+    [Theory]
+    [InlineData("string")]
+    [InlineData("bool")]
+    [InlineData("number")]
+    [InlineData("null")]
+    public async Task FromCacheValueAsyncObjectReadsWrappedValues(string kind)
     {
         var serializer = new SystemTextJsonSerializer();
-        var entry = new CacheEntry<string>
+        var wrapped = kind switch
         {
-            Value = "payload",
-            ExpiresUtc = new System.DateTime(2026, 8, 1, 10, 0, 0, System.DateTimeKind.Utc),
-            Expiration = System.TimeSpan.FromMinutes(2),
+            "string" => Value.ForString("hello"),
+            "bool" => Value.ForBool(true),
+            "number" => Value.ForNumber(3.5),
+            _ => Value.ForNull(),
         };
 
-        var wire = ProtoEx.MapEntryToProto(entry, serializer);
-        var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<string>(wire, serializer);
+        var cacheValue = new CacheValue
+        {
+            StructValue = new Struct
+            {
+                Fields = { ["value"] = wrapped },
+            },
+        };
 
-        Assert.Equal("payload", roundTrip.Value);
-        Assert.Equal(entry.ExpiresUtc, roundTrip.ExpiresUtc);
-        Assert.Equal(entry.Expiration, roundTrip.Expiration);
+        var result = await ProtoEx.FromCacheValueAsync<object>(cacheValue, serializer);
+        switch (kind)
+        {
+            case "string":
+                Assert.Equal("hello", result);
+                break;
+            case "bool":
+                Assert.True(Assert.IsType<bool>(result));
+                break;
+            case "number":
+                Assert.Equal(3.5d, result);
+                break;
+            default:
+                Assert.Null(result);
+                break;
+        }
     }
 
     /// <summary>JsonElement values round-trip through entry mapping.</summary>
@@ -141,6 +122,29 @@ public sealed class ProtoExTests
         var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<JsonElement>(wire, serializer);
 
         Assert.Equal(1, roundTrip.Value.GetProperty("x").GetInt32());
-        Assert.Equal(2, roundTrip.Value.GetProperty("y").GetArrayLength());
+        var y = roundTrip.Value.GetProperty("y");
+        Assert.Equal(2, y.GetArrayLength());
+        Assert.True(y[0].GetBoolean());
+        Assert.Equal(JsonValueKind.Null, y[1].ValueKind);
+    }
+
+    /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>
+    [Fact]
+    public async Task MapEntryRoundTripsTypedValueAndExpiration()
+    {
+        var serializer = new SystemTextJsonSerializer();
+        var entry = new CacheEntry<string>
+        {
+            Value = "payload",
+            ExpiresUtc = new DateTime(2026, 8, 1, 10, 0, 0, DateTimeKind.Utc),
+            Expiration = TimeSpan.FromMinutes(2),
+        };
+
+        var wire = ProtoEx.MapEntryToProto(entry, serializer);
+        var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<string>(wire, serializer);
+
+        Assert.Equal("payload", roundTrip.Value);
+        Assert.Equal(entry.ExpiresUtc, roundTrip.ExpiresUtc);
+        Assert.Equal(entry.Expiration, roundTrip.Expiration);
     }
 }
