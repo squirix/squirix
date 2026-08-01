@@ -15,6 +15,8 @@ using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Node.Services;
 
 internal sealed class JournalCompactionService<T> : BackgroundService, IJournalCompactionStatus
@@ -201,6 +203,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         catch (OperationCanceledException)
         {
+            //-V5606 //-V3163
             // Background compaction loop exits when the host token is Canceled; not an error for this service.
         }
         finally

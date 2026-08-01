@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Threading;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
@@ -118,6 +120,7 @@ internal sealed class JournalEventLoop
         }
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
+            //-V5606 //-V3163
             // journal I/O thread exits when background cancellation is requested during dispose.
         }
     }

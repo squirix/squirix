@@ -4,6 +4,8 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Durability, maintenance, and failure handling for <see cref="JournalCoordinator" />.</summary>
@@ -43,6 +45,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
+            //-V5606 //-V3163
             // Dispose Canceled the join wait when teardown already completed.
         }
         catch (ObjectDisposedException ex)

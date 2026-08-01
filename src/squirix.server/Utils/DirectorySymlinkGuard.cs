@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Utils;
 
 /// <summary>Rejects unexpected symlinks and junctions in directory path chains.</summary>
@@ -77,14 +79,17 @@ internal static class DirectorySymlinkGuard
         }
         catch (IOException)
         {
+            //-V5606 //-V3163
             // Some FS/providers may throw; fall back to attributes
         }
         catch (UnauthorizedAccessException)
         {
+            //-V5606 //-V3163
             // Some FS/providers may throw; fall back to attributes
         }
         catch (NotSupportedException)
         {
+            //-V5606 //-V3163
             // LinkTarget may be unsupported on some providers; fall back to attributes
         }
 

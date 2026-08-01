@@ -59,10 +59,12 @@ internal sealed class ServerClientPool : IServerClientPool
             }
             catch (ObjectDisposedException)
             {
+                // -V5606 // -V3163
                 // Best-effort drain.
             }
             catch (IOException)
             {
+                // -V5606 // -V3163
                 // Best-effort drain.
             }
         }
@@ -76,10 +78,12 @@ internal sealed class ServerClientPool : IServerClientPool
             }
             catch (ObjectDisposedException)
             {
+                // -V5606 // -V3163
                 // Best-effort drain.
             }
             catch (IOException)
             {
+                // -V5606 // -V3163
                 // Best-effort drain.
             }
         }

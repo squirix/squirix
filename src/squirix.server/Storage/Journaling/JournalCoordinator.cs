@@ -10,6 +10,8 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Single-writer pipelined journal coordinator with binary frames (see docs/journal-binary-format.md).</summary>
@@ -204,6 +206,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
         catch (ObjectDisposedException)
         {
+            //-V5606 //-V3163
             // Concurrent teardown can dispose the CTS before cancellation is observed.
         }
 

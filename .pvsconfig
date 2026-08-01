@@ -1,4 +1,4 @@
-// PVS-Studio diagnostic configuration for CI and IDE (pvs-studio-dotnet -C / solution .pvsconfig).
+// PVS-Studio diagnostic configuration for CI and IDE (pvs-studio-dotnet -C / project-linked .pvsconfig).
 // Exclude generated and build artifacts from analysis.
 // Path masks use * / ? only (no git-style **); directories recurse implicitly.
 //V_EXCLUDE_PATH */bin/*
@@ -11,9 +11,9 @@
 //V_EXCLUDE_PATH */samples/*
 //V_EXCLUDE_PATH */benchmarks/*
 //
-// Empty best-effort catch blocks (dispose/drain/cleanup) are intentional and comment-documented.
-// V3163 = GA; V5606 = OWASP twin of the same pattern.
-// Correct disable syntax is //-V::NNNN (see PVS .pvsconfig manual).
-//-V::3163,5606
+// Do not globally disable V3163/V5606. Intentional empty dispose/drain/cleanup/shutdown catches
+// are marked in-source with False Alarm comments inside the catch body:
+//   //-V5606 //-V3163
+// (C# in-source //-V:: filters are unsupported; FA marks are the scoped mechanism.)
 //
 // Reports include remaining groups/levels. CI fails only on GA:1,2 (see .github/workflows/ci.yml).

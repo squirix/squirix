@@ -13,6 +13,8 @@ using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Transport.Grpc.Cache;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Internal.Cluster.Transport;
 
 /// <summary>Holds gRPC clients per peer and an execution policy (timeout/retry/concurrency) per peer.</summary>
@@ -87,10 +89,12 @@ internal sealed class ClientPool : IClientPool
             }
             catch (ObjectDisposedException)
             {
+                //-V5606 //-V3163
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
             catch (IOException)
             {
+                //-V5606 //-V3163
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
         }
@@ -104,10 +108,12 @@ internal sealed class ClientPool : IClientPool
             }
             catch (ObjectDisposedException)
             {
+                //-V5606 //-V3163
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }
             catch (IOException)
             {
+                //-V5606 //-V3163
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }
         }

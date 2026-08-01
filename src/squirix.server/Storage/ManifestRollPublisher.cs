@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 
+#pragma warning disable SA1005 // PVS-Studio False Alarm markers use //-VNNNN (no space after //).
+
 namespace Squirix.Server.Storage;
 
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
@@ -84,6 +86,7 @@ internal sealed class ManifestRollPublisher : IDisposable
         }
         catch (InvalidOperationException)
         {
+            //-V5606 //-V3163
             // Queue completed during shutdown.
         }
     }
