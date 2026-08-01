@@ -152,13 +152,13 @@ internal static class TopologyValidator
 
     private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
-        if (value is not { } uri || !IsAbsoluteHttpsUri(uri))
+        if (value is null || !IsAbsoluteHttpsUri(value))
         {
             failures.Add(httpsRequiredMessage);
             return;
         }
 
-        CollectHttpsUriFailures(failures, uri, tooLongMessage, hostRequiredMessage, originRequiredMessage);
+        CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
     }
 
     private static bool IsAbsoluteHttpsUri(Uri value) =>

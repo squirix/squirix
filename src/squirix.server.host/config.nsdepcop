@@ -18,6 +18,9 @@
   <!-- Tooling must not reference the client SDK assembly. -->
   <DisallowedAssembly From="Squirix.Server.Host" To="Squirix" />
 
+  <!-- Tooling must not reference the isolated protocol-model assembly. -->
+  <DisallowedAssembly From="Squirix.Server.Host" To="Squirix.ProtocolModel" />
+
   <!-- CLI must not bypass public bootstrap API and call persistence directly. -->
   <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Storage.*" />
 

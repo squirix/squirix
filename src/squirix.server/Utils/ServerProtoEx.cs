@@ -105,6 +105,9 @@ internal static class ServerProtoEx
             case CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double):
                 result = ReinterpretScalar<T, double>(value.DoubleValue);
                 return true;
+            case CacheValue.KindOneofCase.None:
+            case CacheValue.KindOneofCase.NullValue:
+            case CacheValue.KindOneofCase.StructValue:
             default:
                 return false;
         }

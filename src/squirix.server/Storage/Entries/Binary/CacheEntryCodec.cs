@@ -234,13 +234,10 @@ internal static class CacheEntryCodec
                 return true;
             }
 
-            if (value is T ok)
-            {
-                result = ok;
-                return true;
-            }
-
-            return TryCoerceNumericOrJson<T>(value, out result);
+            if (value is not T ok)
+                return TryCoerceNumericOrJson(value, out result);
+            result = ok;
+            return true;
         }
 
         internal static bool TryReadInternal(ReadOnlySpan<byte> source, out object? value, out int bytesRead)

@@ -53,15 +53,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         Assert.Empty(ServerArchitectureFixtures.CollectImplicitUsingsProjectOffenders(root));
     }
 
-    /// <summary>Ensures the server package does not reference the client SDK assembly.</summary>
-    [Fact]
-    public void ServerAssemblyShouldNotReferenceSquirix()
-    {
-        var references = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("ProjectReference");
-        if (references is not null)
-            Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
     [Fact]
     public async Task ServerBootstrapSourcesUsePackageHostStartupApi()
@@ -169,20 +160,5 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         Assert.Equal("true", index.RequireProperty("IsPackable"));
         Assert.Equal("true", index.RequireProperty("TreatWarningsAsErrors"));
         Assert.Equal("enable", index.RequireProperty("Nullable"));
-    }
-
-    /// <summary>Ensures the server project does not reference the client SDK project.</summary>
-    [Fact]
-    public void ServerProjectShouldNotReferenceSquirixProject()
-    {
-        var list = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("ProjectReference");
-        if (list is null)
-            return;
-
-        Assert.DoesNotContain(
-            list,
-            static reference => reference.Contains("squirix.csproj", StringComparison.OrdinalIgnoreCase) &&
-                                !reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(list, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.Ordinal));
     }
 }

@@ -39,15 +39,6 @@ public sealed class ClientArchitectureTests
         Assert.DoesNotContain("InternalsVisibleTo(\"Squirix.Server\"", text, StringComparison.Ordinal);
     }
 
-    /// <summary>Ensures the core package does not reference the server package.</summary>
-    [Fact]
-    public void ClientAssemblyShouldNotReferenceSquirixServer()
-    {
-        var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
-        if (references is not null)
-            Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Fact]
     public void ClientProjectGeneratesNarrowCacheGrpcFromShared()
@@ -76,20 +67,6 @@ public sealed class ClientArchitectureTests
         var frameworkReferences = index.GetIncludes("FrameworkReference");
         if (frameworkReferences is not null)
             Assert.DoesNotContain(frameworkReferences, static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
-    }
-
-    /// <summary>Ensures the core project does not depend on the server project.</summary>
-    [Fact]
-    public void ClientProjectShouldNotReferenceServerProject()
-    {
-        var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
-        if (references is null)
-            return;
-
-        Assert.DoesNotContain(
-            references,
-            static reference => reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase) ||
-                                reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

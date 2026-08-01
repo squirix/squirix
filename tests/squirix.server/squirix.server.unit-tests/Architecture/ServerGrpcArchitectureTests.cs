@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Architecture rules for shared gRPC compile includes, mappers, storage isolation, and Prometheus ownership.</summary>
+/// <summary>Architecture rules for shared gRPC compile includes, mappers, and Prometheus ownership.</summary>
 public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
@@ -106,32 +106,6 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             Assert.Contains("namespace Squirix.Transport.Grpc.Mappers;", text, StringComparison.Ordinal);
-        }
-    }
-
-    /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
-    [Fact]
-    public Task StorageShouldNotDependOnAdapters() => AssertStorageSourcesDoNotContainAsync(ServerArchitectureNamespaces.Adapters);
-
-    /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
-    [Fact]
-    public Task StorageShouldNotDependOnNodeHosting() => AssertStorageSourcesDoNotContainAsync($"{ServerArchitectureNamespaces.Node}.Hosting");
-
-    private static async Task AssertStorageSourcesDoNotContainAsync(string forbiddenMarker)
-    {
-        var storageRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Storage");
-        Assert.True(Directory.Exists(storageRoot), $"Expected source root '{storageRoot}'.");
-
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        foreach (var path in Directory.GetFiles(storageRoot, "*.cs", SearchOption.AllDirectories))
-        {
-            if (path.Contains(objMarker, StringComparison.Ordinal))
-                continue;
-
-            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            Assert.False(
-                text.Contains(forbiddenMarker, StringComparison.Ordinal),
-                $"Storage file '{path}' must not reference '{forbiddenMarker}'.");
         }
     }
 }

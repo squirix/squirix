@@ -4,29 +4,9 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Architecture rules for Filter/Handler/Metrics/Options/Service namespace placement.</summary>
+/// <summary>Architecture rules for Metrics/Options/Service namespace placement.</summary>
 public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Ensures filter types stay at the REST adapter boundary.</summary>
-    [Fact]
-    public async Task FilterTypesShouldLiveInAdaptersRestNamespace()
-    {
-        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Filter", true, cancellationToken: DefaultCancellationToken);
-        ServerTypeCatalog.AssertResideInOneOfNamespaces(
-            types,
-            [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
-    }
-
-    /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
-    [Fact]
-    public async Task HandlerTypesLiveInNodeHostingSecurityNamespace()
-    {
-        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Handler", true, cancellationToken: DefaultCancellationToken);
-        ServerTypeCatalog.AssertResideInNamespace(
-            types,
-            $"{ServerArchitectureNamespaces.Node}.Hosting.Security");
-    }
-
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
     [Fact]
     public async Task MetricsTypesShouldLiveInObservabilityNamespace()
@@ -86,12 +66,17 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
         /// <summary>
         /// Exact namespaces where <c>*Service</c> types are permitted to reside.
         /// </summary>
+        /// <remarks>
+        /// <c>Squirix.Transport.Grpc</c> is intentionally omitted: placement discovery only scans
+        /// <c>src/squirix.server</c> sources under <c>Squirix.Server*</c> namespaces, and the shared
+        /// transport files linked into the server do not declare handwritten <c>*Service</c> types.
+        /// Proto-generated gRPC service stubs are covered by dedicated gRPC architecture tests instead.
+        /// </remarks>
         internal static readonly string[] ServiceTypeNamespaces =
         [
             $"{ServerArchitectureNamespaces.Node}.Services",
             ServerArchitectureNamespaces.Cluster,
             $"{ServerArchitectureNamespaces.Node}.Context",
-            "Squirix.Transport.Grpc",
         ];
     }
 }

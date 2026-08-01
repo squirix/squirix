@@ -91,8 +91,9 @@
         <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <!-- Namespace dependency rules for production packages under src/** and server tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="'$(IsSquirixProductionProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <!-- Namespace dependency rules for production packages under src/** (except analyzers),
+         protocol-model, and server tests under tests/squirix.server/**. -->
+    <ItemGroup Label="NsDepCop" Condition="'$(IsSquirixProductionProject)' == 'true' Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
