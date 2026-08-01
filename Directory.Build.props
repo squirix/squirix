@@ -112,8 +112,10 @@
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
 
-    <!-- PVS-Studio project-level rules (solution item avoided). Visible under each analyzed src project. -->
-    <ItemGroup Label="PvsStudioConfig" Condition="'$(IsSquirixProductionProject)' == 'true' Or '$(IsSquirixProtocolModelProject)' == 'true'">
+    <!-- PVS-Studio project-level rules for every analyzed project (incl. tests).
+         .pvsconfig itself excludes **/tests/**,**/samples/**,**/benchmarks/** so those
+         trees stay out of findings; without this link, test projects had no rules file. -->
+    <ItemGroup Label="PvsStudioConfig" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory).pvsconfig" Link=".pvsconfig"/>
     </ItemGroup>
 </Project>
