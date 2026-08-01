@@ -33,8 +33,6 @@
         <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
     </ItemGroup>
 
     <ItemGroup>
