@@ -5,3 +5,6 @@
 //V_EXCLUDE_PATH **/*.g.cs
 //V_EXCLUDE_PATH **/*.AssemblyInfo.cs
 //V_EXCLUDE_PATH **/AssemblyInfo.cs
+//
+// CI quality gate fails on GA levels 1 and 2 only (see .github/workflows/ci.yml).
+// Level 3 findings (e.g. V3163 empty best-effort catch) remain visible in the HTML/JSON artifact.

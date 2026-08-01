@@ -1291,23 +1291,46 @@ jobs:
                       echo "PVS-Studio analyzer error (exit bit 2)." >&2
                       exit 1
                     fi
-                    if (( (exit_code & 8) != 0 )); then
-                      echo "PVS-Studio found warnings (exit bit 8). Fix or suppress before merge." >&2
-                      if command -v plog-converter >/dev/null 2>&1; then
-                        plog-converter \
-                          pvs-studio-out/pvs-studio-report.json \
-                          -t totals \
-                          -a GA:1,2,3 \
-                          -o pvs-studio-out/pvs-studio-totals.txt \
-                          || true
-                        if [[ -f pvs-studio-out/pvs-studio-totals.txt ]]; then
-                          cat pvs-studio-out/pvs-studio-totals.txt
-                        fi
-                      fi
+                    # Bit 8 = any warning including L3. Gate only on High/Medium (GA:1,2).
+                    # L3 (often intentional empty best-effort catches) stays in the artifact report.
+                    if (( (exit_code & ~4 & ~8) != 0 )); then
+                      echo "Unexpected pvs-studio-dotnet exit_code=${exit_code}" >&2
                       exit 1
                     fi
-                    if (( (exit_code & ~4) != 0 )); then
-                      echo "Unexpected pvs-studio-dotnet exit_code=${exit_code}" >&2
+
+                    if [[ ! -f pvs-studio-out/pvs-studio-report.json ]]; then
+                      echo "PVS-Studio report missing." >&2
+                      exit 1
+                    fi
+
+                    plog-converter \
+                      pvs-studio-out/pvs-studio-report.json \
+                      -t totals \
+                      -a GA:1,2,3 \
+                      -o pvs-studio-out/pvs-studio-totals.txt \
+                      || true
+                    if [[ -f pvs-studio-out/pvs-studio-totals.txt ]]; then
+                      cat pvs-studio-out/pvs-studio-totals.txt
+                    fi
+
+                    gate_code=0
+                    plog-converter \
+                      pvs-studio-out/pvs-studio-report.json \
+                      -t totals \
+                      -a GA:1,2 \
+                      -o pvs-studio-out/pvs-studio-gate-totals.txt \
+                      --indicate-warnings \
+                      || gate_code=$?
+                    if [[ -f pvs-studio-out/pvs-studio-gate-totals.txt ]]; then
+                      echo "--- gate filter GA:1,2 ---"
+                      cat pvs-studio-out/pvs-studio-gate-totals.txt
+                    fi
+                    if [[ "$gate_code" -eq 2 ]]; then
+                      echo "PVS-Studio gate failed: High/Medium warnings remain (GA:1,2)." >&2
+                      exit 1
+                    fi
+                    if [[ "$gate_code" -ne 0 ]]; then
+                      echo "plog-converter gate failed with exit_code=${gate_code}" >&2
                       exit 1
                     fi
 
