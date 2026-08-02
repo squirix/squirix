@@ -1,0 +1,153 @@
+name: Run Test Suite
+description: Download build outputs and run one CI test suite (optional coverage on Ubuntu).
+
+inputs:
+  os:
+    description: Runner OS label matching artifact name (ubuntu-latest, windows-latest, macos-latest).
+    required: true
+  framework:
+    description: Target framework moniker.
+    required: false
+    default: net10.0
+  suite:
+    description: Suite id (unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model).
+    required: true
+  collect-coverage:
+    description: When true, collect Coverlet coverage (Ubuntu only).
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        global-json-file: global.json
+
+    - name: Cache NuGet Packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-dotnet10-nuget-
+
+    - name: Download Build Outputs
+      uses: actions/download-artifact@v8
+      with:
+        name: build-output-${{ inputs.os }}-${{ inputs.framework }}
+        path: .
+
+    - name: Restore (Resolve Packages For Collectors)
+      shell: bash
+      run: dotnet restore squirix.slnx
+
+    - name: Restore Executable Bits For Test Hosts (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
+        chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
+        chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
+        chmod +x tests/squirix.e2e.tests/bin/Release/${{ inputs.framework }}/Squirix.E2ETests || true
+        chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ inputs.framework }}/Squirix.ProtocolModel.Tests || true
+
+    - name: Ensure Dev HTTPS Certificate
+      shell: bash
+      run: bash tools/ci/ensure-dev-https-cert.sh
+
+    - name: Run Test Suite
+      shell: bash
+      run: |
+        set -o pipefail
+        FILTER_ARGS=()
+        case "${{ inputs.suite }}" in
+          unit)
+            PROJECT="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"
+            ;;
+          client-integration)
+            PROJECT="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"
+            ;;
+          server-unit)
+            PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
+            ;;
+          server-integration)
+            PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
+            ;;
+          e2e-single-node)
+            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
+            # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
+            FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress")
+            ;;
+          e2e-multi-node)
+            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
+            FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
+            ;;
+          protocol-model)
+            PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
+            ;;
+          *)
+            echo "Unsupported suite: ${{ inputs.suite }}" >&2
+            exit 1
+            ;;
+        esac
+
+        if [ "${{ inputs.collect-coverage }}" = "true" ]; then
+          mkdir -p "coverage/${{ inputs.suite }}"
+          dotnet test "$PROJECT" -f ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+            "${FILTER_ARGS[@]}" \
+            --blame-hang-timeout 5m \
+            --logger "trx;LogFileName=${{ inputs.suite }}.trx" \
+            --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
+            --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+        else
+          dotnet test "$PROJECT" -f ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+            "${FILTER_ARGS[@]}" \
+            --blame-hang-timeout 5m \
+            --logger "trx;LogFileName=${{ inputs.suite }}.trx" 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+        fi
+
+    - name: Verify Suite Coverage Was Collected
+      if: inputs.collect-coverage == 'true'
+      shell: bash
+      run: |
+        mapfile -t files < <(find "coverage/${{ inputs.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "Suite '${{ inputs.suite }}' passed, but no coverage.cobertura.xml was produced." >&2
+          echo "Coverage directory contents:" >&2
+          find "coverage/${{ inputs.suite }}" -type f -print 2>/dev/null || true
+          ls -R "coverage/${{ inputs.suite }}" || true
+          exit 1
+        fi
+
+    - name: Upload Raw Coverage Files
+      if: always() && inputs.collect-coverage == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-raw-${{ inputs.framework }}-${{ inputs.suite }}
+        retention-days: 1
+        path: |
+          coverage/**/coverage.cobertura.xml
+          coverage/**/coverage.opencover.xml
+        if-no-files-found: error
+
+    - name: Upload Test Results (TRX)
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-results-${{ inputs.os }}-${{ inputs.framework }}-${{ inputs.suite }}
+        retention-days: 1
+        path: '**/*.trx'
+        if-no-files-found: warn
+
+    - name: Fail On gRPC Cancellation Errors In Logs
+      if: always()
+      shell: bash
+      run: |
+        if grep -Ei 'gRPC method .+ (task )?canceled' "test-output-${{ inputs.suite }}.log"; then
+          echo "Found gRPC cancellation errors in logs. Failing the build." >&2
+          exit 1
+        else
+          echo "No gRPC cancellation errors detected."
+        fi

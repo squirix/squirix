@@ -1,0 +1,74 @@
+name: Build Release Outputs
+description: Restore and Release-build the solution; upload bin/obj artifacts for test jobs.
+
+inputs:
+  artifact-os:
+    description: Artifact name OS segment (ubuntu-latest, windows-latest, or macos-latest).
+    required: true
+  framework:
+    description: Target framework moniker.
+    required: false
+    default: net10.0
+  run-package-smoke:
+    description: When true, run external package smoke (ubuntu push/schedule only).
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        global-json-file: global.json
+
+    - name: Cache NuGet Packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-dotnet10-nuget-
+
+    - name: Restore
+      shell: bash
+      run: dotnet restore squirix.slnx
+
+    - name: Verify Whitespace
+      shell: bash
+      run: git diff --check
+
+    - name: Build in-repo analyzers
+      shell: bash
+      run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
+
+    - name: Build
+      shell: bash
+      run: dotnet build squirix.slnx --configuration Release --no-restore
+
+    - name: Ensure Dev HTTPS Certificate
+      shell: bash
+      run: bash tools/ci/ensure-dev-https-cert.sh
+
+    - name: Run External Package Smoke
+      if: inputs.run-package-smoke == 'true'
+      shell: bash
+      run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
+
+    - name: Upload Build Outputs For Tests
+      uses: actions/upload-artifact@v7
+      with:
+        name: build-output-${{ inputs.artifact-os }}-${{ inputs.framework }}
+        retention-days: 1
+        path: |
+          src/**/bin/Release/${{ inputs.framework }}/
+          src/**/obj/Release/${{ inputs.framework }}/
+          tests/**/bin/Release/${{ inputs.framework }}/
+          tests/**/obj/Release/${{ inputs.framework }}/
+          benchmarks/**/bin/Release/${{ inputs.framework }}/
+          benchmarks/**/obj/Release/${{ inputs.framework }}/
+          !**/*.xml
+          !**/ref/**
+          !**/*.cache
+          !**/*.editorconfig*
+        if-no-files-found: error
