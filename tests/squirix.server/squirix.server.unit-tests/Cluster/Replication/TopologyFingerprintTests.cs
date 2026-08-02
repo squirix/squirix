@@ -151,6 +151,18 @@ public sealed class TopologyFingerprintTests
         Assert.Equal(64, first.Length);
     }
 
+    /// <summary>Equals and ToString are stable for identical digests.</summary>
+    [Fact]
+    public void EqualsHashCodeAndToStringAreStable()
+    {
+        var left = TopologyFingerprint.Compute(CreateInputs(CreatePeers()));
+        var right = TopologyFingerprint.Compute(CreateInputs(CreatePeers()));
+        Assert.True(left.Equals(right));
+        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+        Assert.Equal(64, left.ToString().Length);
+        Assert.Equal(left.ToString(), right.ToString(), StringComparer.Ordinal);
+    }
+
     private static FingerprintPeer[] CreatePeers() =>
     [
         new("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),

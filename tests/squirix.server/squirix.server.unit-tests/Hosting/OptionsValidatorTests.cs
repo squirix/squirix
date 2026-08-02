@@ -174,6 +174,51 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         Assert.True(result.Failed);
     }
 
+    /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
+    [Fact]
+    public void ConfigValidatorRejectsInvalidReplicaCount()
+    {
+        var v = new ConfigValidator();
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6002") },
+        ];
+        var zero = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 0,
+        };
+        Assert.True(v.Validate(Options.DefaultName, zero).Failed);
+
+        var abovePeers = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 3,
+        };
+        Assert.True(v.Validate(Options.DefaultName, abovePeers).Failed);
+    }
+
+    /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
+    [Fact]
+    public void ConfigValidatorRejectsZeroConfigurationGeneration()
+    {
+        var v = new ConfigValidator();
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = new Uri("https://localhost:6001"),
+            ConfigurationGeneration = 0,
+        };
+
+        Assert.True(v.Validate(Options.DefaultName, cfg).Failed);
+    }
+
     /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
     [Fact]
     public void JournalCompactionValidatorAcceptsValidTailSegments()

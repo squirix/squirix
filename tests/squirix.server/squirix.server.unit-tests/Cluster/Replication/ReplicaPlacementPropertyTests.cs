@@ -140,6 +140,55 @@ public sealed class ReplicaPlacementPropertyTests
         Assert.Equal("node-b", group[2]);
     }
 
+    /// <summary>Whitespace-only and duplicate peer ids are filtered before sorting.</summary>
+    [Fact]
+    public void FiltersWhitespaceAndDuplicates()
+    {
+        var ring = new PhysicalNodeRing(["node-b", "node-a", "node-a", string.Empty, "node-c", "   "]);
+        Assert.Equal(3, ring.Count);
+        var group = new string[3];
+        ring.WriteReplicaGroup("node-a", 3, group);
+        Assert.Equal("node-a", group[0]);
+        Assert.Equal("node-b", group[1]);
+        Assert.Equal("node-c", group[2]);
+    }
+
+    /// <summary>Empty input is rejected.</summary>
+    [Fact]
+    public void RejectsEmptyNodeList() =>
+        _ = Assert.Throws<ArgumentException>(static () => _ = new PhysicalNodeRing([]));
+
+    /// <summary>Unknown owners are rejected.</summary>
+    [Fact]
+    public void RejectsUnknownOwner()
+    {
+        var ring = new PhysicalNodeRing(["node-a", "node-b"]);
+        var group = new string[2];
+        _ = Assert.Throws<ArgumentException>(() => ring.WriteReplicaGroup("missing", 2, group));
+    }
+
+    /// <summary>Destination length must match replica count.</summary>
+    [Fact]
+    public void RejectsDestinationLengthMismatch()
+    {
+        var ring = new PhysicalNodeRing(["node-a", "node-b"]);
+        var group = new string[1];
+        _ = Assert.Throws<ArgumentException>(() => ring.WriteReplicaGroup("node-a", 2, group));
+    }
+
+    /// <summary>Replica count must fit the ring and policy max.</summary>
+    [Fact]
+    public void RejectsReplicaCountOutOfRange()
+    {
+        var ring = new PhysicalNodeRing(["node-a", "node-b"]);
+        var group = new string[3];
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => ring.WriteReplicaGroup("node-a", 0, group));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => ring.WriteReplicaGroup("node-a", 3, group));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, 0));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, 3));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, PolicyOptions.MaxReplicaCount + 1));
+    }
+
     private static int CountOccurrences(ReadOnlySpan<string> values, string expected)
     {
         var count = 0;
