@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -182,36 +181,7 @@ internal static class RuntimeServiceRegistration
                 return _items[idx].Node;
             }
 
-            private static string[] CollectDistinctNodes(ReadOnlySpan<string> nodes)
-            {
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                var buffer = new string[nodes.Length];
-                var writeIndex = 0;
-
-                for (var i = 0; i < nodes.Length; i++)
-                {
-                    var value = nodes[i];
-                    if (string.IsNullOrWhiteSpace(value) || !seen.Add(value))
-                        continue;
-
-                    buffer[writeIndex++] = value;
-                }
-
-                return TrimDistinctBuffer(buffer, writeIndex);
-            }
-
-            private static string[] TrimDistinctBuffer(string[] buffer, int writeIndex)
-            {
-                if (writeIndex is 0)
-                    return [];
-
-                if (writeIndex == buffer.Length)
-                    return buffer;
-
-                var result = new string[writeIndex];
-                buffer.AsSpan(0, writeIndex).CopyTo(result);
-                return result;
-            }
+            private static string[] CollectDistinctNodes(ReadOnlySpan<string> nodes) => DistinctNodeIds.InInsertionOrder(nodes);
 
             private int FindFirstGreaterOrEqual(ulong hash)
             {

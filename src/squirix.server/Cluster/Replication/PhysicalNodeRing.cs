@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -50,33 +49,11 @@ internal sealed class PhysicalNodeRing
 
     private static string[] CollectSortedDistinct(ReadOnlySpan<string> nodeIds)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var buffer = new string[nodeIds.Length];
-        var write = 0;
-        for (var i = 0; i < nodeIds.Length; i++)
-        {
-            var value = nodeIds[i];
-            if (string.IsNullOrWhiteSpace(value) || !seen.Add(value))
-                continue;
+        var distinct = DistinctNodeIds.InInsertionOrder(nodeIds);
+        if (distinct.Length > 1)
+            Array.Sort(distinct, StringComparer.Ordinal);
 
-            buffer[write++] = value;
-        }
-
-        if (write is 0)
-            return [];
-
-        if (write == buffer.Length)
-        {
-            Array.Sort(buffer, StringComparer.Ordinal);
-            return buffer;
-        }
-
-        var result = new string[write];
-        for (var i = 0; i < write; i++)
-            result[i] = buffer[i];
-
-        Array.Sort(result, StringComparer.Ordinal);
-        return result;
+        return distinct;
     }
 
     private int IndexOf(string nodeId) => Array.BinarySearch(_nodes, nodeId, StringComparer.Ordinal);
