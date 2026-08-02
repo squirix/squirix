@@ -116,8 +116,13 @@ internal static class RuntimeServiceRegistration
         _ = services.AddSingleton(physicalRing);
         _ = services.AddSingleton<IReplicaGroupLocator>(new ReplicaGroupLocator(physicalRing, cluster.ReplicaCount));
 
-        // Instance descriptor boxes the readonly struct; AddSingleton<T> requires a reference type.
-        services.Add(new ServiceDescriptor(typeof(FeatureState), FeatureState.Disabled, ServiceLifetime.Singleton));
+        // AddSingleton<T>(T) is constrained to class; two-arg instance descriptor boxes the struct.
+        // Do not pass ServiceLifetime — that binds the keyed (serviceType, serviceKey, instance) ctor.
+        var featureState = FeatureState.Disabled;
+        if (featureState.NetworkReplicationEnabled)
+            throw new InvalidOperationException("Network replication must stay disabled until M8-09 activation.");
+
+        services.Add(new ServiceDescriptor(typeof(FeatureState), featureState));
         _ = services.AddSingleton(sp => cluster.CreateFingerprint(sp.GetRequiredService<MtlsOptions>()));
     }
 
