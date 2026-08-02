@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Threading;
@@ -95,6 +96,7 @@ internal static class ServerHostingComposition
         KestrelConfiguration.EnsureHttpsTransport(cluster);
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
+        EnsureReplicationActivationAllowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions);
         var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
 
@@ -139,6 +141,18 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
         _ = services.AddSquirixClusterReplication(cluster);
+    }
+
+    private static void EnsureReplicationActivationAllowed(int replicaCount, bool persistenceEnabled, MtlsOptions mtlsOptions)
+    {
+        var failures = new List<string>();
+        ReplicationActivationGuard.CollectFailures(
+            failures,
+            replicaCount,
+            persistenceEnabled,
+            ReplicationActivationGuard.IsMtlsConfigured(mtlsOptions));
+        if (failures.Count > 0)
+            throw new InvalidOperationException(string.Join(' ', failures));
     }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)

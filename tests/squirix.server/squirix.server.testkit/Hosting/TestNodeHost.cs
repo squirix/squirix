@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -40,6 +42,9 @@ public sealed class TestNodeHost : IAsyncDisposable
 
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
+
+    /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
+    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificateMaterial>() is { Enabled: true };
 
     /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
     public bool PersistenceEnabled { get; }

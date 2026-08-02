@@ -31,7 +31,17 @@ internal static class SquirixServerOptionsValidator
             ConfigurationGeneration = options.ConfigurationGeneration,
         };
 
-        return TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors);
+        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
+            return false;
+
+        // Public options path does not carry mTLS material; evaluate persistence then refuse RF>1 activation.
+        var activationFailures = new List<string>();
+        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null);
+        if (activationFailures.Count is 0)
+            return true;
+
+        errors = activationFailures;
+        return false;
     }
 
     internal static void Validate(SquirixServerOptions options)

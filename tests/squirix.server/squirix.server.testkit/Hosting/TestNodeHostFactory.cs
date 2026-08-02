@@ -128,6 +128,8 @@ public static class TestNodeHostFactory
             NodeId = nodeId,
             Uri = uri,
             VirtualNodes = 128,
+            ReplicaCount = options?.ReplicaCount ?? 1,
+            ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
         };
 
         var primaryUri = clusterConfig.Uri;
