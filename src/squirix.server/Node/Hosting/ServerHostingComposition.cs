@@ -78,10 +78,6 @@ internal static class ServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    [SuppressMessage(
-        "Microsoft.Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -91,12 +87,7 @@ internal static class ServerHostingComposition
         var persistence = args.PersistenceOptions is null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions);
         var persistenceEnabled = persistence is not null;
         var uri = cluster.Uri;
-        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
-        KestrelConfiguration.EnsureHttpsTransport(cluster);
-        var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
-        var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
-        var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
-        KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
+        var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(builder, cluster, args, persistenceEnabled);
 
         _ = await builder.Services.AddSquirixValidatedOptionsAsync(
             cluster,
@@ -139,6 +130,27 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
         _ = services.AddSquirixClusterReplication(cluster);
+    }
+
+    [SuppressMessage(
+        "Microsoft.Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
+    private static (MtlsOptions Options, MtlsCertificateMaterial Material) ResolveClusterTransportSecurity(
+        WebApplicationBuilder builder,
+        TopologyOptions cluster,
+        ICompositionArgs args,
+        bool persistenceEnabled)
+    {
+        var uri = cluster.Uri;
+        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
+        KestrelConfiguration.EnsureHttpsTransport(cluster);
+        var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
+        var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
+        ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions);
+        var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
+        KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
+        return (mtlsOptions, mtlsMaterial);
     }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)

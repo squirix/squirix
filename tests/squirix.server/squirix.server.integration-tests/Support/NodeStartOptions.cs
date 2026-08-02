@@ -10,9 +10,13 @@ internal sealed class NodeStartOptions
 {
     internal bool CleanTestDir { get; init; } = true;
 
+    internal ulong ConfigurationGeneration { get; init; } = 1;
+
     internal string? ExtraScope { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
+
+    internal int ReplicaCount { get; init; } = 1;
 
     internal TestNodeSecurityOptions? Security { get; init; }
 
