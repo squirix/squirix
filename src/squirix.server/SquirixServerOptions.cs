@@ -9,6 +9,12 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the cluster identifier.</summary>
     public string ClusterId { get; set; } = "cluster";
 
+    /// <summary>
+    /// Gets or sets the stopped-topology configuration generation.
+    /// Must be greater than zero. Changing an activated RF&gt;1 topology is unsupported.
+    /// </summary>
+    public ulong ConfigurationGeneration { get; set; } = 1;
+
     /// <summary>Gets or sets an optional persistence data directory override.</summary>
     public string? DataDirectory { get; set; }
 
@@ -20,6 +26,12 @@ public sealed class SquirixServerOptions
 
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets the replica factor including the original owner.
+    /// Default is <c>1</c>. Values greater than one are planning-only until replication activation.
+    /// </summary>
+    public int ReplicaCount { get; set; } = 1;
 
     /// <summary>Gets or sets the primary HTTPS URI used for gRPC and node traffic.</summary>
     public Uri Uri { get; set; } = new("https://localhost:5001");

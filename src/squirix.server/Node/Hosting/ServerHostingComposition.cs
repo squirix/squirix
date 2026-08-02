@@ -13,6 +13,7 @@ using Microsoft.Extensions.Hosting;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
@@ -109,7 +110,7 @@ internal static class ServerHostingComposition
             },
             cancellationToken).ConfigureAwait(false);
         _ = builder.Services.AddSquirixRuntimeServices();
-        _ = builder.Services.AddSquirixClusterServices(cluster, null, args.PeerHandlerFactory);
+        AddSquirixClusterStack(builder.Services, cluster, args);
         if (persistenceEnabled)
             _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 
@@ -124,6 +125,20 @@ internal static class ServerHostingComposition
         if (args.Extensions is not null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
+    }
+
+    /// <summary>
+    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
+    /// </summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
+    {
+        _ = services.AddSquirixClusterLocator(cluster);
+        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
+        _ = services.AddSquirixClusterReplication(cluster);
     }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)

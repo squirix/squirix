@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.Cluster;
 
 internal sealed class ServerPeer
 {

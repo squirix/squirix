@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;

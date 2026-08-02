@@ -106,7 +106,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>NormalizeValue keeps encodable forms and serializes arbitrary objects once.</summary>
     [Fact]
-    public void NormalizeValueKeepsEncodablesAndSerializesObjects()
+    public void NormalizeValuePreservesEncodables()
     {
         Assert.Null(CacheEntryCodec.NormalizeValue(null));
         Assert.True(Assert.IsType<bool>(CacheEntryCodec.NormalizeValue(true)));
@@ -117,7 +117,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         Assert.Equal(tiny, CacheEntryCodec.NormalizeValue(tiny));
         Assert.Equal(4m, CacheEntryCodec.NormalizeValue(4m));
 
-        var normalized = CacheEntryCodec.NormalizeValue(new NormalizeProbe { Id = 1 });
+        var normalized = CacheEntryCodec.NormalizeValue(new { Id = 1 });
         var element = Assert.IsType<JsonElement>(normalized);
         Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
         Assert.Equal(1, id.GetInt32());
@@ -138,7 +138,14 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     {
         var entry = new NodeCacheEntry<object?> { Value = "abc", Version = 1 };
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
-        _ = Assert.Throws<ArgumentException>(() => CacheEntryCodec.Write(entry, new byte[length - 1]));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+            entry,
+            length - 1,
+            static (e, tooSmall) =>
+            {
+                Span<byte> destination = stackalloc byte[tooSmall];
+                CacheEntryCodec.Write(e, destination);
+            });
     }
 
     /// <summary>TryRead fails on truncated envelopes.</summary>
@@ -175,9 +182,4 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         double d when actual is double r => Math.Abs(d - r) < 0.0001,
         _ => Equals(expected, actual),
     };
-
-    private sealed class NormalizeProbe
-    {
-        public int Id { get; init; }
-    }
 }

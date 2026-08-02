@@ -61,6 +61,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             $"{ServerArchitectureNamespaces.Storage}.Journaling.Compaction",
             ServerArchitectureNamespaces.Cluster,
             $"{ServerArchitectureNamespaces.Cluster}.Transport",
+            $"{ServerArchitectureNamespaces.Cluster}.Replication",
         ];
 
         /// <summary>

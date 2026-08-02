@@ -34,12 +34,14 @@ internal static class E2EBenchmarkValueAdapter
     {
         private readonly ICache<T> _cache;
         private readonly Func<int, T> _factory;
+        private readonly GetOrAddHitProbe _getOrAddHitProbe;
         private readonly GetOrAddMissFactory _getOrAddMissFactory;
 
         internal Adapter(ICache<T> cache, Func<int, T> factory)
         {
             _cache = cache;
             _factory = factory;
+            _getOrAddHitProbe = new GetOrAddHitProbe(factory);
             _getOrAddMissFactory = new GetOrAddMissFactory(factory);
         }
 
@@ -72,16 +74,9 @@ internal static class E2EBenchmarkValueAdapter
 
         public async Task<bool> GetOrAddHitAsync(string key, CancellationToken cancellationToken)
         {
-            var called = false;
-            var result = await _cache.GetOrAddAsync(
-                key,
-                (_, _) =>
-                {
-                    called = true;
-                    return Task.FromResult<T?>(_factory(-1));
-                },
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            return result.Found && !called;
+            _getOrAddHitProbe.Reset();
+            var result = await _cache.GetOrAddAsync(key, _getOrAddHitProbe.ValueFactory, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return result.Found && !_getOrAddHitProbe.Called;
         }
 
         public async Task<bool> GetOrAddMissAsync(string key, int valueIndex, CancellationToken cancellationToken)
@@ -135,6 +130,31 @@ internal static class E2EBenchmarkValueAdapter
             _cache.TryAddAsync(key, _factory(valueIndex), cancellationToken: cancellationToken);
 
         public Task<bool> UpdateAsync(string key, int valueIndex, CancellationToken cancellationToken) => _cache.UpdateAsync(key, _factory(valueIndex), cancellationToken);
+
+        private sealed class GetOrAddHitProbe
+        {
+            private readonly Func<int, T> _valueFactory;
+
+            internal GetOrAddHitProbe(Func<int, T> valueFactory)
+            {
+                _valueFactory = valueFactory;
+                ValueFactory = CreateValueAsync;
+            }
+
+            internal bool Called { get; private set; }
+
+            internal Func<string, CancellationToken, Task<T?>> ValueFactory { get; }
+
+            internal void Reset() => Called = false;
+
+            private Task<T?> CreateValueAsync(string key, CancellationToken cancellationToken)
+            {
+                _ = key;
+                cancellationToken.ThrowIfCancellationRequested();
+                Called = true;
+                return Task.FromResult<T?>(_valueFactory(-1));
+            }
+        }
 
         private sealed class GetOrAddMissFactory
         {

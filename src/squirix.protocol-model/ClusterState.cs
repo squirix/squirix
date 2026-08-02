@@ -8,12 +8,7 @@ namespace Squirix.ProtocolModel;
 /// <summary>Immutable Raft-equivalent cluster snapshot for exploration.</summary>
 internal sealed class ClusterState
 {
-    private ClusterState(
-        IReadOnlyList<NodeState> nodes,
-        IReadOnlyList<InFlightMessage> messages,
-        IReadOnlyList<int> partitions,
-        int nextMessageId,
-        IReadOnlyList<int> matchIndexes)
+    private ClusterState(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, int nextMessageId, IReadOnlyList<int> matchIndexes)
     {
         Nodes = CopyNodes(nodes);
         Messages = CopyMessages(messages);
@@ -49,35 +44,25 @@ internal sealed class ClusterState
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
 
-    internal string Fingerprint(bool symmetryReduce) =>
-        symmetryReduce ? FingerprintHelper.Canonical(this) : FingerprintHelper.Raw(this);
+    internal string Fingerprint(bool symmetryReduce) => symmetryReduce ? FingerprintHelper.Canonical(this) : FingerprintHelper.Raw(this);
 
     internal ClusterState WithMatchIndexes(IReadOnlyList<int> matchIndexes) => With(matchIndexes: matchIndexes);
 
     internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages) => With(messages: messages);
 
-    internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages, int nextMessageId) =>
-        With(messages: messages, nextMessageId: nextMessageId);
+    internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages, int nextMessageId) => With(messages: messages, nextMessageId: nextMessageId);
 
     internal ClusterState WithNodes(IReadOnlyList<NodeState> nodes) => With(nodes);
 
-    internal ClusterState WithNodesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) =>
-        With(nodes, matchIndexes: matchIndexes);
+    internal ClusterState WithNodesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) => With(nodes, matchIndexes: matchIndexes);
 
     internal ClusterState WithNodesMessages(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, int nextMessageId) =>
         With(nodes, messages, nextMessageId: nextMessageId);
 
-    internal ClusterState WithNodesMessagesMatch(
-        IReadOnlyList<NodeState> nodes,
-        IReadOnlyList<InFlightMessage> messages,
-        int nextMessageId,
-        IReadOnlyList<int> matchIndexes) =>
+    internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, int nextMessageId, IReadOnlyList<int> matchIndexes) =>
         With(nodes, messages, nextMessageId: nextMessageId, matchIndexes: matchIndexes);
 
-    internal ClusterState WithNodesMessagesMatch(
-        IReadOnlyList<NodeState> nodes,
-        IReadOnlyList<InFlightMessage> messages,
-        IReadOnlyList<int> matchIndexes) =>
+    internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> matchIndexes) =>
         With(nodes, messages, matchIndexes: matchIndexes);
 
     internal ClusterState WithPartitions(IReadOnlyList<int> partitions) => With(partitions: partitions);
@@ -114,13 +99,12 @@ internal sealed class ClusterState
         IReadOnlyList<InFlightMessage>? messages = null,
         IReadOnlyList<int>? partitions = null,
         int? nextMessageId = null,
-        IReadOnlyList<int>? matchIndexes = null) =>
-        new(
-            nodes ?? Nodes,
-            messages ?? Messages,
-            partitions ?? Partitions,
-            nextMessageId ?? NextMessageId,
-            matchIndexes ?? MatchIndexes);
+        IReadOnlyList<int>? matchIndexes = null) => new(
+        nodes ?? Nodes,
+        messages ?? Messages,
+        partitions ?? Partitions,
+        nextMessageId ?? NextMessageId,
+        matchIndexes ?? MatchIndexes);
 
     private static class FingerprintHelper
     {
@@ -141,8 +125,7 @@ internal sealed class ClusterState
                 if (i > 0)
                     _ = sb.Append('/');
 
-                _ = sb.Append(n.LogEntries[i].Term.ToString(CultureInfo.InvariantCulture)).Append('@')
-                      .Append(n.LogEntries[i].Index.ToString(CultureInfo.InvariantCulture));
+                _ = sb.Append(n.LogEntries[i].Term.ToString(CultureInfo.InvariantCulture)).Append('@').Append(n.LogEntries[i].Index.ToString(CultureInfo.InvariantCulture));
             }
         }
 
@@ -213,17 +196,16 @@ internal sealed class ClusterState
 
         private static int[] BuildSymmetryOrder(ClusterState state)
         {
-            var order = new int[state.Nodes.Count];
-            for (var i = 0; i < order.Length; i++)
+            var count = state.Nodes.Count;
+            var order = new int[count];
+            var signatures = new string[count];
+            for (var i = 0; i < count; i++)
+            {
                 order[i] = i;
+                signatures[i] = NodeSignature(state.Nodes[i]);
+            }
 
-            Array.Sort(
-                order,
-                (a, b) =>
-                {
-                    var cmp = NodeSignature(state.Nodes[a]).CompareTo(NodeSignature(state.Nodes[b]), StringComparison.Ordinal);
-                    return cmp is not 0 ? cmp : a.CompareTo(b);
-                });
+            Array.Sort(order, new SignatureOrderComparer(signatures));
             return order;
         }
 
@@ -264,17 +246,16 @@ internal sealed class ClusterState
             return a.ReadIndex.CompareTo(b.ReadIndex);
         }
 
-        private static int MsgKindOrdinal(MsgKind kind) =>
-            kind switch
-            {
-                MsgKind.RequestVote => 0,
-                MsgKind.VoteResponse => 1,
-                MsgKind.AppendEntries => 2,
-                MsgKind.AppendResponse => 3,
-                MsgKind.ReadIndexRequest => 4,
-                MsgKind.ReadIndexResponse => 5,
-                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value."),
-            };
+        private static int MsgKindOrdinal(MsgKind kind) => kind switch
+        {
+            MsgKind.RequestVote => 0,
+            MsgKind.VoteResponse => 1,
+            MsgKind.AppendEntries => 2,
+            MsgKind.AppendResponse => 3,
+            MsgKind.ReadIndexRequest => 4,
+            MsgKind.ReadIndexResponse => 5,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value."),
+        };
 
         private static string NodeSignature(NodeState n)
         {
@@ -347,13 +328,28 @@ internal sealed class ClusterState
             return remapped;
         }
 
-        private static int RoleOrdinal(NodeRole role) =>
-            role switch
+        private static int RoleOrdinal(NodeRole role) => role switch
+        {
+            NodeRole.Follower => 0,
+            NodeRole.Candidate => 1,
+            NodeRole.Leader => 2,
+            _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported enum value."),
+        };
+
+        private readonly record struct SignatureOrderComparer : IComparer<int>
+        {
+            private readonly string[] _signatures;
+
+            internal SignatureOrderComparer(string[] signatures)
             {
-                NodeRole.Follower => 0,
-                NodeRole.Candidate => 1,
-                NodeRole.Leader => 2,
-                _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported enum value."),
-            };
+                _signatures = signatures;
+            }
+
+            public int Compare(int x, int y)
+            {
+                var cmp = string.CompareOrdinal(_signatures[x], _signatures[y]);
+                return cmp is not 0 ? cmp : x.CompareTo(y);
+            }
+        }
     }
 }

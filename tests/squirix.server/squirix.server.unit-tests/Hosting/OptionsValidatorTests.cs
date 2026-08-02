@@ -1,7 +1,6 @@
 using System;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
@@ -172,6 +171,81 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         var result = v.Validate(Options.DefaultName, cfg);
 
         Assert.True(result.Failed);
+    }
+
+    /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
+    [Fact]
+    public void ConfigValidatorRejectsInvalidReplicaCount()
+    {
+        var v = new ConfigValidator();
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6002") },
+        ];
+        var zero = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 0,
+        };
+        Assert.True(v.Validate(Options.DefaultName, zero).Failed);
+
+        var maxValid = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = peers.Length,
+        };
+        Assert.False(v.Validate(Options.DefaultName, maxValid).Failed);
+
+        var abovePeers = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 3,
+        };
+        Assert.True(v.Validate(Options.DefaultName, abovePeers).Failed);
+
+        // Raw peer entries can exceed the physical ring; RF must use DistinctNodeIds count.
+        ServerPeer[] peersWithDuplicate =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6002") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6003") },
+        ];
+        var aboveDistinct = new TopologyOptions(peersWithDuplicate)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peersWithDuplicate[0].Uri,
+            ReplicaCount = peersWithDuplicate.Length,
+        };
+        var aboveDistinctResult = v.Validate(Options.DefaultName, aboveDistinct);
+        Assert.True(aboveDistinctResult.Failed);
+        Assert.Contains(
+            "ReplicaCount cannot exceed the number of configured peers.",
+            aboveDistinctResult.Failures,
+            StringComparer.Ordinal);
+    }
+
+    /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
+    [Fact]
+    public void ConfigValidatorRejectsZeroConfigurationGeneration()
+    {
+        var v = new ConfigValidator();
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = new Uri("https://localhost:6001"),
+            ConfigurationGeneration = 0,
+        };
+
+        Assert.True(v.Validate(Options.DefaultName, cfg).Failed);
     }
 
     /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>

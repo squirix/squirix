@@ -13,7 +13,6 @@ using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;

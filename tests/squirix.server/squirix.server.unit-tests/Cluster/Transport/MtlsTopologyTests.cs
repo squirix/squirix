@@ -1,6 +1,5 @@
 using System;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
