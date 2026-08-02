@@ -115,8 +115,10 @@ internal static class RuntimeServiceRegistration
         var physicalRing = new PhysicalNodeRing(GetPeerNodeIds(cluster));
         _ = services.AddSingleton(physicalRing);
         _ = services.AddSingleton<IReplicaGroupLocator>(new ReplicaGroupLocator(physicalRing, cluster.ReplicaCount));
-        _ = services.AddSingleton(FeatureState.Disabled);
-        _ = services.AddSingleton(sp => TopologyFingerprintFactory.Compute(cluster, sp.GetRequiredService<MtlsOptions>()));
+
+        // Instance descriptor boxes the readonly struct; AddSingleton<T> requires a reference type.
+        services.Add(new ServiceDescriptor(typeof(FeatureState), FeatureState.Disabled, ServiceLifetime.Singleton));
+        _ = services.AddSingleton(sp => cluster.CreateFingerprint(sp.GetRequiredService<MtlsOptions>()));
     }
 
     /// <summary>

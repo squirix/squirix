@@ -30,7 +30,7 @@ public class ReplicaPlacementBenchmarks
     {
         var topology = _topology ?? throw new InvalidOperationException("Benchmark was not initialized.");
         var mtls = _mtls ?? throw new InvalidOperationException("Benchmark was not initialized.");
-        return TopologyFingerprintFactory.Compute(topology, mtls).ToString().Length;
+        return topology.CreateFingerprint(mtls).ToString().Length;
     }
 
     /// <summary>Resolves the original owner for a fixed cache key.</summary>

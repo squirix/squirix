@@ -1,7 +1,9 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -10,28 +12,30 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Canonical SHA-256 topology fingerprint with fixed-length byte comparison.</summary>
 internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
 {
-    private readonly byte[] _digest;
+    private readonly DigestBytes _digest;
 
-    private TopologyFingerprint(byte[] digest)
+    private TopologyFingerprint(ReadOnlySpan<byte> digest)
     {
-        _digest = digest;
+        DigestBytes storage = default;
+        digest.CopyTo(storage);
+        _digest = storage;
     }
 
     /// <summary>Gets the 32-byte SHA-256 digest.</summary>
     internal ReadOnlySpan<byte> Bytes => _digest;
 
     /// <inheritdoc />
-    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && _digest.AsSpan().SequenceEqual(other._digest);
+    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && Bytes.SequenceEqual(other.Bytes);
 
     /// <inheritdoc />
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is TopologyFingerprint other && Equals(other);
 
     /// <inheritdoc />
-    public override int GetHashCode() => BinaryPrimitives.ReadInt32LittleEndian(_digest.AsSpan(0, 4));
+    public override int GetHashCode() => BinaryPrimitives.ReadInt32LittleEndian(Bytes);
 
     /// <summary>Returns uppercase hex encoding of the digest.</summary>
     /// <returns>64-character uppercase hex string.</returns>
-    public override string ToString() => Convert.ToHexString(_digest);
+    public override string ToString() => Convert.ToHexString(Bytes);
 
     /// <summary>Computes a topology fingerprint from canonical inputs.</summary>
     /// <param name="inputs">Fingerprint inputs.</param>
@@ -47,7 +51,10 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         ArgumentException.ThrowIfNullOrEmpty(inputs.QuorumAckMode);
         ArgumentNullException.ThrowIfNull(inputs.Peers);
 
+        // Sort peers by ordinal node id / URI so peer list order never affects the digest.
         var peers = SortPeers(inputs.Peers);
+
+        // Hash the closed policy vector first so format / capacity changes invalidate fingerprints.
         using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendInt32(hasher, inputs.CanonicalFormatVersion);
         AppendString(hasher, inputs.ClusterId);
@@ -56,15 +63,18 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.VirtualNodes);
         AppendUInt64(hasher, inputs.ConfigurationGeneration);
         AppendString(hasher, inputs.MinClusterPackageVersion);
+
+        // Append each peer as a length-prefixed UTF-8 tuple: node id, client URI, internode URI.
         AppendInt32(hasher, peers.Length);
         for (var i = 0; i < peers.Length; i++)
         {
             var peer = peers[i];
             AppendString(hasher, peer.NodeId);
-            AppendString(hasher, peer.ClientUri);
-            AppendString(hasher, peer.InterNodeUri);
+            AppendString(hasher, peer.ClientUri.AbsoluteUri);
+            AppendString(hasher, peer.InterNodeUri.AbsoluteUri);
         }
 
+        // Finish with algorithm / durability / RF>1 policy constants that close the M8 contract.
         AppendInt32(hasher, inputs.HashAlgorithmVersion);
         AppendInt32(hasher, inputs.PlacementAlgorithmVersion);
         AppendInt32(hasher, inputs.ProtocolAlgorithmVersion);
@@ -79,7 +89,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         if (!hasher.TryGetHashAndReset(digestSpan, out var written) || written is not 32)
             throw new InvalidOperationException("Failed to compute topology fingerprint digest.");
 
-        return new TopologyFingerprint(CloneDigest(digestSpan));
+        return new TopologyFingerprint(digestSpan);
     }
 
     /// <summary>Derives a deterministic group id for an original owner under this fingerprint.</summary>
@@ -96,7 +106,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendString(hasher, "group-id-v1");
         AppendString(hasher, clusterId);
-        AppendBytes(hasher, _digest);
+        AppendBytes(hasher, Bytes);
         AppendString(hasher, originalOwnerNodeId);
         Span<byte> digest = stackalloc byte[32];
         if (!hasher.TryGetHashAndReset(digest, out var written) || written is not 32)
@@ -163,20 +173,10 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         hasher.AppendData(buffer);
     }
 
-    private static byte[] CloneDigest(ReadOnlySpan<byte> digestSpan)
+    private static FingerprintPeer[] SortPeers(IReadOnlyList<FingerprintPeer> peers)
     {
-        // Owned fingerprint identity must outlive the stack frame used for hashing.
-#pragma warning disable ZA0301
-        var digest = new byte[32];
-#pragma warning restore ZA0301
-        digestSpan.CopyTo(digest);
-        return digest;
-    }
-
-    private static FingerprintPeer[] SortPeers(FingerprintPeer[] peers)
-    {
-        var copy = new FingerprintPeer[peers.Length];
-        for (var i = 0; i < peers.Length; i++)
+        var copy = new FingerprintPeer[peers.Count];
+        for (var i = 0; i < peers.Count; i++)
             copy[i] = peers[i];
 
         Array.Sort(
@@ -187,9 +187,18 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
                 if (node is not 0)
                     return node;
 
-                var client = string.CompareOrdinal(a.ClientUri, b.ClientUri);
-                return client is not 0 ? client : string.CompareOrdinal(a.InterNodeUri, b.InterNodeUri);
+                var client = string.CompareOrdinal(a.ClientUri.AbsoluteUri, b.ClientUri.AbsoluteUri);
+                return client is not 0 ? client : string.CompareOrdinal(a.InterNodeUri.AbsoluteUri, b.InterNodeUri.AbsoluteUri);
             });
         return copy;
+    }
+
+    [InlineArray(32)]
+    private struct DigestBytes
+    {
+        // Required by [InlineArray]; element is accessed via indexer / Span conversion.
+#pragma warning disable S1144, RCS1169, RCS1213
+        private byte _element0;
+#pragma warning restore S1144, RCS1169, RCS1213
     }
 }

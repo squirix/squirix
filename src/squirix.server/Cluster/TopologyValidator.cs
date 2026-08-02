@@ -127,9 +127,20 @@ internal static class TopologyValidator
         ValidateIdentifier(failures, args.ClusterId, ClusterIdRequired, ClusterIdTooLong);
         ValidateIdentifier(failures, args.NodeId, NodeIdRequired, NodeIdTooLong);
         ValidateUri(failures, args.NodeUri, UriHttpsRequired, UriTooLong, UriHostRequired, UriOriginRequired);
+        ValidateVirtualNodes(failures, args.VirtualNodes);
+        ValidatePersistenceSettings(failures, args);
 
+        if (peers.Length > MaxPeers)
+            failures.Add(PeersTooMany);
+
+        ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
+        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, peers.Length is 0 ? 1 : peers.Length);
+    }
+
+    private static void ValidateVirtualNodes(List<string> failures, int virtualNodes)
+    {
         // Virtual node count bounds the consistent-hash ring size configured for this process.
-        switch (args.VirtualNodes)
+        switch (virtualNodes)
         {
             case <= 0:
                 failures.Add(VirtualNodesMustBePositive);
@@ -138,24 +149,21 @@ internal static class TopologyValidator
                 failures.Add(VirtualNodesTooLarge);
                 break;
         }
+    }
 
+    private static void ValidatePersistenceSettings(List<string> failures, TopologyValidationArgs args)
+    {
         if (args is { PersistenceEnabled: false, DataDirectory: not null })
             failures.Add(DataDirectoryRequiresPersistence);
 
         // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
-        if (args.PersistenceEnabled)
-        {
-            if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
-                failures.Add(DataDirectoryTooLong);
-            if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
-                failures.Add(DataDirectoryEmpty);
-        }
+        if (!args.PersistenceEnabled)
+            return;
 
-        if (peers.Length > MaxPeers)
-            failures.Add(PeersTooMany);
-
-        ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
-        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, peers.Length is 0 ? 1 : peers.Length);
+        if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
+            failures.Add(DataDirectoryTooLong);
+        if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
+            failures.Add(DataDirectoryEmpty);
     }
 
     private static void ValidateReplicaSettings(List<string> failures, int replicaCount, ulong configurationGeneration, int peerCount)

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Inputs required to compute a canonical topology fingerprint.</summary>
@@ -20,13 +22,13 @@ internal sealed class FingerprintInputs
     }
 
     /// <summary>Gets the canonical fingerprint format version.</summary>
-    internal int CanonicalFormatVersion { get; init; } = PolicyOptions.CanonicalFormatVersion;
+    internal int CanonicalFormatVersion { get; } = PolicyOptions.CanonicalFormatVersion;
 
     /// <summary>Gets the closed replication message size limit.</summary>
-    internal int ClosedMessageMaxBytes { get; init; }
+    internal int ClosedMessageMaxBytes { get; }
 
     /// <summary>Gets the closed replica snapshot size limit.</summary>
-    internal int ClosedSnapshotMaxBytes { get; init; }
+    internal int ClosedSnapshotMaxBytes { get; }
 
     /// <summary>Gets the cluster identifier.</summary>
     internal required string ClusterId { get; init; }
@@ -35,22 +37,22 @@ internal sealed class FingerprintInputs
     internal required ulong ConfigurationGeneration { get; init; }
 
     /// <summary>Gets the durability schema version.</summary>
-    internal int DurabilitySchemaVersion { get; init; } = PolicyOptions.DurabilitySchemaVersion;
+    internal int DurabilitySchemaVersion { get; } = PolicyOptions.DurabilitySchemaVersion;
 
     /// <summary>Gets the hash algorithm version.</summary>
-    internal int HashAlgorithmVersion { get; init; } = PolicyOptions.HashAlgorithmVersion;
+    internal int HashAlgorithmVersion { get; } = PolicyOptions.HashAlgorithmVersion;
 
     /// <summary>Gets the protocol maximum replica count.</summary>
-    internal int MaxReplicaCount { get; init; } = PolicyOptions.MaxReplicaCount;
+    internal int MaxReplicaCount { get; } = PolicyOptions.MaxReplicaCount;
 
     /// <summary>Gets the minimum cluster package version token.</summary>
     internal required string MinClusterPackageVersion { get; init; }
 
     /// <summary>Gets peer descriptors included in the fingerprint.</summary>
-    internal required FingerprintPeer[] Peers { get; init; }
+    internal required IReadOnlyList<FingerprintPeer> Peers { get; init; }
 
     /// <summary>Gets the placement algorithm version.</summary>
-    internal int PlacementAlgorithmVersion { get; init; } = PolicyOptions.PlacementAlgorithmVersion;
+    internal int PlacementAlgorithmVersion { get; } = PolicyOptions.PlacementAlgorithmVersion;
 
     /// <summary>Gets the private protocol algorithm version.</summary>
     internal int ProtocolAlgorithmVersion { get; init; } = PolicyOptions.ProtocolAlgorithmVersion;
@@ -65,7 +67,7 @@ internal sealed class FingerprintInputs
     internal int RfIdempotencyMaxInFlightRecords { get; init; }
 
     /// <summary>Gets RF&gt;1 idempotency retention in ticks.</summary>
-    internal long RfIdempotencyRetentionTicks { get; init; }
+    internal long RfIdempotencyRetentionTicks { get; }
 
     /// <summary>Gets the vnode count used by the ownership ring.</summary>
     internal required int VirtualNodes { get; init; }

@@ -14,16 +14,16 @@ public sealed class TopologyFingerprintTests
         var left = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("node-a", "https://a:1/", "https://a:2/"),
-                new FingerprintPeer("node-b", "https://b:1/", "https://b:2/"),
-                new FingerprintPeer("node-c", "https://c:1/", "https://c:2/"),
+                new FingerprintPeer("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+                new FingerprintPeer("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
+                new FingerprintPeer("node-c", new Uri("https://c:1/"), new Uri("https://c:2/")),
             ]));
         var right = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("node-c", "https://c:1/", "https://c:2/"),
-                new FingerprintPeer("node-a", "https://a:1/", "https://a:2/"),
-                new FingerprintPeer("node-b", "https://b:1/", "https://b:2/"),
+                new FingerprintPeer("node-c", new Uri("https://c:1/"), new Uri("https://c:2/")),
+                new FingerprintPeer("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+                new FingerprintPeer("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
             ]));
         Assert.Equal(left, right);
         Assert.True(left.Bytes.SequenceEqual(right.Bytes));
@@ -46,14 +46,14 @@ public sealed class TopologyFingerprintTests
         var left = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("node-a", "https://a:1/", "https://a:2/"),
-                new FingerprintPeer("node-b", "https://b:1/", "https://b:2/"),
+                new FingerprintPeer("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+                new FingerprintPeer("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
             ]));
         var right = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("node-a", "https://a:1/", "https://a:2/"),
-                new FingerprintPeer("node-b", "https://b:9/", "https://b:2/"),
+                new FingerprintPeer("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+                new FingerprintPeer("node-b", new Uri("https://b:9/"), new Uri("https://b:2/")),
             ]));
         Assert.NotEqual(left, right);
     }
@@ -107,14 +107,14 @@ public sealed class TopologyFingerprintTests
         var left = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("Node-a", "https://a:1/", "https://a:2/"),
-                new FingerprintPeer("node-b", "https://b:1/", "https://b:2/"),
+                new FingerprintPeer("Node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+                new FingerprintPeer("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
             ]));
         var right = TopologyFingerprint.Compute(
             CreateInputs(
             [
-                new FingerprintPeer("node-b", "https://b:1/", "https://b:2/"),
-                new FingerprintPeer("Node-a", "https://a:1/", "https://a:2/"),
+                new FingerprintPeer("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
+                new FingerprintPeer("Node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
             ]));
         Assert.Equal(left, right);
     }
@@ -133,8 +133,8 @@ public sealed class TopologyFingerprintTests
 
     private static FingerprintPeer[] CreatePeers() =>
     [
-        new("node-a", "https://a:1/", "https://a:2/"),
-        new("node-b", "https://b:1/", "https://b:2/"),
+        new("node-a", new Uri("https://a:1/"), new Uri("https://a:2/")),
+        new("node-b", new Uri("https://b:1/"), new Uri("https://b:2/")),
     ];
 
     private static FingerprintInputs CreateInputs(FingerprintPeer[] peers, int replicaCount = 2) => new()
