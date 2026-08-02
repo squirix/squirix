@@ -18,18 +18,11 @@
         <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
         <PackageReference Include="JetBrains.Annotations"/>
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
     </ItemGroup>
 
     <ItemGroup>

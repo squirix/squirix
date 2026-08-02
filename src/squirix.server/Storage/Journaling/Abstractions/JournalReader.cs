@@ -14,7 +14,22 @@ internal static class JournalReader
             return [];
 
         Array.Sort(files, StringComparer.Ordinal);
+        return CollectSegments(files, fromSegment);
+    }
 
+    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
+    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            return default;
+
+        return SumSegmentStats(files);
+    }
+
+    private static JournalSegment[] CollectSegments(string[] files, int fromSegment)
+    {
         var segments = new JournalSegment[files.Length];
         var writeIndex = 0;
         for (var i = 0; i < files.Length; i++)
@@ -25,6 +40,11 @@ internal static class JournalReader
             segments[writeIndex++] = segment;
         }
 
+        return TrimSegments(segments, writeIndex);
+    }
+
+    private static JournalSegment[] TrimSegments(JournalSegment[] segments, int writeIndex)
+    {
         if (writeIndex is 0)
             return [];
 
@@ -36,14 +56,8 @@ internal static class JournalReader
         return trimmed;
     }
 
-    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
-    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
-    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
-    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir)
+    private static (int SegmentCount, long TotalBytes) SumSegmentStats(string[] files)
     {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
-            return default;
-
         var segmentCount = 0;
         var totalBytes = 0L;
         for (var i = 0; i < files.Length; i++)

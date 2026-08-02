@@ -38,27 +38,34 @@ internal static class StoreFactory
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
             {
                 while (enumerator.MoveNext())
-                {
-                    switch (enumerator.Current)
-                    {
-                        case EntryRecord entry:
-                            if (skipExpired && IsExpired(entry.Entry))
-                                continue;
-
-                            if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped is null)
-                                throw new InvalidDataException("Binary snapshot entry payload could not be read.");
-
-                            entries.Add((entry.Key, mapped));
-                            break;
-
-                        case IdempotencyRecord idempotency:
-                            idempotencyRecords.Add(idempotency.Record);
-                            break;
-                    }
-                }
+                    AppendRecord(enumerator.Current, skipExpired, entries, idempotencyRecords);
             }
 
             return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
+        }
+
+        private static void AppendRecord<T>(
+            object record,
+            bool skipExpired,
+            List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries,
+            List<PersistedIdempotencyRecord> idempotencyRecords)
+        {
+            switch (record)
+            {
+                case EntryRecord entry:
+                    if (skipExpired && IsExpired(entry.Entry))
+                        return;
+
+                    if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped is null)
+                        throw new InvalidDataException("Binary snapshot entry payload could not be read.");
+
+                    entries.Add((entry.Key, mapped));
+                    return;
+
+                case IdempotencyRecord idempotency:
+                    idempotencyRecords.Add(idempotency.Record);
+                    return;
+            }
         }
 
         private static bool IsExpired(NodeCacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;

@@ -25,32 +25,8 @@ internal sealed class JournalEventLoopSegmentWriter
 
         var span = _owner.WriteBatch.ActiveSpan;
         var offset = _owner.ActiveSegmentWrittenBytes;
-        try
-        {
-            _owner.SegmentWriter.Write(span, offset);
-        }
-        catch (IOException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-        catch (ObjectDisposedException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-
-        _owner.SetActiveSegmentWrittenBytes(offset + span.Length);
-        _owner.AddJournalTotalBytes(span.Length);
-        _owner.SetDirty(true);
-
-        for (var i = 0; i < _owner.WriteBatch.PendingAppends.Count; i++)
-            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i]);
-
-        _owner.WriteBatch.Clear();
-
-        if (notifyGroupCommit && _owner.Options.IsJournalGroupCommitEnabled)
-            _owner.DrainScheduler.DrainDueGroupCommitBatches();
+        WriteBatchSpan(span, offset);
+        CompleteWriteBatch(span.Length, offset, notifyGroupCommit);
     }
 
     internal bool ProcessJournalWorkItem(JournalWorkItem item, JournalEventLoopDrainScheduler drainScheduler)
@@ -190,6 +166,39 @@ internal sealed class JournalEventLoopSegmentWriter
         }
 
         CompleteJournalWorkItem(item);
+    }
+
+    private void CompleteWriteBatch(int spanLength, long offset, bool notifyGroupCommit)
+    {
+        _owner.SetActiveSegmentWrittenBytes(offset + spanLength);
+        _owner.AddJournalTotalBytes(spanLength);
+        _owner.SetDirty(true);
+
+        for (var i = 0; i < _owner.WriteBatch.PendingAppends.Count; i++)
+            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i]);
+
+        _owner.WriteBatch.Clear();
+
+        if (notifyGroupCommit && _owner.Options.IsJournalGroupCommitEnabled)
+            _owner.DrainScheduler.DrainDueGroupCommitBatches();
+    }
+
+    private void WriteBatchSpan(ReadOnlySpan<byte> span, long offset)
+    {
+        try
+        {
+            _owner.SegmentWriter.Write(span, offset);
+        }
+        catch (IOException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+        catch (ObjectDisposedException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
     }
 
     private void EnsureSegmentOpen()

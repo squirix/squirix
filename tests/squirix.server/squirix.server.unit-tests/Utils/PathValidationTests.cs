@@ -109,4 +109,36 @@ public sealed class PathValidationTests : ServerUnitTestBase
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => PathValidation.ValidateNoInvalidChars(value, nameof(value)));
         Assert.Contains("wildcard", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>Rejects invalid file-name characters in a segment.</summary>
+    [Fact]
+    public static void ValidateSegmentRejectsInvalidFileNameCharacters()
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        if (invalid.Length is 0)
+            return;
+
+        char? candidate = null;
+        for (var i = 0; i < invalid.Length; i++)
+        {
+            var ch = invalid[i];
+            if (ch is '/' or '\\' or '\0')
+                continue;
+
+            candidate = ch;
+            break;
+        }
+
+        if (candidate is null)
+            return;
+
+        var segment = $"na{candidate.Value}me";
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(segment, static value => PathValidation.ValidateSegment(value.AsSpan(), "path", false, false));
+        Assert.Contains("invalid characters", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Windows reserved names are accepted when Windows rules are forced off.</summary>
+    [Fact]
+    public static void ValidateSegmentAllowsReservedNameWithoutWinRules() =>
+        PathValidation.ValidateSegment("CON".AsSpan(), "path", false, false);
 }

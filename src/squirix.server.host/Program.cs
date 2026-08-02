@@ -238,7 +238,25 @@ internal static class Program
 
             private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
             {
-                switch (args[index])
+                var flag = args[index];
+                if (IsHelpFlag(flag))
+                    return false;
+
+                if (TryApplyBooleanFlag(flag, state))
+                    return true;
+
+                if (TryApplyValueFlag(args, ref index, flag, state))
+                    return true;
+
+                throw new InvalidOperationException($"Unknown argument '{flag}'.");
+            }
+
+            private static bool IsHelpFlag(string flag) =>
+                string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
+
+            private static bool TryApplyBooleanFlag(string flag, FlagState state)
+            {
+                switch (flag)
                 {
                     case "--strict":
                         state.SetStrict();
@@ -246,6 +264,15 @@ internal static class Program
                     case "--persist":
                         state.SetPersist();
                         return true;
+                    default:
+                        return false;
+                }
+            }
+
+            private static bool TryApplyValueFlag(string[] args, ref int index, string flag, FlagState state)
+            {
+                switch (flag)
+                {
                     case "--urls":
                         state.SetUri(new Uri(ReadValue(args, ref index), UriKind.Absolute));
                         return true;
@@ -255,11 +282,8 @@ internal static class Program
                     case "--settings":
                         state.SetSettingsPath(ReadValue(args, ref index));
                         return true;
-                    case "--help":
-                    case "-h":
-                        return false;
                     default:
-                        throw new InvalidOperationException($"Unknown argument '{args[index]}'.");
+                        return false;
                 }
             }
 

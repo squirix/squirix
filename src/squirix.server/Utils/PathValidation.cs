@@ -46,16 +46,19 @@ internal static class PathValidation
             throw new ArgumentException("Path must not contain '.' or '..' segments.", paramName);
 
         if (applyWindowsRules ?? OperatingSystem.IsWindows())
-        {
-            if (segment.EndsWith(' ') || segment.EndsWith('.'))
-                throw new ArgumentException("Segment ends with space or dot.", paramName);
-
-            if (IsWindowsReservedName(segment))
-                throw new ArgumentException("Segment is a reserved Windows name.", paramName);
-        }
+            ValidateWindowsSegmentRules(segment, paramName);
 
         if (segment.IndexOfAny(InvalidFileNameChars) >= 0)
             throw new ArgumentException("Segment contains invalid characters.", paramName);
+    }
+
+    private static void ValidateWindowsSegmentRules(ReadOnlySpan<char> segment, string paramName)
+    {
+        if (segment.EndsWith(' ') || segment.EndsWith('.'))
+            throw new ArgumentException("Segment ends with space or dot.", paramName);
+
+        if (IsWindowsReservedName(segment))
+            throw new ArgumentException("Segment is a reserved Windows name.", paramName);
     }
 
     private static bool IsWindowsReservedName(ReadOnlySpan<char> segment)

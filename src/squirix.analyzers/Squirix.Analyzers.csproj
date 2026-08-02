@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>netstandard2.0</TargetFramework>
+        <TargetFramework>netstandard2.1</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>disable</ImplicitUsings>
         <LangVersion>12.0</LangVersion>
@@ -8,7 +8,8 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <IsPackable>false</IsPackable>
-        <NoWarn>$(NoWarn);RS1038;RS2008;CS1591</NoWarn>
+        <!-- RS1041: in-repo analyzers only (not shipped); see https://github.com/dotnet/roslyn-analyzers/issues/7470 -->
+        <NoWarn>$(NoWarn);RS1038;RS2008;CS1591;RS1041</NoWarn>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>
 

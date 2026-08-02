@@ -202,16 +202,7 @@ internal sealed class Coordinator
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
         internal bool ShouldTrigger(DateTime utcNow, bool isInFlight)
         {
-            if (_latencyThrottledUntilUtc > utcNow)
-                return false;
-
-            if (ShouldEnterLatencyThrottle(utcNow))
-                return false;
-
-            if (_lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots)
-                return false;
-
-            if (isInFlight)
+            if (IsBlockedFromTriggering(utcNow, isInFlight))
                 return false;
 
             var opsDelta = _journal.AppendedOps - _opsAtLast;
@@ -220,6 +211,20 @@ internal sealed class Coordinator
                 return false;
 
             return MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+        }
+
+        private bool IsBlockedFromTriggering(DateTime utcNow, bool isInFlight)
+        {
+            if (_latencyThrottledUntilUtc > utcNow)
+                return true;
+
+            if (ShouldEnterLatencyThrottle(utcNow))
+                return true;
+
+            if (_lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots)
+                return true;
+
+            return isInFlight;
         }
 
         private bool MeetsAnyTriggerThreshold(DateTime utcNow, long opsDelta, long bytesDelta)

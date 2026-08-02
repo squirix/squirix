@@ -60,11 +60,9 @@ internal sealed record MtlsOptions
         var hasPemCert = !string.IsNullOrWhiteSpace(CertPath);
         var hasPemKey = !string.IsNullOrWhiteSpace(KeyPath);
 
-        // PFX bundles cert+key; PEM mode requires separate cert and key files.
         if (hasPfx && (hasPemCert || hasPemKey))
             failures.Add("Cluster mTLS must use either SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or PEM cert/key paths, not both.");
 
-        // Operators must pick exactly one credential packaging mode when inter-node mTLS is required.
         if (!hasPfx && !hasPemCert && !hasPemKey)
         {
             failures.Add(
@@ -73,11 +71,21 @@ internal sealed record MtlsOptions
 
         if (hasPfx)
         {
-            if (!File.Exists(CertPfxPath))
-                failures.Add("Cluster mTLS PFX file was not found.");
+            CollectPfxFailures(failures);
             return;
         }
 
+        CollectPemFailures(hasPemCert, hasPemKey, failures);
+    }
+
+    private void CollectPfxFailures(List<string> failures)
+    {
+        if (!File.Exists(CertPfxPath))
+            failures.Add("Cluster mTLS PFX file was not found.");
+    }
+
+    private void CollectPemFailures(bool hasPemCert, bool hasPemKey, List<string> failures)
+    {
         if (!hasPemCert)
             failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PATH when PEM mode is used.");
         else if (!File.Exists(CertPath))

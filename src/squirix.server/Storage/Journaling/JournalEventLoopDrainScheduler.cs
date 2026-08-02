@@ -80,30 +80,46 @@ internal sealed class JournalEventLoopDrainScheduler
             hadWork = true;
             if (item.Kind is JournalWorkKind.Append)
             {
-                if (_segmentWriter.TryAcceptAppendIntoBatch(item, out var rollDeferred))
-                    continue;
-
-                if (rollDeferred)
-                {
-                    rollDeferredAppend = item;
+                if (TryProcessAppendFromRing(item, ref rollDeferredAppend))
                     return hadWork;
-                }
-
-                _segmentWriter.FlushWriteBatch();
-                _ = _segmentWriter.ProcessJournalWorkItem(item, this);
                 continue;
             }
 
-            _segmentWriter.FlushWriteBatch();
-            if (!_segmentWriter.ProcessJournalWorkItem(item, this))
+            if (!TryProcessNonAppendFromRing(item, out shutdownRequested))
                 continue;
 
-            _segmentWriter.FlushWriteBatch();
-            shutdownRequested = true;
             return hadWork;
         }
 
         return hadWork;
+    }
+
+    private bool TryProcessAppendFromRing(JournalWorkItem item, ref JournalWorkItem? rollDeferredAppend)
+    {
+        if (_segmentWriter.TryAcceptAppendIntoBatch(item, out var rollDeferred))
+            return false;
+
+        if (rollDeferred)
+        {
+            rollDeferredAppend = item;
+            return true;
+        }
+
+        _segmentWriter.FlushWriteBatch();
+        _ = _segmentWriter.ProcessJournalWorkItem(item, this);
+        return false;
+    }
+
+    private bool TryProcessNonAppendFromRing(JournalWorkItem item, out bool shutdownRequested)
+    {
+        shutdownRequested = false;
+        _segmentWriter.FlushWriteBatch();
+        if (!_segmentWriter.ProcessJournalWorkItem(item, this))
+            return false;
+
+        _segmentWriter.FlushWriteBatch();
+        shutdownRequested = true;
+        return true;
     }
 
     private void ProcessRollDeferredAppend(ref JournalWorkItem? rollDeferredAppend)
