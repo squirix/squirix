@@ -31,8 +31,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly TimeProvider _timeProvider;
     private int _consecutiveFailures;
     private int _inFlight;
+    private SnapshotRef? _pendingSnapshotHint;
     private int _snapshotSubscriptionState;
-    private CancellationToken _stoppingToken;
+    private TaskCompletionSource? _wake;
 
     internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
     {
@@ -58,7 +59,6 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _stoppingToken = stoppingToken;
         if (!_opt.Enabled)
             return Task.CompletedTask;
         SubscribeSnapshotCompleted();
@@ -121,7 +121,15 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
+    private void OnSnapshotCompleted(object? sender, CompletedEventArgs e)
+    {
+        // Queue onto the hosted loop instead of fire-and-forget so StopAsync awaits in-flight work
+        // and CI thread-pool delay cannot strand the snapshot-triggered attempt.
+        Volatile.Write(ref _pendingSnapshotHint, e.SnapshotRef);
+        var wake = Volatile.Read(ref _wake);
+        if (wake is not null)
+            _ = wake.TrySetResult();
+    }
 
     private AttemptResult RecordCompactionFailure()
     {
@@ -175,15 +183,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             {
                 // Base waiting state between checks
                 ChangeState(RunState.Waiting);
+                await WaitForCompactionTurnAsync(cancellationToken).ConfigureAwait(false);
 
-                // Jitter next wake-up to avoid thundering herd across nodes
-                var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
-                var maxJitterMs = Math.Clamp(baseGap.TotalMilliseconds * 0.1, 50d, 10_000d);
-                var jitterOffsetMs = ((RandomNumberGenerator.GetInt32(0, int.MaxValue) * (2d / int.MaxValue)) - 1d) * maxJitterMs;
-                var delay = baseGap + TimeSpan.FromMilliseconds(jitterOffsetMs);
-                await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-
-                var res = await MaybeCompactAsync(null, cancellationToken).ConfigureAwait(false);
+                var snapshotHint = Interlocked.Exchange(ref _pendingSnapshotHint, null);
+                var res = await MaybeCompactAsync(snapshotHint, cancellationToken).ConfigureAwait(false);
 
                 if (res is not AttemptResult.Failed)
                     continue;
@@ -207,6 +210,32 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         {
             UnsubscribeSnapshotCompleted();
             ChangeState(RunState.Idle);
+        }
+    }
+
+    private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)
+    {
+        var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _wake, wake);
+        try
+        {
+            // Snapshot completion may have queued work before the wake signal was published.
+            if (Volatile.Read(ref _pendingSnapshotHint) is not null)
+                return;
+
+            // Jitter next wake-up to avoid thundering herd across nodes
+            var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
+            var maxJitterMs = Math.Clamp(baseGap.TotalMilliseconds * 0.1, 50d, 10_000d);
+            var jitterOffsetMs = ((RandomNumberGenerator.GetInt32(0, int.MaxValue) * (2d / int.MaxValue)) - 1d) * maxJitterMs;
+            var delay = baseGap + TimeSpan.FromMilliseconds(jitterOffsetMs);
+            var delayTask = Task.Delay(delay, _timeProvider, cancellationToken);
+            _ = await Task.WhenAny(delayTask, wake.Task).ConfigureAwait(false);
+            if (delayTask.IsCompleted)
+                await delayTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _wake, null);
         }
     }
 
