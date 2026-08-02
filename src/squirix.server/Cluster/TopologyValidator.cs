@@ -31,7 +31,6 @@ internal static class TopologyValidator
     private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
     private const string PeersUriTooLong = "Peers[].Uri cannot exceed 2048 characters.";
     private const string ReplicaCountAbovePeerCount = "ReplicaCount cannot exceed the number of configured peers.";
-    private const string ReplicaCountAboveProtocolMaximum = "ReplicaCount cannot exceed MaxReplicaCount (5).";
     private const string ReplicaCountMustBePositive = "ReplicaCount must be greater than zero.";
     private const string UriHostRequired = "Uri must include a host.";
     private const string UriHttpsRequired = "Uri must be an absolute https URI.";
@@ -178,7 +177,7 @@ internal static class TopologyValidator
         }
 
         if (replicaCount > PolicyOptions.MaxReplicaCount)
-            failures.Add(ReplicaCountAboveProtocolMaximum);
+            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({PolicyOptions.MaxReplicaCount}).");
 
         if (replicaCount > peerCount)
             failures.Add(ReplicaCountAbovePeerCount);
