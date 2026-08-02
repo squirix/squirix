@@ -30,6 +30,27 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
         Assert.Equal(Path.GetFullPath(dir.Path), options.DataDirectory);
     }
 
+    /// <summary>CopyOptions preserves replica placement fields.</summary>
+    [Fact]
+    public void CopyOptionsCopiesReplicaSettings()
+    {
+        var source = new SquirixServerOptions
+        {
+            NodeId = "node-a",
+            Uri = new Uri("https://localhost:5001"),
+            ReplicaCount = 3,
+            ConfigurationGeneration = 9,
+            Peers =
+            [
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+            ],
+        };
+        var target = new SquirixServerOptions();
+        Configurator.CopyOptions(source, target);
+        Assert.Equal(3, target.ReplicaCount);
+        Assert.Equal(9u, target.ConfigurationGeneration);
+    }
+
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
     [Fact]
     public void ApplyCommandLineOverridesTraversalDataDirectory()

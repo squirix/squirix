@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Cluster;

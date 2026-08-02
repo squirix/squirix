@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Squirix.Server namespace dependency policy (denylist on top of allow-all).
+  Squirix.Server namespace dependency policy (allowlist + targeted Disallowed).
 
   Intended layer stack (outer → inner, dependencies flow downward only):
 
@@ -15,15 +15,14 @@
 
   Shared transport CLR: Squirix.Transport.Grpc.* (compiled from shared proto/mappers).
 
-  Rules below flag upward/cross-cutting coupling that should be refactored toward abstractions
-  in Contracts / Runtime.Contracts / Storage.Journaling.Abstractions.
+  Child → parent is allowed implicitly. Exact parent Squirix.Server.Cluster must not depend on
+  Cluster.* children (Disallowed). Composition that wires Transport/Replication lives in Node.Hosting.
+  Shared peer-id filtering lives in Cluster (parent); Replication may use it via child→parent.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
-                CheckAssemblyDependencies="true">
-
-  <!-- Baseline: every namespace may depend unless a Disallowed rule matches. -->
-  <Allowed From="*" To="*" />
+                CheckAssemblyDependencies="true"
+                MaxIssueCount="10000">
 
   <!-- Assembly baseline: allow all package references except explicit cross-package violations below. -->
   <AllowedAssembly From="*" To="*" />
@@ -31,8 +30,17 @@
   <!-- Server runtime must never reference the client SDK assembly (separate package boundary). -->
   <DisallowedAssembly From="Squirix.Server" To="Squirix" />
 
-  <!-- ═══ Process / package boundary ═══ -->
+  <!-- ═══ Allowlist (platform / packages / product) ═══ -->
 
+  <Allowed From="*" To="System.*" />
+  <Allowed From="*" To="Microsoft.*" />
+  <Allowed From="*" To="JetBrains.*" />
+  <Allowed From="*" To="Grpc.*" />
+  <Allowed From="*" To="Google.*" />
+  <Allowed From="*" To="Squirix.Transport.*" />
+  <Allowed From="*" To="Squirix.Server.*" />
+
+  <!-- ═══ Process / package boundary ═══ -->
   <!-- Server product must not depend on client SDK namespaces (only shared Squirix.Transport.Grpc is allowed). -->
   <Disallowed From="Squirix.Server.*" To="Squirix.Atomic.*" />
   <Disallowed From="Squirix.Server.*" To="Squirix.Batch.*" />
@@ -166,7 +174,12 @@
 
   <!-- ═══ Replication DAG (mirrors docs/architecture/replication-consensus.md) ═══ -->
 
-  <!-- Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and kernel leftovers. -->
+  <!-- Exact parent must not depend on any child namespace (composition root lives in Node.Hosting). -->
+  <Disallowed
+      From="/^Squirix\.Server\.Cluster$/"
+      To="/^Squirix\.Server\.Cluster\..+$/" />
+
+  <!-- Cluster.Replication must stay free of adapters, hosting, Node.App, and routing transport. -->
   <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Node.App.*" />

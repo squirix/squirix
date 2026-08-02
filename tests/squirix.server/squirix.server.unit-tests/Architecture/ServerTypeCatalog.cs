@@ -128,28 +128,24 @@ internal static class ServerTypeCatalog
             if (_allDeclaredTypesTask is { } existing)
                 return existing;
 
-            var box = new Task<IReadOnlyList<DeclaredType>>[1];
-            box[0] = RunScanAsync();
-            _allDeclaredTypesTask = box[0];
-            return box[0];
-
-            async Task<IReadOnlyList<DeclaredType>> RunScanAsync()
-            {
-                try
-                {
-                    return await ScanAsync().ConfigureAwait(false);
-                }
-                catch
+            var task = ScanAsync();
+            _allDeclaredTypesTask = task;
+            const TaskContinuationOptions faultResetOptions = TaskContinuationOptions.NotOnRanToCompletion
+                | TaskContinuationOptions.ExecuteSynchronously
+                | TaskContinuationOptions.DenyChildAttach;
+            _ = task.ContinueWith(
+                static completed =>
                 {
                     lock (ScanGate)
                     {
-                        if (ReferenceEquals(_allDeclaredTypesTask, box[0]))
+                        if (ReferenceEquals(_allDeclaredTypesTask, completed))
                             _allDeclaredTypesTask = null;
                     }
-
-                    throw;
-                }
-            }
+                },
+                CancellationToken.None,
+                faultResetOptions,
+                TaskScheduler.Default);
+            return task;
         }
     }
 

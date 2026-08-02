@@ -7,6 +7,7 @@ internal static class TopologyValidator
 {
     private const string ClusterIdRequired = "ClusterId is required.";
     private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
+    private const string ConfigurationGenerationMustBePositive = "ConfigurationGeneration must be greater than zero.";
     private const string DataDirectoryEmpty = "DataDirectory cannot be empty or whitespace.";
     private const string DataDirectoryRequiresPersistence = "DataDirectory requires persistence. Call UsePersistence() or pass --persist.";
     private const string DataDirectoryTooLong = "DataDirectory cannot exceed 1024 characters.";
@@ -28,6 +29,8 @@ internal static class TopologyValidator
     private const string PeersUriHttpsRequired = "Peers[].Uri must be an absolute https URI.";
     private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
     private const string PeersUriTooLong = "Peers[].Uri cannot exceed 2048 characters.";
+    private const string ReplicaCountAbovePeerCount = "ReplicaCount cannot exceed the number of configured peers.";
+    private const string ReplicaCountMustBePositive = "ReplicaCount must be greater than zero.";
     private const string UriHostRequired = "Uri must include a host.";
     private const string UriHttpsRequired = "Uri must be an absolute https URI.";
     private const string UriOriginRequired = "Uri must be an origin URI without credentials, path, query, or fragment.";
@@ -56,6 +59,8 @@ internal static class TopologyValidator
             NodeId = options.NodeId,
             NodeUri = options.Uri,
             VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
             PersistenceEnabled = persistenceEnabled,
             DataDirectory = dataDirectory,
         };
@@ -120,9 +125,35 @@ internal static class TopologyValidator
         ValidateIdentifier(failures, args.ClusterId, ClusterIdRequired, ClusterIdTooLong);
         ValidateIdentifier(failures, args.NodeId, NodeIdRequired, NodeIdTooLong);
         ValidateUri(failures, args.NodeUri, UriHttpsRequired, UriTooLong, UriHostRequired, UriOriginRequired);
+        ValidateVirtualNodes(failures, args.VirtualNodes);
+        ValidatePersistenceSettings(failures, args);
 
+        if (peers.Length > MaxPeers)
+            failures.Add(PeersTooMany);
+
+        ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
+        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, CountDistinctPeerNodes(readPeer, peers));
+    }
+
+    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+        where TPeer : notnull
+    {
+        // Empty peer list is single-node mode (matches PhysicalNodeRing input synthesized elsewhere).
+        if (peers.Length is 0)
+            return 1;
+
+        var nodeIds = new string[peers.Length];
+        for (var i = 0; i < peers.Length; i++)
+            nodeIds[i] = readPeer(peers[i]).NodeId ?? string.Empty;
+
+        // Same distinct count PhysicalNodeRing / ReplicaGroupLocator use for RF bounds.
+        return DistinctNodeIds.InInsertionOrder(nodeIds).Length;
+    }
+
+    private static void ValidateVirtualNodes(List<string> failures, int virtualNodes)
+    {
         // Virtual node count bounds the consistent-hash ring size configured for this process.
-        switch (args.VirtualNodes)
+        switch (virtualNodes)
         {
             case <= 0:
                 failures.Add(VirtualNodesMustBePositive);
@@ -131,23 +162,39 @@ internal static class TopologyValidator
                 failures.Add(VirtualNodesTooLarge);
                 break;
         }
+    }
 
+    private static void ValidatePersistenceSettings(List<string> failures, TopologyValidationArgs args)
+    {
         if (args is { PersistenceEnabled: false, DataDirectory: not null })
             failures.Add(DataDirectoryRequiresPersistence);
 
         // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
-        if (args.PersistenceEnabled)
+        if (!args.PersistenceEnabled)
+            return;
+
+        if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
+            failures.Add(DataDirectoryTooLong);
+        if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
+            failures.Add(DataDirectoryEmpty);
+    }
+
+    private static void ValidateReplicaSettings(List<string> failures, int replicaCount, ulong configurationGeneration, int peerCount)
+    {
+        if (configurationGeneration is 0)
+            failures.Add(ConfigurationGenerationMustBePositive);
+
+        if (replicaCount <= 0)
         {
-            if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
-                failures.Add(DataDirectoryTooLong);
-            if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
-                failures.Add(DataDirectoryEmpty);
+            failures.Add(ReplicaCountMustBePositive);
+            return;
         }
 
-        if (peers.Length > MaxPeers)
-            failures.Add(PeersTooMany);
+        if (replicaCount > TopologyConstraints.MaxReplicaCount)
+            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).");
 
-        ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
+        if (replicaCount > peerCount)
+            failures.Add(ReplicaCountAbovePeerCount);
     }
 
     private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
@@ -161,15 +208,9 @@ internal static class TopologyValidator
         CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
     }
 
-    private static bool IsAbsoluteHttpsUri(Uri value) =>
-        value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+    private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
-    private static void CollectHttpsUriFailures(
-        List<string> failures,
-        Uri value,
-        string tooLongMessage,
-        string hostRequiredMessage,
-        string originRequiredMessage)
+    private static void CollectHttpsUriFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
         if (value.OriginalString.Length > MaxUrlLength)
             failures.Add(tooLongMessage);
@@ -179,15 +220,14 @@ internal static class TopologyValidator
             failures.Add(originRequiredMessage);
     }
 
-    private static bool HasNonOriginParts(Uri value) =>
-        !string.IsNullOrEmpty(value.UserInfo)
-        || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase)
-        || !string.IsNullOrEmpty(value.Query)
-        || !string.IsNullOrEmpty(value.Fragment);
+    private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
+                                                        !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
     private sealed class TopologyValidationArgs
     {
         internal required string? ClusterId { get; init; }
+
+        internal required ulong ConfigurationGeneration { get; init; }
 
         internal required string? DataDirectory { get; init; }
 
@@ -196,6 +236,8 @@ internal static class TopologyValidator
         internal required Uri? NodeUri { get; init; }
 
         internal required bool PersistenceEnabled { get; init; }
+
+        internal required int ReplicaCount { get; init; }
 
         internal required int VirtualNodes { get; init; }
     }

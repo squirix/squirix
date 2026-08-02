@@ -39,11 +39,8 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
         context.EnableConcurrentExecution();
 
         context.RegisterSyntaxNodeAction(AnalyzeIf, SyntaxKind.IfStatement);
-        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.ForStatement);
-        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.ForEachStatement);
-        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.ForEachVariableStatement);
-        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.WhileStatement);
-        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.DoStatement);
+        context.RegisterSyntaxNodeAction(AnalyzeLoop, SyntaxKind.ForStatement, SyntaxKind.ForEachStatement, SyntaxKind.ForEachVariableStatement, SyntaxKind.WhileStatement,
+            SyntaxKind.DoStatement);
         context.RegisterSyntaxNodeAction(AnalyzeUsing, SyntaxKind.UsingStatement);
         context.RegisterSyntaxNodeAction(AnalyzeLock, SyntaxKind.LockStatement);
         context.RegisterSyntaxNodeAction(AnalyzeFixed, SyntaxKind.FixedStatement);
