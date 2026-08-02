@@ -502,7 +502,8 @@ jobs:
     test-suites:
         name: Test (${{ matrix.os }} / ${{ matrix.framework }} / ${{ matrix.suite }})
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 30
+        # Per-test hang is capped via --blame-hang-timeout below; keep the job budget tight.
+        timeout-minutes: 20
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
@@ -602,12 +603,14 @@ jobs:
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
                         "${FILTER_ARGS[@]}" \
+                        --blame-hang-timeout 5m \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" \
                         --results-directory "${{ github.workspace }}/coverage/${{ matrix.suite }}" \
                         --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     else
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
                         "${FILTER_ARGS[@]}" \
+                        --blame-hang-timeout 5m \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     fi
 
