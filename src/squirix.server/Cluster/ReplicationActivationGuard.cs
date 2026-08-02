@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Squirix.Server.Cluster;
@@ -62,5 +63,18 @@ internal static class ReplicationActivationGuard
         }
 
         failures.Add(NotActivated);
+    }
+
+    /// <summary>Throws when RF&gt;1 is not allowed for the current hosting prerequisites.</summary>
+    /// <param name="replicaCount">Configured replica factor including the original owner.</param>
+    /// <param name="persistenceEnabled">Whether journal/snapshot persistence is enabled.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
+    /// <exception cref="InvalidOperationException">Thrown when RF&gt;1 prerequisites fail or activation is refused.</exception>
+    internal static void ThrowIfDisallowed(int replicaCount, bool persistenceEnabled, MtlsOptions mtlsOptions)
+    {
+        var failures = new List<string>();
+        CollectFailures(failures, replicaCount, persistenceEnabled, IsMtlsConfigured(mtlsOptions));
+        if (failures.Count > 0)
+            throw new InvalidOperationException(string.Join(' ', failures));
     }
 }
