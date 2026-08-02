@@ -20,6 +20,9 @@ internal interface ICompositionArgs
 
     ExtensionOptions? Extensions { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether the closed replication gRPC service is mapped for foundation tests.</summary>
+    bool FoundationOnly { get; set; }
+
     PressureOptions? MemoryPressureOptions { get; set; }
 
     MtlsCertificateMaterial? MtlsMaterial { get; set; }

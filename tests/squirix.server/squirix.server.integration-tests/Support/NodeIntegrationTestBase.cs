@@ -175,6 +175,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
                 MtlsMaterial = mtlsMaterial,
+                FoundationOnly = options.FoundationOnly,
             },
             DefaultCancellationToken);
 

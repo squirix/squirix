@@ -154,6 +154,7 @@ public static class TestNodeHostFactory
                 SecurityOptions = options?.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
                 MtlsMaterial = mtlsMaterial,
+                FoundationOnly = options?.FoundationOnly ?? false,
             },
             cancellationToken).ConfigureAwait(false);
 
