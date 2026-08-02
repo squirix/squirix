@@ -79,14 +79,5 @@ internal sealed class PhysicalNodeRing
         return result;
     }
 
-    private int IndexOf(string nodeId)
-    {
-        for (var i = 0; i < _nodes.Length; i++)
-        {
-            if (string.Equals(_nodes[i], nodeId, StringComparison.Ordinal))
-                return i;
-        }
-
-        return -1;
-    }
+    private int IndexOf(string nodeId) => Array.BinarySearch(_nodes, nodeId, StringComparer.Ordinal);
 }
