@@ -2,6 +2,7 @@ name: CI
 
 on:
     # develop and main push/PR: temporary full ubuntu/windows/macos matrix on develop.
+    # Builds/tests are split per OS so ubuntu smoke/tests/Sonar are not gated on Windows/macOS build.
     # Fast e2e wire-alloc benchmarks remain develop-only.
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Restore develop ubuntu-only fast-path later if the daily full matrix is no longer needed.
@@ -217,21 +218,17 @@ jobs:
                     cache-from: type=gha
                     cache-to: type=gha,mode=max
 
-    build:
-        name: Build (${{ matrix.os }} / ${{ matrix.framework }})
-        runs-on: ${{ matrix.os }}
-        # Windows/macOS cold restore+build regularly exceeds 25m on the main matrix.
+    # Per-OS builds so ubuntu consumers are not blocked on Windows/macOS restore+build.
+    # Keep display names identical to the former matrix jobs for branch-protection continuity.
+    build-ubuntu:
+        name: Build (ubuntu-latest / net10.0)
+        runs-on: ubuntu-latest
         timeout-minutes: 45
         needs: changes
         if: |
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
-        strategy:
-            fail-fast: false
-            matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
-                framework: [ net10.0 ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -247,62 +244,84 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+            -   name: Build Release Outputs
+                uses: ./.github/actions/build-release
                 with:
-                    global-json-file: global.json
+                    artifact-os: ubuntu-latest
+                    framework: net10.0
+                    run-package-smoke: ${{ github.event_name != 'pull_request' }}
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
+    build-windows:
+        name: Build (windows-latest / net10.0)
+        runs-on: windows-latest
+        timeout-minutes: 45
+        needs: changes
+        if: |
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop')) && (
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+            )
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                 with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
+                    persist-credentials: false
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            -   name: Verify Whitespace
-                run: git diff --check
-
-            -   name: Build in-repo analyzers
-                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
-
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore
-
-            -   name: Ensure Dev HTTPS Certificate
-                shell: bash
-                run: bash tools/ci/ensure-dev-https-cert.sh
-
-            -   name: Run External Package Smoke
-                if: matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
-                run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
-
-            -   name: Upload Build Outputs For Tests
-                uses: actions/upload-artifact@v7
+            -   name: Build Release Outputs
+                uses: ./.github/actions/build-release
                 with:
-                    name: build-output-${{ matrix.os }}-${{ matrix.framework }}
-                    retention-days: 1
-                    path: |
-                        src/**/bin/Release/${{ matrix.framework }}/
-                        src/**/obj/Release/${{ matrix.framework }}/
-                        tests/**/bin/Release/${{ matrix.framework }}/
-                        tests/**/obj/Release/${{ matrix.framework }}/
-                        benchmarks/**/bin/Release/${{ matrix.framework }}/
-                        benchmarks/**/obj/Release/${{ matrix.framework }}/
-                        !**/*.xml
-                        !**/ref/**
-                        !**/*.cache
-                        !**/*.editorconfig*
-                    if-no-files-found: error
+                    artifact-os: windows-latest
+                    framework: net10.0
+                    run-package-smoke: "false"
+
+    build-macos:
+        name: Build (macos-latest / net10.0)
+        runs-on: macos-latest
+        timeout-minutes: 45
+        needs: changes
+        if: |
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop')) && (
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+            )
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Build Release Outputs
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: macos-latest
+                    framework: net10.0
+                    run-package-smoke: "false"
 
     smoke-fast-fail:
         name: Smoke Fast-Fail (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: build
+        needs: build-ubuntu
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -421,7 +440,7 @@ jobs:
         timeout-minutes: 10
         permissions:
             contents: read
-        needs: [ changes, build ]
+        needs: [ changes, build-ubuntu ]
         if: |
             needs.changes.outputs.code == 'true' && (
               github.ref == 'refs/heads/develop' ||
@@ -501,18 +520,16 @@ jobs:
                         benchmark-wire-alloc.log
                     if-no-files-found: warn
 
-    test-suites:
-        name: Test (${{ matrix.os }} / ${{ matrix.framework }} / ${{ matrix.suite }})
-        runs-on: ${{ matrix.os }}
-        # Per-test hang is capped via --blame-hang-timeout below; keep the job budget tight.
+    # Per-OS test matrices: ubuntu waits for smoke; Windows/macOS start as soon as their build finishes.
+    test-ubuntu:
+        name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
+        runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [ build, smoke-fast-fail ]
+        needs: [ build-ubuntu, smoke-fast-fail ]
         strategy:
-            fail-fast: false
-            max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && 8 || 7 }}
+            fail-fast: ${{ github.event_name == 'pull_request' }}
+            max-parallel: 7
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
-                framework: [ net10.0 ]
                 suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
@@ -529,143 +546,98 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+            -   name: Run Test Suite
+                uses: ./.github/actions/run-test-suite
                 with:
-                    global-json-file: global.json
+                    os: ubuntu-latest
+                    framework: net10.0
+                    suite: ${{ matrix.suite }}
+                    collect-coverage: "true"
 
-            -   name: Cache NuGet Packages
-                uses: actions/cache@v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-                    restore-keys: |
-                        ${{ runner.os }}-dotnet10-nuget-
-
-            -   name: Download Build Outputs
-                uses: actions/download-artifact@v8
-                with:
-                    name: build-output-${{ matrix.os }}-${{ matrix.framework }}
-                    path: .
-
-            -   name: Restore (Resolve Packages For Collectors)
-                run: dotnet restore squirix.slnx
-
-            -   name: Restore Executable Bits For Test Hosts (Unix)
-                if: runner.os != 'Windows'
-                shell: bash
+    test-windows:
+        name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
+        runs-on: windows-latest
+        timeout-minutes: 20
+        needs: [ build-windows ]
+        if: |
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop')) && (
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+            )
+        strategy:
+            fail-fast: ${{ github.event_name == 'pull_request' }}
+            max-parallel: 6
+            matrix:
+                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
                 run: |
-                    # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
-                    chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
-                    chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
-                    chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
-                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ matrix.framework }}/Squirix.ProtocolModel.Tests || true
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
 
-            -   name: Ensure Dev HTTPS Certificate
-                shell: bash
-                run: bash tools/ci/ensure-dev-https-cert.sh
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
 
             -   name: Run Test Suite
-                shell: bash
-                run: |
-                    set -o pipefail
-                    FILTER_ARGS=()
-                    case "${{ matrix.suite }}" in
-                      unit)
-                        PROJECT="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"
-                        ;;
-                      client-integration)
-                        PROJECT="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"
-                        ;;
-                      server-unit)
-                        PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
-                        ;;
-                      server-integration)
-                        PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
-                        ;;
-                      e2e-single-node)
-                        PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-                        # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
-                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress")
-                        ;;
-                      e2e-multi-node)
-                        PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
-                        ;;
-                      protocol-model)
-                        PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
-                        ;;
-                      *)
-                        echo "Unsupported suite: ${{ matrix.suite }}" >&2
-                        exit 1
-                        ;;
-                    esac
-
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-                      mkdir -p "coverage/${{ matrix.suite }}"
-                      dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        "${FILTER_ARGS[@]}" \
-                        --blame-hang-timeout 5m \
-                        --logger "trx;LogFileName=${{ matrix.suite }}.trx" \
-                        --results-directory "${{ github.workspace }}/coverage/${{ matrix.suite }}" \
-                        --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
-                    else
-                      dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        "${FILTER_ARGS[@]}" \
-                        --blame-hang-timeout 5m \
-                        --logger "trx;LogFileName=${{ matrix.suite }}.trx" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
-                    fi
-
-            -   name: Verify Suite Coverage Was Collected
-                if: matrix.os == 'ubuntu-latest'
-                shell: bash
-                run: |
-                    mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
-                    if [ ${#files[@]} -eq 0 ]; then
-                      echo "Suite '${{ matrix.suite }}' passed, but no coverage.cobertura.xml was produced." >&2
-                      echo "Coverage directory contents:" >&2
-                      find "coverage/${{ matrix.suite }}" -type f -print 2>/dev/null || true
-                      ls -R "coverage/${{ matrix.suite }}" || true
-                      exit 1
-                    fi
-
-            -   name: Upload Raw Coverage Files
-                if: always() && matrix.os == 'ubuntu-latest'
-                uses: actions/upload-artifact@v7
+                uses: ./.github/actions/run-test-suite
                 with:
-                    name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}
-                    retention-days: 1
-                    path: |
-                        coverage/**/coverage.cobertura.xml
-                        coverage/**/coverage.opencover.xml
-                    if-no-files-found: error
+                    os: windows-latest
+                    framework: net10.0
+                    suite: ${{ matrix.suite }}
+                    collect-coverage: "false"
 
-            -   name: Upload Test Results (TRX)
-                if: always()
-                uses: actions/upload-artifact@v7
-                with:
-                    name: test-results-${{ matrix.os }}-${{ matrix.framework }}-${{ matrix.suite }}
-                    retention-days: 1
-                    path: '**/*.trx'
-                    if-no-files-found: warn
-
-            -   name: Fail On gRPC Cancellation Errors In Logs
-                if: always()
-                shell: bash
+    test-macos:
+        name: Test (macos-latest / net10.0 / ${{ matrix.suite }})
+        runs-on: macos-latest
+        timeout-minutes: 20
+        needs: [ build-macos ]
+        if: |
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop')) && (
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+            )
+        strategy:
+            fail-fast: ${{ github.event_name == 'pull_request' }}
+            max-parallel: 6
+            matrix:
+                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
                 run: |
-                    if grep -Ei 'gRPC method .+ (task )?canceled' "test-output-${{ matrix.suite }}.log"; then
-                      echo "Found gRPC cancellation errors in logs. Failing the build." >&2
-                      exit 1
-                    else
-                      echo "No gRPC cancellation errors detected."
-                    fi
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Run Test Suite
+                uses: ./.github/actions/run-test-suite
+                with:
+                    os: macos-latest
+                    framework: net10.0
+                    suite: ${{ matrix.suite }}
+                    collect-coverage: "false"
 
     # Full-profile explorer (~15s): safe run + three required broken-rule counterexamples.
     protocol-model-explorer:
         name: Protocol Model Explorer (Ubuntu / Full)
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        needs: [ build, smoke-fast-fail ]
+        needs: [ build-ubuntu, smoke-fast-fail ]
         steps:
             -   name: Set Git Options
                 run: |
@@ -762,7 +734,7 @@ jobs:
         name: Verify Test Discovery (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [ build, smoke-fast-fail ]
+        needs: [ build-ubuntu, smoke-fast-fail ]
         steps:
             -   name: Set Git Options
                 run: |
@@ -862,7 +834,7 @@ jobs:
         name: Coverage Report
         runs-on: ubuntu-latest
         timeout-minutes: 20
-        needs: [ changes, markdownlint, verify-coding-conventions, smoke-fast-fail, test-suites, verify-test-discovery ]
+        needs: [ changes, markdownlint, verify-coding-conventions, smoke-fast-fail, test-ubuntu, verify-test-discovery ]
         if: |
             always() &&
             needs.markdownlint.result != 'failure' &&
@@ -960,7 +932,7 @@ jobs:
         name: Test Duration Summary
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        needs: [ smoke-fast-fail, test-suites ]
+        needs: [ smoke-fast-fail, test-ubuntu, test-windows, test-macos ]
         if: always()
         steps:
             -   name: Download TRX Artifacts
@@ -1065,7 +1037,7 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        needs: [ changes, smoke-fast-fail, test-suites ]
+        needs: [ changes, smoke-fast-fail, test-ubuntu ]
         if: |
             (needs.changes.outputs.code == 'true' ||
              github.event_name == 'schedule' ||
@@ -1425,10 +1397,14 @@ jobs:
             - verify-coding-conventions
             - verify-line-endings
             - docker-build
-            - build
+            - build-ubuntu
+            - build-windows
+            - build-macos
             - smoke-fast-fail
             - benchmarks-fast
-            - test-suites
+            - test-ubuntu
+            - test-windows
+            - test-macos
             - protocol-model-explorer
             - verify-test-discovery
             - coverage
@@ -1457,10 +1433,14 @@ jobs:
                     RESULT_VERIFY: ${{ needs.verify-coding-conventions.result }}
                     RESULT_LINE_ENDINGS: ${{ needs.verify-line-endings.result }}
                     RESULT_DOCKER: ${{ needs.docker-build.result }}
-                    RESULT_BUILD: ${{ needs.build.result }}
+                    RESULT_BUILD_UBUNTU: ${{ needs.build-ubuntu.result }}
+                    RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
+                    RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
                     RESULT_SMOKE: ${{ needs.smoke-fast-fail.result }}
                     RESULT_BENCHMARKS: ${{ needs.benchmarks-fast.result }}
-                    RESULT_TEST: ${{ needs.test-suites.result }}
+                    RESULT_TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
+                    RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
+                    RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_PROTOCOL_MODEL_EXPLORER: ${{ needs.protocol-model-explorer.result }}
                     RESULT_DISCOVERY: ${{ needs.verify-test-discovery.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
@@ -1517,10 +1497,30 @@ jobs:
                     assert_success "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
                     assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
-                    assert_success "build" "$require_code" "$RESULT_BUILD"
+                    assert_success_or_skipped() {
+                      local name="$1"
+                      local required="$2"
+                      local result="$3"
+                      if [[ "$required" != "true" ]]; then
+                        echo "SKIP $name (not required for this change set)"
+                        return 0
+                      fi
+                      if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+                        echo "OK   $name result=$result"
+                        return 0
+                      fi
+                      echo "FAIL $name result=$result" >&2
+                      failed=1
+                    }
+
+                    assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
+                    assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
                     assert_success "benchmarks-fast" "$require_benchmarks" "$RESULT_BENCHMARKS"
-                    assert_success "test-suites" "$require_code" "$RESULT_TEST"
+                    assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
+                    assert_success_or_skipped "test-windows" "$require_code" "$RESULT_TEST_WINDOWS"
+                    assert_success_or_skipped "test-macos" "$require_code" "$RESULT_TEST_MACOS"
                     assert_success "protocol-model-explorer" "$require_code" "$RESULT_PROTOCOL_MODEL_EXPLORER"
                     assert_success "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
                     assert_success "coverage" "$require_code" "$RESULT_COVERAGE"
