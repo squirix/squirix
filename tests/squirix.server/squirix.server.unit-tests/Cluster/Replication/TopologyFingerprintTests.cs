@@ -39,6 +39,26 @@ public sealed class TopologyFingerprintTests
         Assert.NotEqual(rf1, rf2);
     }
 
+    /// <summary>Changing configuration generation changes the fingerprint.</summary>
+    [Fact]
+    public void FingerprintChangesWhenConfigGenerationChanges()
+    {
+        var peers = CreatePeers();
+        var left = TopologyFingerprint.Compute(CreateInputs(peers));
+        var fingerprintInputs = new FingerprintInputs
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 2,
+            ReplicaCount = 2,
+            VirtualNodes = 128,
+            Peers = peers,
+            MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+            QuorumAckMode = PolicyOptions.QuorumAckMode,
+        };
+        var right = TopologyFingerprint.Compute(fingerprintInputs);
+        Assert.NotEqual(left, right);
+    }
+
     /// <summary>Changing a peer client URI changes the fingerprint.</summary>
     [Fact]
     public void FingerprintChangesWhenPeerUriChanges()
