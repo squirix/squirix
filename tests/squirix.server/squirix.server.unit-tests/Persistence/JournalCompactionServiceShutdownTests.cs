@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -63,14 +62,10 @@ public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
 
         await compaction.StartAsync(DefaultCancellationToken);
         await snapshots.TrySnapshotAsync(journal, DefaultCancellationToken);
-        await maintenance.Entered.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+        await maintenance.Entered.WaitAsync(DefaultCancellationToken);
         Assert.True(compaction.IsInFlight);
 
         await compaction.StopAsync(DefaultCancellationToken);
-
-        var deadline = Stopwatch.GetTimestamp() + (Stopwatch.Frequency * 5);
-        while (compaction.IsInFlight && Stopwatch.GetTimestamp() < deadline)
-            await Task.Yield();
 
         Assert.False(compaction.IsInFlight);
     }
