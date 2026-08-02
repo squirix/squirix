@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
@@ -41,7 +42,10 @@ internal static class RuntimeServiceRegistration
             sp.GetRequiredService<IMemoryUsageAccounting>()));
         _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
 
-        _ = services.AddSingleton(static _ => new PhysicalCache<object?>(null, new EvictionOptions { Policy = EvictionPolicyType.Lru }));
+        _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
+            null,
+            new EvictionOptions { Policy = EvictionPolicyType.Lru },
+            sp.GetRequiredService<ILogger<PhysicalCache<object?>>>()));
         _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());

@@ -5,8 +5,6 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// </summary>
 internal static class ServerArchitectureNamespaces
 {
-    internal const string Adapters = Root + ".Adapters";
-
     internal const string Cluster = Root + ".Cluster";
 
     internal const string Node = Root + ".Node";

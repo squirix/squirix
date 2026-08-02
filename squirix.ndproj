@@ -310,14 +310,14 @@ select new {
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1301$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1302$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1303$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1304$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid namespaces with few types</Name>
 // <Id>ND1305:AvoidNamespacesWithFewTypes</Id>
 // ND1305 squirix override: stock infra list plus "Client" for the intentional
 // exported Squirix.Client entry surface (ISquirixClient / SquirixClient / Options).
 // Merging that namespace would break the public API golden contract.
-// Also skip *Benchmarks* namespaces вЂ” BDN folders intentionally stay small.
+// Also skip *Benchmarks* namespaces — BDN folders intentionally stay small.
 warnif count > 0
 
 let infraNamespaceNames = new HashSet<string>() {
@@ -363,9 +363,9 @@ select new {
 }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1306$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1307$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1309$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1311$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1312$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1313$]]></Query>
@@ -644,14 +644,11 @@ select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severit
       <Group Name="System.Threading" Active="True" ShownInReport="False">
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Don't create threads explicitly</Name>
 // <Id>ND2500:DontCreateThreadsExplicitly</Id>
-// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design.
+// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design
+// (excluded via notmycode "Exclude durability dedicated threads from ND2500").
 warnif count > 0
 from m in JustMyCode.Methods
-where m.IsUsing("TYPE:System.Threading.Thread".AllowNoMatch()) &&
-      !(m.IsConstructor &&
-        m.ParentType != null &&
-        (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
-         m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher"))
+where m.CreateA("TYPE:System.Threading.Thread".AllowNoMatch())
 select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2501$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2502$]]></Query>
@@ -669,7 +666,50 @@ select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Q
       <Group Name="System.Reflection" Active="True" ShownInReport="False">
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2800$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2801$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2802$]]></Query>
+        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Assemblies Referenced in Multiple Versions</Name>
+// <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
+// ND2802 squirix override: ignore netstandard facade dual-version noise
+// (Roslyn analyzers / xunit / Grpc TFMs commonly mix netstandard 2.0 vs 2.1 assembly versions).
+warnif count > 0
+
+let hashset = new HashSet<IType>()
+
+let refs =
+ (from asm in Assemblies
+  from asmRef in asm.AssemblyReferences
+  where !asmRef.Name.StartsWithAny("System.", "Microsoft.")
+  select new {
+    asm,
+    RefName = asmRef.Name,
+    RefVersion = asmRef.Version })
+  .ToLookup(x => x.RefName)
+
+from refsForSameAsm in refs
+let variousVersions = refsForSameAsm.Distinct(x => x.RefVersion).ToArray()
+where variousVersions.Length > 1 &&
+      refsForSameAsm.Key != "netstandard"
+let asm = Assemblies.FirstOrDefault(a => a.Name == refsForSameAsm.Key)
+where asm != null
+orderby asm.Name
+orderby variousVersions.Length descending
+let typeUsers = Application.Types.Using(asm)
+    .Where(t => !t.IsGeneratedByCompiler || t.Name.StartsWith("Program+")).ToArray()
+let FirstAppTypeUser = (typeUsers.Length == 0 ? Application.Types : typeUsers )
+    .Aggregate((minElement, nextElement) =>
+        string.Compare(nextElement.Name, minElement.Name, StringComparison.Ordinal) < 0 && !hashset.Contains(nextElement)
+        ? nextElement
+        : minElement)
+let fillHashset = hashset.Add(FirstAppTypeUser)
+select new {
+  FirstAppTypeUser,
+  asm,
+  NbVersions = variousVersions.Length,
+  Versions = variousVersions.Select(
+     vv => "" + vv.asm.Name + " uses v" + vv.RefVersion.ToString() + "")
+     .Aggregate("  ;  "),
+  Severity = Severity.Medium,
+  Debt = 15.ToMinutes().ToDebt()
+}]]></Query>
       </Group>
       <Group Name="Microsoft.Contracts" Active="True" ShownInReport="False">
         <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2900$]]></Query>
@@ -720,7 +760,7 @@ select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
 // Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
-// Shared path predicate is duplicated per element kind вЂ” NDepend notmycode requires Types, Methods, and Fields separately.
+// Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||

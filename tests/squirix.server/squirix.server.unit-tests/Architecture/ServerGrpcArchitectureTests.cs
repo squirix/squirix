@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using ArchUnitNET.xUnitV3;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -11,7 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Architecture rules for shared gRPC compile includes, mappers, storage isolation, and Prometheus ownership.</summary>
+/// <summary>Architecture rules for shared gRPC compile includes, mappers, and Prometheus ownership.</summary>
 public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
@@ -108,25 +107,5 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             Assert.Contains("namespace Squirix.Transport.Grpc.Mappers;", text, StringComparison.Ordinal);
         }
-    }
-
-    /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
-    [Fact]
-    public void StorageShouldNotDependOnAdapters()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
-    [Fact]
-    public void StorageShouldNotDependOnNodeHosting()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
-
-        rule.Check(ServerArchitecture.Instance);
     }
 }

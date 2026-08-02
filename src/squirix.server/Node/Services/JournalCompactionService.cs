@@ -220,21 +220,22 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
     {
+        AccumulateTailStats(replayFromSegment, out segments, out bytes);
+        return segments >= _opt.MinTailSegments || bytes >= _opt.MinTailBytes;
+    }
+
+    private void AccumulateTailStats(int replayFromSegment, out int segments, out long bytes)
+    {
         segments = 0;
         bytes = 0;
-
         foreach (var segment in JournalReader.EnumerateSegments(_persistence.DataDir, Math.Max(1, replayFromSegment)))
         {
-            if (!File.Exists(segment.Path))
-                continue;
-            if (segment.Index < replayFromSegment)
+            if (!File.Exists(segment.Path) || segment.Index < replayFromSegment)
                 continue;
 
             segments++;
             bytes += new FileInfo(segment.Path).Length;
         }
-
-        return segments >= _opt.MinTailSegments || bytes >= _opt.MinTailBytes;
     }
 
     private void UnsubscribeSnapshotCompleted()
