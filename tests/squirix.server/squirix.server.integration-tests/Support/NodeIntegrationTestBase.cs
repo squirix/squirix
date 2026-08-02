@@ -136,6 +136,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             NodeId = selfNodeId,
             Uri = canonicalUri,
             VirtualNodes = 128,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
         };
 
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
