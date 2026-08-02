@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.Cluster;
 

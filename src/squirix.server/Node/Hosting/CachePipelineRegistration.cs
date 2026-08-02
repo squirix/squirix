@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;

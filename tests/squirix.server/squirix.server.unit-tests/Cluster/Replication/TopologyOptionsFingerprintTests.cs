@@ -1,11 +1,11 @@
 using System;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Cluster.Replication;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Covers TopologyOptions fingerprint and inter-node URI resolution.</summary>
+/// <summary>Covers TopologyFingerprint creation and inter-node URI resolution.</summary>
 public sealed class TopologyOptionsFingerprintTests
 {
     /// <summary>Single-node topology fingerprints without rewriting peer URIs.</summary>
@@ -22,7 +22,7 @@ public sealed class TopologyOptionsFingerprintTests
             ConfigurationGeneration = 1,
         };
 
-        var fingerprint = topology.CreateFingerprint(new MtlsOptions());
+        var fingerprint = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions());
         Assert.Equal(64, fingerprint.ToString().Length);
     }
 
@@ -44,8 +44,8 @@ public sealed class TopologyOptionsFingerprintTests
             ConfigurationGeneration = 3,
             VirtualNodes = 64,
         };
-        var withPort = topology.CreateFingerprint(new MtlsOptions { InternalListenPort = 7001 });
-        var withoutPort = topology.CreateFingerprint(new MtlsOptions());
+        var withPort = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions { InternalListenPort = 7001 });
+        var withoutPort = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions());
         Assert.NotEqual(withPort, withoutPort);
     }
 
@@ -67,20 +67,22 @@ public sealed class TopologyOptionsFingerprintTests
             ReplicaCount = 2,
             ConfigurationGeneration = 1,
         };
-        var withExplicit = topology.CreateFingerprint(new MtlsOptions { InternalListenPort = 9999 });
+        var withExplicit = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions { InternalListenPort = 9999 });
         var baselinePeers = new[]
         {
             new ServerPeer { NodeId = "n1", Uri = peers[0].Uri, InterNodeUri = interNode },
             new ServerPeer { NodeId = "n2", Uri = peers[1].Uri, InterNodeUri = peers[1].InterNodeUri },
         };
-        var baseline = new TopologyOptions(baselinePeers)
-        {
-            ClusterId = "c1",
-            NodeId = "n1",
-            Uri = peers[0].Uri,
-            ReplicaCount = 2,
-            ConfigurationGeneration = 1,
-        }.CreateFingerprint(new MtlsOptions { InternalListenPort = 1 });
+        var baseline = TopologyFingerprint.CreateFromTopology(
+            new TopologyOptions(baselinePeers)
+            {
+                ClusterId = "c1",
+                NodeId = "n1",
+                Uri = peers[0].Uri,
+                ReplicaCount = 2,
+                ConfigurationGeneration = 1,
+            },
+            new MtlsOptions { InternalListenPort = 1 });
         Assert.Equal(withExplicit, baseline);
     }
 }

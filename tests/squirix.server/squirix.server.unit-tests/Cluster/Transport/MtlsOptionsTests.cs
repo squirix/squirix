@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;

@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;

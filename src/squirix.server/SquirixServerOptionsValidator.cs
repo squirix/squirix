@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server;
 

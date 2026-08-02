@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -16,16 +17,21 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
 
     private TopologyFingerprint(ReadOnlySpan<byte> digest)
     {
-        DigestBytes storage = default;
-        digest.CopyTo(storage);
-        _digest = storage;
+        _digest = DigestBytes.FromSpan(digest);
     }
 
     /// <summary>Gets the 32-byte SHA-256 digest.</summary>
-    internal ReadOnlySpan<byte> Bytes => _digest;
+    internal ReadOnlySpan<byte> Bytes
+    {
+        get
+        {
+            ref var digest = ref Unsafe.AsRef(in _digest);
+            return MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<DigestBytes, byte>(ref digest), 32);
+        }
+    }
 
     /// <inheritdoc />
-    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && Bytes.SequenceEqual(other.Bytes);
+    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && _digest.Equals(other._digest);
 
     /// <inheritdoc />
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is TopologyFingerprint other && Equals(other);
@@ -36,6 +42,40 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
     /// <summary>Returns uppercase hex encoding of the digest.</summary>
     /// <returns>64-character uppercase hex string.</returns>
     public override string ToString() => Convert.ToHexString(Bytes);
+
+    /// <summary>Computes the canonical topology fingerprint for a cluster configuration.</summary>
+    /// <param name="topology">Cluster topology options.</param>
+    /// <param name="mtlsOptions">Inter-node mTLS options used to derive effective peer URIs.</param>
+    /// <returns>Canonical topology fingerprint.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> or <paramref name="mtlsOptions" /> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when required fingerprint input fields are empty.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
+    internal static TopologyFingerprint CreateFromTopology(TopologyOptions topology, MtlsOptions mtlsOptions)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        ArgumentNullException.ThrowIfNull(mtlsOptions);
+
+        var peers = topology.Peers;
+        var fingerprintPeers = new FingerprintPeer[peers.Length];
+        var interNodeEnabled = MtlsTopology.RequiresInterNodeMtls(topology);
+        for (var i = 0; i < peers.Length; i++)
+        {
+            var peer = peers[i];
+            fingerprintPeers[i] = new FingerprintPeer(peer.NodeId, peer.Uri, ResolveInterNodeUri(peer, mtlsOptions, interNodeEnabled));
+        }
+
+        return Compute(
+            new FingerprintInputs
+            {
+                ClusterId = topology.ClusterId,
+                ConfigurationGeneration = topology.ConfigurationGeneration,
+                ReplicaCount = topology.ReplicaCount,
+                VirtualNodes = topology.VirtualNodes,
+                Peers = fingerprintPeers,
+                MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+                QuorumAckMode = PolicyOptions.QuorumAckMode,
+            });
+    }
 
     /// <summary>Computes a topology fingerprint from canonical inputs.</summary>
     /// <param name="inputs">Fingerprint inputs.</param>
@@ -193,12 +233,56 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         return copy;
     }
 
-    [InlineArray(32)]
-    private struct DigestBytes
+    private static Uri ResolveInterNodeUri(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeEnabled)
     {
-        // Required by [InlineArray]; element is accessed via indexer / Span conversion.
-#pragma warning disable S1144, RCS1169, RCS1213
-        private byte _element0;
-#pragma warning restore S1144, RCS1169, RCS1213
+        if (!interNodeEnabled)
+            return peer.Uri;
+
+        if (peer.InterNodeUri is { } configured)
+            return configured;
+
+        if (mtlsOptions.InternalListenPort <= 0)
+            return peer.Uri;
+
+        return new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri;
+    }
+
+    /// <summary>Inline 32-byte SHA-256 digest storage (readonly for NDepend ND1914; avoids InlineArray CS9180/CS8340 conflict).</summary>
+    [StructLayout(LayoutKind.Sequential, Size = 32)]
+    private readonly struct DigestBytes : IEquatable<DigestBytes>
+    {
+        private readonly ulong _w0;
+        private readonly ulong _w1;
+        private readonly ulong _w2;
+        private readonly ulong _w3;
+
+        private DigestBytes(ulong w0, ulong w1, ulong w2, ulong w3)
+        {
+            _w0 = w0;
+            _w1 = w1;
+            _w2 = w2;
+            _w3 = w3;
+        }
+
+        /// <inheritdoc />
+        public bool Equals(DigestBytes other) => _w0 == other._w0 && _w1 == other._w1 && _w2 == other._w2 && _w3 == other._w3;
+
+        /// <inheritdoc />
+        public override bool Equals([NotNullWhen(true)] object? obj) => obj is DigestBytes other && Equals(other);
+
+        /// <inheritdoc />
+        public override int GetHashCode() => HashCode.Combine(_w0, _w1, _w2, _w3);
+
+        internal static DigestBytes FromSpan(ReadOnlySpan<byte> digest)
+        {
+            if (digest.Length is not 32)
+                throw new ArgumentException("Digest must be exactly 32 bytes.", nameof(digest));
+
+            return new DigestBytes(
+                BinaryPrimitives.ReadUInt64LittleEndian(digest),
+                BinaryPrimitives.ReadUInt64LittleEndian(digest[8..]),
+                BinaryPrimitives.ReadUInt64LittleEndian(digest[16..]),
+                BinaryPrimitives.ReadUInt64LittleEndian(digest[24..]));
+        }
     }
 }

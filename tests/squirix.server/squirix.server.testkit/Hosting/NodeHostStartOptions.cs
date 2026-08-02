@@ -3,6 +3,7 @@ using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;

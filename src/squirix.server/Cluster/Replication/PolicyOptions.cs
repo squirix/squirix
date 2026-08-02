@@ -3,6 +3,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Static replication policy constants that participate in topology identity.</summary>
 internal static class PolicyOptions
 {
+    // MaxReplicaCount is owned by Cluster.TopologyConstraints; Replication aliases it (child → parent).
+
     /// <summary>Canonical fingerprint format version for preview.8 topology identity.</summary>
     internal const int CanonicalFormatVersion = 1;
 
@@ -19,7 +21,7 @@ internal static class PolicyOptions
     internal const int HashAlgorithmVersion = 1;
 
     /// <summary>Maximum supported replica factor for preview.8.</summary>
-    internal const int MaxReplicaCount = 5;
+    internal const int MaxReplicaCount = TopologyConstraints.MaxReplicaCount;
 
     /// <summary>Minimum cluster package version required for RF&gt;1 topology agreement.</summary>
     internal const string MinClusterPackageVersion = "0.1.0-preview.8";

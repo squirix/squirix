@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.Cluster;
 
 /// <summary>Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.</summary>
 internal sealed record MtlsOptions

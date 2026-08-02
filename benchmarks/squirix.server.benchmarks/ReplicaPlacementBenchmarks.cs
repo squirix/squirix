@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -30,7 +29,7 @@ public class ReplicaPlacementBenchmarks
     {
         var topology = _topology ?? throw new InvalidOperationException("Benchmark was not initialized.");
         var mtls = _mtls ?? throw new InvalidOperationException("Benchmark was not initialized.");
-        return topology.CreateFingerprint(mtls).ToString().Length;
+        return TopologyFingerprint.CreateFromTopology(topology, mtls).ToString().Length;
     }
 
     /// <summary>Resolves the original owner for a fixed cache key.</summary>

@@ -1,40 +1,30 @@
 using System;
 using System.Buffers;
 using System.Collections.Immutable;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>Cluster-owned DI registrations for static topology transport and inter-node client pooling.</summary>
+/// <summary>Cluster-owned DI registrations for static topology location (no child-namespace types).</summary>
 internal static class RuntimeServiceRegistration
 {
     /// <summary>
-    /// Extension methods that register cluster runtime services on <see cref="IServiceCollection" />.
+    /// Extension methods that register cluster locator services on <see cref="IServiceCollection" />.
     /// </summary>
     extension(IServiceCollection services)
     {
-        /// <summary>Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.</summary>
+        /// <summary>Registers static topology node location and ownership resolution.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
-        /// <param name="callPolicyFactory">Optional per-endpoint call policy factory; defaults to a conservative remote policy.</param>
-        /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory for pooled gRPC channels.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal IServiceCollection AddSquirixClusterServices(
-            TopologyOptions cluster,
-            Func<string, ServerCallPolicy>? callPolicyFactory,
-            Func<string, HttpMessageHandler>? peerHandlerFactory)
+        internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {
-            RegisterLocatorAndOwnership(services, cluster);
-            RegisterInterceptors(services, cluster);
-            RegisterClientPool(services, cluster, callPolicyFactory, peerHandlerFactory);
+            _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
+            _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
+            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(sp.GetRequiredService<INodeLocator>(), sp.GetRequiredService<TopologyOptions>()));
             return services;
         }
     }
@@ -46,17 +36,6 @@ internal static class RuntimeServiceRegistration
     [PublicAPI]
     internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) => new ConsistentHashNodeLocator(nodes, virtualNodes);
 
-    private static ServerPeer[] CopyPeers(TopologyOptions cluster)
-    {
-        var peers = cluster.Peers;
-        var copy = new ServerPeer[peers.Length];
-
-        for (var i = 0; i < peers.Length; i++)
-            copy[i] = peers[i];
-
-        return copy;
-    }
-
     private static string[] GetPeerNodeIds(TopologyOptions cluster)
     {
         var peers = cluster.Peers;
@@ -66,63 +45,6 @@ internal static class RuntimeServiceRegistration
             nodeIds[i] = peers[i].NodeId;
 
         return nodeIds;
-    }
-
-    private static void RegisterClientPool(
-        IServiceCollection services,
-        TopologyOptions cluster,
-        Func<string, ServerCallPolicy>? callPolicyFactory,
-        Func<string, HttpMessageHandler>? peerHandlerFactory)
-    {
-        _ = services.AddSingleton<IServerClientPool>(sp =>
-        {
-            var material = sp.GetRequiredService<MtlsCertificateMaterial>();
-            var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
-            var interNodeMtlsEnabled = material.Enabled;
-            return new ServerClientPool(
-                CopyPeers(cluster),
-                new ServerClientPoolArgs
-                {
-                    PolicyFactory = callPolicyFactory ?? (static _ => new ServerCallPolicy(
-                        TimeSpan.FromSeconds(3),
-                        3,
-                        TimeSpan.FromMilliseconds(60),
-                        TimeSpan.FromMilliseconds(600))),
-                    PeerHandlerFactory = peerHandlerFactory,
-                    Interceptor = sp.GetRequiredService<ClientInterceptor>(),
-                    MtlsOptions = mtlsOptions,
-                    MtlsMaterial = material,
-                    InterNodeMtlsEnabled = interNodeMtlsEnabled,
-                    InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
-                });
-        });
-    }
-
-    private static void RegisterInterceptors(IServiceCollection services, TopologyOptions cluster)
-    {
-        _ = services.AddSingleton(sp => new ClientInterceptor(sp.GetRequiredService<ILogger<ClientInterceptor>>(), cluster.NodeId));
-        _ = services.AddSingleton(sp => new ServerInterceptor(sp.GetRequiredService<ILogger<ServerInterceptor>>(), cluster.NodeId));
-        _ = services.AddSingleton<ClusterInternalOwnerClientInterceptor>();
-    }
-
-    private static void RegisterLocatorAndOwnership(IServiceCollection services, TopologyOptions cluster)
-    {
-        _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
-        _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
-        _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(sp.GetRequiredService<INodeLocator>(), sp.GetRequiredService<TopologyOptions>()));
-
-        var physicalRing = new PhysicalNodeRing(GetPeerNodeIds(cluster));
-        _ = services.AddSingleton(physicalRing);
-        _ = services.AddSingleton<IReplicaGroupLocator>(new ReplicaGroupLocator(physicalRing, cluster.ReplicaCount));
-
-        // AddSingleton<T>(T) is constrained to class; two-arg instance descriptor boxes the struct.
-        // Do not pass ServiceLifetime — that binds the keyed (serviceType, serviceKey, instance) ctor.
-        var featureState = FeatureState.Disabled;
-        if (featureState.NetworkReplicationEnabled)
-            throw new InvalidOperationException("Network replication must stay disabled until M8-09 activation.");
-
-        services.Add(new ServiceDescriptor(typeof(FeatureState), featureState));
-        _ = services.AddSingleton(sp => cluster.CreateFingerprint(sp.GetRequiredService<MtlsOptions>()));
     }
 
     /// <summary>

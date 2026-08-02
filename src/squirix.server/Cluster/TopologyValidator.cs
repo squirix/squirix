@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Squirix.Server.Cluster.Replication;
 
 namespace Squirix.Server.Cluster;
 
@@ -176,8 +175,8 @@ internal static class TopologyValidator
             return;
         }
 
-        if (replicaCount > PolicyOptions.MaxReplicaCount)
-            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({PolicyOptions.MaxReplicaCount}).");
+        if (replicaCount > TopologyConstraints.MaxReplicaCount)
+            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).");
 
         if (replicaCount > peerCount)
             failures.Add(ReplicaCountAbovePeerCount);

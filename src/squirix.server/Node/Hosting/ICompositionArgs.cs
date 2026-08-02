@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
