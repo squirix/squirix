@@ -67,6 +67,7 @@ internal sealed record MtlsOptions
         {
             failures.Add(
                 "Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or SQUIRIX_CLUSTER_MTLS_CERT_PATH and SQUIRIX_CLUSTER_MTLS_KEY_PATH when cluster peers are configured.");
+            return;
         }
 
         if (hasPfx)

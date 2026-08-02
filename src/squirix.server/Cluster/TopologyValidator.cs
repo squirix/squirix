@@ -132,7 +132,22 @@ internal static class TopologyValidator
             failures.Add(PeersTooMany);
 
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
-        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, peers.Length is 0 ? 1 : peers.Length);
+        ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, CountDistinctPeerNodes(readPeer, peers));
+    }
+
+    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+        where TPeer : notnull
+    {
+        // Empty peer list is single-node mode (matches PhysicalNodeRing input synthesized elsewhere).
+        if (peers.Length is 0)
+            return 1;
+
+        var nodeIds = new string[peers.Length];
+        for (var i = 0; i < peers.Length; i++)
+            nodeIds[i] = readPeer(peers[i]).NodeId ?? string.Empty;
+
+        // Same distinct count PhysicalNodeRing / ReplicaGroupLocator use for RF bounds.
+        return DistinctNodeIds.InInsertionOrder(nodeIds).Length;
     }
 
     private static void ValidateVirtualNodes(List<string> failures, int virtualNodes)
@@ -193,15 +208,9 @@ internal static class TopologyValidator
         CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
     }
 
-    private static bool IsAbsoluteHttpsUri(Uri value) =>
-        value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+    private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
-    private static void CollectHttpsUriFailures(
-        List<string> failures,
-        Uri value,
-        string tooLongMessage,
-        string hostRequiredMessage,
-        string originRequiredMessage)
+    private static void CollectHttpsUriFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
         if (value.OriginalString.Length > MaxUrlLength)
             failures.Add(tooLongMessage);
@@ -211,11 +220,8 @@ internal static class TopologyValidator
             failures.Add(originRequiredMessage);
     }
 
-    private static bool HasNonOriginParts(Uri value) =>
-        !string.IsNullOrEmpty(value.UserInfo)
-        || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase)
-        || !string.IsNullOrEmpty(value.Query)
-        || !string.IsNullOrEmpty(value.Fragment);
+    private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
+                                                        !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
     private sealed class TopologyValidationArgs
     {

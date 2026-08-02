@@ -192,6 +192,15 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         };
         Assert.True(v.Validate(Options.DefaultName, zero).Failed);
 
+        var maxValid = new TopologyOptions(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = peers.Length,
+        };
+        Assert.False(v.Validate(Options.DefaultName, maxValid).Failed);
+
         var abovePeers = new TopologyOptions(peers)
         {
             ClusterId = "c1",
@@ -200,6 +209,27 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             ReplicaCount = 3,
         };
         Assert.True(v.Validate(Options.DefaultName, abovePeers).Failed);
+
+        // Raw peer entries can exceed the physical ring; RF must use DistinctNodeIds count.
+        ServerPeer[] peersWithDuplicate =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6002") },
+            new() { NodeId = "n2", Uri = new Uri("https://localhost:6003") },
+        ];
+        var aboveDistinct = new TopologyOptions(peersWithDuplicate)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peersWithDuplicate[0].Uri,
+            ReplicaCount = peersWithDuplicate.Length,
+        };
+        var aboveDistinctResult = v.Validate(Options.DefaultName, aboveDistinct);
+        Assert.True(aboveDistinctResult.Failed);
+        Assert.Contains(
+            "ReplicaCount cannot exceed the number of configured peers.",
+            aboveDistinctResult.Failures,
+            StringComparer.Ordinal);
     }
 
     /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
