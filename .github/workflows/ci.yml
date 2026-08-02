@@ -355,6 +355,7 @@ jobs:
                 run: |
                     set -o pipefail
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
+                      --blame-hang-timeout 5m \
                       --filter "FullyQualifiedName~AuthSmokeTests" 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
@@ -363,6 +364,7 @@ jobs:
                     set -o pipefail
                     mkdir -p coverage/smoke
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
+                      --blame-hang-timeout 5m \
                       --logger "trx;LogFileName=smoke.trx" \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
                       --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee test-output-smoke.log
@@ -1570,4 +1572,5 @@ jobs:
                     dotnet test tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
                       --configuration Release \
                       --no-build \
+                      --blame-hang-timeout 15m \
                       --filter "Suite=Stress"
