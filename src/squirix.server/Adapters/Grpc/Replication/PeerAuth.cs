@@ -15,23 +15,23 @@ internal static class PeerAuth
     /// Host-header spoofing is ignored; <see cref="ConnectionInfo.LocalPort" /> is authoritative.
     /// </summary>
     /// <param name="context">gRPC server call context.</param>
-    /// <param name="cluster">Local cluster topology.</param>
     /// <param name="mtlsOptions">Cluster mTLS options.</param>
     /// <param name="mtlsMaterial">Loaded cluster mTLS material.</param>
+    /// <param name="remotePeerNodeIds">Configured remote peer node identifiers for inbound certificate checks.</param>
     /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
     /// <returns>Validated peer node id from the client certificate.</returns>
     /// <exception cref="RpcException">Thrown when the call is not a trusted internal replication peer.</exception>
     internal static string EnsureTrustedPeer(
         ServerCallContext context,
-        TopologyOptions cluster,
         MtlsOptions mtlsOptions,
         MtlsCertificateMaterial mtlsMaterial,
+        string[] remotePeerNodeIds,
         string claimedSenderNodeId)
     {
         ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         ArgumentNullException.ThrowIfNull(mtlsMaterial);
+        ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
         ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
 
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor is null)
@@ -44,7 +44,7 @@ internal static class PeerAuth
         var certificate = httpContext.Connection.ClientCertificate
                           ?? throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate."));
 
-        if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster)))
+        if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
             throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
 
         if (!MtlsCertificateIdentity.TryGetNodeId(certificate, out var certificateNodeId))

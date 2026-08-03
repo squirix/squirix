@@ -10,15 +10,16 @@ namespace Squirix.Server.Adapters.Grpc.Replication;
 /// <summary>Closed replication gRPC adapter. Identity-checked; durable follow-up lands in later M8 tasks.</summary>
 internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
 {
-    private readonly TopologyOptions _cluster;
     private readonly MtlsCertificateMaterial _mtlsMaterial;
     private readonly MtlsOptions _mtlsOptions;
+    private readonly string[] _remotePeerNodeIds;
 
     public SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
-        _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
+        ArgumentNullException.ThrowIfNull(cluster);
         _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
         _mtlsMaterial = mtlsMaterial ?? throw new ArgumentNullException(nameof(mtlsMaterial));
+        _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
     }
 
     public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
@@ -91,7 +92,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (header is null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with sender_node_id is required."));
 
-        _ = PeerAuth.EnsureTrustedPeer(context, _cluster, _mtlsOptions, _mtlsMaterial, header.SenderNodeId);
+        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId);
 
         var schemaVersion = header.SchemaVersion is 0 ? EnvelopeCodec.SchemaVersion : header.SchemaVersion;
 
