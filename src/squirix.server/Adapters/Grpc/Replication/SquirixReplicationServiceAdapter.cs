@@ -23,11 +23,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
     {
-        _ = EnsureHeader(request.Header, context);
+        var header = EnsureHeader(request.Header, context);
         return Task.FromResult(
             new AdvanceReplicaCommitResponse
             {
-                Term = request.Header.Term,
+                Term = header.Term,
                 CommitIndex = request.CommitIndex,
                 Success = false,
                 RefusalCode = RefusalCodes.NotReady,
@@ -36,11 +36,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
-        _ = EnsureHeader(request.Header, context);
+        var header = EnsureHeader(request.Header, context);
         return Task.FromResult(
             new AppendReplicaEntriesResponse
             {
-                Term = request.Header.Term,
+                Term = header.Term,
                 LastLogIndex = request.PrevLogIndex,
                 Success = false,
                 RefusalCode = RefusalCodes.NotReady,
@@ -64,25 +64,23 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             });
     }
 
-    public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(
-        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
-        ServerCallContext context)
+    public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(requestStream);
 
-        InstallReplicaSnapshotRequest? first = null;
+        ReplicationEnvelopeHeader? header = null;
         while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
         {
-            first ??= requestStream.Current;
-            _ = EnsureHeader(requestStream.Current.Header, context);
+            var validated = EnsureHeader(requestStream.Current.Header, context);
+            header ??= validated;
         }
 
-        if (first is null)
+        if (header is null)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
 
         return new InstallReplicaSnapshotResponse
         {
-            Term = first.Header.Term,
+            Term = header.Term,
             Success = false,
             RefusalCode = RefusalCodes.NotReady,
         };
@@ -102,18 +100,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         var fingerprint = new byte[header.TopologyFingerprint.Length];
 #pragma warning restore ZA0302
         header.TopologyFingerprint.Span.CopyTo(fingerprint);
-        var encoded = EnvelopeCodec.Encode(
-            new Envelope(
-                schemaVersion,
-                header.GroupId,
-                fingerprint,
-                header.ConfigurationGeneration,
-                header.Term,
-                header.LeaderNodeId,
-                header.SenderNodeId,
-                0,
-                0,
-                0));
+        var envelope = new Envelope(schemaVersion, header.GroupId, fingerprint, header.ConfigurationGeneration, header.Term, header.LeaderNodeId, header.SenderNodeId, 0, 0, 0);
+        var encoded = EnvelopeCodec.Encode(envelope);
         _ = EnvelopeCodec.Decode(encoded);
 
         return header;
