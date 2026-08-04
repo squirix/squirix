@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Grpc.Core;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -13,6 +14,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly MtlsCertificateMaterial _mtlsMaterial;
     private readonly MtlsOptions _mtlsOptions;
     private readonly string[] _remotePeerNodeIds;
+    private readonly TopologyFingerprint _topologyFingerprint;
+    private readonly ulong _configurationGeneration;
 
     public SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
@@ -20,6 +23,9 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
         _mtlsMaterial = mtlsMaterial ?? throw new ArgumentNullException(nameof(mtlsMaterial));
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
+
+        _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
+        _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
     public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
@@ -38,31 +44,37 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     public override Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context);
-        return Task.FromResult(
-            new AppendReplicaEntriesResponse
-            {
-                Term = header.Term,
-                LastLogIndex = request.PrevLogIndex,
-                Success = false,
-                RefusalCode = RefusalCodes.NotReady,
-            });
+        var result = new AppendReplicaEntriesResponse
+        {
+            Term = header.Term,
+
+            // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
+            // echoing the leader's PrevLogIndex which would mislead the leader.
+            LastLogIndex = 0,
+            Success = false,
+            RefusalCode = RefusalCodes.NotReady,
+        };
+        return Task.FromResult(result);
     }
 
     public override Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context);
-        return Task.FromResult(
-            new GetReplicaStatusResponse
-            {
-                Term = header.Term,
-                Role = "follower",
-                LastLogIndex = 0,
-                CommitIndex = 0,
-                Readiness = RefusalCodes.NotReady,
-                TopologyFingerprint = header.TopologyFingerprint,
-                ConfigurationGeneration = header.ConfigurationGeneration,
-                RefusalCode = RefusalCodes.NotReady,
-            });
+        var response = new GetReplicaStatusResponse
+        {
+            Term = header.Term,
+            Role = "follower",
+            LastLogIndex = 0,
+            CommitIndex = 0,
+
+            // Report an explicit readiness state for the node. This stub node is not yet serving; use a distinct readiness marker rather than conflating
+            // with the refusal code. Tests assert RefusalCode separately.
+            Readiness = "unknown",
+            TopologyFingerprint = ByteString.CopyFrom(_topologyFingerprint.Bytes),
+            ConfigurationGeneration = _configurationGeneration,
+            RefusalCode = RefusalCodes.NotReady,
+        };
+        return Task.FromResult(response);
     }
 
     public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream, ServerCallContext context)
