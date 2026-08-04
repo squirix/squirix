@@ -63,18 +63,16 @@ internal static class StoreTestSupport
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linkedCts.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
 
-            bool satisfied;
             try
             {
-                satisfied = await condition(state, linkedCts.Token).ConfigureAwait(false);
+                var satisfied = await condition(state, linkedCts.Token).ConfigureAwait(false);
+                if (satisfied)
+                    return;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new TimeoutException("Timed out waiting for manifest retention side effects.");
             }
-
-            if (satisfied)
-                return;
 
             remainingMs = deadline - Environment.TickCount64;
             if (remainingMs <= 0)

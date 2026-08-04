@@ -16,6 +16,8 @@ namespace Squirix.Server.Storage.Entries.Binary;
 internal static class CacheEntryCodec
 {
     internal const int MaxUtf16StringLength = ushort.MaxValue;
+    private const byte True = 1;
+    private const byte False = 0;
 
     internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
     {
@@ -404,10 +406,7 @@ internal static class CacheEntryCodec
         private static int WriteBool(bool value, Span<byte> destination)
         {
             destination[0] = ValueKind.Bool;
-            if (value)
-                destination[1] = 1;
-            else
-                destination[1] = 0;
+            destination[1] = value ? True : False;
 
             return 2;
         }
@@ -748,10 +747,7 @@ internal static class CacheEntryCodec
             private static int WriteBool(bool value, Span<byte> destination)
             {
                 destination[0] = ValueKind.Bool;
-                if (value)
-                    destination[1] = 1;
-                else
-                    destination[1] = 0;
+                destination[1] = value ? True : False;
                 return 2;
             }
 

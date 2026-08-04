@@ -44,11 +44,7 @@ internal static class StoreFactory
             return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
         }
 
-        private static void AppendRecord<T>(
-            object record,
-            bool skipExpired,
-            List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries,
-            List<PersistedIdempotencyRecord> idempotencyRecords)
+        private static void AppendRecord<T>(object record, bool skipExpired, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
         {
             switch (record)
             {
@@ -63,8 +59,10 @@ internal static class StoreFactory
                     return;
 
                 case IdempotencyRecord idempotency:
-                    idempotencyRecords.Add(idempotency.Record);
+                    records.Add(idempotency.Record);
                     return;
+                default:
+                    throw new InvalidOperationException("Encountered unexpected record.");
             }
         }
 

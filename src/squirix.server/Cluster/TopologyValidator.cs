@@ -161,6 +161,8 @@ internal static class TopologyValidator
             case > MaxVirtualNodes:
                 failures.Add(VirtualNodesTooLarge);
                 break;
+            default:
+                return;
         }
     }
 

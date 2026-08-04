@@ -140,6 +140,8 @@ public static class ExportedApiMetadata
                 case INamedTypeSymbol type:
                     CollectExportedTypeTree(type, identities);
                     break;
+                default:
+                    throw new InvalidOperationException("Encountered unexpected member.");
             }
         }
     }

@@ -36,8 +36,9 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         await using (var hostAb = await StartNodeAsync(uriA, peersAb))
             fingerprintAb = hostAb.Services.GetRequiredService<TopologyFingerprint>().ToString();
 
-        await using var hostBa = await StartNodeAsync(uriA, peersBa);
-        var fingerprintBa = hostBa.Services.GetRequiredService<TopologyFingerprint>().ToString();
+        string fingerprintBa;
+        await using (var hostBa = await StartNodeAsync(uriA, peersBa))
+            fingerprintBa = hostBa.Services.GetRequiredService<TopologyFingerprint>().ToString();
 
         Assert.Equal(fingerprintAb, fingerprintBa);
     }
