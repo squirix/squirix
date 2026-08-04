@@ -10,6 +10,7 @@ internal static class EnvelopeCodec
     /// <summary>Gets the durable/network schema version encoded by this codec.</summary>
     internal const uint SchemaVersion = 1;
 
+    private const string FixedHeaderValidationMessage = "Replication envelope payload is truncated.";
     private const int FixedHeaderByteCount = 4 + 4 + 8 + 8 + 8;
 
     /// <summary>Encodes a replication envelope into a versioned binary buffer.</summary>
@@ -58,7 +59,7 @@ internal static class EnvelopeCodec
     internal static Envelope Decode(ReadOnlySpan<byte> payload)
     {
         if (payload.Length < FixedHeaderByteCount + 16)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+            throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
 
         var offset = 0;
         var schema = BinaryPrimitives.ReadUInt32LittleEndian(payload[offset..]);
@@ -97,12 +98,12 @@ internal static class EnvelopeCodec
     private static byte[] ReadOwnedBytes(ReadOnlySpan<byte> payload, ref int offset)
     {
         if (payload.Length - offset < 4)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+            throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
 
         var length = BinaryPrimitives.ReadInt32LittleEndian(payload[offset..]);
         offset += 4;
         if (length < 0 || length > payload.Length - offset)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+            throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
 
         // ZA0302: exact-size owned buffer escape; the envelope record must outlive the input span.
 #pragma warning disable ZA0302
@@ -116,11 +117,11 @@ internal static class EnvelopeCodec
     private static string ReadString(ReadOnlySpan<byte> payload, ref int offset)
     {
         if (payload.Length - offset < 4)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+            throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
         var length = BinaryPrimitives.ReadInt32LittleEndian(payload[offset..]);
         offset += 4;
         if (length < 0 || length > payload.Length - offset)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+            throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
         var value = Encoding.UTF8.GetString(payload.Slice(offset, length));
         offset += length;
         return value;
