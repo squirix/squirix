@@ -96,12 +96,12 @@ internal static class EnvelopeCodec
 
     private static byte[] ReadOwnedBytes(ReadOnlySpan<byte> payload, ref int offset)
     {
-        if (offset + 4 > payload.Length)
+        if (payload.Length - offset < 4)
             throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
 
         var length = BinaryPrimitives.ReadInt32LittleEndian(payload[offset..]);
         offset += 4;
-        if (length < 0 || offset + length > payload.Length)
+        if (length < 0 || length > payload.Length - offset)
             throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
 
         // ZA0302: exact-size owned buffer escape; the envelope record must outlive the input span.
