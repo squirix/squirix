@@ -43,10 +43,10 @@ internal static class EnvelopeCodec
         offset += 8;
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.LogIndex);
         offset += 8;
-        WriteBytes(buffer, ref offset, groupIdBytes);
-        WriteBytes(buffer, ref offset, fingerprint);
-        WriteBytes(buffer, ref offset, leaderBytes);
-        WriteBytes(buffer, ref offset, senderBytes);
+        WriteBytes(buffer, groupIdBytes, ref offset);
+        WriteBytes(buffer, fingerprint, ref offset);
+        WriteBytes(buffer, leaderBytes, ref offset);
+        WriteBytes(buffer, senderBytes, ref offset);
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.CommitIndex);
         return owned;
     }
@@ -86,7 +86,7 @@ internal static class EnvelopeCodec
         return new Envelope(schema, groupId, fingerprint, generation, term, leaderNodeId, senderNodeId, logIndex, commitIndex, checksum);
     }
 
-    private static void WriteBytes(Span<byte> buffer, ref int offset, ReadOnlySpan<byte> value)
+    private static void WriteBytes(Span<byte> buffer, ReadOnlySpan<byte> value, ref int offset)
     {
         BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], value.Length);
         offset += 4;
