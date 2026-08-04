@@ -28,7 +28,7 @@ is_solution_source() {
     local path="$1"
     local prefix
     for prefix in "${SOLUTION_SOURCE_PREFIXES[@]}"; do
-        if [[ "${path}" == "${prefix}"* ]]; then
+        if [[ "${path}" = "${prefix}"* ]]; then
             return 0
         fi
     done
@@ -40,12 +40,12 @@ requires_full_format() {
     local path="$1"
 
     for global_path in "${GLOBAL_PATHS[@]}"; do
-        if [[ "${path}" == "${global_path}" ]]; then
+        if [[ "${path}" = "${global_path}" ]]; then
             return 0
         fi
     done
 
-    if [[ "${path}" == *.csproj ]] || [[ "${path}" == */packages.lock.json ]]; then
+    if [[ "${path}" = *.csproj ]] || [[ "${path}" = */packages.lock.json ]]; then
         return 0
     fi
 
@@ -55,14 +55,14 @@ requires_full_format() {
 collect_changed_paths() {
     local event_name="${GITHUB_EVENT_NAME:-}"
 
-    if [[ "${event_name}" == "pull_request" ]]; then
+    if [[ "${event_name}" = "pull_request" ]]; then
         local base_ref="${GITHUB_BASE_REF:-develop}"
         git fetch origin "${base_ref}" --depth=1
         git diff --name-only --diff-filter=ACMRT "origin/${base_ref}...HEAD"
         return
     fi
 
-    if [[ "${event_name}" == "push"
+    if [[ "${event_name}" = "push"
         && -n "${GITHUB_EVENT_BEFORE:-}"
         && "${GITHUB_EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
         git diff --name-only --diff-filter=ACMRT "${GITHUB_EVENT_BEFORE}" "${GITHUB_SHA}"

@@ -18,7 +18,7 @@ path_extension() {
     local path="$1"
     local name="${path##*/}"
 
-    if [[ "${name}" == "${path##*/}" && "${name}" != *.* ]]; then
+    if [[ "${name}" = "${path##*/}" && "${name}" != *.* ]]; then
         printf '%s\n' "${name}"
         return
     fi
