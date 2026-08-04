@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
 
@@ -26,46 +25,30 @@ internal static class EnvelopeCodec
         var senderBytes = Encoding.UTF8.GetBytes(envelope.SenderNodeId);
         var fingerprint = envelope.TopologyFingerprint;
 
-        var length = FixedHeaderByteCount
-                     + 4 + groupIdBytes.Length
-                     + 4 + fingerprint.Length
-                     + 4 + leaderBytes.Length
-                     + 4 + senderBytes.Length
-                     + 8;
+        var length = FixedHeaderByteCount + 4 + groupIdBytes.Length + 4 + fingerprint.Length + 4 + leaderBytes.Length + 4 + senderBytes.Length + 8;
 
-        var rented = ArrayPool<byte>.Shared.Rent(length);
-        try
-        {
-            var buffer = rented.AsSpan(0, length);
-            var offset = 0;
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], SchemaVersion);
-            offset += 4;
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], envelope.PayloadChecksum);
-            offset += 4;
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.ConfigurationGeneration);
-            offset += 8;
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.Term);
-            offset += 8;
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.LogIndex);
-            offset += 8;
-
-            WriteBytes(buffer, ref offset, groupIdBytes);
-            WriteBytes(buffer, ref offset, fingerprint);
-            WriteBytes(buffer, ref offset, leaderBytes);
-            WriteBytes(buffer, ref offset, senderBytes);
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.CommitIndex);
-
-            // ZA0302: exact-size owned buffer returned to callers; rented workspace is returned above.
+        // ZA0302: exact-size owned buffer returned to callers.
 #pragma warning disable ZA0302
-            var owned = new byte[length];
+        var owned = new byte[length];
 #pragma warning restore ZA0302
-            buffer.CopyTo(owned);
-            return owned;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var buffer = owned.AsSpan();
+        var offset = 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], SchemaVersion);
+        offset += 4;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], envelope.PayloadChecksum);
+        offset += 4;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.ConfigurationGeneration);
+        offset += 8;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.Term);
+        offset += 8;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.LogIndex);
+        offset += 8;
+        WriteBytes(buffer, ref offset, groupIdBytes);
+        WriteBytes(buffer, ref offset, fingerprint);
+        WriteBytes(buffer, ref offset, leaderBytes);
+        WriteBytes(buffer, ref offset, senderBytes);
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.CommitIndex);
+        return owned;
     }
 
     /// <summary>Decodes a replication envelope from a versioned binary buffer.</summary>
@@ -100,17 +83,7 @@ internal static class EnvelopeCodec
             throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
 
         var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);
-        return new Envelope(
-            schema,
-            groupId,
-            fingerprint,
-            generation,
-            term,
-            leaderNodeId,
-            senderNodeId,
-            logIndex,
-            commitIndex,
-            checksum);
+        return new Envelope(schema, groupId, fingerprint, generation, term, leaderNodeId, senderNodeId, logIndex, commitIndex, checksum);
     }
 
     private static void WriteBytes(Span<byte> buffer, ref int offset, ReadOnlySpan<byte> value)
