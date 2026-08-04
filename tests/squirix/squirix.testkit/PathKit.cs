@@ -45,8 +45,10 @@ public static class PathKit
     public static string GetProcTempPath(string subdirectory = "")
     {
         var root = Combine(Path.GetTempPath(), subdirectory);
-        var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
-        return Combine(root, tfmSegment, ProcessSessionSegment);
+        if (AppContext.TargetFrameworkName is null)
+            return Combine(root, "unknown", ProcessSessionSegment);
+        var segment = SanitizePath(AppContext.TargetFrameworkName);
+        return Combine(root, segment, ProcessSessionSegment);
     }
 
     private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
@@ -275,16 +277,15 @@ public static class PathKit
     /// </code>
     /// </example>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="s" /> is <see langword="null" />.</exception>
-    private static string SanitizePath(string s)
+    private static string SanitizePath(ReadOnlySpan<char> s)
     {
-        ArgumentNullException.ThrowIfNull(s);
-
+        var sb = new StringBuilder(s.Length);
         for (var i = 0; i < s.Length; i++)
         {
             if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
                 continue;
 
-            var sb = new StringBuilder(s.Length);
+            sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];
@@ -294,7 +295,7 @@ public static class PathKit
             return sb.ToString();
         }
 
-        return s;
+        return s.ToString();
     }
 
     private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)

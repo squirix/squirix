@@ -282,12 +282,13 @@ public static class NodePathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
+        var sb = new StringBuilder(s.Length);
         for (var i = 0; i < s.Length; i++)
         {
             if (Array.IndexOf(InvalidFileNameChars, s[i]) < 0)
                 continue;
 
-            var sb = new StringBuilder(s.Length);
+            sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];
