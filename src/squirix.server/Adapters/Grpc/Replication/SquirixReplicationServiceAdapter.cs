@@ -69,15 +69,19 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     {
         ArgumentNullException.ThrowIfNull(requestStream);
 
-        ReplicationEnvelopeHeader? header = null;
+        if (!await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
+
+        var header = EnsureHeader(requestStream.Current.Header, context);
         while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
         {
-            var validated = EnsureHeader(requestStream.Current.Header, context);
-            header ??= validated;
-        }
+            var currentHeader = requestStream.Current.Header;
+            if (currentHeader is null)
+                continue;
 
-        if (header is null)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
+            if (!string.Equals(currentHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
+        }
 
         return new InstallReplicaSnapshotResponse
         {
