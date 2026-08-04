@@ -20,19 +20,16 @@ public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
             DefaultCancellationToken);
         Assert.DoesNotContain("SquirixReplicationService", sharedProto, StringComparison.Ordinal);
         Assert.DoesNotContain("squirix.replication", sharedProto, StringComparison.Ordinal);
-
         var serverProtobuf = ServerArchitectureFixtures.GetServerProjectIndex()
                                                        .RequireIncludedElement("Protobuf", @"Adapters\Grpc\Replication\SquirixReplication.proto");
         Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
         Assert.Equal(@"Adapters\Grpc\Replication", serverProtobuf.Attribute("ProtoRoot")?.Value);
         Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
-
         var clientProjectPath = Path.Join(root, "src", "squirix", "Squirix.csproj");
         var clientProject = await File.ReadAllTextAsync(clientProjectPath, DefaultCancellationToken);
         Assert.DoesNotContain("SquirixReplication.proto", clientProject, StringComparison.Ordinal);
-
-        Assert.False(typeof(SquirixReplicationService).IsPublic);
-        Assert.False(typeof(SquirixReplicationService.SquirixReplicationServiceBase).IsPublic);
+        Assert.False(typeof(SquirixReplicationService).IsVisible);
+        Assert.False(typeof(SquirixReplicationService.SquirixReplicationServiceBase).IsVisible);
     }
 
     /// <summary>Product hosting must not enable FoundationOnly; only testkit may map the closed replication service.</summary>
