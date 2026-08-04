@@ -9,7 +9,7 @@ internal sealed record IdempotencyOptions
     internal IdempotencyOptions()
     {
         Retention = TimeSpan.FromMinutes(15);
-        MaxInFlightRecords = 65_536;
+        MaxInFlightRecords = ushort.MaxValue + 1;
         BackgroundSweepInterval = TimeSpan.FromMinutes(1);
     }
 

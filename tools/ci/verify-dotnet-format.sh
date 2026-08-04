@@ -97,7 +97,7 @@ done
 
 mapfile -t cs_files < <(
     for path in "${changed_paths[@]}"; do
-        if [[ "${path}" == *.cs ]] && is_solution_source "${path}"; then
+        if [[ "${path}" = *.cs ]] && is_solution_source "${path}"; then
             printf '%s\n' "${path}"
         fi
     done | sort -u

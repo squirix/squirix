@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cache.MultiNode;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
@@ -46,9 +47,8 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
         using var mtls = new ClusterTls();
         using var dataDir = new TempDirectory("squirix-e2e-rf2");
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-        {
-            _ = await TestNodeHostFactory.StartNodeAsync(
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
+            TestNodeHostFactory.StartNodeAsync(
                 "nodeA",
                 uriA,
                 [("nodeA", uriA), ("nodeB", uriB)],
@@ -58,8 +58,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
                     DataDir = dataDir.Path,
                 },
                 mtls,
-                DefaultCancellationToken);
-        });
+                DefaultCancellationToken));
         Assert.Contains("not activated", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }
