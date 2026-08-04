@@ -57,7 +57,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncFormatsCommitAndReadBrokenModes()
+    public async Task RunCliAsyncFormatsCommitAndReadBrokenModesAsync()
     {
         var outputCommit = CreateTempDir();
         var outputRead = CreateTempDir();
@@ -82,7 +82,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncWritesCounterexampleForBrokenVote()
+    public async Task RunCliAsyncWritesCounterexampleForBrokenVoteAsync()
     {
         var output = CreateTempDir();
         try
@@ -102,7 +102,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncWritesSummaryForSafeSmallProfile()
+    public async Task RunCliAsyncWritesSummaryForSafeSmallProfileAsync()
     {
         var output = CreateTempDir();
         try

@@ -17,7 +17,7 @@ public sealed class ItemsGaugeReporterServiceTests
 {
     /// <summary>Verifies observable gauge measurements, empty-cache reporting, error propagation, and hosted lifecycle hooks.</summary>
     [Fact]
-    public async Task ObservableGaugeReflectsStatsAndPropagatesErrors()
+    public async Task ObservableGaugeReflectsStatsAsync()
     {
         using var sink = new NodeMeasurementSink();
         using var listener = CreateListener(sink);
