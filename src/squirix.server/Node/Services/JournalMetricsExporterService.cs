@@ -76,7 +76,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
     private static long VolatileRead(ref long location) => Interlocked.Read(ref location);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void VolatileWrite(ref long location, long value) => Interlocked.Exchange(ref location, value);
+    private static void VolatileWrite(long value, ref long location) => Interlocked.Exchange(ref location, value);
 
     private Measurement<long> ObserveSegments()
     {
@@ -101,8 +101,8 @@ internal sealed class JournalMetricsExporterService : BackgroundService
         var dir = _opt.DataDir;
         if (!Directory.Exists(dir))
         {
-            VolatileWrite(ref _segments, 0);
-            VolatileWrite(ref _sizeBytes, 0);
+            VolatileWrite(0, ref _segments);
+            VolatileWrite(0, ref _sizeBytes);
             return;
         }
 
@@ -125,7 +125,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             }
         }
 
-        VolatileWrite(ref _segments, length);
-        VolatileWrite(ref _sizeBytes, total);
+        VolatileWrite(length, ref _segments);
+        VolatileWrite(total, ref _sizeBytes);
     }
 }

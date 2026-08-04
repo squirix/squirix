@@ -450,7 +450,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         using (lease)
         {
             var now = Interlocked.Increment(ref MemoryMarshal.GetArrayDataReference(current));
-            UpdateMax(ref MemoryMarshal.GetArrayDataReference(observedMax), now);
+            UpdateMax(now, ref MemoryMarshal.GetArrayDataReference(observedMax));
 
             try
             {
@@ -463,7 +463,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         }
     }
 
-    private static void UpdateMax(ref int target, int candidate)
+    private static void UpdateMax(int candidate, ref int target)
     {
         while (true)
         {

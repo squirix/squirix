@@ -41,7 +41,7 @@ public static class Program
         throw new ArgumentOutOfRangeException(nameof(value), value, "Expected none|vote|current-term-commit|read-index.");
     }
 
-    private static string RequireValue(string[] args, ref int index, string flag)
+    private static string RequireValue(string[] args, string flag, ref int index)
     {
         if (index + 1 >= args.Length)
             throw new ArgumentException("Missing value for " + flag, nameof(args));
@@ -101,19 +101,19 @@ public static class Program
                 var arg = args[i];
                 if (string.Equals(arg, "--profile", StringComparison.Ordinal))
                 {
-                    profile = RequireValue(args, ref i, "--profile");
+                    profile = RequireValue(args, "--profile", ref i);
                     continue;
                 }
 
                 if (string.Equals(arg, "--output", StringComparison.Ordinal))
                 {
-                    output = RequireValue(args, ref i, "--output");
+                    output = RequireValue(args, "--output", ref i);
                     continue;
                 }
 
                 if (string.Equals(arg, "--broken", StringComparison.Ordinal))
                 {
-                    broken = ParseBroken(RequireValue(args, ref i, "--broken"));
+                    broken = ParseBroken(RequireValue(args, "--broken", ref i));
                     continue;
                 }
 

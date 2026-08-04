@@ -85,7 +85,7 @@ public sealed class NodeMeasurementSink : IDisposable
     {
         foreach (var measurement in events)
         {
-            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
+            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(tag1.Key, tag1.Value, in measurement))
                 return true;
         }
 
@@ -99,7 +99,7 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value))
+            if (MeasurementHasTag(tag1.Key, tag1.Value, in measurement) && MeasurementHasTag(tag2.Key, tag2.Value, in measurement))
                 return true;
         }
 
@@ -118,15 +118,15 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value) &&
-                MeasurementHasTag(in measurement, tag3.Key, tag3.Value))
+            if (MeasurementHasTag(tag1.Key, tag1.Value, in measurement) && MeasurementHasTag(tag2.Key, tag2.Value, in measurement) &&
+                MeasurementHasTag(tag3.Key, tag3.Value, in measurement))
                 return true;
         }
 
         return false;
     }
 
-    private static bool MeasurementHasTag(in CapturedMeasurement measurement, string key, string expectedValue)
+    private static bool MeasurementHasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
         if (measurement.OverflowTags is not null)
         {
