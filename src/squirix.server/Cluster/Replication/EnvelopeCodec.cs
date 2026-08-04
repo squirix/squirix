@@ -115,7 +115,14 @@ internal static class EnvelopeCodec
 
     private static string ReadString(ReadOnlySpan<byte> payload, ref int offset)
     {
-        var bytes = ReadOwnedBytes(payload, ref offset);
-        return Encoding.UTF8.GetString(bytes);
+        if (payload.Length - offset < 4)
+            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+        var length = BinaryPrimitives.ReadInt32LittleEndian(payload[offset..]);
+        offset += 4;
+        if (length < 0 || length > payload.Length - offset)
+            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+        var value = Encoding.UTF8.GetString(payload.Slice(offset, length));
+        offset += length;
+        return value;
     }
 }
