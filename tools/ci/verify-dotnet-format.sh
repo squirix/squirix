@@ -93,7 +93,7 @@ for path in "${changed_paths[@]}"; do
         run_full
         exit 0
     fi
-end
+done
 
 mapfile -t cs_files < <(
     for path in "${changed_paths[@]}"; do
@@ -111,7 +111,7 @@ fi
 includes=()
 for path in "${cs_files[@]}"; do
     includes+=(--include "${path}")
-end
+done
 
 echo "dotnet format: ${#cs_files[@]} changed C# file(s)"
 dotnet format "${SLN}" --verify-no-changes --no-restore "${includes[@]}"
