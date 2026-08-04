@@ -57,14 +57,14 @@ public sealed class MeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (HasTag(in measurement, tag1.Key, tag1.Value) && HasTag(in measurement, tag2.Key, tag2.Value))
+            if (HasTag(tag1.Key, tag1.Value, in measurement) && HasTag(tag2.Key, tag2.Value, in measurement))
                 return true;
         }
 
         return false;
     }
 
-    private static bool HasTag(in CapturedMeasurement measurement, string key, string expectedValue)
+    private static bool HasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
         if (measurement.OverflowTags is not null)
         {

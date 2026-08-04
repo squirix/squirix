@@ -97,12 +97,12 @@ internal static class RemoteClientSessionFactory
         var count = 0;
 
         for (var index = 0; index < endpoints.Count; index++)
-            _ = TryAddUniqueEndpoint(endpoints[index], seen, buffer, ref count, nameof(endpoints));
+            _ = TryAddUniqueEndpoint(endpoints[index], seen, buffer, nameof(endpoints), ref count);
 
         return TrimEndpoints(buffer, count);
     }
 
-    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, ref int count, string paramName)
+    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
     {
         var validated = RequireAbsoluteEndpoint(endpoint, paramName);
         GrpcTransportEndpoints.RequireHttps(validated);
