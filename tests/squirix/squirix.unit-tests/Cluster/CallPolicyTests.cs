@@ -14,7 +14,7 @@ public sealed class CallPolicyTests
 {
     /// <summary>Rejects new calls after BeginDrain.</summary>
     [Fact]
-    public async Task BeginDrainRejectsNewCalls()
+    public async Task BeginDrainRejectsNewCallsAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
@@ -25,7 +25,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries DeadlineExceeded RpcException.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesDeadlineExceededRpc()
+    public async Task ExecuteAsyncRetriesDeadlineExceededRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
         var box = new IntBox();
@@ -45,7 +45,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries HttpRequestException then succeeds.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesHttpRequestException()
+    public async Task ExecuteAsyncRetriesHttpRequestExceptionAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
         var box = new IntBox();
@@ -65,7 +65,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries Unavailable RpcException.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesUnavailableRpc()
+    public async Task ExecuteRetriesUnavailableRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
         var box = new IntBox();
@@ -85,7 +85,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
     [Fact]
-    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOne()
+    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOneAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
         _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
@@ -94,7 +94,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
     [Fact]
-    public async Task ExecuteAsyncStopsNonRetryableRpc()
+    public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
         var box = new IntBox();
@@ -114,7 +114,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
     [Fact]
-    public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
+    public async Task ExecuteAsyncQueuedCallRejectedOnDrainAsync()
     {
         var timeout = TimeSpan.FromSeconds(5);
         await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");

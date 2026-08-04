@@ -14,7 +14,7 @@ public sealed class CacheValueGrpcMappingTests
 {
     /// <summary>Complex object payloads round-trip through MapToProto / MapFromProto.</summary>
     [Fact]
-    public async Task ComplexObjectRoundTripsThroughEntryMapping()
+    public async Task ComplexObjectRoundTripsThroughEntryMappingAsync()
     {
         var source = new NodeCacheEntry<SamplePayload>
         {
@@ -45,7 +45,7 @@ public sealed class CacheValueGrpcMappingTests
     [InlineData("long")]
     [InlineData("double")]
     [InlineData("null")]
-    public async Task ExactPrimitiveWireFormsDecode(string kind)
+    public async Task ExactPrimitiveWireFormsDecodeAsync(string kind)
     {
         var wire = kind switch
         {
@@ -88,7 +88,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>int32 wire values decode to typed <see cref="int" /> reads.</summary>
     [Fact]
-    public async Task Int32ValueRoundTripsAsInt()
+    public async Task Int32ValueRoundTripsAsIntAsync()
     {
         var wire = new CacheValue { Int32Value = 7 };
 
@@ -108,7 +108,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>JsonElement payloads encode and decode through struct mapping.</summary>
     [Fact]
-    public async Task JsonElementPayloadRoundTripsThroughEntryMapping()
+    public async Task JsonElementPayloadRoundTripsAsync()
     {
         using var document = JsonDocument.Parse("""{"n":1,"ok":true,"items":[1,2]}""");
         var source = new NodeCacheEntry<JsonElement>
@@ -138,7 +138,7 @@ public sealed class CacheValueGrpcMappingTests
     [InlineData("12")]
     [InlineData("1.25")]
     [InlineData("[1,{\"k\":2},null]")]
-    public async Task NonObjectJsonElementRoundTripsThroughEntryMapping(string json)
+    public async Task NonObjectJsonElementRoundTripsAsync(string json)
     {
         using var document = JsonDocument.Parse(json);
         var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
@@ -151,7 +151,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Primitive wire with a mismatched CLR type falls back through struct wrapping.</summary>
     [Fact]
-    public async Task MismatchedPrimitiveWireFallsBackThroughStructWrap()
+    public async Task MismatchedPrimitiveWireFallsBackAsync()
     {
         Assert.Equal(42, await ServerProtoEx.MapCacheValueAsync<int>(new CacheValue { Int64Value = 42L }));
         Assert.Equal(7, await ServerProtoEx.MapCacheValueAsync<int>(new CacheValue { Int32Value = 7 }));
@@ -170,7 +170,7 @@ public sealed class CacheValueGrpcMappingTests
     [InlineData("double")]
     [InlineData("null")]
     [InlineData("none")]
-    public async Task ObjectTypedReadsCoverWireKinds(string kind)
+    public async Task ObjectTypedReadsCoverWireKindsAsync(string kind)
     {
         var wire = kind switch
         {
@@ -227,7 +227,7 @@ public sealed class CacheValueGrpcMappingTests
     [InlineData("long")]
     [InlineData("double")]
     [InlineData("bool")]
-    public async Task PrimitiveEntryValuesRoundTripThroughStructEnvelope(string kind)
+    public async Task PrimitiveEntryValuesRoundTripAsync(string kind)
     {
         switch (kind)
         {
@@ -278,7 +278,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Multi-field structs deserialize for object and typed targets.</summary>
     [Fact]
-    public async Task MultiFieldStructDeserializesForObjectAndTyped()
+    public async Task MultiFieldStructDeserializesForObjectAndTypedAsync()
     {
         var multi = new Struct
         {
@@ -304,7 +304,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Wrapped list and nested struct values decode for object targets.</summary>
     [Fact]
-    public async Task WrappedListAndStructValuesDecodeAsJsonElement()
+    public async Task WrappedListAndStructValuesDecodeAsJsonElementAsync()
     {
         var listWire = new CacheValue
         {
@@ -347,7 +347,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Wrapped protobuf null and unset values decode as null for object targets.</summary>
     [Fact]
-    public async Task WrappedNullAndUnsetValuesDecodeAsNull()
+    public async Task WrappedNullAndUnsetValuesDecodeAsNullAsync()
     {
         var nullWire = new CacheValue
         {
@@ -364,7 +364,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Struct-wrapped values decode for object and typed targets.</summary>
     [Fact]
-    public async Task StructWrappedValuesDecode()
+    public async Task StructWrappedValuesDecodeAsync()
     {
         var wire = new CacheValue
         {
@@ -384,7 +384,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>MapFromProto ignores zero timestamps and preserves relative expiration.</summary>
     [Fact]
-    public async Task MapFromProtoIgnoresZeroTimestampAndKeepsExpiration()
+    public async Task MapFromProtoIgnoresZeroTimestampAsync()
     {
         var wire = new CacheEntryWire
         {
@@ -401,7 +401,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Unset KindCase maps to the typed default.</summary>
     [Fact]
-    public async Task UnsetKindCaseReturnsTypedDefault()
+    public async Task UnsetKindCaseReturnsTypedDefaultAsync()
     {
         var wire = new CacheValue();
 

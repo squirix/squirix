@@ -9,7 +9,7 @@ public sealed class RecoveryScenarioBuilderTests
 {
     /// <summary>Verifies the shared recovery scenario owns and deletes its temporary directory.</summary>
     [Fact]
-    public async Task DisposeDeletesTemporaryDirectory()
+    public async Task DisposeDeletesTemporaryDirectoryAsync()
     {
         var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-builder-guard");
         var dataDir = scenario.DataDir;

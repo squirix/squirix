@@ -30,7 +30,7 @@ public sealed class StorageRetentionCleanupReadinessTests
 
     /// <summary>Ensures the readiness health check reports unhealthy when retention cleanup is degraded.</summary>
     [Fact]
-    public async Task HealthCheckReportsRetentionCleanupDegraded()
+    public async Task HealthCheckReportsRetentionCleanupDegradedAsync()
     {
         var readiness = CreateReadiness(2, 5);
         readiness.RecordWriteOutcome(true);
