@@ -94,16 +94,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId);
 
-        var schemaVersion = header.SchemaVersion is 0 ? EnvelopeCodec.SchemaVersion : header.SchemaVersion;
-
-        // ZA0302: exact-size owned fingerprint buffer retained by the envelope codec round-trip.
-#pragma warning disable ZA0302
-        var fingerprint = new byte[header.TopologyFingerprint.Length];
-#pragma warning restore ZA0302
-        header.TopologyFingerprint.Span.CopyTo(fingerprint);
-        var envelope = new Envelope(schemaVersion, header.GroupId, fingerprint, header.ConfigurationGeneration, header.Term, header.LeaderNodeId, header.SenderNodeId, 0, 0, 0);
-        var encoded = EnvelopeCodec.Encode(envelope);
-        _ = EnvelopeCodec.Decode(encoded);
+        if (header.SchemaVersion is not 0 and not EnvelopeCodec.SchemaVersion)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Unsupported replication envelope schema version."));
 
         return header;
     }
