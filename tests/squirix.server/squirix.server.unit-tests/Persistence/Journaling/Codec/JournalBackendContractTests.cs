@@ -17,7 +17,7 @@ public sealed class JournalBackendContractTests
 {
     /// <summary>Append and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendPutReplayRoundTrip()
+    public async Task AppendPutReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
@@ -32,7 +32,7 @@ public sealed class JournalBackendContractTests
 
     /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendRemoveExpirationReplayRoundTrip()
+    public async Task AppendRemoveExpirationReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-exp-key");
@@ -47,7 +47,7 @@ public sealed class JournalBackendContractTests
 
     /// <summary>Append remove and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendRemoveReplayRoundTrip()
+    public async Task AppendRemoveReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-key");
@@ -62,7 +62,7 @@ public sealed class JournalBackendContractTests
 
     /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendTouchExpirationReplayRoundTrip()
+    public async Task AppendTouchExpirationReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "touch-key");

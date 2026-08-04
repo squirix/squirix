@@ -14,7 +14,7 @@ public sealed class ExtensionCachePipelineAdapterTests
 {
     /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>
     [Fact]
-    public async Task EntryOperationsUseEntryAwareDecoratedPipeline()
+    public async Task EntryOperationsUseEntryAwareDecoratedPipelineAsync()
     {
         var core = new RecordingLogicalCache();
         var decorated = new RecordingEntryPipeline();
@@ -33,7 +33,7 @@ public sealed class ExtensionCachePipelineAdapterTests
 
     /// <summary>Ensures value reads route through the decorated pipeline.</summary>
     [Fact]
-    public async Task GetValueUsesDecoratedPipeline()
+    public async Task GetValueUsesDecoratedPipelineAsync()
     {
         var core = new RecordingLogicalCache();
         var decorated = new RecordingEntryPipeline();

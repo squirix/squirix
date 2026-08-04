@@ -17,7 +17,7 @@ public sealed class NodePublicApiGoldenSnapshotTests
 {
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesServerAssemblyExports()
+    public async Task GoldenSnapshotMatchesServerAssemblyExportsAsync()
     {
         var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
         var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);

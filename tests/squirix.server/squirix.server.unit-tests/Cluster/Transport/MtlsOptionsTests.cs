@@ -15,7 +15,7 @@ public sealed class MtlsOptionsTests
 {
     /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>
     [Fact]
-    public async Task RemotePeersRejectInternalMatchingPrimaryListener()
+    public async Task RemotePeersRejectMatchingPrimaryListenerAsync()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
@@ -50,7 +50,7 @@ public sealed class MtlsOptionsTests
 
     /// <summary>Ensures PFX and PEM inputs cannot be mixed.</summary>
     [Fact]
-    public async Task RemotePeersRejectMixedPfxAndPemPaths()
+    public async Task RemotePeersRejectMixedPfxAndPemPathsAsync()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions

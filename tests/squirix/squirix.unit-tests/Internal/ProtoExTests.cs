@@ -20,7 +20,7 @@ public sealed class ProtoExTests
     [InlineData("long")]
     [InlineData("double")]
     [InlineData("null")]
-    public async Task FromCacheValueAsyncExactPrimitives(string kind)
+    public async Task FromCacheValueAsyncExactPrimitivesAsync(string kind)
     {
         var serializer = new SystemTextJsonSerializer();
         var wire = kind switch
@@ -58,7 +58,7 @@ public sealed class ProtoExTests
 
     /// <summary>Mismatched primitive wire falls back through the struct wrapper path.</summary>
     [Fact]
-    public async Task FromCacheValueAsyncMismatchedPrimitiveUsesWrapper()
+    public async Task FromCacheValueMismatchedPrimitiveUsesWrapperAsync()
     {
         var serializer = new SystemTextJsonSerializer();
         var wire = new CacheValue { Int32Value = 5 };
@@ -73,7 +73,7 @@ public sealed class ProtoExTests
     [InlineData("bool")]
     [InlineData("number")]
     [InlineData("null")]
-    public async Task FromCacheValueAsyncObjectReadsWrappedValues(string kind)
+    public async Task FromCacheValueAsyncObjectReadsWrappedValuesAsync(string kind)
     {
         var serializer = new SystemTextJsonSerializer();
         var wrapped = kind switch
@@ -112,7 +112,7 @@ public sealed class ProtoExTests
 
     /// <summary>JsonElement values round-trip through entry mapping.</summary>
     [Fact]
-    public async Task MapEntryRoundTripsJsonElement()
+    public async Task MapEntryRoundTripsJsonElementAsync()
     {
         var serializer = new SystemTextJsonSerializer();
         using var document = JsonDocument.Parse("""{"x":1,"y":[true,null]}""");
@@ -130,7 +130,7 @@ public sealed class ProtoExTests
 
     /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>
     [Fact]
-    public async Task MapEntryRoundTripsTypedValueAndExpiration()
+    public async Task MapEntryRoundTripsTypedValueAndExpirationAsync()
     {
         var serializer = new SystemTextJsonSerializer();
         var entry = new CacheEntry<string>

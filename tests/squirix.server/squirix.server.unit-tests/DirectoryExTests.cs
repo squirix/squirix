@@ -59,7 +59,7 @@ public sealed class DirectoryExTests
 
     /// <summary>When <c>ensureEmpty</c> is true, existing child files are removed.</summary>
     [Fact]
-    public async Task CreateDirectoryAsyncEnsureEmptyRemovesChildren()
+    public async Task CreateDirectoryAsyncEnsEmptyRemovesChildrenAsync()
     {
         using var root = new TempDirectory("squirix-directoryex-empty-children");
         var ct = TestContext.Current.CancellationToken;

@@ -13,7 +13,7 @@ public sealed class PrometheusMetricsSettingsTests
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]
-    public async Task DeserializeAndMergeIntoAppliesJsonOverrides()
+    public async Task DeserializeAndMergeIntoAppliesJsonOverridesAsync()
     {
         var baseline = new PrometheusMetricsEndpointOptions
         {
@@ -34,7 +34,7 @@ public sealed class PrometheusMetricsSettingsTests
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     [Fact]
-    public async Task DeserializeAndMergeKeepsBaselineForAbsentFields()
+    public async Task DeserializeAndMergeKeepsBaselineAsync()
     {
         var baseline = new PrometheusMetricsEndpointOptions
         {
@@ -52,7 +52,7 @@ public sealed class PrometheusMetricsSettingsTests
 
     /// <summary>Verifies merge preserves baseline values when settings properties are null (absent from JSON).</summary>
     [Fact]
-    public async Task MergeIntoPreservesBaselineWhenPropertiesAreNull()
+    public async Task MergeIntoPreservesBaselineAsync()
     {
         var baseline = new PrometheusMetricsEndpointOptions
         {
