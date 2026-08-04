@@ -40,7 +40,7 @@ internal sealed class MemoryUsageAccounting : IMemoryUsageAccounting
     {
         ArgumentOutOfRangeException.ThrowIfNegative(estimatedBytes);
 
-        SaturatingAdd(ref _estimatedBytes, -estimatedBytes);
+        SaturatingAdd(-estimatedBytes, ref _estimatedBytes);
 
         while (true)
         {
@@ -61,10 +61,10 @@ internal sealed class MemoryUsageAccounting : IMemoryUsageAccounting
         if (delta == 0)
             return;
 
-        SaturatingAdd(ref _estimatedBytes, delta);
+        SaturatingAdd(delta, ref _estimatedBytes);
     }
 
-    private static void SaturatingAdd(ref long field, long delta)
+    private static void SaturatingAdd(long delta, ref long field)
     {
         while (true)
         {

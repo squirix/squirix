@@ -55,7 +55,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(ref _mtls, topology);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(topology, ref _mtls);
 
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
@@ -204,7 +204,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
     /// <returns>A one-element peer array.</returns>
-    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(ref _mtls, nodeId, uri);
+    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(nodeId, uri, ref _mtls);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {

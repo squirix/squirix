@@ -146,25 +146,20 @@ public static class NodePathKit
 
     private static string BuildProcessSessionSegment()
     {
-        long startTicks;
+        var startTicks = GetProcessStartTicks();
+        return $"pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}-start{NodeInvariantIndexStrings.Format(startTicks)}";
+    }
+
+    private static long GetProcessStartTicks()
+    {
         try
         {
-            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
         {
-            startTicks = DateTime.UtcNow.Ticks;
+            return DateTime.UtcNow.Ticks;
         }
-        catch (PlatformNotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (NotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-
-        return $"pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}-start{NodeInvariantIndexStrings.Format(startTicks)}";
     }
 
     private static string CombineCore(bool sanitize, string path1, string path2)

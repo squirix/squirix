@@ -147,7 +147,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
+    private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
 
     private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
@@ -162,7 +162,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
         };
 
-        internal static JournalOperationTraceContext? WithDurability(in JournalOperationTraceContext? context, IJournalCoordinator coordinator)
+        internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context)
         {
             if (context != null)
                 return context with

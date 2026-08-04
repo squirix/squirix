@@ -36,11 +36,11 @@ public sealed class ClusterTls : IDisposable
     }
 
     /// <summary>Builds a standalone single-peer topology without allocating a temporary topology span array.</summary>
-    /// <param name="shared">Shared context for the current test case (unused for standalone peers).</param>
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
+    /// <param name="shared">Shared context for the current test case (unused for standalone peers).</param>
     /// <returns>A one-element peer array.</returns>
-    internal static ServerPeer[] CreatePeer(ref ClusterTls? shared, string nodeId, Uri uri)
+    internal static ServerPeer[] CreatePeer(string nodeId, Uri uri, ref ClusterTls? shared)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(uri);
@@ -49,11 +49,11 @@ public sealed class ClusterTls : IDisposable
     }
 
     /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
-    /// <param name="shared">Shared context for the current test case.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="shared">Shared context for the current test case.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty.</exception>
-    internal static ServerPeer[] CreatePeers(ref ClusterTls? shared, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    internal static ServerPeer[] CreatePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology, ref ClusterTls? shared)
     {
         if (topology.IsEmpty)
             throw new ArgumentException("Topology must not be empty.", nameof(topology));

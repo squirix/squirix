@@ -17,7 +17,7 @@ internal static class DirectorySymlinkGuard
 
         while (DirectoryPathValidator.TryReadNextSegment(ref relative, out var segment))
         {
-            if (!TryAdvancePastExistingSegment(ref cur, segment))
+            if (!TryAdvancePastExistingSegment(segment, ref cur))
                 break;
         }
     }
@@ -97,7 +97,7 @@ internal static class DirectorySymlinkGuard
         return true;
     }
 
-    private static bool TryAdvancePastExistingSegment(ref string cur, ReadOnlySpan<char> segment)
+    private static bool TryAdvancePastExistingSegment(ReadOnlySpan<char> segment, ref string cur)
     {
         cur = Path.Join(cur.AsSpan(), segment);
         var di = new DirectoryInfo(cur);

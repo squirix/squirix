@@ -210,7 +210,7 @@ internal static class Program
                 var state = new FlagState();
                 for (var i = start; i < args.Length; i++)
                 {
-                    if (!TryApplyFlag(args, ref i, state))
+                    if (!TryApplyFlag(args, state, ref i))
                         return HelpCommand();
                 }
 
@@ -236,7 +236,7 @@ internal static class Program
 
             private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
+            private static bool TryApplyFlag(string[] args, FlagState state, ref int index)
             {
                 var flag = args[index];
                 if (IsHelpFlag(flag))
@@ -245,7 +245,7 @@ internal static class Program
                 if (TryApplyBooleanFlag(flag, state))
                     return true;
 
-                if (TryApplyValueFlag(args, ref index, flag, state))
+                if (TryApplyValueFlag(args, flag, state, ref index))
                     return true;
 
                 throw new InvalidOperationException($"Unknown argument '{flag}'.");
@@ -269,7 +269,7 @@ internal static class Program
                 }
             }
 
-            private static bool TryApplyValueFlag(string[] args, ref int index, string flag, FlagState state)
+            private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)
             {
                 switch (flag)
                 {

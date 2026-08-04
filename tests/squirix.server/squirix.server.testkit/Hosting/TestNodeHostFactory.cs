@@ -121,7 +121,7 @@ public static class TestNodeHostFactory
             persistenceOptions = new PersistenceOptions { DataDir = dataDir };
         }
 
-        var peers = ClusterTls.CreatePeers(ref sharedMtls, topology);
+        var peers = ClusterTls.CreatePeers(topology, ref sharedMtls);
 
         var clusterConfig = new TopologyOptions(peers)
         {
