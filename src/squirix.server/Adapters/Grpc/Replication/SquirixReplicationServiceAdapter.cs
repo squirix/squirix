@@ -98,7 +98,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId);
 
-        if (header.SchemaVersion is not 0 and not EnvelopeCodec.SchemaVersion)
+        if (header.SchemaVersion is not EnvelopeCodec.SchemaVersion)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Unsupported replication envelope schema version."));
 
         return header;
