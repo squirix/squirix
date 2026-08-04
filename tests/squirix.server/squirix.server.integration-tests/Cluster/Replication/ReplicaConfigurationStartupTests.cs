@@ -33,7 +33,6 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        using var dataDir = new TempDirectory("squirix-rf2-activation");
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
             StartNodeAsync(
                 uriA,
@@ -54,8 +53,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uriA, peers, new NodeStartOptions { ReplicaCount = 2 }));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(StartNodeAsync(uriA, peers, new NodeStartOptions { ReplicaCount = 2 }));
         Assert.Contains(ReplicationActivationGuard.PersistenceRequired, ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(ReplicationActivationGuard.NotActivated, ex.Message, StringComparison.Ordinal);
     }

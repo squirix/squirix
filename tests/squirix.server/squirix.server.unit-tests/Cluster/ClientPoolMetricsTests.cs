@@ -63,8 +63,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
         var peers = BuildPeers(3);
-        var pool = new ServerClientPool(peers, PolicyOnlyArgs());
-        await using var poolHandle = pool;
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
 
         Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
     }

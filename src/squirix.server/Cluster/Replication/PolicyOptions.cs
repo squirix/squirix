@@ -1,3 +1,5 @@
+using System;
+
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Static replication policy constants that participate in topology identity.</summary>
@@ -34,8 +36,8 @@ internal static class PolicyOptions
     internal const string QuorumAckMode = "majority-no-lease";
 
     /// <summary>Default RF>1 idempotency capacity included in the fingerprint.</summary>
-    internal const int RfIdempotencyMaxInFlightRecords = 65_536;
+    internal const int RfIdempotencyMaxInFlightRecords = ushort.MaxValue + 1;
 
     /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
-    internal const long RfIdempotencyRetentionTicks = 15L * 60L * 10_000_000L;
+    internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;
 }
