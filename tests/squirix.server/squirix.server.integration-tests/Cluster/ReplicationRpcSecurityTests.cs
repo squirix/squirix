@@ -36,7 +36,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: DefaultCancellationToken).ResponseAsync);
 
-        Assert.True(ex.StatusCode is StatusCode.Unimplemented or StatusCode.PermissionDenied or StatusCode.Unauthenticated);
+        Assert.Equal(StatusCode.Unimplemented, ex.StatusCode);
     }
 
     /// <summary>Forged Host headers cannot bind closed replication RPCs onto the external listener.</summary>
@@ -105,6 +105,38 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
             client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+    }
+
+    /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
+    [Fact]
+    public async Task CertificateNodeIdMatchIsAccepted()
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim sender_node_id node-b for matching identity.
+        var response = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: DefaultCancellationToken);
+
+        Assert.NotNull(response);
+        Assert.Equal("not-ready", response.RefusalCode);
     }
 
     private static GetReplicaStatusRequest CreateStatusRequest(string senderNodeId) => new()
