@@ -77,6 +77,7 @@ public sealed class SquirixReplicationServiceAdapterTests
         {
             SchemaVersion = EnvelopeCodec.SchemaVersion,
             SenderNodeId = peer.NodeId,
+            LeaderNodeId = peer.NodeId,
         };
 
         var request = new AppendReplicaEntriesRequest

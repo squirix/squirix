@@ -9,6 +9,7 @@ using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -209,7 +210,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     {
         Header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = 1,
+            SchemaVersion = EnvelopeCodec.SchemaVersion,
             GroupId = "g1",
             TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
             ConfigurationGeneration = 1,
@@ -223,7 +224,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     {
         Header = new ReplicationEnvelopeHeader
         {
-            SchemaVersion = 1,
+            SchemaVersion = EnvelopeCodec.SchemaVersion,
             GroupId = "g1",
             TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
             ConfigurationGeneration = 1,

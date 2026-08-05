@@ -96,6 +96,9 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
             if (!string.Equals(currentHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
+
+            if (!string.Equals(currentHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
         }
 
         return new InstallReplicaSnapshotResponse
@@ -110,6 +113,9 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     {
         if (header is null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with sender_node_id is required."));
+
+        if (requireLeader && string.IsNullOrWhiteSpace(header.LeaderNodeId))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with leader_node_id is required."));
 
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
