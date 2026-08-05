@@ -80,7 +80,7 @@ internal static class EnvelopeCodec
         var fingerprint = ReadOwnedBytes(payload, ref offset);
         var leaderNodeId = ReadString(payload, ref offset);
         var senderNodeId = ReadString(payload, ref offset);
-        if (offset + 8 > payload.Length)
+        if (payload.Length - offset < 8)
             throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
 
         var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);

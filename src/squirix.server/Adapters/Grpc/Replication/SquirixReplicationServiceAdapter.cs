@@ -31,14 +31,17 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context);
-        return Task.FromResult(
-            new AdvanceReplicaCommitResponse
-            {
-                Term = header.Term,
-                CommitIndex = request.CommitIndex,
-                Success = false,
-                RefusalCode = RefusalCodes.NotReady,
-            });
+        var result = new AdvanceReplicaCommitResponse
+        {
+            Term = header.Term,
+
+            // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
+            // echoing the leader's PrevLogIndex which would mislead the leader.
+            CommitIndex = 0,
+            Success = false,
+            RefusalCode = RefusalCodes.NotReady,
+        };
+        return Task.FromResult(result);
     }
 
     public override Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
