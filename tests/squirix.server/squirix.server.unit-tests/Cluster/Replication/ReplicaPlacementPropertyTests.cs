@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -156,7 +157,7 @@ public sealed class ReplicaPlacementPropertyTests
     /// <summary>Empty input is rejected.</summary>
     [Fact]
     public void RejectsEmptyNodeList() =>
-        _ = Assert.Throws<ArgumentException>(static () => _ = new PhysicalNodeRing([]));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws<string[]>([], static nodes => _ = new PhysicalNodeRing(nodes));
 
     /// <summary>Unknown owners are rejected.</summary>
     [Fact]
@@ -164,7 +165,7 @@ public sealed class ReplicaPlacementPropertyTests
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
         var group = new string[2];
-        _ = Assert.Throws<ArgumentException>(() => ring.WriteReplicaGroup("missing", 2, group));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(ring, group, static (r, g) => r.WriteReplicaGroup("missing", 2, g));
     }
 
     /// <summary>Destination length must match replica count.</summary>
@@ -173,7 +174,7 @@ public sealed class ReplicaPlacementPropertyTests
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
         var group = new string[1];
-        _ = Assert.Throws<ArgumentException>(() => ring.WriteReplicaGroup("node-a", 2, group));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(ring, group, static (r, g) => r.WriteReplicaGroup("node-a", 2, g));
     }
 
     /// <summary>Replica count must fit the ring and policy max.</summary>
@@ -182,11 +183,11 @@ public sealed class ReplicaPlacementPropertyTests
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
         var group = new string[3];
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => ring.WriteReplicaGroup("node-a", 0, group));
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => ring.WriteReplicaGroup("node-a", 3, group));
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, 0));
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, 3));
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new ReplicaGroupLocator(ring, PolicyOptions.MaxReplicaCount + 1));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(ring, group, static (r, g) => r.WriteReplicaGroup("node-a", 0, g));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(ring, group, static (r, g) => r.WriteReplicaGroup("node-a", 3, g));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(ring, static r => _ = new ReplicaGroupLocator(r, 0));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(ring, static r => _ = new ReplicaGroupLocator(r, 3));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(ring, static r => _ = new ReplicaGroupLocator(r, PolicyOptions.MaxReplicaCount + 1));
     }
 
     private static int CountOccurrences(ReadOnlySpan<string> values, string expected)

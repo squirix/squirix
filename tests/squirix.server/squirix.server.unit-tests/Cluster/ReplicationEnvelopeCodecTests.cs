@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,7 +37,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = BufferKit.ToOwnedBytes(47, 0, static (_, _) => { });
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that an unsupported envelope schema version is rejected.</summary>
@@ -46,7 +47,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         var payload = EnvelopeCodec.Encode(CreateValidEnvelope());
         BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 99);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that an envelope missing its commit index is rejected as truncated.</summary>
@@ -55,7 +56,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = EnvelopeCodec.Encode(CreateValidEnvelope());
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload.AsSpan(0, payload.Length - 8)));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value.AsSpan(0, value.Length - 8)));
     }
 
     /// <summary>Verifies that a fingerprint length prefix missing from the buffer is rejected.</summary>
@@ -64,7 +65,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(9);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that a negative fingerprint length prefix is rejected.</summary>
@@ -73,7 +74,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(0, -1);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that an oversized fingerprint length prefix is rejected.</summary>
@@ -82,7 +83,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(0, 100);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that a negative group id length prefix is rejected.</summary>
@@ -91,7 +92,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(-1);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that an oversized group id length prefix is rejected.</summary>
@@ -100,7 +101,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(1000);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     /// <summary>Verifies that a leader node id length prefix missing from the buffer is rejected.</summary>
@@ -109,7 +110,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var payload = CreateFixedLengthPayload(6, 1);
 
-        _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
     private static Envelope CreateValidEnvelope() => new(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);

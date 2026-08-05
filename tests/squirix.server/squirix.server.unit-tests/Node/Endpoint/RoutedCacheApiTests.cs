@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Endpoint;
@@ -17,7 +18,9 @@ public sealed class RoutedCacheApiTests
     {
         ILogicalNamespacedCache<string>? namespaced = null;
 
-        _ = Assert.Throws<ArgumentNullException>(() => new RoutedCacheApi<string>(namespaced!, "cache-a"));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            namespaced,
+            static ns => _ = new RoutedCacheApi<string>(ns!, "cache-a"));
     }
 
     /// <summary>Verifies that the routed cache API requires a cache name.</summary>
@@ -27,7 +30,10 @@ public sealed class RoutedCacheApiTests
         var namespaced = new NotSupportedLogicalCache();
         const string? cacheName = null;
 
-        _ = Assert.Throws<ArgumentNullException>(() => new RoutedCacheApi<string>(namespaced, cacheName!));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            namespaced,
+            cacheName,
+            static (ns, name) => _ = new RoutedCacheApi<string>(ns, name!));
     }
 
     private sealed class NotSupportedLogicalCache : ILogicalNamespacedCache<string>
