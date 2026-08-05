@@ -54,7 +54,7 @@ public static class Program
 
     private static async Task<int> RunAsync(string[] args)
     {
-        if (!TryParseArgs(args, out var profile, out var output, out var broken, out var showHelp))
+        if (!TryParseArgs(args, out var options, out var showHelp))
             return 1;
 
         if (showHelp)
@@ -65,7 +65,7 @@ public static class Program
 
         try
         {
-            return await ExploreRunner.RunCliAsync(profile, output, broken).ConfigureAwait(false);
+            return await ExploreRunner.RunCliAsync(options.Profile, options.Output, options.Broken).ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
@@ -89,11 +89,9 @@ public static class Program
         }
     }
 
-    private static bool TryParseArgs(string[] args, out string profile, out string output, out BrokenMode broken, out bool showHelp)
+    private static bool TryParseArgs(string[] args, out ArgOptions options, out bool showHelp)
     {
-        profile = "small";
-        output = "artifacts/protocol-model";
-        broken = BrokenMode.None;
+        options = new ArgOptions();
         showHelp = false;
 
         try
@@ -101,7 +99,7 @@ public static class Program
             for (var i = 0; i < args.Length; i++)
             {
                 var arg = args[i];
-                if (TryParseValueFlag(args, arg, ref i, ref profile, ref output, ref broken))
+                if (TryParseValueFlag(args, arg, ref i, options))
                     continue;
 
                 if (!IsHelpFlag(arg))
@@ -119,23 +117,23 @@ public static class Program
         }
     }
 
-    private static bool TryParseValueFlag(string[] args, string arg, ref int i, ref string profile, ref string output, ref BrokenMode broken)
+    private static bool TryParseValueFlag(string[] args, string arg, ref int i, ArgOptions options)
     {
         if (string.Equals(arg, "--profile", StringComparison.Ordinal))
         {
-            profile = RequireValue(args, "--profile", ref i);
+            options.Profile = RequireValue(args, "--profile", ref i);
             return true;
         }
 
         if (string.Equals(arg, "--output", StringComparison.Ordinal))
         {
-            output = RequireValue(args, "--output", ref i);
+            options.Output = RequireValue(args, "--output", ref i);
             return true;
         }
 
         if (!string.Equals(arg, "--broken", StringComparison.Ordinal))
             return false;
-        broken = ParseBroken(RequireValue(args, "--broken", ref i));
+        options.Broken = ParseBroken(RequireValue(args, "--broken", ref i));
         return true;
     }
 
@@ -144,5 +142,14 @@ public static class Program
         var help = "Squirix.ProtocolModel — Raft-equivalent safety explorer\n  --profile full|small\n  --output <dir>\n" + "  --broken vote|current-term-commit|read-index|none\n" +
                    $"modelVersionHash={ExploreRunner.ModelVersionHash}\nculture={CultureInfo.InvariantCulture.Name}\n";
         return Console.Out.WriteAsync(help.AsMemory(), CancellationToken.None);
+    }
+
+    private sealed class ArgOptions
+    {
+        internal BrokenMode Broken { get; set; } = BrokenMode.None;
+
+        internal string Output { get; set; } = "artifacts/protocol-model";
+
+        internal string Profile { get; set; } = "small";
     }
 }
