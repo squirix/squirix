@@ -1,5 +1,5 @@
-﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.2.9787">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
   <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
   <IDEFiles>
     <IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU">
@@ -611,7 +611,80 @@ select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severit
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2100$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2101$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2102$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2103$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Namespace name should correspond to file location</Name>
+// <Id>ND2103:NamespaceNameShouldCorrespondToFileLocation</Id>
+// ND2103 squirix override: stock rule normalizes only '\' when matching the namespace-derived
+// token against source file paths. CI runs on Linux where FilePathString uses '/', so every
+// namespace looked misaligned (40 false positives). Normalize both separators; comparisons
+// remain case-sensitive exactly as in the stock rule.
+warnif count > 0
+
+from a in Application.Assemblies
+let assemblyName = a.Name
+
+from n in a.ChildNamespaces
+where n.SourceFileDeclAvailable
+let namespaceName = n.Name
+
+// Build the dirShouldContain string
+// and then we check which source file path contains dirShouldContain or not
+let dirShouldContain = (
+    // namespaceName starts with assembly name => gets only components after the assembly name
+    namespaceName.StartsWith(assemblyName)
+    ? namespaceName.Substring(assemblyName.Length)
+
+    // namespaceName contains assembly name => gets only components after the assembly name
+    : namespaceName.Contains("." + assemblyName)
+      ? namespaceName.Substring(n.Name.IndexOf("." + assemblyName))
+
+      // namespaceName has more than one part => gets only components after the first part
+      : namespaceName.Contains(".")
+          ? namespaceName.Substring(n.Name.IndexOf("."))
+          : namespaceName)
+
+    // Replace dots and underscore by spaces in namespace name
+    .Replace('.', ' ')
+    .Replace('_', ' ')
+
+where dirShouldContain.Length > 0
+
+// Obtain a sourceDecl which path doesn't contain dirShouldContain
+let sourceDecl = n.SourceDecls
+  .OrderBy(d => d.SourceFile.FilePathString)
+  .Where(d => d.SourceFile.CodeElements.All(e => JustMyCode.Contains(e)))
+  .FirstOrDefault(decl =>
+      // Replace dots, path separators, minus and underscores
+      // by spaces in source files names
+      !decl.SourceFile.FilePathString
+          .Replace('.', ' ').Replace('\\', ' ').Replace('/', ' ')
+          .Replace('-', ' ').Replace('_', ' ')
+          .Contains(dirShouldContain)
+  )
+where sourceDecl != null
+
+let dir = sourceDecl.SourceFile.FilePath.ParentDirectoryPath
+
+let justACaseSensitiveIssue = dir.ToString()
+    .Replace('.', ' ').Replace('\\', ' ').Replace('/', ' ')
+    .Replace('-', ' ').Replace('_', ' ')
+    .IndexOf(dirShouldContain, StringComparison.OrdinalIgnoreCase) >= 0
+
+// Get distinct source files contained in dir through the types they contain
+let typesConcerned = n.ChildTypes
+    .Where(t => t.SourceFileDeclAvailable)
+    .Distinct(t => t.SourceDecls.First().SourceFile.FilePathString)
+    .Where(t => t.SourceDecls.First().SourceFile.FilePath.ParentDirectoryPath.Equals(dir))
+    .ToArray()
+
+select new {
+   n,
+   dirShouldContain,
+   dir = dir.ToString(),
+   justACaseSensitiveIssueStr = justACaseSensitiveIssue ? " Please note that this is solely a matter of casing." : "",
+   typesConcerned,
+   Debt = (justACaseSensitiveIssue ? 2 : 3).ToMinutes().ToDebt(),
+   Severity = Severity.Medium
+}]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2104$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2105$]]></Query>
     </Group>
@@ -625,7 +698,36 @@ select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severit
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2205$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2206$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2207$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2208$]]></Query>
+        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Do not raise reserved exception types</Name>
+// <Id>ND2208:DoNotRaiseReservedExceptionTypes</Id>
+// ND2208 squirix override: exclude compiler-synthesized collection-expression helpers
+// (<>z__ReadOnlySingleElementList<T>) whose indexer throws IndexOutOfRangeException by design.
+// notmycode name filters cannot reliably remove these from JustMyCode, so filter on the
+// parent type name here. All other reserved-exception creations still match.
+warnif count > 0
+
+let reservedExceptions = ThirdParty.Types.WithFullNameIn(
+   "System.ExecutionEngineException",
+   "System.IndexOutOfRangeException",
+   "System.OutOfMemoryException",
+   "System.StackOverflowException",
+   "System.InvalidProgramException",
+   "System.AccessViolationException",
+   "System.CannotUnloadAppDomainException",
+   "System.BadImageFormatException",
+   "System.DataMisalignedException")
+
+from m in JustMyCode.Methods.ThatCreateAny(reservedExceptions)
+where !m.IsGeneratedByCompiler
+where m.ParentType != null &&
+      !m.ParentType.Name.StartsWith("<>z__")
+let reservedExceptionsCreated = reservedExceptions.Where(t => m.IsUsing(t))
+select new {
+   m,
+   reservedExceptionsCreated,
+   Debt = 10.ToMinutes().ToDebt(),
+   Severity = Severity.High
+}]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2209$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2210$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2211$]]></Query>
@@ -839,13 +941,13 @@ select m]]></Query>
 // Collection expressions synthesize <>z__ReadOnly* types that throw reserved exception types.
 notmycode
 from t in Types
-where t.IsGeneratedByCompiler || t.NameLike("^<>z__")
+where t.IsGeneratedByCompiler || t.Name.StartsWith("<>z__")
 select t]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection methods</Name>
 notmycode
 from m in Methods
 where m.ParentType != null &&
-      (m.ParentType.IsGeneratedByCompiler || m.ParentType.NameLike("^<>z__"))
+      (m.ParentType.IsGeneratedByCompiler || m.ParentType.Name.StartsWith("<>z__"))
 select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CapturedMeasurement equality operators from ND1701</Name>
 // Operators exist to satisfy value-type equality rules; call sites use Equals directly.

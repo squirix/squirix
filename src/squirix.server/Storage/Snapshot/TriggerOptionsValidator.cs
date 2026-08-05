@@ -16,21 +16,38 @@ internal sealed class TriggerOptionsValidator : IValidateOptions<TriggerOptions>
         return OptionsValidator.ToResult(failures);
     }
 
-    private static void CollectTriggerFailures(TriggerOptions options, List<string> failures)
+    private static void CollectCounterFailures(TriggerOptions options, List<string> failures)
     {
-        if (options.SnapshotInterval <= TimeSpan.Zero)
-            failures.Add("Snapshot SnapshotInterval must be greater than zero.");
         if (options.SnapshotEveryNOps < 0)
             failures.Add("Snapshot SnapshotEveryNOps cannot be negative.");
         if (options.SnapshotEveryNBytes < 0)
             failures.Add("Snapshot SnapshotEveryNBytes cannot be negative.");
-        if (options.MinGapBetweenSnapshots < TimeSpan.Zero)
-            failures.Add("Snapshot MinGapBetweenSnapshots cannot be negative.");
         if (options.JournalGrowthThrottleBytes < 0)
             failures.Add("Snapshot JournalGrowthThrottleBytes cannot be negative.");
-        if (options.LatencySloMilliseconds < 0 || double.IsNaN(options.LatencySloMilliseconds) || double.IsInfinity(options.LatencySloMilliseconds))
+    }
+
+    private static void CollectLatencyFailures(TriggerOptions options, List<string> failures)
+    {
+        if (!IsValidLatencySlo(options.LatencySloMilliseconds))
             failures.Add("Snapshot LatencySloMilliseconds must be a finite non-negative value.");
+    }
+
+    private static void CollectTimeSpanFailures(TriggerOptions options, List<string> failures)
+    {
+        if (options.SnapshotInterval <= TimeSpan.Zero)
+            failures.Add("Snapshot SnapshotInterval must be greater than zero.");
+        if (options.MinGapBetweenSnapshots < TimeSpan.Zero)
+            failures.Add("Snapshot MinGapBetweenSnapshots cannot be negative.");
         if (options.LatencyThrottleDuration < TimeSpan.Zero)
             failures.Add("Snapshot LatencyThrottleDuration cannot be negative.");
     }
+
+    private static void CollectTriggerFailures(TriggerOptions options, List<string> failures)
+    {
+        CollectTimeSpanFailures(options, failures);
+        CollectCounterFailures(options, failures);
+        CollectLatencyFailures(options, failures);
+    }
+
+    private static bool IsValidLatencySlo(double value) => value >= 0 && !double.IsNaN(value) && !double.IsInfinity(value);
 }

@@ -14,6 +14,8 @@ internal sealed class NodeStartOptions
 
     internal string? ExtraScope { get; init; }
 
+    internal bool FoundationOnly { get; init; }
+
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
     internal int ReplicaCount { get; init; } = 1;

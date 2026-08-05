@@ -69,6 +69,7 @@ internal static class NodeHost
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
             args.MtlsMaterial = _options.MtlsMaterial;
+            args.FoundationOnly = _options.FoundationOnly;
         }
     }
 }

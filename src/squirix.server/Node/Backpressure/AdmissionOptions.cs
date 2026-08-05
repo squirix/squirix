@@ -59,12 +59,8 @@ internal sealed record AdmissionOptions
 
     private void ValidateThresholds()
     {
-        if (SlowdownThreshold <= 0 || SlowdownThreshold > MaxInFlight)
-            throw new InvalidOperationException("Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].");
-
-        if (RejectThreshold <= 0 || RejectThreshold > MaxInFlight)
-            throw new InvalidOperationException("Backpressure RejectThreshold must be in the range [1, MaxInFlight].");
-
+        ValidateThresholdRange(SlowdownThreshold, "SlowdownThreshold");
+        ValidateThresholdRange(RejectThreshold, "RejectThreshold");
         if (RejectThreshold < SlowdownThreshold)
             throw new InvalidOperationException("Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.");
 
@@ -73,6 +69,12 @@ internal sealed record AdmissionOptions
 
         if (MaxQueueWait <= TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
+    }
+
+    private void ValidateThresholdRange(int threshold, string name)
+    {
+        if (threshold <= 0 || threshold > MaxInFlight)
+            throw new InvalidOperationException("Backpressure " + name + " must be in the range [1, MaxInFlight].");
     }
 
     private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)

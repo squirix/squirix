@@ -26,6 +26,9 @@ internal sealed class NodeHostStartOptions
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
+    /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
+    internal bool FoundationOnly { get; init; }
+
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }

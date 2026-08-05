@@ -10,9 +10,11 @@ using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Diagnostics;
+using ReplicationServiceAdapter = Squirix.Server.Adapters.Grpc.Replication.SquirixReplicationServiceAdapter;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -30,6 +32,7 @@ internal static class SquirixEndpointMapping
 
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
         var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
+        var featureState = app.Services.GetRequiredService<FeatureState>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
             _ = cacheGrpc.RequireAuthorization(JwtBearerAuthorizationPolicies);
@@ -40,6 +43,11 @@ internal static class SquirixEndpointMapping
         // Per-app filter: a shared static array would be overwritten when multiple in-process nodes map endpoints.
         string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
         _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
+
+        // Closed replication service: internal listener only, and only when FoundationOnly is enabled (testkit).
+        if (featureState.FoundationOnly)
+            _ = app.MapGrpcService<ReplicationServiceAdapter>().RequireHost(internalHostFilter).AllowAnonymous();
+
         return app;
     }
 

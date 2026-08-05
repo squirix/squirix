@@ -6,6 +6,7 @@ using Google.Protobuf;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -51,11 +52,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         ArgumentNullException.ThrowIfNull(response);
 
         var size = response.CalculateSize();
-
-        // ZA0302: exact-size owned buffer; the store must retain serialized response bytes.
-#pragma warning disable ZA0302
-        var bytes = new byte[size];
-#pragma warning restore ZA0302
+        var bytes = BufferEx.Owned(size);
         response.WriteTo(bytes);
         return bytes;
     }
@@ -165,11 +162,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
     private static PersistedIdempotencyRecord CreateRestoredRecord(string operationId, string fingerprint, ReadOnlyMemory<byte> responseBytes, DateTime createdUtc)
     {
-        // ZA0302: exact-size owned buffer escape; the store must outlive the borrowed frame buffer.
-#pragma warning disable ZA0302
-        var copy = new byte[responseBytes.Length];
-#pragma warning restore ZA0302
-        responseBytes.Span.CopyTo(copy);
+        var copy = BufferEx.CopyToOwned(responseBytes.Span);
         return new PersistedIdempotencyRecord(operationId, fingerprint, copy, createdUtc);
     }
 

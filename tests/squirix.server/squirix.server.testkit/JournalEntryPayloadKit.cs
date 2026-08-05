@@ -24,12 +24,7 @@ public static class JournalEntryPayloadKit
         var length = JournalEntryPayload.Encode(in prepared, out var buffer);
         try
         {
-            // Exact-size owned buffer for test fixtures that retain PutEntryBytes beyond the encode call.
-#pragma warning disable ZA0302
-            var owned = new byte[length];
-#pragma warning restore ZA0302
-            buffer.AsSpan(0, length).CopyTo(owned);
-            return owned;
+            return FixtureBufferKit.CopyToOwned(buffer.AsSpan(0, length));
         }
         finally
         {

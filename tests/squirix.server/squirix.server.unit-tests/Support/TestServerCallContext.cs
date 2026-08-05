@@ -2,17 +2,23 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.AspNetCore.Http;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>Minimal <see cref="ServerCallContext" /> for interceptor unit tests.</summary>
+/// <summary>Minimal <see cref="ServerCallContext" /> for interceptor and adapter unit tests.</summary>
 internal sealed class TestServerCallContext : ServerCallContext
 {
+    private const string HttpContextKey = "__HttpContext";
+
     /// <summary>Initializes a new instance of the <see cref="TestServerCallContext" /> class.</summary>
     /// <param name="headers">Optional request headers; empty when omitted.</param>
-    internal TestServerCallContext(Metadata? headers = null)
+    /// <param name="httpContext">Optional HTTP context surfaced through <c>GetHttpContext()</c>; none when omitted.</param>
+    internal TestServerCallContext(Metadata? headers = null, HttpContext? httpContext = null)
     {
         RequestHeadersCore = headers ?? [];
+        if (httpContext is not null)
+            UserState[HttpContextKey] = httpContext;
     }
 
     /// <inheritdoc />

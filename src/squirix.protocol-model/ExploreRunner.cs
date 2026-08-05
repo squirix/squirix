@@ -209,23 +209,15 @@ internal static class ExploreRunner
                 var node = state.Nodes[i];
                 if (node.AppliedIndex >= node.CommitIndex)
                 {
-                    // Broken read-index may still mark ready without apply.
-                    if (broken is BrokenMode.ReadIndex && node.Role is NodeRole.Leader && node is { ReadIndex: > 0, ReadReady: false })
-                    {
-                        var bad = ModelTransitionUtil.CloneNodes(state.Nodes);
-                        bad[i] = ModelTransitionUtil.Patch(node, new NodePatch { ReadReady = true });
-                        output.Add(state.WithNodes(bad));
-                    }
-
+                    CollectBrokenReadReady(state, i, node, broken, output);
                     continue;
                 }
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 var applied = node.AppliedIndex + 1;
-                var ready = (node.ReadIndex > 0 && VoteMask.CountGranted(node.ReadAcks) >= profile.Majority && applied >= node.ReadIndex) ||
-                            (broken is BrokenMode.ReadIndex && node.ReadIndex > 0);
+                var ready = ComputeReadReady(node, applied, profile, broken) || node.ReadReady;
 
-                nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready || node.ReadReady });
+                nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready });
                 output.Add(state.WithNodes(nodes));
             }
         }
@@ -235,24 +227,11 @@ internal static class ExploreRunner
             for (var i = 0; i < state.Nodes.Count; i++)
             {
                 var leader = state.Nodes[i];
-                if (leader.Role is not NodeRole.Leader)
-                    continue;
-
-                LogEntry? old = null;
-                for (var j = 0; j < leader.LogEntries.Count; j++)
-                {
-                    var entry = leader.LogEntries[j];
-                    if (entry.Index <= leader.CommitIndex || entry.Term >= leader.CurrentTerm)
-                        continue;
-                    old = entry;
-                    break;
-                }
-
-                if (old is null)
+                if (leader.Role is not NodeRole.Leader || !TryFindOldestOldTermEntry(leader, out var old))
                     continue;
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                nodes[i] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = old.Value.Index, BadOldCommit = true });
+                nodes[i] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = old.Index, BadOldCommit = true });
                 output.Add(state.WithNodes(nodes));
             }
         }
@@ -399,6 +378,14 @@ internal static class ExploreRunner
             }
         }
 
+        private static bool ComputeReadReady(NodeState node, int applied, ExploreProfile profile, BrokenMode broken)
+        {
+            if (broken is BrokenMode.ReadIndex && node.ReadIndex > 0)
+                return true;
+
+            return node.ReadIndex > 0 && VoteMask.CountGranted(node.ReadAcks) >= profile.Majority && applied >= node.ReadIndex;
+        }
+
         private static bool TryBuildClientProposal(ClusterState state, ExploreProfile profile, int leaderId, out ClusterState after)
         {
             after = state;
@@ -489,6 +476,33 @@ internal static class ExploreRunner
             var nextId = ModelTransitionUtil.EnqueueReadIndexRequests(state, leaderId, leader.CurrentTerm, readIndex, messages, state.NextMessageId);
             next = state.WithNodesMessages(nodes, messages, nextId);
             return true;
+        }
+
+        private static void CollectBrokenReadReady(ClusterState state, int index, NodeState node, BrokenMode broken, List<ClusterState> output)
+        {
+            // Broken read-index may still mark ready without apply.
+            if (broken is not BrokenMode.ReadIndex || node.Role is not NodeRole.Leader || node is not { ReadIndex: > 0, ReadReady: false })
+                return;
+
+            var bad = ModelTransitionUtil.CloneNodes(state.Nodes);
+            bad[index] = ModelTransitionUtil.Patch(node, new NodePatch { ReadReady = true });
+            output.Add(state.WithNodes(bad));
+        }
+
+        private static bool TryFindOldestOldTermEntry(NodeState leader, out LogEntry old)
+        {
+            for (var j = 0; j < leader.LogEntries.Count; j++)
+            {
+                var entry = leader.LogEntries[j];
+                if (entry.Index <= leader.CommitIndex || entry.Term >= leader.CurrentTerm)
+                    continue;
+
+                old = entry;
+                return true;
+            }
+
+            old = default;
+            return false;
         }
 
         private static class ModelRpcCommit
@@ -630,14 +644,8 @@ internal static class ExploreRunner
                 var replicas = 0;
                 for (var i = 0; i < nodes.Count; i++)
                 {
-                    if (match[i] < index)
-                        continue;
-
-                    var stored = ModelTransitionUtil.FindEntry(nodes[i].LogEntries, index);
-                    if (stored is null || stored.Value.Term != leaderEntry.Value.Term)
-                        continue;
-
-                    replicas++;
+                    if (match[i] >= index && StoresMatchingTerm(nodes[i], index, leaderEntry.Value.Term))
+                        replicas++;
                 }
 
                 return replicas >= majority;
@@ -670,18 +678,26 @@ internal static class ExploreRunner
 
                 for (var i = 0; i < nodes.Length; i++)
                 {
-                    if (i == leaderId)
-                        continue;
-
-                    if (match[i] < newCommit || nodes[i].CommitIndex >= newCommit)
-                        continue;
-
-                    var stored = ModelTransitionUtil.FindEntry(nodes[i].LogEntries, newCommit);
-                    if (stored is null || stored.Value.Term != leaderEntry.Value.Term)
+                    if (i == leaderId || !CanPropagateCommit(nodes[i], match, i, leaderEntry.Value, newCommit))
                         continue;
 
                     nodes[i] = ModelTransitionUtil.Patch(nodes[i], new NodePatch { CommitIndex = Math.Min(newCommit, nodes[i].LastLogIndex) });
                 }
+            }
+
+            private static bool CanPropagateCommit(NodeState node, int[] match, int nodeIndex, LogEntry leaderEntry, int newCommit)
+            {
+                if (match[nodeIndex] < newCommit || node.CommitIndex >= newCommit)
+                    return false;
+
+                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
+                return stored is not null && stored.Value.Term == leaderEntry.Term;
+            }
+
+            private static bool StoresMatchingTerm(NodeState node, int index, int term)
+            {
+                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, index);
+                return stored is not null && stored.Value.Term == term;
             }
 
             private static bool TryFindNewCommit(
@@ -693,32 +709,46 @@ internal static class ExploreRunner
                 out int newCommit,
                 out bool badOld)
             {
-                newCommit = leader.CommitIndex;
-                badOld = false;
                 for (var n = leader.LastLogIndex; n > leader.CommitIndex; n--)
                 {
-                    if (!HasMatchingMajority(leader, nodes, match, n, profile.Majority))
-                        continue;
-
-                    var entry = ModelTransitionUtil.FindEntry(leader.LogEntries, n);
-                    if (entry is null)
-                        continue;
-
-                    var hasCurrentTermEntry = HasCurrentTermEntryThrough(leader, n);
-                    if (!hasCurrentTermEntry && broken is not BrokenMode.CurrentTermCommit)
-                        continue;
-
-                    if (!hasCurrentTermEntry && broken is BrokenMode.CurrentTermCommit)
-                        badOld = true;
-
-                    if (!IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, n, profile.Majority))
+                    if (!TryClassifyCommitCandidate(leader, nodes, match, n, profile, broken, out var candidateIsBadOld))
                         continue;
 
                     newCommit = n;
+                    badOld = candidateIsBadOld;
                     return true;
                 }
 
+                newCommit = leader.CommitIndex;
+                badOld = false;
                 return false;
+            }
+
+            private static bool TryClassifyCommitCandidate(
+                NodeState leader,
+                IReadOnlyList<NodeState> nodes,
+                int[] match,
+                int index,
+                ExploreProfile profile,
+                BrokenMode broken,
+                out bool badOld)
+            {
+                badOld = false;
+                if (!HasMatchingMajority(leader, nodes, match, index, profile.Majority))
+                    return false;
+
+                var entry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
+                if (entry is null)
+                    return false;
+
+                if (HasCurrentTermEntryThrough(leader, index))
+                    return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
+
+                if (broken is not BrokenMode.CurrentTermCommit)
+                    return false;
+
+                badOld = true;
+                return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
             }
         }
 
@@ -745,6 +775,9 @@ internal static class ExploreRunner
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
+
+            private static bool ComputeReadResponseReady(NodeState leader, int acks, ExploreProfile profile, BrokenMode broken) =>
+                (VoteMask.CountGranted(acks) >= profile.Majority && leader.AppliedIndex >= leader.ReadIndex) || broken is BrokenMode.ReadIndex;
 
             private static ClusterState HandleAppendEntries(
                 ClusterState state,
@@ -861,11 +894,11 @@ internal static class ExploreRunner
                 BrokenMode broken)
             {
                 var leader = nodes[msg.To];
-                if (leader.Role is not NodeRole.Leader || leader.ReadIndex is 0 || msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex)
+                if (IsStaleReadResponse(leader, msg))
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 var acks = leader.ReadAcks | (1 << msg.From);
-                var ready = (VoteMask.CountGranted(acks) >= profile.Majority && leader.AppliedIndex >= leader.ReadIndex) || broken is BrokenMode.ReadIndex;
+                var ready = ComputeReadResponseReady(leader, acks, profile, broken);
 
                 nodes[msg.To] = ModelTransitionUtil.Patch(leader, new NodePatch { ReadAcks = acks, ReadReady = ready });
                 return state.WithNodesMessagesMatch(nodes, messages, match);
@@ -931,6 +964,9 @@ internal static class ExploreRunner
 
                 return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
             }
+
+            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) =>
+                leader.Role is not NodeRole.Leader || leader.ReadIndex is 0 || msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
         }
     }
 

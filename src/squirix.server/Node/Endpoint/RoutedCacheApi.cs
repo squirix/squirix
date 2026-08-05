@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Adapters.Grpc;
+namespace Squirix.Server.Node.Endpoint;
 
 /// <summary>Binds a cache namespace to the routed cache contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
