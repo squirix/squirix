@@ -21,11 +21,7 @@ internal static class BufferKit
         {
             Span<byte> buffer = stackalloc byte[length];
             write(state, buffer);
-#pragma warning disable ZA0302 // owned test fixture escape; length is bounded by stackalloc threshold here
-            var owned = new byte[length];
-#pragma warning restore ZA0302
-            buffer.CopyTo(owned);
-            return owned;
+            return CopyToOwned(buffer);
         }
 
         var rented = ArrayPool<byte>.Shared.Rent(length);
@@ -33,11 +29,7 @@ internal static class BufferKit
         {
             var span = rented.AsSpan(0, length);
             write(state, span);
-#pragma warning disable ZA0302 // owned test fixture escape after pool-backed encode scratch
-            var owned = new byte[length];
-#pragma warning restore ZA0302
-            span.CopyTo(owned);
-            return owned;
+            return CopyToOwned(span);
         }
         finally
         {
@@ -64,5 +56,15 @@ internal static class BufferKit
         {
             ArrayPool<byte>.Shared.Return(rented);
         }
+    }
+
+    internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
+    {
+        // ZA0302: owned test fixture escape; scratch came from stackalloc or ArrayPool.
+#pragma warning disable ZA0302
+        var owned = new byte[source.Length];
+#pragma warning restore ZA0302
+        source.CopyTo(owned);
+        return owned;
     }
 }

@@ -31,17 +31,7 @@ internal sealed class PhysicalNodeRing
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="replicaCount" /> is out of range.</exception>
     internal void WriteReplicaGroup(string originalOwnerNodeId, int replicaCount, Span<string> destination)
     {
-        ArgumentException.ThrowIfNullOrEmpty(originalOwnerNodeId);
-        if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount || replicaCount > _nodes.Length)
-            throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range for the physical ring.");
-
-        if (destination.Length != replicaCount)
-            throw new ArgumentException("Destination length must equal replicaCount.", nameof(destination));
-
-        var ownerIndex = IndexOf(originalOwnerNodeId);
-        if (ownerIndex < 0)
-            throw new ArgumentException("Original owner is not present on the physical ring.", nameof(originalOwnerNodeId));
-
+        var ownerIndex = ValidateAndResolveOwner(originalOwnerNodeId, replicaCount, destination);
         destination[0] = _nodes[ownerIndex];
         for (var i = 1; i < replicaCount; i++)
             destination[i] = _nodes[(ownerIndex + i) % _nodes.Length];
@@ -57,4 +47,24 @@ internal sealed class PhysicalNodeRing
     }
 
     private int IndexOf(string nodeId) => Array.BinarySearch(_nodes, nodeId, StringComparer.Ordinal);
+
+    private int ValidateAndResolveOwner(string originalOwnerNodeId, int replicaCount, Span<string> destination)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(originalOwnerNodeId);
+        ValidateReplicaCount(replicaCount);
+        if (destination.Length != replicaCount)
+            throw new ArgumentException("Destination length must equal replicaCount.", nameof(destination));
+
+        var ownerIndex = IndexOf(originalOwnerNodeId);
+        if (ownerIndex < 0)
+            throw new ArgumentException("Original owner is not present on the physical ring.", nameof(originalOwnerNodeId));
+
+        return ownerIndex;
+    }
+
+    private void ValidateReplicaCount(int replicaCount)
+    {
+        if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount || replicaCount > _nodes.Length)
+            throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range for the physical ring.");
+    }
 }

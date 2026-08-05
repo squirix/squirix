@@ -53,8 +53,7 @@ internal static class SafetyChecker
     {
         _ = sb.Append('{').Append("\"id\":").Append(n.Id.ToString(CultureInfo.InvariantCulture)).Append(",\"role\":");
         JsonText.AppendString(sb, FormatRole(n.Role));
-        _ = sb.Append(",\"term\":").Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture))
-              .Append(",\"votedFor\":").Append(n.VotedFor.ToString(CultureInfo.InvariantCulture))
+        _ = sb.Append(",\"term\":").Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture)).Append(",\"votedFor\":").Append(n.VotedFor.ToString(CultureInfo.InvariantCulture))
               .Append(",\"commitIndex\":").Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(",\"appliedIndex\":")
               .Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(",\"readIndex\":").Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture))
               .Append(",\"readAcks\":").Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(",\"readReady\":").Append(n.ReadReady ? "true" : "false")
@@ -120,27 +119,18 @@ internal static class SafetyChecker
 
     private static SafetyViolation? CheckLeaderCompleteness(ClusterState state, Dictionary<int, int> committed)
     {
-        var maxTerm = 0;
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            if (state.Nodes[i].CurrentTerm > maxTerm)
-                maxTerm = state.Nodes[i].CurrentTerm;
-        }
-
+        var maxTerm = MaxTerm(state);
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
             if (node.Role is not NodeRole.Leader || node.CurrentTerm != maxTerm)
                 continue;
 
-            foreach (var pair in committed)
-            {
-                if (ContainsEntry(node.LogEntries, pair.Key, pair.Value))
-                    continue;
-                var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + pair.Value.ToString(CultureInfo.InvariantCulture) + "@" +
-                             pair.Key.ToString(CultureInfo.InvariantCulture);
-                return new SafetyViolation("LeaderCompleteness", detail, state.Fingerprint(false));
-            }
+            if (!FindMissingCommittedEntry(node, committed, out var missing))
+                continue;
+            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + missing.Value.ToString(CultureInfo.InvariantCulture) + "@" +
+                         missing.Key.ToString(CultureInfo.InvariantCulture);
+            return new SafetyViolation("LeaderCompleteness", detail, state.Fingerprint(false));
         }
 
         return null;
@@ -154,19 +144,28 @@ internal static class SafetyChecker
             if (!node.ReadReady)
                 continue;
 
-            if (node.Role is not NodeRole.Leader)
-                return new SafetyViolation(ReadIndexInvariant, "Non-leader marked read ready", state.Fingerprint(false));
-
-            if (node.ReadIndex <= 0)
-                return new SafetyViolation(ReadIndexInvariant, "Read ready without pending read index", state.Fingerprint(false));
-
-            var majority = (state.Nodes.Count / 2) + 1;
-            if (VoteMask.CountGranted(node.ReadAcks) < majority)
-                return new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", state.Fingerprint(false));
-
-            if (node.AppliedIndex < node.ReadIndex)
-                return new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", state.Fingerprint(false));
+            var violation = CheckReadReadyNode(node, state);
+            if (violation is not null)
+                return violation;
         }
+
+        return null;
+    }
+
+    private static SafetyViolation? CheckReadReadyNode(NodeState node, ClusterState state)
+    {
+        if (node.Role is not NodeRole.Leader)
+            return new SafetyViolation(ReadIndexInvariant, "Non-leader marked read ready", state.Fingerprint(false));
+
+        if (node.ReadIndex <= 0)
+            return new SafetyViolation(ReadIndexInvariant, "Read ready without pending read index", state.Fingerprint(false));
+
+        var majority = (state.Nodes.Count / 2) + 1;
+        if (VoteMask.CountGranted(node.ReadAcks) < majority)
+            return new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", state.Fingerprint(false));
+
+        if (node.AppliedIndex < node.ReadIndex)
+            return new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", state.Fingerprint(false));
 
         return null;
     }
@@ -176,28 +175,11 @@ internal static class SafetyChecker
         var maxIndex = MaxCommitIndex(state);
         for (var index = 1; index <= maxIndex; index++)
         {
-            int? seenTerm = null;
-            for (var i = 0; i < state.Nodes.Count; i++)
-            {
-                var node = state.Nodes[i];
-                if (node.CommitIndex < index)
-                    continue;
+            if (!TryFindConflictingTerm(state, index))
+                continue;
 
-                var entry = FindEntry(node.LogEntries, index);
-                if (entry is null)
-                    continue;
-
-                if (seenTerm is null)
-                {
-                    seenTerm = entry.Value.Term;
-                    continue;
-                }
-
-                if (seenTerm.Value == entry.Value.Term)
-                    continue;
-                var detail = "Conflicting committed terms at index " + index.ToString(CultureInfo.InvariantCulture);
-                return new SafetyViolation("StateMachineSafety", detail, state.Fingerprint(false));
-            }
+            var detail = "Conflicting committed terms at index " + index.ToString(CultureInfo.InvariantCulture);
+            return new SafetyViolation("StateMachineSafety", detail, state.Fingerprint(false));
         }
 
         return null;
@@ -206,7 +188,7 @@ internal static class SafetyChecker
     private static Dictionary<int, int> CollectMajorityCommitted(ClusterState state)
     {
         // An entry is treated as committed only when a majority of nodes both store it and have
-        // commitIndex covering it. Local commitIndex alone is insufficient (avoids false positives).
+        // a commitIndex covering it. Local commitIndex alone is not enough (avoids false positives).
         var majority = (state.Nodes.Count / 2) + 1;
         var committed = new Dictionary<int, int>();
         var maxIndex = MaxCommitIndex(state);
@@ -227,6 +209,26 @@ internal static class SafetyChecker
         return false;
     }
 
+    private static Dictionary<int, int> CountTermOccurrences(ClusterState state, int index)
+    {
+        var termCounts = new Dictionary<int, int>();
+        for (var i = 0; i < state.Nodes.Count; i++)
+        {
+            var node = state.Nodes[i];
+            if (node.CommitIndex < index)
+                continue;
+
+            var entry = FindEntry(node.LogEntries, index);
+            if (entry is null)
+                continue;
+
+            _ = termCounts.TryGetValue(entry.Value.Term, out var count);
+            termCounts[entry.Value.Term] = count + 1;
+        }
+
+        return termCounts;
+    }
+
     private static LogEntry? FindEntry(IReadOnlyList<LogEntry> log, int index)
     {
         for (var i = 0; i < log.Count; i++)
@@ -236,6 +238,21 @@ internal static class SafetyChecker
         }
 
         return null;
+    }
+
+    private static bool FindMissingCommittedEntry(NodeState node, Dictionary<int, int> committed, out KeyValuePair<int, int> missing)
+    {
+        foreach (var pair in committed)
+        {
+            if (ContainsEntry(node.LogEntries, pair.Key, pair.Value))
+                continue;
+
+            missing = pair;
+            return true;
+        }
+
+        missing = default;
+        return false;
     }
 
     private static string FormatRole(NodeRole role)
@@ -261,9 +278,33 @@ internal static class SafetyChecker
         return maxIndex;
     }
 
+    private static int MaxTerm(ClusterState state)
+    {
+        var maxTerm = 0;
+        for (var i = 0; i < state.Nodes.Count; i++)
+        {
+            if (state.Nodes[i].CurrentTerm > maxTerm)
+                maxTerm = state.Nodes[i].CurrentTerm;
+        }
+
+        return maxTerm;
+    }
+
     private static void RecordMajorityTerm(ClusterState state, int index, int majority, Dictionary<int, int> committed)
     {
-        var termCounts = new Dictionary<int, int>();
+        foreach (var pair in CountTermOccurrences(state, index))
+        {
+            if (pair.Value < majority)
+                continue;
+
+            committed[index] = pair.Key;
+            return;
+        }
+    }
+
+    private static bool TryFindConflictingTerm(ClusterState state, int index)
+    {
+        int? seenTerm = null;
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
@@ -274,16 +315,18 @@ internal static class SafetyChecker
             if (entry is null)
                 continue;
 
-            _ = termCounts.TryGetValue(entry.Value.Term, out var count);
-            termCounts[entry.Value.Term] = count + 1;
+            if (seenTerm is null)
+            {
+                seenTerm = entry.Value.Term;
+                continue;
+            }
+
+            if (seenTerm.Value == entry.Value.Term)
+                continue;
+
+            return true;
         }
 
-        foreach (var pair in termCounts)
-        {
-            if (pair.Value < majority)
-                continue;
-            committed[index] = pair.Key;
-            return;
-        }
+        return false;
     }
 }

@@ -78,11 +78,7 @@ internal static class JournalCompactor
         var fingerprint = record.IdempotencyFingerprint ?? throw CreateCompactionDecodeFailure();
         var responseBytes = record.IdempotencyResponseBytes;
 
-        // ZA0302: exact-size owned buffer; compacted state must outlive the borrowed frame buffer.
-#pragma warning disable ZA0302
-        var copy = new byte[responseBytes.Length];
-#pragma warning restore ZA0302
-        responseBytes.Span.CopyTo(copy);
+        var copy = BufferEx.CopyToOwned(responseBytes.Span);
         idempotencyState[operationId] = new CompactedIdempotencyRecord(operationId, fingerprint, copy, record.UnixMs);
     }
 

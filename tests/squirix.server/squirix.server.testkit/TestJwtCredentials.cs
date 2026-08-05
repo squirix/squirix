@@ -40,13 +40,5 @@ public sealed class TestJwtCredentials
 
     /// <summary>Gets an independent copy of the raw symmetric signing key bytes.</summary>
     /// <returns>Raw symmetric signing key bytes.</returns>
-    public byte[] GetSigningKey()
-    {
-        // ZA0302: callers take ownership of an independent key copy; it cannot be pool-backed.
-#pragma warning disable ZA0302
-        var copy = new byte[_signingKey.Length];
-#pragma warning restore ZA0302
-        _signingKey.CopyTo(copy);
-        return copy;
-    }
+    public byte[] GetSigningKey() => FixtureBufferKit.CopyToOwned(_signingKey);
 }

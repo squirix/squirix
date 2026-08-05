@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
@@ -73,12 +74,7 @@ internal static class IdempotencyCodec
         if (responseLength < 0 || source.Length < offset + responseLength)
             throw new InvalidDataException("Snapshot idempotency response bytes are truncated.");
 
-        // ZA0302: exact-size owned buffer escape; the record must outlive the borrowed read span.
-#pragma warning disable ZA0302
-        var bytes = new byte[responseLength];
-#pragma warning restore ZA0302
-        source.Slice(offset, responseLength).CopyTo(bytes);
-        return bytes;
+        return BufferEx.CopyToOwned(source.Slice(offset, responseLength));
     }
 
     private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)

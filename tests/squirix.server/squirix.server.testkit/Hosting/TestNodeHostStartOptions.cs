@@ -13,6 +13,9 @@ public sealed class TestNodeHostStartOptions
     /// <summary>Gets the persistence data directory. When set, the node starts with journal/snapshot persistence enabled.</summary>
     public string? DataDir { get; init; }
 
+    /// <summary>Gets a value indicating whether the closed replication gRPC service is mapped for transport/identity tests without enabling RF&gt;1 mutations.</summary>
+    public bool FoundationOnly { get; init; }
+
     /// <summary>Gets the inter-node mTLS profile for this node in negative-path cluster tests.</summary>
     public TestNodeProfile MtlsProfile { get; init; } = TestNodeProfile.Normal;
 

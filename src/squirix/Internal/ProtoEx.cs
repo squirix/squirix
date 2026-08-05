@@ -71,29 +71,75 @@ internal static class ProtoEx
     private static bool TryMapTypedPrimitive<T>(CacheValue value, out T? result)
     {
         result = default;
-        switch (value.KindCase)
+        return value.KindCase switch
         {
-            case CacheValue.KindOneofCase.StringValue when typeof(T) == typeof(string):
-                result = ReinterpretReference<T, string>(value.StringValue);
-                return true;
-            case CacheValue.KindOneofCase.BoolValue when typeof(T) == typeof(bool):
-                result = ReinterpretScalar<T, bool>(value.BoolValue);
-                return true;
-            case CacheValue.KindOneofCase.Int32Value when typeof(T) == typeof(int):
-                result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
-                return true;
-            case CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(long):
-                result = ReinterpretScalar<T, long>(value.Int64Value);
-                return true;
-            case CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double):
-                result = ReinterpretScalar<T, double>(value.DoubleValue);
-                return true;
-            case CacheValue.KindOneofCase.None:
-            case CacheValue.KindOneofCase.NullValue:
-            case CacheValue.KindOneofCase.StructValue:
-            default:
-                return false;
+            CacheValue.KindOneofCase.StringValue => TryMapString(value, out result),
+            CacheValue.KindOneofCase.BoolValue => TryMapBool(value, out result),
+            CacheValue.KindOneofCase.Int32Value => TryMapInt32(value, out result),
+            CacheValue.KindOneofCase.Int64Value => TryMapInt64(value, out result),
+            CacheValue.KindOneofCase.DoubleValue => TryMapDouble(value, out result),
+            _ => false,
+        };
+    }
+
+    private static bool TryMapBool<T>(CacheValue value, out T? result)
+    {
+        if (typeof(T) == typeof(bool))
+        {
+            result = ReinterpretScalar<T, bool>(value.BoolValue);
+            return true;
         }
+
+        result = default;
+        return false;
+    }
+
+    private static bool TryMapDouble<T>(CacheValue value, out T? result)
+    {
+        if (typeof(T) == typeof(double))
+        {
+            result = ReinterpretScalar<T, double>(value.DoubleValue);
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private static bool TryMapInt32<T>(CacheValue value, out T? result)
+    {
+        if (typeof(T) == typeof(int))
+        {
+            result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private static bool TryMapInt64<T>(CacheValue value, out T? result)
+    {
+        if (typeof(T) == typeof(long))
+        {
+            result = ReinterpretScalar<T, long>(value.Int64Value);
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private static bool TryMapString<T>(CacheValue value, out T? result)
+    {
+        if (typeof(T) == typeof(string))
+        {
+            result = ReinterpretReference<T, string>(value.StringValue);
+            return true;
+        }
+
+        result = default;
+        return false;
     }
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;

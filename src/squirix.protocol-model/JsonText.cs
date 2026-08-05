@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using System.Text;
 
@@ -6,50 +5,34 @@ namespace Squirix.ProtocolModel;
 
 internal static class JsonText
 {
+    private static readonly string?[] ControlCharacterEscapes = BuildControlCharacterEscapes();
+
     internal static void AppendString(StringBuilder sb, string value)
     {
         _ = sb.Append('"');
         for (var i = 0; i < value.Length; i++)
         {
             var ch = value[i];
-            switch (ch)
-            {
-                case '"':
-                    _ = sb.Append("\\\"");
-                    break;
-                case '\\':
-                    _ = sb.Append(@"\\");
-                    break;
-                case '\b':
-                    _ = sb.Append("\\b");
-                    break;
-                case '\f':
-                    _ = sb.Append("\\f");
-                    break;
-                case '\n':
-                    _ = sb.Append("\\n");
-                    break;
-                case '\r':
-                    _ = sb.Append("\\r");
-                    break;
-                case '\t':
-                    _ = sb.Append("\\t");
-                    break;
-                default:
-                    if (ch < ' ')
-                    {
-                        _ = sb.Append("\\u");
-                        _ = sb.Append(Convert.ToUInt16(ch).ToString("x4", CultureInfo.InvariantCulture));
-                    }
-                    else
-                    {
-                        _ = sb.Append(ch);
-                    }
-
-                    break;
-            }
+            var escape = ch < ControlCharacterEscapes.Length ? ControlCharacterEscapes[ch] : null;
+            _ = escape is null ? sb.Append(ch) : sb.Append(escape);
         }
 
         _ = sb.Append('"');
+    }
+
+    private static string?[] BuildControlCharacterEscapes()
+    {
+        var escapes = new string?[128];
+        escapes['"'] = "\\\"";
+        escapes['\\'] = @"\\";
+        escapes['\b'] = "\\b";
+        escapes['\f'] = "\\f";
+        escapes['\n'] = "\\n";
+        escapes['\r'] = "\\r";
+        escapes['\t'] = "\\t";
+        for (var i = 0; i < 32; i++)
+            escapes[i] ??= "\\u" + i.ToString("x4", CultureInfo.InvariantCulture);
+
+        return escapes;
     }
 }

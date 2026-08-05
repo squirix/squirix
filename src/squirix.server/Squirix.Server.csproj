@@ -25,6 +25,7 @@
 
     <ItemGroup>
         <Protobuf Include="..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto" GrpcServices="Server;Client" ProtoRoot="..\shared\Squirix\Transport\Grpc\Protos" Access="Internal"/>
+        <Protobuf Include="Adapters\Grpc\Replication\SquirixReplication.proto" GrpcServices="Server;Client" ProtoRoot="Adapters\Grpc\Replication" Access="Internal"/>
     </ItemGroup>
 
     <ItemGroup>

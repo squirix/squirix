@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -129,7 +130,12 @@ internal static class ServerHostingComposition
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
-        _ = services.AddSquirixClusterReplication(cluster);
+        _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
+        if (args.FoundationOnly)
+            _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
+                sp.GetRequiredService<TopologyOptions>(),
+                sp.GetRequiredService<MtlsOptions>(),
+                sp.GetRequiredService<MtlsCertificateMaterial>()));
     }
 
     [SuppressMessage(
@@ -273,6 +279,8 @@ internal static class ServerHostingComposition
         public Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
         public ExtensionOptions? Extensions { get; set; }
+
+        public bool FoundationOnly { get; set; }
 
         public PressureOptions? MemoryPressureOptions { get; set; }
 
