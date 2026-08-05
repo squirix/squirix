@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
@@ -74,6 +75,7 @@ public sealed class SquirixReplicationServiceAdapterTests
         {
             SchemaVersion = EnvelopeCodec.SchemaVersion,
             SenderNodeId = peer.NodeId,
+            LeaderNodeId = peer.NodeId,
         };
 
         var request = new AppendReplicaEntriesRequest
@@ -96,5 +98,44 @@ public sealed class SquirixReplicationServiceAdapterTests
         Assert.False(result.Success);
         Assert.Equal(0UL, result.LastLogIndex);
         Assert.Equal(RefusalCodes.NotReady, result.RefusalCode);
+    }
+
+    /// <summary>Verifies that a leader-authorized RPC with a LeaderNodeId that does not match the peer certificate is rejected.</summary>
+    [Fact]
+    public async Task ForeignLeaderNodeIdIsRejectedAsync()
+    {
+        var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
+        var topology = new TopologyOptions(peer);
+        var mtls = new MtlsOptions { InternalListenPort = 6001 };
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
+        using var mtlsMaterial = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
+
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, mtlsMaterial);
+
+        var header = new ReplicationEnvelopeHeader
+        {
+            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            SenderNodeId = peer.NodeId,
+            LeaderNodeId = "node-b",
+        };
+
+        var request = new AppendReplicaEntriesRequest
+        {
+            Header = header,
+            PrevLogIndex = 42,
+        };
+
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                LocalPort = mtls.InternalListenPort,
+                ClientCertificate = peerCertificate,
+            },
+        };
+        var ex = await Assert.ThrowsAsync<RpcException>(() => adapter.AppendReplicaEntries(request, new TestServerCallContext(null, httpContext)));
+
+        Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
     }
 }

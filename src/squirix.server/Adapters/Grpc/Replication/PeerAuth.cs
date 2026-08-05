@@ -11,14 +11,16 @@ internal static class PeerAuth
 {
     /// <summary>
     /// Ensures the call arrived on the internal mTLS listener with a peer certificate whose NodeId is in
-    /// <see cref="TopologyOptions.Peers" /> and matches <paramref name="claimedSenderNodeId" />.
-    /// Host-header spoofing is ignored; <see cref="ConnectionInfo.LocalPort" /> is authoritative.
+    /// <see cref="TopologyOptions.Peers" /> and matches <paramref name="claimedSenderNodeId" />. When
+    /// <paramref name="claimedLeaderNodeId" /> is supplied, also binds the claimed leader identity to the same
+    /// certificate. Host-header spoofing is ignored; <see cref="ConnectionInfo.LocalPort" /> is authoritative.
     /// </summary>
     /// <param name="context">gRPC server call context.</param>
     /// <param name="mtlsOptions">Cluster mTLS options.</param>
     /// <param name="mtlsMaterial">Loaded cluster mTLS material.</param>
     /// <param name="remotePeerNodeIds">Configured remote peer node identifiers for inbound certificate checks.</param>
     /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
+    /// <param name="claimedLeaderNodeId">Leader node id claimed by the request envelope; null when the operation is not leader-authorized.</param>
     /// <returns>Validated peer node id from the client certificate.</returns>
     /// <exception cref="RpcException">Thrown when the call is not a trusted internal replication peer.</exception>
     internal static string EnsureTrustedPeer(
@@ -26,7 +28,8 @@ internal static class PeerAuth
         MtlsOptions mtlsOptions,
         MtlsCertificateMaterial mtlsMaterial,
         string[] remotePeerNodeIds,
-        string claimedSenderNodeId)
+        string claimedSenderNodeId,
+        string? claimedLeaderNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
@@ -52,6 +55,9 @@ internal static class PeerAuth
 
         if (!string.Equals(certificateNodeId, claimedSenderNodeId, StringComparison.Ordinal))
             throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication sender_node_id does not match the peer certificate NodeId."));
+
+        if (claimedLeaderNodeId is not null && !string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal))
+            throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication leader_node_id does not match the peer certificate NodeId."));
 
         return certificateNodeId;
     }

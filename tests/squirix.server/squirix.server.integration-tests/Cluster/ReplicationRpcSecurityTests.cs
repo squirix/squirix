@@ -139,6 +139,72 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         Assert.Equal("not-ready", response.RefusalCode);
     }
 
+    /// <summary>Leader-authorized RPCs reject a trusted peer claiming a foreign LeaderNodeId.</summary>
+    [Fact]
+    public async Task ForeignLeaderNodeIdIsRejected()
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim leader_node_id node-a to force a leader identity mismatch.
+        var request = CreateAppendRequest("node-b", "node-a");
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            client.AppendReplicaEntriesAsync(request, cancellationToken: DefaultCancellationToken).ResponseAsync);
+
+        Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
+    }
+
+    /// <summary>Leader-authorized RPCs accept a trusted peer whose LeaderNodeId matches its certificate identity.</summary>
+    [Fact]
+    public async Task MatchingLeaderNodeIdIsAccepted()
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim leader_node_id node-b for matching identity.
+        var response = await client.AppendReplicaEntriesAsync(CreateAppendRequest("node-b", "node-b"), cancellationToken: DefaultCancellationToken);
+
+        Assert.NotNull(response);
+        Assert.False(response.Success);
+        Assert.Equal("not-ready", response.RefusalCode);
+    }
+
     private static GetReplicaStatusRequest CreateStatusRequest(string senderNodeId) => new()
     {
         Header = new ReplicationEnvelopeHeader
@@ -151,6 +217,21 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
             LeaderNodeId = senderNodeId,
             SenderNodeId = senderNodeId,
         },
+    };
+
+    private static AppendReplicaEntriesRequest CreateAppendRequest(string senderNodeId, string leaderNodeId) => new()
+    {
+        Header = new ReplicationEnvelopeHeader
+        {
+            SchemaVersion = 1,
+            GroupId = "g1",
+            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+            ConfigurationGeneration = 1,
+            Term = 1,
+            LeaderNodeId = leaderNodeId,
+            SenderNodeId = senderNodeId,
+        },
+        PrevLogIndex = 0,
     };
 
     private sealed class ForgedHostHandler : DelegatingHandler

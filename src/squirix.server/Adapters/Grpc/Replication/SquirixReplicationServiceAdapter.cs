@@ -30,13 +30,13 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
     {
-        var header = EnsureHeader(request.Header, context);
+        var header = EnsureHeader(request.Header, context, true);
         var result = new AdvanceReplicaCommitResponse
         {
             Term = header.Term,
 
-            // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
-            // echoing the leader's PrevLogIndex which would mislead the leader.
+            // When refusing to advance the commit, report the follower's actual commit index. This stub follower has no committed log; return 0
+            // rather than echoing the leader's CommitIndex which would mislead the leader.
             CommitIndex = 0,
             Success = false,
             RefusalCode = RefusalCodes.NotReady,
@@ -46,7 +46,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
-        var header = EnsureHeader(request.Header, context);
+        var header = EnsureHeader(request.Header, context, true);
         var result = new AppendReplicaEntriesResponse
         {
             Term = header.Term,
@@ -62,7 +62,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     public override Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
     {
-        var header = EnsureHeader(request.Header, context);
+        var header = EnsureHeader(request.Header, context, false);
         var response = new GetReplicaStatusResponse
         {
             Term = header.Term,
@@ -87,7 +87,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (!await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
 
-        var header = EnsureHeader(requestStream.Current.Header, context);
+        var header = EnsureHeader(requestStream.Current.Header, context, true);
         while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
         {
             var currentHeader = requestStream.Current.Header;
@@ -106,12 +106,12 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context)
+    private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {
         if (header is null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with sender_node_id is required."));
 
-        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId);
+        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
         if (header.SchemaVersion is not EnvelopeCodec.SchemaVersion)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Unsupported replication envelope schema version."));
