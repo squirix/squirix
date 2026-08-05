@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
+using Microsoft.AspNetCore.Http;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -17,7 +18,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly TopologyFingerprint _topologyFingerprint;
     private readonly ulong _configurationGeneration;
 
-    public SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
@@ -123,5 +124,62 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Unsupported replication envelope schema version."));
 
         return header;
+    }
+
+    /// <summary>Enforces internal-listener + mTLS NodeId binding for closed replication RPCs.</summary>
+    private static class PeerAuth
+    {
+        /// <summary>
+        /// Ensures the call arrived on the internal mTLS listener with a peer certificate whose NodeId is in
+        /// <see cref="TopologyOptions.Peers" /> and matches <paramref name="claimedSenderNodeId" />. When
+        /// <paramref name="claimedLeaderNodeId" /> is supplied, also binds the claimed leader identity to the same
+        /// certificate. Host-header spoofing is ignored; <see cref="ConnectionInfo.LocalPort" /> is authoritative.
+        /// </summary>
+        /// <param name="context">gRPC server call context.</param>
+        /// <param name="mtlsOptions">Cluster mTLS options.</param>
+        /// <param name="mtlsMaterial">Loaded cluster mTLS material.</param>
+        /// <param name="remotePeerNodeIds">Configured remote peer node identifiers for inbound certificate checks.</param>
+        /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
+        /// <param name="claimedLeaderNodeId">Leader node id claimed by the request envelope; null when the operation is not leader-authorized.</param>
+        /// <returns>Validated peer node id from the client certificate.</returns>
+        /// <exception cref="RpcException">Thrown when the call is not a trusted internal replication peer.</exception>
+        internal static string EnsureTrustedPeer(
+            ServerCallContext context,
+            MtlsOptions mtlsOptions,
+            MtlsCertificateMaterial mtlsMaterial,
+            string[] remotePeerNodeIds,
+            string claimedSenderNodeId,
+            string? claimedLeaderNodeId = null)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(mtlsOptions);
+            ArgumentNullException.ThrowIfNull(mtlsMaterial);
+            ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
+            ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
+
+            if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor is null)
+                throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
+
+            var httpContext = context.GetHttpContext();
+            if (httpContext.Connection.LocalPort != mtlsOptions.InternalListenPort)
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
+
+            var certificate = httpContext.Connection.ClientCertificate
+                              ?? throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate."));
+
+            if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
+
+            if (!MtlsCertificateIdentity.TryGetNodeId(certificate, out var certificateNodeId))
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is missing a NodeId identity."));
+
+            if (!string.Equals(certificateNodeId, claimedSenderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication sender_node_id does not match the peer certificate NodeId."));
+
+            if (claimedLeaderNodeId is not null && !string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication leader_node_id does not match the peer certificate NodeId."));
+
+            return certificateNodeId;
+        }
     }
 }

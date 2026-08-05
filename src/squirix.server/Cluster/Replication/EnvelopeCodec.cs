@@ -45,7 +45,7 @@ internal static class EnvelopeCodec
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.LogIndex);
         offset += 8;
         WriteBytes(buffer, groupIdBytes, ref offset);
-        WriteBytes(buffer, fingerprint, ref offset);
+        WriteBytes(buffer, fingerprint.Span, ref offset);
         WriteBytes(buffer, leaderBytes, ref offset);
         WriteBytes(buffer, senderBytes, ref offset);
         BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], envelope.CommitIndex);
@@ -62,6 +62,21 @@ internal static class EnvelopeCodec
             throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
 
         var offset = 0;
+        var header = ReadFixedHeader(payload, ref offset);
+
+        var groupId = ReadString(payload, ref offset);
+        var fingerprint = ReadOwnedBytes(payload, ref offset);
+        var leaderNodeId = ReadString(payload, ref offset);
+        var senderNodeId = ReadString(payload, ref offset);
+        if (payload.Length - offset < 8)
+            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
+
+        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);
+        return new Envelope(header.SchemaVersion, groupId, fingerprint, header.ConfigurationGeneration, header.Term, leaderNodeId, senderNodeId, header.LogIndex, commitIndex, header.PayloadChecksum);
+    }
+
+    private static (uint SchemaVersion, uint PayloadChecksum, ulong ConfigurationGeneration, ulong Term, ulong LogIndex) ReadFixedHeader(ReadOnlySpan<byte> payload, ref int offset)
+    {
         var schema = BinaryPrimitives.ReadUInt32LittleEndian(payload[offset..]);
         offset += 4;
         if (schema != SchemaVersion)
@@ -75,16 +90,7 @@ internal static class EnvelopeCodec
         offset += 8;
         var logIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);
         offset += 8;
-
-        var groupId = ReadString(payload, ref offset);
-        var fingerprint = ReadOwnedBytes(payload, ref offset);
-        var leaderNodeId = ReadString(payload, ref offset);
-        var senderNodeId = ReadString(payload, ref offset);
-        if (payload.Length - offset < 8)
-            throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
-
-        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);
-        return new Envelope(schema, groupId, fingerprint, generation, term, leaderNodeId, senderNodeId, logIndex, commitIndex, checksum);
+        return (schema, checksum, generation, term, logIndex);
     }
 
     private static void WriteBytes(Span<byte> buffer, ReadOnlySpan<byte> value, ref int offset)

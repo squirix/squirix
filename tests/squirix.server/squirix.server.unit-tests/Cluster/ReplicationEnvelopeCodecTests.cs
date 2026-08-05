@@ -115,7 +115,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         _ = Assert.Throws<ArgumentException>(() => EnvelopeCodec.Decode(payload));
     }
 
-    private static Envelope CreateValidEnvelope() => new(EnvelopeCodec.SchemaVersion, "group-a", [1, 2, 3, 4, 5, 6, 7, 8], 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
+    private static Envelope CreateValidEnvelope() => new(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
 
     private static byte[] CreateFixedLengthPayload(int groupIdLength, int? fingerprintLength = null) => BufferKit.ToOwnedBytes(
         48,

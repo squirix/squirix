@@ -132,7 +132,10 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
         if (args.FoundationOnly)
-            _ = services.AddSingleton<SquirixReplicationServiceAdapter>();
+            _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
+                sp.GetRequiredService<TopologyOptions>(),
+                sp.GetRequiredService<MtlsOptions>(),
+                sp.GetRequiredService<MtlsCertificateMaterial>()));
     }
 
     [SuppressMessage(

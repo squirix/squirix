@@ -1,5 +1,5 @@
-﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.2.9787">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
   <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
   <IDEFiles>
     <IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU">
@@ -56,6 +56,7 @@
   <HistoricAnalysisResult PersistRecurrence="3" UseCustomDir="False" CustomDir="" RetentionNDays="60" />
   <SourceFileRebasing FromPath="" ToPath="" />
   <PathVariables />
+  <RuleFiles />
   <GraphFiles />
   <ProjectRules AreActive="True" QueryPersistenceKind="PersistOnlyQueryIdForUntouchedQueries" />
   <ProjectDebtSettings DebtSettingsStorage="0" SettingsFilePath="">

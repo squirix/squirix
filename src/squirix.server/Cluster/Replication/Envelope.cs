@@ -1,3 +1,5 @@
+using System;
+
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Closed replication envelope fields shared by wire and durable group storage.</summary>
@@ -14,7 +16,7 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed record Envelope(
     uint SchemaVersion,
     string GroupId,
-    byte[] TopologyFingerprint,
+    ReadOnlyMemory<byte> TopologyFingerprint,
     ulong ConfigurationGeneration,
     ulong Term,
     string LeaderNodeId,
