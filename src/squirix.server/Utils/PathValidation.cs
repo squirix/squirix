@@ -39,15 +39,30 @@ internal static class PathValidation
     /// <exception cref="ArgumentException">Thrown when the segment is empty, is <c>.</c>/<c>..</c> when rejected, violates Windows naming rules, or contains invalid file-name characters.</exception>
     internal static void ValidateSegment(ReadOnlySpan<char> segment, string paramName, bool rejectDotOrDotDot, bool? applyWindowsRules = null)
     {
-        if (segment.IsEmpty)
-            throw new ArgumentException("Empty segment in path.", paramName);
-
-        if (rejectDotOrDotDot && IsDotOrDotDot(segment))
-            throw new ArgumentException("Path must not contain '.' or '..' segments.", paramName);
+        ThrowIfEmpty(segment, paramName);
+        if (rejectDotOrDotDot)
+            ThrowIfDotOrDotDot(segment, paramName);
 
         if (applyWindowsRules ?? OperatingSystem.IsWindows())
             ValidateWindowsSegmentRules(segment, paramName);
 
+        ThrowIfInvalidFileNameChar(segment, paramName);
+    }
+
+    private static void ThrowIfDotOrDotDot(ReadOnlySpan<char> segment, string paramName)
+    {
+        if (IsDotOrDotDot(segment))
+            throw new ArgumentException("Path must not contain '.' or '..' segments.", paramName);
+    }
+
+    private static void ThrowIfEmpty(ReadOnlySpan<char> segment, string paramName)
+    {
+        if (segment.IsEmpty)
+            throw new ArgumentException("Empty segment in path.", paramName);
+    }
+
+    private static void ThrowIfInvalidFileNameChar(ReadOnlySpan<char> segment, string paramName)
+    {
         if (segment.IndexOfAny(InvalidFileNameChars) >= 0)
             throw new ArgumentException("Segment contains invalid characters.", paramName);
     }

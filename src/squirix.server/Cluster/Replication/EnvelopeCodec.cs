@@ -28,10 +28,7 @@ internal static class EnvelopeCodec
 
         var length = FixedHeaderByteCount + 4 + groupIdBytes.Length + 4 + fingerprint.Length + 4 + leaderBytes.Length + 4 + senderBytes.Length + 8;
 
-        // ZA0302: exact-size owned buffer returned to callers.
-#pragma warning disable ZA0302
-        var owned = new byte[length];
-#pragma warning restore ZA0302
+        var owned = OwnedBufferKit.Owned(length);
         var buffer = owned.AsSpan();
         var offset = 0;
         BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], SchemaVersion);
@@ -111,11 +108,7 @@ internal static class EnvelopeCodec
         if (length < 0 || length > payload.Length - offset)
             throw new ArgumentException(FixedHeaderValidationMessage, nameof(payload));
 
-        // ZA0302: exact-size owned buffer escape; the envelope record must outlive the input span.
-#pragma warning disable ZA0302
-        var bytes = new byte[length];
-#pragma warning restore ZA0302
-        payload.Slice(offset, length).CopyTo(bytes);
+        var bytes = OwnedBufferKit.CopyToOwned(payload.Slice(offset, length));
         offset += length;
         return bytes;
     }
@@ -131,5 +124,30 @@ internal static class EnvelopeCodec
         var value = Encoding.UTF8.GetString(payload.Slice(offset, length));
         offset += length;
         return value;
+    }
+
+    /// <summary>
+    /// Exact-size owned byte buffer helpers for envelope encoding.
+    /// Cluster.Replication may not depend on <c>Squirix.Server.Utils</c> (config.nsdepcop), so the
+    /// kernel-owned-buffer escape must be re-hosted here.
+    /// </summary>
+    private static class OwnedBufferKit
+    {
+        /// <summary>Allocates an exact-size owned byte buffer that must outlive the current span.</summary>
+        /// <param name="length">Exact buffer length.</param>
+        /// <returns>An owned byte array of the requested length.</returns>
+#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the caller fills the buffer and retains ownership.
+        internal static byte[] Owned(int length) => new byte[length];
+#pragma warning restore ZA0302
+
+        /// <summary>Copies a span into an exact-size owned byte buffer.</summary>
+        /// <param name="source">Source bytes to copy.</param>
+        /// <returns>An owned byte array containing the source bytes.</returns>
+        internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
+        {
+            var owned = Owned(source.Length);
+            source.CopyTo(owned);
+            return owned;
+        }
     }
 }

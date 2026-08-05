@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Entries.Binary;
 
@@ -16,8 +17,8 @@ namespace Squirix.Server.Storage.Entries.Binary;
 internal static class CacheEntryCodec
 {
     internal const int MaxUtf16StringLength = ushort.MaxValue;
-    private const byte True = 1;
     private const byte False = 0;
+    private const byte True = 1;
 
     internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
     {
@@ -276,33 +277,71 @@ internal static class CacheEntryCodec
             _ => WriteSerializedObject(value, destination),
         };
 
-        private static bool TryCoerceNumericOrJson<T>(object value, out T? result)
-        {
-            switch (value)
-            {
-                case JsonElement je when typeof(T) == typeof(JsonElement):
-                    result = Reinterpret<T, JsonElement>(je);
-                    return true;
-                case long l when typeof(T) == typeof(int):
-                    result = Reinterpret<T, int>(int.CreateChecked(l));
-                    return true;
-                case long l when typeof(T) == typeof(long):
-                    result = Reinterpret<T, long>(l);
-                    return true;
-                case double d when typeof(T) == typeof(float):
-                    result = Reinterpret<T, float>(Convert.ToSingle(d));
-                    return true;
-                case double d when typeof(T) == typeof(double):
-                    result = Reinterpret<T, double>(d);
-                    return true;
-                default:
-                    result = default;
-                    return false;
-            }
-        }
-
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
             where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+
+        private static bool TryCoerceFloatingPoint<T>(object value, out T? result)
+        {
+            if (value is not double number)
+            {
+                result = default;
+                return false;
+            }
+
+            if (typeof(T) == typeof(double))
+            {
+                result = Reinterpret<T, double>(number);
+                return true;
+            }
+
+            result = Reinterpret<T, float>(Convert.ToSingle(number));
+            return true;
+        }
+
+        private static bool TryCoerceInteger<T>(object value, out T? result)
+        {
+            if (value is not long number)
+            {
+                result = default;
+                return false;
+            }
+
+            if (typeof(T) == typeof(long))
+            {
+                result = Reinterpret<T, long>(number);
+                return true;
+            }
+
+            result = Reinterpret<T, int>(int.CreateChecked(number));
+            return true;
+        }
+
+        private static bool TryCoerceJsonElement<T>(object value, out T? result)
+        {
+            if (value is JsonElement element)
+            {
+                result = Reinterpret<T, JsonElement>(element);
+                return true;
+            }
+
+            result = default;
+            return false;
+        }
+
+        private static bool TryCoerceNumericOrJson<T>(object value, out T? result)
+        {
+            if (typeof(T) == typeof(JsonElement))
+                return TryCoerceJsonElement(value, out result);
+
+            if (typeof(T) == typeof(int) || typeof(T) == typeof(long))
+                return TryCoerceInteger(value, out result);
+
+            if (typeof(T) == typeof(float) || typeof(T) == typeof(double))
+                return TryCoerceFloatingPoint(value, out result);
+
+            result = default;
+            return false;
+        }
 
         private static bool TryReadBoolValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
@@ -323,13 +362,7 @@ internal static class CacheEntryCodec
             if (!CacheEntryTagEncoding.TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
                 return false;
 
-            // ZA0302: this array IS the decoded user value; its lifetime is owned by the cache
-            // and returned to callers as byte[], so it cannot be rented from ArrayPool.
-#pragma warning disable ZA0302
-            var bytes = new byte[rawBytes.Length];
-#pragma warning restore ZA0302
-            rawBytes.CopyTo(bytes);
-            value = bytes;
+            value = BufferEx.CopyToOwned(rawBytes);
             bytesRead = 1 + rawBytesRead;
             return true;
         }

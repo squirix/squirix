@@ -78,20 +78,36 @@ internal sealed class JournalEventLoopDrainScheduler
         while (_owner.Ring.TryDequeue(out var item))
         {
             hadWork = true;
-            if (item.Kind is JournalWorkKind.Append)
-            {
-                if (TryProcessAppendFromRing(item, ref rollDeferredAppend))
-                    return hadWork;
-                continue;
-            }
-
-            if (!TryProcessNonAppendFromRing(item, out shutdownRequested))
-                continue;
-
-            return hadWork;
+            if (ProcessRingItem(item, ref rollDeferredAppend, out shutdownRequested))
+                return hadWork;
         }
 
         return hadWork;
+    }
+
+    private bool ProcessRingItem(JournalWorkItem item, ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
+    {
+        if (item.Kind is not JournalWorkKind.Append)
+            return TryProcessNonAppendFromRing(item, out shutdownRequested);
+        shutdownRequested = false;
+        return TryProcessAppendFromRing(item, ref rollDeferredAppend);
+    }
+
+    private void ProcessRollDeferredAppend(ref JournalWorkItem? rollDeferredAppend)
+    {
+        var item = rollDeferredAppend ?? throw new InvalidOperationException("roll-deferred append is missing.");
+        rollDeferredAppend = null;
+        if (_segmentWriter.TryAcceptAppendIntoBatch(item, out var rollDeferred))
+            return;
+
+        if (rollDeferred)
+        {
+            rollDeferredAppend = item;
+            return;
+        }
+
+        _segmentWriter.FlushWriteBatch();
+        _ = _segmentWriter.ProcessJournalWorkItem(item, this);
     }
 
     private bool TryProcessAppendFromRing(JournalWorkItem item, ref JournalWorkItem? rollDeferredAppend)
@@ -120,22 +136,5 @@ internal sealed class JournalEventLoopDrainScheduler
         _segmentWriter.FlushWriteBatch();
         shutdownRequested = true;
         return true;
-    }
-
-    private void ProcessRollDeferredAppend(ref JournalWorkItem? rollDeferredAppend)
-    {
-        var item = rollDeferredAppend ?? throw new InvalidOperationException("roll-deferred append is missing.");
-        rollDeferredAppend = null;
-        if (_segmentWriter.TryAcceptAppendIntoBatch(item, out var rollDeferred))
-            return;
-
-        if (rollDeferred)
-        {
-            rollDeferredAppend = item;
-            return;
-        }
-
-        _segmentWriter.FlushWriteBatch();
-        _ = _segmentWriter.ProcessJournalWorkItem(item, this);
     }
 }

@@ -13,10 +13,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     [Fact]
     public void RoundTripPreservesRequiredFields()
     {
-        // ZA0302: tiny fixture payload owned by the assertion below.
-#pragma warning disable ZA0302
-        var fingerprint = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
-#pragma warning restore ZA0302
+        var fingerprint = BufferKit.CopyToOwned([1, 2, 3, 4, 5, 6, 7, 8]);
         var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", fingerprint, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
 
         var decoded = EnvelopeCodec.Decode(EnvelopeCodec.Encode(envelope));

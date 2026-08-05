@@ -24,6 +24,8 @@ public static class Program
         return 1;
     }
 
+    private static bool IsHelpFlag(string arg) => string.Equals(arg, "-h", StringComparison.Ordinal) || string.Equals(arg, "--help", StringComparison.Ordinal);
+
     private static BrokenMode ParseBroken(string value)
     {
         if (string.Equals(value, "none", StringComparison.OrdinalIgnoreCase))
@@ -99,25 +101,10 @@ public static class Program
             for (var i = 0; i < args.Length; i++)
             {
                 var arg = args[i];
-                if (string.Equals(arg, "--profile", StringComparison.Ordinal))
-                {
-                    profile = RequireValue(args, "--profile", ref i);
+                if (TryParseValueFlag(args, arg, ref i, ref profile, ref output, ref broken))
                     continue;
-                }
 
-                if (string.Equals(arg, "--output", StringComparison.Ordinal))
-                {
-                    output = RequireValue(args, "--output", ref i);
-                    continue;
-                }
-
-                if (string.Equals(arg, "--broken", StringComparison.Ordinal))
-                {
-                    broken = ParseBroken(RequireValue(args, "--broken", ref i));
-                    continue;
-                }
-
-                if (!string.Equals(arg, "-h", StringComparison.Ordinal) && !string.Equals(arg, "--help", StringComparison.Ordinal))
+                if (!IsHelpFlag(arg))
                     throw new ArgumentException("Unrecognized argument: " + arg, nameof(args));
                 showHelp = true;
                 return true;
@@ -130,6 +117,26 @@ public static class Program
             _ = Fail(ex);
             return false;
         }
+    }
+
+    private static bool TryParseValueFlag(string[] args, string arg, ref int i, ref string profile, ref string output, ref BrokenMode broken)
+    {
+        if (string.Equals(arg, "--profile", StringComparison.Ordinal))
+        {
+            profile = RequireValue(args, "--profile", ref i);
+            return true;
+        }
+
+        if (string.Equals(arg, "--output", StringComparison.Ordinal))
+        {
+            output = RequireValue(args, "--output", ref i);
+            return true;
+        }
+
+        if (!string.Equals(arg, "--broken", StringComparison.Ordinal))
+            return false;
+        broken = ParseBroken(RequireValue(args, "--broken", ref i));
+        return true;
     }
 
     private static Task WriteHelpAsync()
