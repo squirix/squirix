@@ -331,17 +331,6 @@ internal sealed class FollowerLog : IFollowerLog
         }
     }
 
-    private static FollowerLogEntry FindEntry(List<FollowerLogEntry> toAppend, ulong logIndex)
-    {
-        for (var i = 0; i < toAppend.Count; i++)
-        {
-            if (toAppend[i].LogIndex == logIndex)
-                return toAppend[i];
-        }
-
-        throw new InvalidOperationException("Appended entry not found.");
-    }
-
     private static bool TryReadFrameAt(ReadOnlySpan<byte> buffer, int offset, out FollowerLogEntry entry, out int consumed)
     {
         entry = default;
@@ -393,7 +382,7 @@ internal sealed class FollowerLog : IFollowerLog
         await Task.Factory.StartNew(AppendDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
         for (var i = 0; i < offsets.Count; i++)
         {
-            var entry = FindEntry(toAppend, offsets[i].Key);
+            var entry = toAppend[i];
             _entryOffsets[offsets[i].Key] = offsets[i].Value;
             _entries[offsets[i].Key] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
         }

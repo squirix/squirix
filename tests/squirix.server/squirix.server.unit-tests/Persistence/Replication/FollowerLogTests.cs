@@ -255,7 +255,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public void GroupIdCannotEscapeStorageRoot()
     {
         using var dir = new TempDirectory("squirix-follower-log-escape");
-        const string evil = "..\\..\\escape";
+        const string evil = @"..\..\escape";
 
         var segment = GroupStoragePaths.EncodeGroupSegment(evil);
         Assert.DoesNotContain("..", segment, StringComparison.Ordinal);
