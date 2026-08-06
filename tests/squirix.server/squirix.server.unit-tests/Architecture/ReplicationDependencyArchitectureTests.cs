@@ -28,10 +28,12 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var mapping = await File.ReadAllTextAsync(mappingPath, DefaultCancellationToken);
         var composition = await File.ReadAllTextAsync(compositionPath, DefaultCancellationToken);
 
-        Assert.Contains("FoundationOnly", mapping, StringComparison.Ordinal);
-        Assert.Contains("SquirixReplicationServiceAdapter", mapping, StringComparison.Ordinal);
-        Assert.Contains("FoundationOnly", composition, StringComparison.Ordinal);
-        Assert.Contains("SquirixReplicationServiceAdapter", composition, StringComparison.Ordinal);
+        // The endpoint mapping maps the closed adapter only on the internal host filter and only under FoundationOnly.
+        AssertRegistrationGuarded(mapping, "app.MapGrpcService<ReplicationServiceAdapter>()", "featureState.FoundationOnly");
+        Assert.DoesNotContain("MapGrpcService<SquirixReplicationServiceAdapter", mapping, StringComparison.Ordinal);
+
+        // The hosting composition registers the adapter singleton only when FoundationOnly is enabled.
+        AssertRegistrationGuarded(composition, "AddSingleton(static sp => new SquirixReplicationServiceAdapter(", "args.FoundationOnly");
 
         // The reverse direction must not exist: Storage.Replication never reaches into hosting composition types.
         var storageReplicationRoot = Path.Join(root, "src", "squirix.server", "Storage", "Replication");
@@ -187,6 +189,38 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var edge = FindEdge(policy, from, to);
         Assert.True(edge is not null, $"Expected an edge from '{from}' to '{to}' in config.nsdepcop.");
         Assert.True(string.Equals(edge.LocalName, "Disallowed", StringComparison.Ordinal), $"Edge from '{from}' to '{to}' must be declared under a <Disallowed> element, found <{edge.LocalName}>.");
+    }
+
+    /// <summary>Asserts <paramref name="registration" /> appears inside a branch guarded by <paramref name="guard" />.</summary>
+    /// <param name="source">The hosting source text.</param>
+    /// <param name="registration">The registration expression that must be present.</param>
+    /// <param name="guard">The guard condition that must wrap the registration.</param>
+    private static void AssertRegistrationGuarded(string source, string registration, string guard)
+    {
+        var lines = source.Split('\n');
+        var registrationIndex = -1;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].Contains(registration, StringComparison.Ordinal))
+                continue;
+            registrationIndex = i;
+            break;
+        }
+
+        Assert.True(registrationIndex >= 0, $"Expected the registration '{registration}' to be present.");
+
+        // Walk back to the nearest enclosing if guard and require the FoundationOnly condition on it.
+        for (var i = registrationIndex - 1; i >= 0; i--)
+        {
+            var trimmed = lines[i].TrimStart();
+            if (!trimmed.StartsWith("if (", StringComparison.Ordinal))
+                continue;
+
+            Assert.True(trimmed.Contains(guard, StringComparison.Ordinal), $"The registration '{registration}' must be guarded by '{guard}'.");
+            return;
+        }
+
+        Assert.Fail($"The registration '{registration}' is not inside any guarded branch.");
     }
 
     private static XmlElement? FindEdge(XmlDocument policy, string from, string to)
