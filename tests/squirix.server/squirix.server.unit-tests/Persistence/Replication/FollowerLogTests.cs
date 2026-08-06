@@ -145,6 +145,33 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2UL, log.GetStatus().LastLogIndex);
     }
 
+    /// <summary>The log takes ownership of appended payloads; mutating the caller buffer does not change stored entries.</summary>
+    [Fact]
+    public async Task AppendCopiesPayloadIntoOwnedBuffer()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-owned-payload");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+
+        var payload = System.Text.Encoding.UTF8.GetBytes("abcd");
+        var request = new FollowerLogAppendRequest(
+            "leader-1",
+            1UL,
+            0UL,
+            1UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
+        _ = await log.AppendAsync(request, DefaultCancellationToken);
+
+        payload[0] = 0xFF;
+        payload[3] = 0xFF;
+
+        var tail = log.GetUncommittedTail();
+        Assert.Equal("abcd", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
+    }
+
     /// <summary>An append carrying a lower term than the durable term is rejected before any mutation.</summary>
     [Fact]
     public async Task RejectsStaleTermBeforeAppend()

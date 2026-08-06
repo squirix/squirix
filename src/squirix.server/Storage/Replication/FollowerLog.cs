@@ -379,8 +379,9 @@ internal sealed class FollowerLog : IFollowerLog
         await Task.Factory.StartNew(AppendDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
         for (var i = 0; i < offsets.Count; i++)
         {
+            var entry = FindEntry(toAppend, offsets[i].Key);
             _entryOffsets[offsets[i].Key] = offsets[i].Value;
-            _entries[offsets[i].Key] = FindEntry(toAppend, offsets[i].Key);
+            _entries[offsets[i].Key] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
         }
 
         _lastLogIndex = offsets[^1].Key;
