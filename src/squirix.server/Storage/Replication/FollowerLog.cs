@@ -142,7 +142,9 @@ internal sealed class FollowerLog : IFollowerLog
 
             if (request.PrevLogIndex > 0 && TermAt(request.PrevLogIndex) != request.PrevLogTerm)
             {
-                if (request.PrevLogIndex < _meta.CommitIndex)
+                // A term conflict at or below the committed index is irreconcilable: the leader disagrees with a
+                // committed entry, which violates Leader Completeness, so the follower fails readiness.
+                if (request.PrevLogIndex <= _meta.CommitIndex)
                     return FailReadiness();
 
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);

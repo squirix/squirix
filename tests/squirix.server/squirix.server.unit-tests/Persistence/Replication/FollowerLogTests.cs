@@ -145,6 +145,33 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2UL, log.GetStatus().LastLogIndex);
     }
 
+    /// <summary>A term conflict at the committed boundary also fails readiness.</summary>
+    [Fact]
+    public async Task CommittedBoundaryConflictFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-committed-boundary");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
+        // The leader's previous entry at the committed index disagrees in term.
+        var request = new FollowerLogAppendRequest(
+            "leader-2",
+            3UL,
+            1UL,
+            2UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 3UL, System.Text.Encoding.UTF8.GetBytes("b"))]));
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+    }
+
     /// <summary>The log takes ownership of appended payloads; mutating the caller buffer does not change stored entries.</summary>
     [Fact]
     public async Task AppendCopiesPayloadIntoOwnedBuffer()
