@@ -16,17 +16,6 @@ internal sealed class GroupLogDurability : IDisposable
 
     private SafeFileHandle? _handle;
 
-    /// <summary>Gets the current log length in bytes.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
-    internal long Length
-    {
-        get
-        {
-            var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
-            return RandomAccess.GetLength(handle);
-        }
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
