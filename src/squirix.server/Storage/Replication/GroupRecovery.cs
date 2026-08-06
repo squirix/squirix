@@ -94,7 +94,6 @@ internal sealed class GroupRecovery : IAsyncDisposable
 
     /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
     /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="faultHooks">Optional fault-injection seam.</param>
     /// <returns>A follower log for the group.</returns>
-    private FollowerLog CreateLog(string groupId, IFollowerLogFaultHooks? faultHooks = null) => new(_persistenceRoot, groupId, _composition, faultHooks);
+    private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition);
 }
