@@ -445,8 +445,7 @@ internal sealed class FollowerLog : IFollowerLog
             // Once the divergent tail is being rewritten, every subsequent entry must be re-appended durably.
             if (truncateAtIndex is not null)
             {
-                toAppend ??= [];
-                toAppend.Add(entry);
+                toAppend!.Add(entry);
                 continue;
             }
 
