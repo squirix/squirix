@@ -393,6 +393,106 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(3, log.GetCommittedEntries().Count);
     }
 
+    /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>
+    [Fact]
+    public async Task AdvanceAppliedPrunesAppliedEntriesFromMemory()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-prune");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(3UL, DefaultCancellationToken);
+
+        Assert.Equal(3, log.GetCommittedEntries().Count);
+
+        var result = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(2UL, result.AppliedIndex);
+        Assert.Equal(2UL, log.GetStatus().LastAppliedIndex);
+        Assert.Equal(3UL, log.GetStatus().CommitIndex);
+        var remaining = log.GetCommittedEntries();
+        var only = Assert.Single(remaining);
+        Assert.Equal(3UL, only.LogIndex);
+        Assert.Equal("c", System.Text.Encoding.UTF8.GetString(only.Payload.Span));
+    }
+
+    /// <summary>The applied index advances monotonically and never beyond the committed index.</summary>
+    [Fact]
+    public async Task AdvanceAppliedIsMonotonicAndBoundedByCommit()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-monotonic");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
+        var first = await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken);
+        Assert.True(first.Success);
+
+        var backward = await log.AdvanceAppliedAsync(0UL, DefaultCancellationToken);
+        Assert.True(backward.Success);
+        Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
+
+        var beyond = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
+        Assert.False(beyond.Success);
+        Assert.Equal(FollowerLogRefusal.NotReady, beyond.RefusalCode);
+        Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
+    }
+
+    /// <summary>Re-appending an already-applied entry is acknowledged idempotently without failing readiness.</summary>
+    [Fact]
+    public async Task ReappliedAppliedEntryIsAcknowledgedIdempotently()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-reapply");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken);
+
+        var result = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Empty(log.GetCommittedEntries());
+    }
+
+    /// <summary>The applied watermark survives a restart and suppresses re-application of the applied prefix.</summary>
+    [Fact]
+    public async Task AdvanceAppliedSurvivesRestart()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-restart");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+            var result = await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken);
+            Assert.True(result.Success);
+        }
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
+            var committed = log.GetCommittedEntries();
+            Assert.Equal(2UL, Assert.Single(committed).LogIndex);
+        }
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
         new(
             "leader-1",

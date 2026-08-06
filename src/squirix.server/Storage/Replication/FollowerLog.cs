@@ -14,8 +14,13 @@ namespace Squirix.Server.Storage.Replication;
 ///     <para>
 ///     The log stores canonical entry bytes in an append-only file with per-frame CRC32C and publishes
 ///     per-group metadata (term, commit index, applied index, voted-for) through an atomic temp-file replacement.
-///     Only the committed prefix is exposed through the storage contract; the uncommitted tail is retained on
-///     disk for pending-operation rebuild but is never applied to memory.
+///     Only the committed prefix that is not yet applied is exposed through the storage contract; the uncommitted
+///     tail is retained on disk for pending-operation rebuild but is never applied to memory.
+///     </para>
+///     <para>
+///     Advancing the applied index persists the watermark first and then releases the applied entry payloads
+///     from memory; the frame offsets of applied entries stay available so a divergent tail at or above the
+///     committed index can still be truncated durably.
 ///     </para>
 ///     <para>
 ///     Append follows the following half of the consensus AppendEntries rule: previous
@@ -116,6 +121,49 @@ internal sealed class FollowerLog : IFollowerLog
     }
 
     /// <inheritdoc />
+    public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_disposed || Readiness is not FollowerLogReadiness.Ready)
+                return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
+
+            // Applied index moves only monotonically.
+            if (appliedIndex <= _meta.LastAppliedIndex)
+                return new FollowerLogAppliedResult(true, string.Empty, _meta.LastAppliedIndex);
+
+            // Never applied beyond the committed index.
+            if (appliedIndex > _meta.CommitIndex)
+                return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
+
+            // The watermark is persisted before the payloads are released; on a crash between the two, restart
+            // reloads the frames but the durable watermark still suppresses re-application of the applied prefix.
+            _meta = _meta with { LastAppliedIndex = appliedIndex };
+            await PersistMetaAsync(cancellationToken).ConfigureAwait(false);
+            PruneAppliedEntries();
+            return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
+
+            void PruneAppliedEntries()
+            {
+                var released = new List<ulong>();
+                foreach (var index in _entries.Keys)
+                {
+                    if (index <= appliedIndex)
+                        released.Add(index);
+                }
+
+                for (var i = 0; i < released.Count; i++)
+                    _ = _entries.Remove(released[i]);
+            }
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
@@ -136,14 +184,14 @@ internal sealed class FollowerLog : IFollowerLog
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm, _lastLogIndex);
             }
 
-            // Previous-log consistency.
+            // Previous-log consistency; the term at an applied index was released from memory, so the check
+            // covers only the retained region above the applied watermark.
             if (request.PrevLogIndex > _lastLogIndex)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
 
-            if (request.PrevLogIndex > 0 && TermAt(request.PrevLogIndex) != request.PrevLogTerm)
+            if (request.PrevLogIndex > 0 && request.PrevLogIndex > _meta.LastAppliedIndex && TermAt(request.PrevLogIndex) != request.PrevLogTerm)
             {
-                // A term conflict at or below the committed index is irreconcilable: the leader disagrees with a
-                // committed entry, which violates Leader Completeness, so the follower fails readiness.
+                // A term conflict at or below the committed index violates Leader Completeness; fail readiness.
                 if (request.PrevLogIndex <= _meta.CommitIndex)
                     return FailReadiness();
 
@@ -167,6 +215,11 @@ internal sealed class FollowerLog : IFollowerLog
                 await AppendFramesDurableAsync(toAppend, cancellationToken).ConfigureAwait(false);
 
             return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex is not null, cancellationToken).ConfigureAwait(false);
+
+            ulong TermAt(ulong logIndex)
+            {
+                return _entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
+            }
         }
         finally
         {
@@ -211,6 +264,11 @@ internal sealed class FollowerLog : IFollowerLog
             {
                 if (pair.Key > _meta.CommitIndex)
                     break;
+
+                // Applied entries were released from memory; their keys can still be present right after a
+                // restart, so the working set is bounded below by the durable applied watermark.
+                if (pair.Key <= _meta.LastAppliedIndex)
+                    continue;
 
                 result.Add(pair.Value);
             }
@@ -451,8 +509,14 @@ internal sealed class FollowerLog : IFollowerLog
             }
 
             // Already present locally with identical content: no durable write is required.
-            if (entry.LogIndex <= _lastLogIndex && TryGetEntry(entry.LogIndex, out var existing) &&
+            if (entry.LogIndex <= _lastLogIndex && _entries.TryGetValue(entry.LogIndex, out var existing) &&
                 existing.Term == entry.Term && existing.PayloadSpan.SequenceEqual(entry.PayloadSpan))
+                continue;
+
+            // An applied entry was committed and its payload released after application. By Leader Completeness
+            // a current-term leader cannot conflict at an applied index, so the re-appending is acknowledged
+            // idempotently without a durable write.
+            if (entry.LogIndex <= _meta.LastAppliedIndex)
                 continue;
 
             if (entry.LogIndex <= _meta.CommitIndex)
@@ -531,8 +595,22 @@ internal sealed class FollowerLog : IFollowerLog
 
         _logLength = result.LastValidEnd;
         _meta = _meta with { LastLogIndex = _lastLogIndex };
+        PruneAppliedEntries();
         EnsureCommittedPrefixCovered();
         return;
+
+        void PruneAppliedEntries()
+        {
+            var applied = new List<ulong>();
+            foreach (var index in _entries.Keys)
+            {
+                if (index <= _meta.LastAppliedIndex)
+                    applied.Add(index);
+            }
+
+            for (var i = 0; i < applied.Count; i++)
+                _ = _entries.Remove(applied[i]);
+        }
 
         void EnsureCommittedPrefixCovered()
         {
@@ -549,10 +627,6 @@ internal sealed class FollowerLog : IFollowerLog
         _lastLogIndex = 0;
         _meta = _meta with { LastLogIndex = 0 };
     }
-
-    private ulong TermAt(ulong logIndex) => _entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
-
-    private bool TryGetEntry(ulong logIndex, out FollowerLogEntry entry) => _entries.TryGetValue(logIndex, out entry);
 
     private WalkResult WalkFrames(byte[] bytes)
     {
