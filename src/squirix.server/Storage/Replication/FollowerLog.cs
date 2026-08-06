@@ -152,8 +152,9 @@ internal sealed class FollowerLog : IFollowerLog
 
             // Validate the whole batch for contiguity and conflicts before writing anything.
             var entries = request.Entries;
+            var lastVerifiedIndex = entries.Length is 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
             if (entries.Length is 0)
-                return await CompleteAppendAsync(request.LeaderCommitIndex, cancellationToken).ConfigureAwait(false);
+                return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
 
             var error = PrepareAppendBatch(request, out var toAppend, out var truncateAtIndex);
             if (error is not null)
@@ -165,7 +166,7 @@ internal sealed class FollowerLog : IFollowerLog
             if (toAppend is { Count: > 0 })
                 await AppendFramesDurableAsync(toAppend, cancellationToken).ConfigureAwait(false);
 
-            return await CompleteAppendAsync(request.LeaderCommitIndex, cancellationToken).ConfigureAwait(false);
+            return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -390,12 +391,12 @@ internal sealed class FollowerLog : IFollowerLog
         _logLength = startOffset + totalLength;
     }
 
-    private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, CancellationToken cancellationToken)
+    private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, CancellationToken cancellationToken)
     {
         var commitAdvanced = false;
         if (leaderCommitIndex > _meta.CommitIndex)
         {
-            var target = Math.Min(leaderCommitIndex, _lastLogIndex);
+            var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
             if (target > _meta.CommitIndex)
             {
                 _meta = _meta with { CommitIndex = target };

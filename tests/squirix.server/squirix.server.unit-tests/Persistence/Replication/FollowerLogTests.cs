@@ -14,7 +14,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-1";
 
-    /// <summary>Consecutive entries become durably visible after each append is acknowledged.</summary>
+    /// <summary>Consecutive entries become durably visible after each appending is acknowledged.</summary>
     [Fact]
     public async Task AppendsConsecutiveEntryAfterDurableFlush()
     {
@@ -51,7 +51,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(1UL, log.GetStatus().LastLogIndex);
     }
 
-    /// <summary>A gap in the batch is rejected without any append.</summary>
+    /// <summary>A gap in the batch is rejected without any appending.</summary>
     [Fact]
     public async Task RejectsGapWithoutAppend()
     {
@@ -199,7 +199,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal("abcd", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
     }
 
-    /// <summary>An append carrying a lower term than the durable term is rejected before any mutation.</summary>
+    /// <summary>An appending carrying a lower term than the durable term is rejected before any mutation.</summary>
     [Fact]
     public async Task RejectsStaleTermBeforeAppend()
     {
@@ -331,6 +331,66 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.True(result.Success);
         Assert.Equal(3UL, log.GetStatus().LastLogIndex);
         Assert.Equal(3, log.GetUncommittedTail().Count);
+    }
+
+    /// <summary>A heartbeat with a high commit index does not commit a retained divergent suffix beyond the verified predecessor.</summary>
+    [Fact]
+    public async Task HeartbeatDoesNotCommitRetainedDivergentSuffix()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-heartbeat-divergent");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 2UL, "c"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(4UL, 2UL, "d"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+
+        // A new term-3 leader heartbeat at index 2 and claims index 4 committed; the term-2 suffix stays uncommitted.
+        var heartbeat = new FollowerLogAppendRequest(
+            "leader-3",
+            3UL,
+            2UL,
+            1UL,
+            4UL,
+            ReadOnlyMemory<FollowerLogEntry>.Empty);
+        var result = await log.AppendAsync(heartbeat, DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(2UL, log.GetStatus().CommitIndex);
+        Assert.Equal(2, log.GetCommittedEntries().Count);
+    }
+
+    /// <summary>A duplicate-prefix request cannot commit entries beyond the prefix it validates.</summary>
+    [Fact]
+    public async Task DuplicatePrefixDoesNotCommitUnvalidatedSuffix()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-duplicate-prefix");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 2UL, "c"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(4UL, 2UL, "d"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+
+        // The leader re-sends only entry 3 and claims index 4 committed; entry 4 was not validated by this request.
+        var duplicate = new FollowerLogAppendRequest(
+            "leader-3",
+            3UL,
+            2UL,
+            1UL,
+            4UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 2UL, System.Text.Encoding.UTF8.GetBytes("c"))]));
+        var result = await log.AppendAsync(duplicate, DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(3UL, log.GetStatus().CommitIndex);
+        Assert.Equal(3, log.GetCommittedEntries().Count);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
