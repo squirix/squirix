@@ -562,9 +562,11 @@ internal sealed class FollowerLog : IFollowerLog
                 position += encodedLength;
             }
 
-            // The durability worker flushes the exact-size buffer and propagates any I/O faults.
+            // The durability worker flushes the exact-size buffer and propagates any I/O faults. The buffer is
+            // owned by the work item and returned only inside its Execute; scheduling with a non-cancelable token
+            // after the explicit check guarantees the callback always runs and the buffer is always returned.
             var work = new AppendDurableWork(owner._durability, buffer, startOffset, totalLength, owner._faults);
-            await Task.Factory.StartNew(AppendDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+            await Task.Factory.StartNew(AppendDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
 
             // Only after the durable writing succeeds do the in-memory indexes gain the entries,
             // so a crash mid-appending can never leave the index ahead of the file.
@@ -587,7 +589,10 @@ internal sealed class FollowerLog : IFollowerLog
             var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
             GroupLogCodec.EncodeMeta(meta, buffer.AsSpan(0, encodedLength));
             var work = new MetaDurableWork(owner._metaTempPath, owner._metaPath, buffer, encodedLength);
-            return Task.Factory.StartNew(MetaDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+
+            // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
+            // after the explicit check guarantees the callback always runs and the buffer is always returned.
+            return Task.Factory.StartNew(MetaDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
         }
 
         internal static async Task TruncateFromAsync(FollowerLog owner, ulong logIndex, CancellationToken cancellationToken)
