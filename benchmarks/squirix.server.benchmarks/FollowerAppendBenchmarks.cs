@@ -84,7 +84,7 @@ public class FollowerAppendBenchmarks
             if (_log is not null)
                 await _log.DisposeAsync().ConfigureAwait(false);
 
-            _log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+            _log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
             await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -111,7 +111,7 @@ public class FollowerAppendBenchmarks
         Array.Fill(_payload, Convert.ToByte('x'));
         _nextIndex = 0;
 
-        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create([GroupId]));
+        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId));
         await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
         for (var i = 0; i < 1_000; i++)

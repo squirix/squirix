@@ -21,28 +21,40 @@ internal sealed class GroupComposition
     /// <summary>Gets the group identifiers in this composition.</summary>
     internal IEnumerable<string> GroupIds => _groups.Keys;
 
+    // If a variable-length composition is ever required, add an overload accepting IReadOnlyList<string> (e.g., a List<string>)
+    // and build the frozen dictionary in one pass.
+
+    /// <summary>Creates a composition over a single replica group.</summary>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <returns>The immutable composition.</returns>
+    /// <exception cref="ArgumentException">Thrown when the group identifier is null or whitespace.</exception>
+    internal static GroupComposition Create(string groupId)
+    {
+        if (string.IsNullOrWhiteSpace(groupId))
+            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(groupId));
+
+        return new GroupComposition(new[] { new KeyValuePair<string, byte>(groupId, 0) }.ToFrozenDictionary(StringComparer.Ordinal));
+    }
+
+    /// <summary>Creates a composition over exactly two replica groups.</summary>
+    /// <param name="first">The first replica group identifier.</param>
+    /// <param name="second">The second replica group identifier.</param>
+    /// <returns>The immutable composition.</returns>
+    /// <exception cref="ArgumentException">Thrown when a group identifier is null or whitespace.</exception>
+    internal static GroupComposition Create(string first, string second)
+    {
+        if (string.IsNullOrWhiteSpace(first))
+            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(first));
+
+        if (string.IsNullOrWhiteSpace(second))
+            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(second));
+
+        return new GroupComposition(new[] { new KeyValuePair<string, byte>(first, 0), new KeyValuePair<string, byte>(second, 0) }.ToFrozenDictionary(StringComparer.Ordinal));
+    }
+
     /// <summary>Creates an empty composition.</summary>
     /// <returns>An empty composition.</returns>
     internal static GroupComposition Empty() => new(FrozenDictionary<string, byte>.Empty);
-
-    /// <summary>Creates a composition over the supplied group identifiers.</summary>
-    /// <param name="groupIds">The replica group identifiers in the composition.</param>
-    /// <returns>The immutable composition.</returns>
-    /// <exception cref="ArgumentException">Thrown when a group identifier is null or whitespace.</exception>
-    internal static GroupComposition Create(IEnumerable<string> groupIds)
-    {
-        ArgumentNullException.ThrowIfNull(groupIds);
-        var builder = new Dictionary<string, byte>(StringComparer.Ordinal);
-        foreach (var groupId in groupIds)
-        {
-            if (string.IsNullOrWhiteSpace(groupId))
-                throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(groupIds));
-
-            builder[groupId] = 0;
-        }
-
-        return new GroupComposition(builder.ToFrozenDictionary(StringComparer.Ordinal));
-    }
 
     /// <summary>Determines whether <paramref name="groupId" /> is part of this composition.</summary>
     /// <param name="groupId">The replica group identifier.</param>

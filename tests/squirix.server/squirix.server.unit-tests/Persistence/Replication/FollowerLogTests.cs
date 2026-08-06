@@ -19,7 +19,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task AppendsConsecutiveEntryAfterDurableFlush()
     {
         using var dir = new TempDirectory("squirix-follower-log-append");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -38,7 +38,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task AcknowledgesIdenticalDuplicateOnce()
     {
         using var dir = new TempDirectory("squirix-follower-log-duplicate");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -56,7 +56,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task RejectsGapWithoutAppend()
     {
         using var dir = new TempDirectory("squirix-follower-log-reject");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -73,7 +73,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task TruncatesConflictingUncommittedTail()
     {
         using var dir = new TempDirectory("squirix-follower-log-truncate-conflict");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -94,7 +94,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task TruncatesMidLogConflictAndRewritesTail()
     {
         using var dir = new TempDirectory("squirix-follower-log-truncate-mid");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -129,7 +129,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task CommittedConflictFailsReadiness()
     {
         using var dir = new TempDirectory("squirix-follower-log-committed-conflict");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -150,7 +150,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task CommittedBoundaryConflictFailsReadiness()
     {
         using var dir = new TempDirectory("squirix-follower-log-committed-boundary");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -177,7 +177,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task AppendCopiesPayloadIntoOwnedBuffer()
     {
         using var dir = new TempDirectory("squirix-follower-log-owned-payload");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -204,7 +204,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task RejectsStaleTermBeforeAppend()
     {
         using var dir = new TempDirectory("squirix-follower-log-stale-term");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -221,7 +221,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task CommitIndexNeverMovesBackward()
     {
         using var dir = new TempDirectory("squirix-follower-log-commit-backward");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -238,7 +238,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task DoesNotCommitBeyondDurableLastIndex()
     {
         using var dir = new TempDirectory("squirix-follower-log-commit-beyond");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -283,7 +283,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task RejectsBatchNotFollowingDeclaredPredecessor()
     {
         using var dir = new TempDirectory("squirix-follower-log-predecessor");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -311,7 +311,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task AcknowledgesStaleBatchWithinLocalTail()
     {
         using var dir = new TempDirectory("squirix-follower-log-stale-repeat");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -338,7 +338,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task HeartbeatDoesNotCommitRetainedDivergentSuffix()
     {
         using var dir = new TempDirectory("squirix-follower-log-heartbeat-divergent");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
@@ -368,7 +368,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
     public async Task DuplicatePrefixDoesNotCommitUnvalidatedSuffix()
     {
         using var dir = new TempDirectory("squirix-follower-log-duplicate-prefix");
-        var composition = GroupComposition.Create([GroupId]);
+        var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);

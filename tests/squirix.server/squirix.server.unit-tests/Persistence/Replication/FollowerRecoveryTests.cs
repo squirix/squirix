@@ -117,7 +117,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-recovery-crash-before-apply");
         var crashFaults = new CrashBeforeApplyFaults();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]), crashFaults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
         {
             await log.OpenAsync(DefaultCancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
@@ -248,7 +248,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     }
 
     private static FollowerLog OpenLog(TempDirectory dir) =>
-        new(dir, GroupId, GroupComposition.Create([GroupId]));
+        new(dir, GroupId, GroupComposition.Create(GroupId));
 
     private static string Payload(System.Collections.Generic.IReadOnlyList<FollowerLogEntry> entries)
     {

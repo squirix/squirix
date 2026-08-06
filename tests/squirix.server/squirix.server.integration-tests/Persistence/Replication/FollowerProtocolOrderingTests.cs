@@ -17,7 +17,7 @@ public sealed class FollowerProtocolOrderingTests
     {
         using var dir = new TempDirectory("squirix-follower-ordering-gap");
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await log.OpenAsync(TestContext.Current.CancellationToken);
 
         var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL), TestContext.Current.CancellationToken);
@@ -33,7 +33,7 @@ public sealed class FollowerProtocolOrderingTests
     {
         using var dir = new TempDirectory("squirix-follower-ordering-duplicate");
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await log.OpenAsync(TestContext.Current.CancellationToken);
 
         var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL);
@@ -51,7 +51,7 @@ public sealed class FollowerProtocolOrderingTests
     {
         using var dir = new TempDirectory("squirix-follower-ordering-higher-term");
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId])))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId)))
         {
             await log.OpenAsync(TestContext.Current.CancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
@@ -69,7 +69,7 @@ public sealed class FollowerProtocolOrderingTests
             Assert.Equal(9UL, log.GetStatus().CurrentTerm);
         }
 
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
         Assert.Equal(9UL, reopened.GetStatus().CurrentTerm);
     }
@@ -80,7 +80,7 @@ public sealed class FollowerProtocolOrderingTests
     {
         using var dir = new TempDirectory("squirix-follower-ordering-conflict");
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await log.OpenAsync(TestContext.Current.CancellationToken);
 
         // Old leader (term 1) appends an entry at index 1, then crashes before a majority.

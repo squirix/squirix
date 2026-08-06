@@ -59,7 +59,7 @@ public sealed class FollowerStorageRestartTests
         using var dir = new TempDirectory("squirix-follower-restart-crash-commit");
         var crashFaults = new CommitAdvanceFaults();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]), crashFaults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
         {
             await log.OpenAsync(TestContext.Current.CancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
@@ -93,7 +93,7 @@ public sealed class FollowerStorageRestartTests
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create([GroupId]));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 
     private static string Payload(System.Collections.Generic.IReadOnlyList<FollowerLogEntry> entries)
     {

@@ -16,7 +16,7 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
     public async Task RecoverAllAsyncCanRunTwice()
     {
         using var dir = new TempDirectory("squirix-group-recovery-twice");
-        var recovery = new GroupRecovery(dir, GroupComposition.Create(["grp-1", "grp-2"]));
+        var recovery = new GroupRecovery(dir, GroupComposition.Create("grp-1", "grp-2"));
 
         await recovery.RecoverAllAsync(DefaultCancellationToken);
         Assert.NotNull(recovery.GetLog("grp-1"));
@@ -32,7 +32,7 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
     public async Task FailedGroupRecoveryDisposesOpenedLogsAndRollsBack()
     {
         using var dir = new TempDirectory("squirix-group-recovery-failure");
-        var recovery = new GroupRecovery(dir, GroupComposition.Create(["grp-1", "grp-2"]));
+        var recovery = new GroupRecovery(dir, GroupComposition.Create("grp-1", "grp-2"));
         await recovery.RecoverAllAsync(DefaultCancellationToken);
 
         // Corrupt grp-2 metadata so the next recovery attempt fails mid-loop.
