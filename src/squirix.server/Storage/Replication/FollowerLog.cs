@@ -143,19 +143,6 @@ internal sealed class FollowerLog : IFollowerLog
             await PersistMetaAsync(cancellationToken).ConfigureAwait(false);
             PruneAppliedEntries();
             return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
-
-            void PruneAppliedEntries()
-            {
-                var released = new List<ulong>();
-                foreach (var index in _entries.Keys)
-                {
-                    if (index <= appliedIndex)
-                        released.Add(index);
-                }
-
-                for (var i = 0; i < released.Count; i++)
-                    _ = _entries.Remove(released[i]);
-            }
         }
         finally
         {
