@@ -34,7 +34,7 @@ internal sealed class GroupLogDurability : IDisposable
             options |= FileOptions.WriteThrough;
 
         _handle?.Dispose();
-        _handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
+        _handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);
         RandomAccess.SetLength(_handle, length);
     }
 
