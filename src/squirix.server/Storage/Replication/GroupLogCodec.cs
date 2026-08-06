@@ -18,7 +18,7 @@ namespace Squirix.Server.Storage.Replication;
 internal static class GroupLogCodec
 {
     /// <summary>Metadata file magic bytes, <c>"SQRM"</c>.</summary>
-    private const uint MetaMagic = 0x4D525147u;
+    private const uint MetaMagic = 0x4D525153u;
 
     /// <summary>Metadata format version.</summary>
     private const byte MetaVersion = 1;
@@ -27,7 +27,7 @@ internal static class GroupLogCodec
     private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
 
     /// <summary>Log frame magic bytes, <c>"SQRL"</c>.</summary>
-    private const uint FrameMagic = 0x4C525147u;
+    private const uint FrameMagic = 0x4C525153u;
 
     /// <summary>Log format version.</summary>
     private const byte FrameVersion = 1;
