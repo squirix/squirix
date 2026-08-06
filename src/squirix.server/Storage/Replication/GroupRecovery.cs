@@ -11,7 +11,7 @@ namespace Squirix.Server.Storage.Replication;
 /// storage contract. Applying committed records to memory is the responsibility of an outer layer and is
 /// intentionally not performed here.
 /// </remarks>
-internal sealed class GroupRecovery
+internal sealed class GroupRecovery : IAsyncDisposable
 {
     private readonly GroupComposition _composition;
     private readonly Dictionary<string, IFollowerLog> _logs = new(StringComparer.Ordinal);
@@ -21,6 +21,15 @@ internal sealed class GroupRecovery
     {
         _persistenceRoot = persistenceRoot ?? throw new ArgumentNullException(nameof(persistenceRoot));
         _composition = composition ?? throw new ArgumentNullException(nameof(composition));
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var log in _logs.Values)
+            await log.DisposeAsync().ConfigureAwait(false);
+
+        _logs.Clear();
     }
 
     /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
@@ -34,23 +43,28 @@ internal sealed class GroupRecovery
     /// <returns>A task that completes when every local group log is open and recovered.</returns>
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
-        await DisposeLogsAsync().ConfigureAwait(false);
+        await DisposeAsync().ConfigureAwait(false);
         _logs.Clear();
+
+        var opened = new List<IFollowerLog>();
         try
         {
             foreach (var groupId in _composition.GroupIds)
             {
                 var log = CreateLog(groupId);
+                opened.Add(log);
                 await log.OpenAsync(cancellationToken).ConfigureAwait(false);
-                _logs[groupId] = log;
             }
         }
         catch
         {
-            await DisposeLogsAsync().ConfigureAwait(false);
-            _logs.Clear();
+            foreach (var log in opened)
+                await log.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+
+        for (var i = 0; i < opened.Count; i++)
+            _logs[opened[i].GroupId] = opened[i];
     }
 
     /// <summary>Returns the recovered follower log for <paramref name="groupId" />, or <see langword="null" />.</summary>
@@ -62,10 +76,4 @@ internal sealed class GroupRecovery
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committed records for the group.</returns>
     internal IReadOnlyList<FollowerLogEntry> GetCommittedRecords(string groupId) => GetLog(groupId) is { } log ? log.GetCommittedEntries() : [];
-
-    private async Task DisposeLogsAsync()
-    {
-        foreach (var log in _logs.Values)
-            await log.DisposeAsync().ConfigureAwait(false);
-    }
 }
