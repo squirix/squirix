@@ -138,7 +138,7 @@ internal sealed class FollowerLog : IFollowerLog
                 return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
 
             // The watermark is persisted before the payloads are released; on a crash between the two, restart
-            // reloads the frames but the durable watermark still suppresses re-application of the applied prefix.
+            // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
             _meta = _meta with { LastAppliedIndex = appliedIndex };
             await PersistMetaAsync(cancellationToken).ConfigureAwait(false);
             PruneAppliedEntries();
@@ -413,7 +413,12 @@ internal sealed class FollowerLog : IFollowerLog
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        // The file header precedes the first frame and is written exactly once
+        // when the log file is still empty.
         var writeHeader = _logLength == 0;
+
+        // The whole batch is encoded into a single contiguous buffer, so the OS
+        // performs one sequential writing instead of many small ones.
         var totalLength = writeHeader ? GroupLogCodec.LogFileHeader.Length : 0;
         for (var i = 0; i < toAppend.Count; i++)
             totalLength += GroupLogCodec.ComputeFrameEncodedLength(toAppend[i].Payload.Length);
@@ -425,6 +430,8 @@ internal sealed class FollowerLog : IFollowerLog
         if (writeHeader)
             GroupLogCodec.LogFileHeader.CopyTo(buffer);
 
+        // Each frame is encoded at its final on-disk offset, and that offset is remembered,
+        // so the in-memory index can serve reads without re-walking the file.
         var offsets = new List<KeyValuePair<ulong, long>>(toAppend.Count);
         for (var i = 0; i < toAppend.Count; i++)
         {
@@ -436,8 +443,12 @@ internal sealed class FollowerLog : IFollowerLog
             position += encodedLength;
         }
 
+        // The durability worker flushes the exact-size buffer and propagates any I/O faults.
         var work = new AppendDurableWork(_durability, buffer, startOffset, totalLength, _faults);
         await Task.Factory.StartNew(AppendDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+
+        // Only after the durable writing succeeds do the in-memory indexes gain the entries,
+        // so a crash mid-appending can never leave the index ahead of the file.
         for (var i = 0; i < offsets.Count; i++)
         {
             var entry = toAppend[i];
@@ -509,7 +520,7 @@ internal sealed class FollowerLog : IFollowerLog
                 continue;
             }
 
-            // Entries already satisfied by local state need no durable write: duplicates already present with
+            // Entries already satisfied by local state need no durable writing: duplicates already present with
             // identical content, and applied entries whose payloads were released after application (Leader
             // Completeness guarantees a current-term leader cannot conflict at an applied index).
             if (IsSatisfiedByLocalState(in entry))
@@ -566,6 +577,7 @@ internal sealed class FollowerLog : IFollowerLog
 
     private async Task RecoverLogFileAsync(CancellationToken cancellationToken)
     {
+        // A missing log file simply means the group has never persisted anything.
         if (!File.Exists(_logPath))
         {
             ResetLogState();
@@ -574,6 +586,8 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         var bytes = await File.ReadAllBytesAsync(_logPath, cancellationToken).ConfigureAwait(false);
+
+        // An empty file is treated the same as no file at all.
         if (bytes.Length is 0)
         {
             ResetLogState();
@@ -581,6 +595,7 @@ internal sealed class FollowerLog : IFollowerLog
             return;
         }
 
+        // Anything preceding the expected header marks the file as unusable.
         if (bytes.Length < GroupLogCodec.LogFileHeader.Length || !bytes.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
         {
             Readiness = FollowerLogReadiness.Failed;
@@ -592,6 +607,9 @@ internal sealed class FollowerLog : IFollowerLog
         _lastLogIndex = 0;
 
         var result = WalkFrames(bytes);
+
+        // A torn trailing frame is truncated back to the last valid boundary on disk,
+        // since a CRC mismatch alone cannot tell an appended tail from corruption.
         if (result.Truncated && result.LastValidEnd < bytes.Length)
         {
             var work = new RecoveryTruncateWork(_logPath, result.LastValidEnd);
@@ -602,28 +620,27 @@ internal sealed class FollowerLog : IFollowerLog
         _meta = _meta with { LastLogIndex = _lastLogIndex };
         PruneAppliedEntries();
         EnsureCommittedPrefixCovered();
-        return;
+    }
 
-        void PruneAppliedEntries()
+    private void PruneAppliedEntries()
+    {
+        var applied = new List<ulong>();
+        foreach (var index in _entries.Keys)
         {
-            var applied = new List<ulong>();
-            foreach (var index in _entries.Keys)
-            {
-                if (index <= _meta.LastAppliedIndex)
-                    applied.Add(index);
-            }
-
-            for (var i = 0; i < applied.Count; i++)
-                _ = _entries.Remove(applied[i]);
+            if (index <= _meta.LastAppliedIndex)
+                applied.Add(index);
         }
 
-        void EnsureCommittedPrefixCovered()
-        {
-            if (_meta.CommitIndex <= _lastLogIndex)
-                return;
-            Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{GroupId}' commit index exceeds the durable log.");
-        }
+        for (var i = 0; i < applied.Count; i++)
+            _ = _entries.Remove(applied[i]);
+    }
+
+    private void EnsureCommittedPrefixCovered()
+    {
+        if (_meta.CommitIndex <= _lastLogIndex)
+            return;
+        Readiness = FollowerLogReadiness.Failed;
+        throw new InvalidDataException($"Replica group '{GroupId}' commit index exceeds the durable log.");
     }
 
     private void ResetLogState()

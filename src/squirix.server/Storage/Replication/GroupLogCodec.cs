@@ -96,17 +96,22 @@ internal static class GroupLogCodec
         if (buffer.Length < MetaFixedByteCount + 12)
             return false;
 
+        // A foreign magic or a version this node cannot decode is rejected outright.
         if (BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]) != MetaMagic)
             return false;
 
         if (buffer[4] != MetaVersion)
             return false;
 
+        // The stored checksum covers everything after the magic, so any tampered or torn
+        // metadata payload is caught before its fields are interpreted.
         var bodyLength = buffer.Length - 4 - 1 - 4;
         var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer[^4..]);
         if (Crc32C.Compute(buffer.Slice(4, bodyLength + 1)) != storedCrc)
             return false;
 
+        // Offset walks the fixed-width term/commit fields first, then the
+        // length-prefixed variable fields that close the payload.
         var offset = 5;
         if (!TryReadFixedFields(buffer, ref offset, out var fields))
             return false;
