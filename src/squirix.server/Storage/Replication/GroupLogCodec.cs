@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Utils;
 
@@ -107,17 +108,8 @@ internal static class GroupLogCodec
             return false;
 
         var offset = 5;
-        var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var lastLogIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var lastAppliedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-
+        if (!TryReadFixedFields(buffer, ref offset, out var fields))
+            return false;
         if (!TryReadString(buffer, ref offset, out var groupId))
             return false;
         if (!TryReadBytes(buffer, ref offset, out var fingerprint))
@@ -125,7 +117,7 @@ internal static class GroupLogCodec
         if (!TryReadString(buffer, ref offset, out var votedFor))
             return false;
 
-        meta = new GroupLogMetadata(groupId, fingerprint, generation, term, votedFor, lastLogIndex, commitIndex, lastAppliedIndex);
+        meta = new GroupLogMetadata(groupId, fingerprint, fields.ConfigurationGeneration, fields.CurrentTerm, votedFor, fields.LastLogIndex, fields.CommitIndex, fields.LastAppliedIndex);
         return true;
     }
 
@@ -252,6 +244,41 @@ internal static class GroupLogCodec
         offset += length;
         return true;
     }
+
+    private static bool TryReadFixedFields(ReadOnlySpan<byte> buffer, ref int offset, out MetaFixedFields fields)
+    {
+        fields = default;
+        if (buffer.Length - offset < 8 * 5)
+            return false;
+
+        var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var lastLogIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var lastAppliedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+
+        fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
+        return true;
+    }
+
+    /// <summary>The five fixed-width fields that open a metadata payload.</summary>
+    /// <param name="ConfigurationGeneration">The configuration generation of the group.</param>
+    /// <param name="CurrentTerm">The highest term this node has observed.</param>
+    /// <param name="LastLogIndex">The durable last log index.</param>
+    /// <param name="CommitIndex">The durable commit index.</param>
+    /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct MetaFixedFields(
+        ulong ConfigurationGeneration,
+        ulong CurrentTerm,
+        ulong LastLogIndex,
+        ulong CommitIndex,
+        ulong LastAppliedIndex);
 
     /// <summary>Exact-size owned byte buffer helpers for replica-group encoding.</summary>
     private static class OwnedBufferKit
