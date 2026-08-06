@@ -214,9 +214,12 @@ internal static class GroupLogCodec
         payloadStart = 0;
         payloadLength = 0;
         consumed = 0;
+
+        // A frame is header(5) + length(4) + body + crc(4); anything shorter cannot be validated.
         if (buffer.Length < FrameHeaderByteCount + 4)
             return false;
 
+        // The magic and version guard against reading a metadata file or an unrelated format.
         if (BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]) != FrameMagic)
             return false;
 
@@ -224,12 +227,16 @@ internal static class GroupLogCodec
             return false;
 
         var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
+
+        // The declared body must hold the fixed fields yet stay inside the available buffer before the trailing crc.
         if (bodyLength < FrameFixedByteCount || bodyLength > buffer.Length - 4 - 1 - 4 - 4)
             return false;
 
         const int bodyStart = FrameHeaderByteCount + 4;
         var crcOffset = bodyStart + bodyLength;
         var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(crcOffset, 4));
+
+        // The crc covers everything between the header and the trailing checksum; a mismatch marks a torn or corrupt frame.
         if (Crc32C.Compute(buffer[4..crcOffset]) != storedCrc)
             return false;
 
@@ -240,6 +247,8 @@ internal static class GroupLogCodec
         offset += 8;
         payloadLength = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
         offset += 4;
+
+        // The payload must be non-negative and exactly consume the declared body after the fixed fields.
         if (payloadLength < 0 || payloadLength != bodyLength - FrameFixedByteCount)
             return false;
 
