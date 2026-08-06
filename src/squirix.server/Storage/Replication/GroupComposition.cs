@@ -49,6 +49,9 @@ internal sealed class GroupComposition
         if (string.IsNullOrWhiteSpace(second))
             throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(second));
 
+        if (string.Equals(first, second, StringComparison.Ordinal))
+            throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second));
+
         return new GroupComposition(new[] { new KeyValuePair<string, byte>(first, 0), new KeyValuePair<string, byte>(second, 0) }.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
