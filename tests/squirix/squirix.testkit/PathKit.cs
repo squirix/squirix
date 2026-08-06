@@ -159,18 +159,6 @@ public static class PathKit
         return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
     }
 
-    private static long GetProcessStartTicks()
-    {
-        try
-        {
-            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
-        {
-            return DateTime.UtcNow.Ticks;
-        }
-    }
-
     private static string CombineCore(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2, null, 2);
 
     private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, 3);
@@ -207,6 +195,18 @@ public static class PathKit
             return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
 
         return JoinSegments(buffer.AsSpan(0, count));
+    }
+
+    private static long GetProcessStartTicks()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return DateTime.UtcNow.Ticks;
+        }
     }
 
     private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)
@@ -280,7 +280,7 @@ public static class PathKit
             if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
                 continue;
 
-            sb.Clear();
+            _ = sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];

@@ -18,7 +18,7 @@ internal static class ExploreRunner
 
     internal static async Task<int> RunCliAsync(string profileName, string outputDir, BrokenMode broken)
     {
-        Directory.CreateDirectory(outputDir);
+        _ = Directory.CreateDirectory(outputDir);
         var results = CollectResults(profileName, broken);
         AggregateResults(results, out var totalStates, out var totalTransitions, out var firstViolation, out var firstState, out var allFixedPoint);
 
@@ -157,9 +157,9 @@ internal static class ExploreRunner
         JsonText.AppendString(sb, content.ProfileName);
         _ = sb.Append(",\"broken\":");
         JsonText.AppendString(sb, FormatBrokenMode(content.Broken));
-        _ = sb.Append(",\"statesVisited\":").Append(content.States.ToString(CultureInfo.InvariantCulture))
-              .Append(",\"transitionsApplied\":").Append(content.Transitions.ToString(CultureInfo.InvariantCulture))
-              .Append(",\"fixedPointReached\":").Append(content.FixedPointReached ? "true" : "false").Append(",\"violation\":");
+        _ = sb.Append(",\"statesVisited\":").Append(content.States.ToString(CultureInfo.InvariantCulture)).Append(",\"transitionsApplied\":")
+              .Append(content.Transitions.ToString(CultureInfo.InvariantCulture)).Append(",\"fixedPointReached\":").Append(content.FixedPointReached ? "true" : "false")
+              .Append(",\"violation\":");
         if (content.Violation is null)
         {
             _ = sb.Append("null");
@@ -234,6 +234,17 @@ internal static class ExploreRunner
                 nodes[i] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = old.Index, BadOldCommit = true });
                 output.Add(state.WithNodes(nodes));
             }
+        }
+
+        private static void CollectBrokenReadReady(ClusterState state, int index, NodeState node, BrokenMode broken, List<ClusterState> output)
+        {
+            // Broken read-index may still mark ready without apply.
+            if (broken is not BrokenMode.ReadIndex || node.Role is not NodeRole.Leader || node is not { ReadIndex: > 0, ReadReady: false })
+                return;
+
+            var bad = ModelTransitionUtil.CloneNodes(state.Nodes);
+            bad[index] = ModelTransitionUtil.Patch(node, new NodePatch { ReadReady = true });
+            output.Add(state.WithNodes(bad));
         }
 
         private static void CollectClientProposals(ClusterState state, ExploreProfile profile, List<ClusterState> output)
@@ -478,17 +489,6 @@ internal static class ExploreRunner
             return true;
         }
 
-        private static void CollectBrokenReadReady(ClusterState state, int index, NodeState node, BrokenMode broken, List<ClusterState> output)
-        {
-            // Broken read-index may still mark ready without apply.
-            if (broken is not BrokenMode.ReadIndex || node.Role is not NodeRole.Leader || node is not { ReadIndex: > 0, ReadReady: false })
-                return;
-
-            var bad = ModelTransitionUtil.CloneNodes(state.Nodes);
-            bad[index] = ModelTransitionUtil.Patch(node, new NodePatch { ReadReady = true });
-            output.Add(state.WithNodes(bad));
-        }
-
         private static bool TryFindOldestOldTermEntry(NodeState leader, out LogEntry old)
         {
             for (var j = 0; j < leader.LogEntries.Count; j++)
@@ -622,6 +622,15 @@ internal static class ExploreRunner
                 return new AppendOutcome(true, msg.LastLogIndex);
             }
 
+            private static bool CanPropagateCommit(NodeState node, int[] match, int nodeIndex, LogEntry leaderEntry, int newCommit)
+            {
+                if (match[nodeIndex] < newCommit || node.CommitIndex >= newCommit)
+                    return false;
+
+                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
+                return stored is not null && stored.Value.Term == leaderEntry.Term;
+            }
+
             private static bool HasCurrentTermEntryThrough(NodeState leader, int index)
             {
                 for (var i = 0; i < leader.LogEntries.Count; i++)
@@ -685,43 +694,10 @@ internal static class ExploreRunner
                 }
             }
 
-            private static bool CanPropagateCommit(NodeState node, int[] match, int nodeIndex, LogEntry leaderEntry, int newCommit)
-            {
-                if (match[nodeIndex] < newCommit || node.CommitIndex >= newCommit)
-                    return false;
-
-                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
-                return stored is not null && stored.Value.Term == leaderEntry.Term;
-            }
-
             private static bool StoresMatchingTerm(NodeState node, int index, int term)
             {
                 var stored = ModelTransitionUtil.FindEntry(node.LogEntries, index);
                 return stored is not null && stored.Value.Term == term;
-            }
-
-            private static bool TryFindNewCommit(
-                NodeState leader,
-                IReadOnlyList<NodeState> nodes,
-                int[] match,
-                ExploreProfile profile,
-                BrokenMode broken,
-                out int newCommit,
-                out bool badOld)
-            {
-                for (var n = leader.LastLogIndex; n > leader.CommitIndex; n--)
-                {
-                    if (!TryClassifyCommitCandidate(leader, nodes, match, n, profile, broken, out var candidateIsBadOld))
-                        continue;
-
-                    newCommit = n;
-                    badOld = candidateIsBadOld;
-                    return true;
-                }
-
-                newCommit = leader.CommitIndex;
-                badOld = false;
-                return false;
             }
 
             private static bool TryClassifyCommitCandidate(
@@ -749,6 +725,30 @@ internal static class ExploreRunner
 
                 badOld = true;
                 return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
+            }
+
+            private static bool TryFindNewCommit(
+                NodeState leader,
+                IReadOnlyList<NodeState> nodes,
+                int[] match,
+                ExploreProfile profile,
+                BrokenMode broken,
+                out int newCommit,
+                out bool badOld)
+            {
+                for (var n = leader.LastLogIndex; n > leader.CommitIndex; n--)
+                {
+                    if (!TryClassifyCommitCandidate(leader, nodes, match, n, profile, broken, out var candidateIsBadOld))
+                        continue;
+
+                    newCommit = n;
+                    badOld = candidateIsBadOld;
+                    return true;
+                }
+
+                newCommit = leader.CommitIndex;
+                badOld = false;
+                return false;
             }
         }
 
@@ -811,14 +811,7 @@ internal static class ExploreRunner
                     messages.Add(
                         new InFlightMessage(
                             nextId++,
-                            MessagePayload.AppendResponse(
-                                responseFrom,
-                                responseTo,
-                                nodes[msg.To].CurrentTerm,
-                                msg.LastLogIndex,
-                                msg.LastLogTerm,
-                                success,
-                                index)));
+                            MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, success, index)));
 
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
@@ -872,14 +865,7 @@ internal static class ExploreRunner
                 var responseTo = msg.From;
                 if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
                     messages.Add(
-                        new InFlightMessage(
-                            nextId++,
-                            MessagePayload.ReadResponse(
-                                responseFrom,
-                                responseTo,
-                                Math.Max(msg.Term, nodes[msg.To].CurrentTerm),
-                                ok,
-                                msg.ReadIndex)));
+                        new InFlightMessage(nextId++, MessagePayload.ReadResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex)));
 
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
@@ -925,14 +911,7 @@ internal static class ExploreRunner
                 var responseFrom = msg.To;
                 var responseTo = msg.From;
                 if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
-                    messages.Add(
-                        new InFlightMessage(
-                            nextId++,
-                            MessagePayload.VoteResponse(
-                                responseFrom,
-                                responseTo,
-                                Math.Max(msg.Term, nodes[msg.To].CurrentTerm),
-                                grant)));
+                    messages.Add(new InFlightMessage(nextId++, MessagePayload.VoteResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), grant)));
 
                 scratch.NextMessageId = nextId;
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
@@ -965,8 +944,8 @@ internal static class ExploreRunner
                 return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
             }
 
-            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) =>
-                leader.Role is not NodeRole.Leader || leader.ReadIndex is 0 || msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
+            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role is not NodeRole.Leader || leader.ReadIndex is 0 ||
+                                                                                              msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
         }
     }
 

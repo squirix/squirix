@@ -18,7 +18,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-symlink-guard-chain-reject");
         var basePath = root.Path;
         var real = Path.Join(basePath, "real");
-        Directory.CreateDirectory(real);
+        _ = Directory.CreateDirectory(real);
         var link = Path.Join(basePath, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
@@ -52,7 +52,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
     {
         using var root = new TempDirectory("squirix-symlink-guard-reject");
         var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
+        _ = Directory.CreateDirectory(real);
         var link = Path.Join(root.Path, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
