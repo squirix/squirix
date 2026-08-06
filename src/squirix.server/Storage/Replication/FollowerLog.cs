@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,10 +58,6 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, long> _entryOffsets = [];
     private readonly IFollowerLogFaultHooks _faults;
-    [SuppressMessage(
-        "Microsoft.Reliability",
-        "CA2213:DisposableFieldsShouldBeDisposed",
-        Justification = "The gate is intentionally not disposed so synchronous accessors and callers blocked on Wait() can safely Release() without ObjectDisposedException; it is reclaimed with the instance.")]
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _groupDir;
     private readonly string _logPath;
@@ -182,22 +177,25 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, true))
             return;
 
-        await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_disposed)
-                return;
-
-            _disposed = true;
-            _durability.Dispose();
-            _ = FileEx.TryDeleteFile(_metaTempPath);
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                _durability.Dispose();
+                _ = FileEx.TryDeleteFile(_metaTempPath);
+            }
+            finally
+            {
+                _ = _gate.Release();
+            }
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Dispose();
         }
     }
 
