@@ -97,8 +97,9 @@ internal sealed class FollowerLog : IFollowerLog
 
             // The watermark is persisted before the payloads are released; on a crash between the two, restart
             // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
-            SetMeta(_meta with { LastAppliedIndex = appliedIndex });
-            await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
+            var candidate = _meta with { LastAppliedIndex = appliedIndex };
+            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
+            SetMeta(candidate);
             FollowerLogRecovery.PruneAppliedEntries(this);
             return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
         }
@@ -125,8 +126,9 @@ internal sealed class FollowerLog : IFollowerLog
             if (commitIndex > _lastLogIndex)
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
-            SetMeta(_meta with { CommitIndex = commitIndex });
-            await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
+            var candidate = _meta with { CommitIndex = commitIndex };
+            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
+            SetMeta(candidate);
             _faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
         }
@@ -275,10 +277,11 @@ internal sealed class FollowerLog : IFollowerLog
 
             if (!metaExists && !logExists)
             {
-                SetMeta(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL));
+                var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                await PersistMetaOrFailReadinessAsync(fresh, cancellationToken).ConfigureAwait(false);
+                SetMeta(fresh);
                 SetLastLogIndex(0);
                 SetLogLength(0);
-                await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
                 _durability.Open(_logPath, _logLength);
                 Readiness = FollowerLogReadiness.Ready;
                 return;
@@ -319,8 +322,9 @@ internal sealed class FollowerLog : IFollowerLog
         // Higher term is persisted durably before any further response; the old leader stops being authoritative.
         if (request.CurrentTerm > _meta.CurrentTerm)
         {
-            SetMeta(_meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty });
-            await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
+            var candidate = _meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
+            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
+            SetMeta(candidate);
             return null;
         }
 
@@ -355,18 +359,24 @@ internal sealed class FollowerLog : IFollowerLog
     private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, bool metaDirty, CancellationToken cancellationToken)
     {
         var commitAdvanced = false;
+        GroupLogMetadata? commitCandidate = null;
         if (leaderCommitIndex > _meta.CommitIndex)
         {
             var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
             if (target > _meta.CommitIndex)
             {
-                SetMeta(_meta with { CommitIndex = target });
+                commitCandidate = _meta with { CommitIndex = target };
                 commitAdvanced = true;
             }
         }
 
         if (commitAdvanced || metaDirty)
-            await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
+        {
+            await PersistMetaOrFailReadinessAsync(commitCandidate ?? _meta, cancellationToken).ConfigureAwait(false);
+            if (commitCandidate is { } candidate)
+                SetMeta(candidate);
+        }
+
         if (commitAdvanced)
             _faults.OnCommitAdvanced();
 
@@ -473,6 +483,25 @@ internal sealed class FollowerLog : IFollowerLog
 
     private void SetMeta(GroupLogMetadata meta) => _meta = meta;
 
+    /// <summary>
+    /// Persists <paramref name="candidate" /> durably before it is exposed through <see cref="_meta" />; on
+    /// publication failure the log is marked failed and the in-memory state stays unchanged.
+    /// </summary>
+    /// <param name="candidate">The metadata to persist and then publish.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task PersistMetaOrFailReadinessAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FollowerLogDurable.PersistMetaAsync(this, candidate, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            Readiness = FollowerLogReadiness.Failed;
+            throw;
+        }
+    }
+
     /// <summary>Durable write coordination for log frames and metadata.</summary>
     private static class FollowerLogDurable
     {
@@ -546,12 +575,12 @@ internal sealed class FollowerLog : IFollowerLog
             owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
         }
 
-        internal static Task PersistMetaAsync(FollowerLog owner, CancellationToken cancellationToken)
+        internal static Task PersistMetaAsync(FollowerLog owner, GroupLogMetadata meta, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(owner._meta);
+            var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(meta);
             var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
-            GroupLogCodec.EncodeMeta(owner._meta, buffer.AsSpan(0, encodedLength));
+            GroupLogCodec.EncodeMeta(meta, buffer.AsSpan(0, encodedLength));
             var work = new MetaDurableWork(owner._metaTempPath, owner._metaPath, buffer, encodedLength);
             return Task.Factory.StartNew(MetaDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
         }
