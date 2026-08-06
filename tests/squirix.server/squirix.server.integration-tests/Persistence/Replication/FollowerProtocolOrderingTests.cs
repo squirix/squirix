@@ -109,7 +109,7 @@ public sealed class FollowerProtocolOrderingTests
             "leader-1",
             entries.Length > 0 ? entries[0].Term : 1UL,
             prevIndex,
-            entries.Length > 0 ? entries[0].Term : 1UL,
+            prevIndex is 0UL ? 0UL : entries[0].Term,
             0UL,
             new ReadOnlyMemory<FollowerLogEntry>(entries));
 }
