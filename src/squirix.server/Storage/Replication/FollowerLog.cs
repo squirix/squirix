@@ -21,6 +21,8 @@ namespace Squirix.Server.Storage.Replication;
 ///     Append follows the following half of the consensus AppendEntries rule: previous
 ///     <c>(term, log_index)</c> consistency, consecutive append without gaps, idempotent duplicate
 ///     acknowledgement, higher-term persistence before response, and committed-prefix conflicts fail readiness.
+///     An uncommitted entry that conflicts with the leader's batch truncates the divergent tail, which is then
+///     rewritten with the leader's entries before the append is acknowledged.
 ///     </para>
 /// </remarks>
 internal sealed class FollowerLog : IFollowerLog
@@ -42,6 +44,12 @@ internal sealed class FollowerLog : IFollowerLog
     private static readonly Action<object?> RecoveryTruncateCallback = static state =>
     {
         if (state is RecoveryTruncateWork work)
+            work.Execute();
+    };
+
+    private static readonly Action<object?> TruncateDurableCallback = static state =>
+    {
+        if (state is TruncateDurableWork work)
             work.Execute();
     };
 
@@ -145,9 +153,12 @@ internal sealed class FollowerLog : IFollowerLog
             if (entries.Length is 0)
                 return await CompleteAppendAsync(request.LeaderCommitIndex, cancellationToken).ConfigureAwait(false);
 
-            var error = PrepareAppendBatch(entries, out var toAppend);
+            var error = PrepareAppendBatch(entries, out var toAppend, out var truncateAtIndex);
             if (error is not null)
                 return error.Value;
+
+            if (truncateAtIndex is not null)
+                await TruncateFromAsync(truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
 
             if (toAppend is { Count: > 0 })
                 await AppendFramesDurableAsync(toAppend, cancellationToken).ConfigureAwait(false);
@@ -412,9 +423,10 @@ internal sealed class FollowerLog : IFollowerLog
         return Task.Factory.StartNew(MetaDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
     }
 
-    private FollowerLogAppendResult? PrepareAppendBatch(ReadOnlyMemory<FollowerLogEntry> entries, out List<FollowerLogEntry>? toAppend)
+    private FollowerLogAppendResult? PrepareAppendBatch(ReadOnlyMemory<FollowerLogEntry> entries, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
     {
         toAppend = null;
+        truncateAtIndex = null;
         var nextExpected = _lastLogIndex + 1;
 
         for (var i = 0; i < entries.Length; i++)
@@ -428,7 +440,22 @@ internal sealed class FollowerLog : IFollowerLog
                 if (entry.LogIndex <= _meta.CommitIndex)
                     return FailReadiness();
 
-                return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
+                // The leader's entry conflicts with an uncommitted local entry. Truncate the divergent tail from
+                // this index and rewrite it with the leader's batch (Raft AppendEntries receiver rule 2).
+                if (truncateAtIndex is null)
+                {
+                    truncateAtIndex = entry.LogIndex;
+                    nextExpected = entry.LogIndex;
+                }
+                else if (entry.LogIndex != nextExpected)
+                {
+                    return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
+                }
+
+                toAppend ??= [];
+                toAppend.Add(entry);
+                nextExpected++;
+                continue;
             }
 
             if (entry.LogIndex != nextExpected)
@@ -440,6 +467,33 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         return null;
+    }
+
+    private async Task TruncateFromAsync(ulong logIndex, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_entryOffsets.TryGetValue(logIndex, out var byteOffset))
+            throw new InvalidOperationException($"Replica group '{GroupId}' cannot truncate from a missing index '{logIndex}'.");
+
+        var work = new TruncateDurableWork(_durability, byteOffset, _faults);
+        await Task.Factory.StartNew(TruncateDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+
+        var truncated = new List<ulong>();
+        foreach (var index in _entries.Keys)
+        {
+            if (index >= logIndex)
+                truncated.Add(index);
+        }
+
+        for (var i = 0; i < truncated.Count; i++)
+        {
+            _ = _entries.Remove(truncated[i]);
+            _ = _entryOffsets.Remove(truncated[i]);
+        }
+
+        _lastLogIndex = logIndex - 1;
+        _logLength = byteOffset;
+        _meta = _meta with { LastLogIndex = _lastLogIndex };
     }
 
     private async Task RecoverLogFileAsync(CancellationToken cancellationToken)
@@ -624,6 +678,28 @@ internal sealed class FollowerLog : IFollowerLog
 
         public void OnFrameWritten()
         {
+        }
+    }
+
+    /// <summary>Background work that durably truncates the log before a conflicting tail is rewritten.</summary>
+    private sealed class TruncateDurableWork
+    {
+        private readonly GroupLogDurability _durability;
+        private readonly IFollowerLogFaultHooks _faults;
+        private readonly long _length;
+
+        internal TruncateDurableWork(GroupLogDurability durability, long length, IFollowerLogFaultHooks faults)
+        {
+            _durability = durability;
+            _length = length;
+            _faults = faults;
+        }
+
+        internal void Execute()
+        {
+            _durability.Truncate(_length);
+            _durability.Flush();
+            _faults.OnFlushed();
         }
     }
 

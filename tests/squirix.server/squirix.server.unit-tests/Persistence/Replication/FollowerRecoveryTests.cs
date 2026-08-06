@@ -179,6 +179,30 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(2UL, tail[0].LogIndex);
     }
 
+    /// <summary>A conflicting uncommitted tail truncated during append is absent after restart.</summary>
+    [Fact]
+    public async Task TruncatedConflictIsAbsentAfterRestart()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-truncated-conflict");
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 2UL, "A"), DefaultCancellationToken);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
+        Assert.Equal(1UL, reopened.GetStatus().LastLogIndex);
+        var tail = reopened.GetUncommittedTail();
+        _ = Assert.Single(tail);
+        Assert.Equal(2UL, tail[0].Term);
+        Assert.Equal("A", Payload(tail));
+    }
+
     private static FollowerLog OpenLog(TempDirectory dir) =>
         new(dir, GroupId, GroupComposition.Create([GroupId]));
 

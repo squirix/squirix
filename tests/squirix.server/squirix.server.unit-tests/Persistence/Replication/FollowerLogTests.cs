@@ -51,9 +51,9 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(1UL, log.GetStatus().LastLogIndex);
     }
 
-    /// <summary>A gap in the batch or a conflicting existing entry is rejected without any append.</summary>
+    /// <summary>A gap in the batch is rejected without any append.</summary>
     [Fact]
-    public async Task RejectsGapAndConflictingEntry()
+    public async Task RejectsGapWithoutAppend()
     {
         using var dir = new TempDirectory("squirix-follower-log-reject");
         var composition = GroupComposition.Create([GroupId]);
@@ -66,11 +66,83 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(gap.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, gap.RefusalCode);
         Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+    }
 
-        var conflict = await log.AppendAsync(Append(1UL, 2UL, "different"), DefaultCancellationToken);
-        Assert.False(conflict.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, conflict.RefusalCode);
+    /// <summary>An uncommitted entry conflicting with the leader's batch is truncated and rewritten.</summary>
+    [Fact]
+    public async Task TruncatesConflictingUncommittedTail()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-truncate-conflict");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "old"), DefaultCancellationToken);
+
+        var result = await log.AppendAsync(Append(1UL, 2UL, "new"), DefaultCancellationToken);
+
+        Assert.True(result.Success);
         Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        var tail = log.GetUncommittedTail();
+        _ = Assert.Single(tail);
+        Assert.Equal(2UL, tail[0].Term);
+        Assert.Equal("new", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
+    }
+
+    /// <summary>A conflict in the middle of the log truncates the divergent tail and rewrites it with the leader's entries.</summary>
+    [Fact]
+    public async Task TruncatesMidLogConflictAndRewritesTail()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-truncate-mid");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
+        // New leader (term 2) rewrites index 2 (which conflicts) and appends index 3.
+        var batch = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            1UL,
+            1UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("B")), new FollowerLogEntry(3UL, 2UL, System.Text.Encoding.UTF8.GetBytes("C"))]));
+        var result = await log.AppendAsync(batch, DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
+        var tail = log.GetUncommittedTail();
+        Assert.Equal(2, tail.Count);
+        Assert.Equal(2UL, tail[0].LogIndex);
+        Assert.Equal(2UL, tail[0].Term);
+        Assert.Equal("B", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
+        Assert.Equal(3UL, tail[1].LogIndex);
+        Assert.Equal(2UL, tail[1].Term);
+        Assert.Equal("C", System.Text.Encoding.UTF8.GetString(tail[1].Payload.Span));
+    }
+
+    /// <summary>A conflict at or below the committed index fails readiness without truncating anything.</summary>
+    [Fact]
+    public async Task CommittedConflictFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-committed-conflict");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+
+        var result = await log.AppendAsync(Append(1UL, 2UL, "x"), DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+        Assert.Equal(2UL, log.GetStatus().LastLogIndex);
     }
 
     /// <summary>An append carrying a lower term than the durable term is rejected before any mutation.</summary>

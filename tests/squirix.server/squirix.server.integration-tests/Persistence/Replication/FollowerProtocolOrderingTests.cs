@@ -74,6 +74,30 @@ public sealed class FollowerProtocolOrderingTests
         Assert.Equal(9UL, reopened.GetStatus().CurrentTerm);
     }
 
+    /// <summary>A divergent uncommitted tail is truncated and rewritten by the new leader.</summary>
+    [Fact]
+    public async Task ConflictingTailIsTruncatedAndRewritten()
+    {
+        using var dir = new TempDirectory("squirix-follower-ordering-conflict");
+
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]));
+        await log.OpenAsync(TestContext.Current.CancellationToken);
+
+        // Old leader (term 1) appends an entry at index 1, then crashes before a majority.
+        var first = await log.AppendAsync(Append(1UL, 1UL, "x"), TestContext.Current.CancellationToken);
+        Assert.True(first.Success);
+
+        // New leader (term 2) rewrites index 1 with a conflicting entry.
+        var result = await log.AppendAsync(Append(1UL, 2UL, "y"), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        var tail = log.GetUncommittedTail();
+        _ = Assert.Single(tail);
+        Assert.Equal(2UL, tail[0].Term);
+        Assert.Equal("y", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
         Batch([Entry(index, term, payload)], index - 1);
 
