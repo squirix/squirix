@@ -203,6 +203,50 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal("A", Payload(tail));
     }
 
+    /// <summary>A missing log file with a nonzero committed index fails readiness on restart.</summary>
+    [Fact]
+    public async Task MissingLogWithCommittedIndexFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-missing-log");
+        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        File.Delete(logPath);
+
+        await using var reopened = OpenLog(dir);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Contains("commit index", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
+    /// <summary>An empty log file with a nonzero committed index fails readiness on restart.</summary>
+    [Fact]
+    public async Task EmptyLogWithCommittedIndexFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-empty-log");
+        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        await File.WriteAllBytesAsync(logPath, [], TestContext.Current.CancellationToken);
+
+        await using var reopened = OpenLog(dir);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Contains("commit index", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
     private static FollowerLog OpenLog(TempDirectory dir) =>
         new(dir, GroupId, GroupComposition.Create([GroupId]));
 
