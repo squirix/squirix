@@ -87,7 +87,7 @@ internal sealed class FollowerLog : IFollowerLog
 
             // The watermark is persisted before the payloads are released; on a crash between the two, restart
             // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
-            _meta = _meta with { LastAppliedIndex = appliedIndex };
+            SetMeta(_meta with { LastAppliedIndex = appliedIndex });
             await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
             FollowerLogRecovery.PruneAppliedEntries(this);
             return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
@@ -115,7 +115,7 @@ internal sealed class FollowerLog : IFollowerLog
             if (commitIndex > _lastLogIndex)
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
-            _meta = _meta with { CommitIndex = commitIndex };
+            SetMeta(_meta with { CommitIndex = commitIndex });
             await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
             _faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
@@ -272,9 +272,9 @@ internal sealed class FollowerLog : IFollowerLog
 
             if (!metaExists && !logExists)
             {
-                _meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
-                _lastLogIndex = 0;
-                _logLength = 0;
+                SetMeta(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL));
+                SetLastLogIndex(0);
+                SetLogLength(0);
                 await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
                 _durability.Open(_logPath, _logLength);
                 Readiness = FollowerLogReadiness.Ready;
@@ -290,7 +290,7 @@ internal sealed class FollowerLog : IFollowerLog
                     throw new InvalidDataException($"Replica group '{GroupId}' metadata is corrupt.");
                 }
 
-                _meta = decoded;
+                SetMeta(decoded);
             }
             else
             {
@@ -316,7 +316,7 @@ internal sealed class FollowerLog : IFollowerLog
         // Higher term is persisted durably before any further response; the old leader stops being authoritative.
         if (request.CurrentTerm > _meta.CurrentTerm)
         {
-            _meta = _meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
+            SetMeta(_meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty });
             await FollowerLogDurable.PersistMetaAsync(this, cancellationToken).ConfigureAwait(false);
             return null;
         }
@@ -357,7 +357,7 @@ internal sealed class FollowerLog : IFollowerLog
             var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
             if (target > _meta.CommitIndex)
             {
-                _meta = _meta with { CommitIndex = target };
+                SetMeta(_meta with { CommitIndex = target });
                 commitAdvanced = true;
             }
         }
@@ -448,6 +448,12 @@ internal sealed class FollowerLog : IFollowerLog
         }
     }
 
+    private void SetLastLogIndex(ulong value) => _lastLogIndex = value;
+
+    private void SetLogLength(long value) => _logLength = value;
+
+    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
+
     /// <summary>Durable write coordination for log frames and metadata.</summary>
     private static class FollowerLogDurable
     {
@@ -516,9 +522,9 @@ internal sealed class FollowerLog : IFollowerLog
                 owner._entries[offsets[i].Key] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
             }
 
-            owner._lastLogIndex = offsets[^1].Key;
-            owner._logLength = startOffset + totalLength;
-            owner._meta = owner._meta with { LastLogIndex = owner._lastLogIndex };
+            owner.SetLastLogIndex(offsets[^1].Key);
+            owner.SetLogLength(startOffset + totalLength);
+            owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
         }
 
         internal static Task PersistMetaAsync(FollowerLog owner, CancellationToken cancellationToken)
@@ -553,9 +559,9 @@ internal sealed class FollowerLog : IFollowerLog
                 _ = owner._entryOffsets.Remove(truncated[i]);
             }
 
-            owner._lastLogIndex = logIndex - 1;
-            owner._logLength = byteOffset;
-            owner._meta = owner._meta with { LastLogIndex = owner._lastLogIndex };
+            owner.SetLastLogIndex(logIndex - 1);
+            owner.SetLogLength(byteOffset);
+            owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
         }
 
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
@@ -704,7 +710,7 @@ internal sealed class FollowerLog : IFollowerLog
 
             owner._entries.Clear();
             owner._entryOffsets.Clear();
-            owner._lastLogIndex = 0;
+            owner.SetLastLogIndex(0);
 
             var result = WalkFrames(owner, bytes);
 
@@ -716,8 +722,8 @@ internal sealed class FollowerLog : IFollowerLog
                 await Task.Factory.StartNew(RecoveryTruncateCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
             }
 
-            owner._logLength = result.LastValidEnd;
-            owner._meta = owner._meta with { LastLogIndex = owner._lastLogIndex };
+            owner.SetLogLength(result.LastValidEnd);
+            owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
             PruneAppliedEntries(owner);
             EnsureCommittedPrefixCovered(owner);
         }
@@ -732,9 +738,9 @@ internal sealed class FollowerLog : IFollowerLog
 
         private static void ResetLogState(FollowerLog owner)
         {
-            owner._logLength = 0;
-            owner._lastLogIndex = 0;
-            owner._meta = owner._meta with { LastLogIndex = 0 };
+            owner.SetLogLength(0);
+            owner.SetLastLogIndex(0);
+            owner.SetMeta(owner._meta with { LastLogIndex = 0 });
         }
 
         private static bool TryReadFrameAt(ReadOnlySpan<byte> buffer, int offset, out FollowerLogEntry entry, out int consumed)
@@ -784,7 +790,7 @@ internal sealed class FollowerLog : IFollowerLog
 
                 owner._entryOffsets[entry.LogIndex] = offset;
                 owner._entries[entry.LogIndex] = entry;
-                owner._lastLogIndex = entry.LogIndex;
+                owner.SetLastLogIndex(entry.LogIndex);
                 offset += consumed;
                 lastValidEnd = offset;
             }
