@@ -11,18 +11,18 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal sealed class GroupComposition
 {
-    private readonly FrozenDictionary<string, byte> _groups;
+    private readonly FrozenSet<string> _groups;
 
-    private GroupComposition(FrozenDictionary<string, byte> groups)
+    private GroupComposition(FrozenSet<string> groups)
     {
         _groups = groups;
     }
 
     /// <summary>Gets the group identifiers in this composition.</summary>
-    internal IEnumerable<string> GroupIds => _groups.Keys;
+    internal IEnumerable<string> GroupIds => _groups;
 
     // If a variable-length composition is ever required, add an overload accepting IReadOnlyList<string> (e.g., a List<string>)
-    // and build the frozen dictionary in one pass.
+    // and build the frozen set in one pass.
 
     /// <summary>Creates a composition over a single replica group.</summary>
     /// <param name="groupId">The replica group identifier.</param>
@@ -33,7 +33,7 @@ internal sealed class GroupComposition
         if (string.IsNullOrWhiteSpace(groupId))
             throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(groupId));
 
-        return new GroupComposition(new[] { new KeyValuePair<string, byte>(groupId, 0) }.ToFrozenDictionary(StringComparer.Ordinal));
+        return new GroupComposition(new[] { groupId }.ToFrozenSet(StringComparer.Ordinal));
     }
 
     /// <summary>Creates a composition over exactly two replica groups.</summary>
@@ -52,15 +52,15 @@ internal sealed class GroupComposition
         if (string.Equals(first, second, StringComparison.Ordinal))
             throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second));
 
-        return new GroupComposition(new[] { new KeyValuePair<string, byte>(first, 0), new KeyValuePair<string, byte>(second, 0) }.ToFrozenDictionary(StringComparer.Ordinal));
+        return new GroupComposition(new[] { first, second }.ToFrozenSet(StringComparer.Ordinal));
     }
 
     /// <summary>Creates an empty composition.</summary>
     /// <returns>An empty composition.</returns>
-    internal static GroupComposition Empty() => new(FrozenDictionary<string, byte>.Empty);
+    internal static GroupComposition Empty() => new([]);
 
     /// <summary>Determines whether <paramref name="groupId" /> is part of this composition.</summary>
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns><see langword="true" /> when the group is a member of this composition.</returns>
-    internal bool Contains(string groupId) => _groups.ContainsKey(groupId);
+    internal bool Contains(string groupId) => _groups.Contains(groupId);
 }
