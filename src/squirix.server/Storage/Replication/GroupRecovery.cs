@@ -17,6 +17,8 @@ internal sealed class GroupRecovery : IAsyncDisposable
     private readonly Dictionary<string, IFollowerLog> _logs = new(StringComparer.Ordinal);
     private readonly string _persistenceRoot;
 
+    private bool _disposed;
+
     internal GroupRecovery(string persistenceRoot, GroupComposition composition)
     {
         _persistenceRoot = persistenceRoot ?? throw new ArgumentNullException(nameof(persistenceRoot));
@@ -26,19 +28,21 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        foreach (var log in _logs.Values)
-            await log.DisposeAsync().ConfigureAwait(false);
+        if (_disposed)
+            return;
 
-        _logs.Clear();
+        _disposed = true;
+        await CloseLogsAsync().ConfigureAwait(false);
     }
 
     /// <summary>Opens and recovers the committed prefix for every group in the local composition.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every local group log is open and recovered.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the coordinator is already disposed.</exception>
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
-        await DisposeAsync().ConfigureAwait(false);
-        _logs.Clear();
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await CloseLogsAsync().ConfigureAwait(false);
 
         var opened = new List<IFollowerLog>();
         try
@@ -76,4 +80,14 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <param name="faultHooks">Optional fault-injection seam.</param>
     /// <returns>A follower log for the group.</returns>
     private FollowerLog CreateLog(string groupId, IFollowerLogFaultHooks? faultHooks = null) => new(_persistenceRoot, groupId, _composition, faultHooks);
+
+    /// <summary>Disposes and forgets every currently open follower log.</summary>
+    /// <returns>A task that completes when all open logs are disposed.</returns>
+    private async Task CloseLogsAsync()
+    {
+        foreach (var log in _logs.Values)
+            await log.DisposeAsync().ConfigureAwait(false);
+
+        _logs.Clear();
+    }
 }
