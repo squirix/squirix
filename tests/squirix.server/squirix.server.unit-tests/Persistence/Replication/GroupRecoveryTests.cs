@@ -23,13 +23,14 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
         Assert.NotNull(recovery.GetLog("grp-2"));
 
         // Durable state is present, so the second recovery has something to restore.
-        _ = await recovery.GetLog("grp-1")!.AppendAsync(new FollowerLogAppendRequest(
+        var request = new FollowerLogAppendRequest(
             "leader-1",
             1UL,
             0UL,
             0UL,
             0UL,
-            new System.ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("durable"))])), DefaultCancellationToken);
+            new System.ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("durable"))]));
+        _ = await recovery.GetLog("grp-1")!.AppendAsync(request, DefaultCancellationToken);
         _ = await recovery.GetLog("grp-1")!.AdvanceCommitAsync(1UL, DefaultCancellationToken);
 
         await recovery.RecoverAllAsync(DefaultCancellationToken);
