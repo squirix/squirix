@@ -55,7 +55,7 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly string _metaPath;
     private readonly string _metaTempPath;
 
-    private bool _disposed;
+    private int _disposed;
     private ulong _lastLogIndex;
     private long _logLength;
     private GroupLogMetadata _meta;
@@ -78,13 +78,16 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public FollowerLogReadiness Readiness { get; private set; } = FollowerLogReadiness.Unknown;
 
+    /// <summary>Gets a value indicating whether the log has been disposed.</summary>
+    private bool IsDisposed => Volatile.Read(ref _disposed) is not 0;
+
     /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_disposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
                 return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
 
             // Applied index moves only monotonically.
@@ -115,7 +118,7 @@ internal sealed class FollowerLog : IFollowerLog
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_disposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
             // Commit index moves only monotonically.
@@ -145,7 +148,7 @@ internal sealed class FollowerLog : IFollowerLog
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_disposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
 
             var termError = await AdvanceTermIfHigherAsync(request, cancellationToken).ConfigureAwait(false);
@@ -164,7 +167,7 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, true))
+        if (Interlocked.Exchange(ref _disposed, 1) is not 0)
             return;
 
         await _gate.WaitAsync().ConfigureAwait(false);
