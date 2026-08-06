@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
@@ -29,7 +30,7 @@ public sealed class FollowerStorageRestartTests
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("a", Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
     }
 
     /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
@@ -69,7 +70,7 @@ public sealed class FollowerStorageRestartTests
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1UL, reopened.GetStatus().CommitIndex);
-        Assert.Equal("a", Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
     }
 
     /// <summary>Corruption in the committed prefix fails readiness on restart.</summary>
@@ -86,7 +87,7 @@ public sealed class FollowerStorageRestartTests
             _ = await log.AdvanceCommitAsync(1UL, TestContext.Current.CancellationToken);
         }
 
-        await CorruptByteAsync(logPath, 8);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, TestContext.Current.CancellationToken);
 
         await using var reopened = OpenLog(dir);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(TestContext.Current.CancellationToken));
@@ -94,23 +95,6 @@ public sealed class FollowerStorageRestartTests
     }
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
-
-    private static string Payload(System.Collections.Generic.IReadOnlyList<FollowerLogEntry> entries)
-    {
-        var result = new System.Text.StringBuilder();
-        for (var i = 0; i < entries.Count; i++)
-            _ = result.Append(System.Text.Encoding.UTF8.GetString(entries[i].Payload.Span));
-
-        return result.ToString();
-    }
-
-    private static async Task CorruptByteAsync(string path, int offset)
-    {
-        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(false);
-        var index = offset < bytes.Length ? offset : bytes.Length - 1;
-        bytes[index] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken).ConfigureAwait(false);
-    }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
         "leader-1",

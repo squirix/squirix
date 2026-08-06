@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -33,7 +34,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
         Assert.Equal(2UL, reopened.GetStatus().CommitIndex);
-        Assert.Equal("ab", Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("ab", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
     }
 
     /// <summary>Uncommitted entries are never surfaced as committed, in memory or after restart.</summary>
@@ -76,12 +77,12 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
         }
 
-        await CorruptTailAsync(logPath);
+        await FollowerLogTestKit.CorruptTailAsync(logPath, DefaultCancellationToken);
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("ab", Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("ab", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
         var tail = reopened.GetUncommittedTail();
         _ = Assert.Single(tail);
         Assert.Equal(3UL, tail[0].LogIndex);
@@ -102,7 +103,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
         }
 
-        await CorruptByteAsync(logPath, 8);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, DefaultCancellationToken);
 
         await using var reopened = OpenLog(dir);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
@@ -127,7 +128,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
-        Assert.Equal("a", Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
     }
 
     /// <summary>Pending operations are rebuilt from the uncommitted tail after restart.</summary>
@@ -169,7 +170,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
         }
 
-        await CorruptTailAsync(logPath);
+        await FollowerLogTestKit.CorruptTailAsync(logPath, DefaultCancellationToken);
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
@@ -200,7 +201,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         var tail = reopened.GetUncommittedTail();
         _ = Assert.Single(tail);
         Assert.Equal(2UL, tail[0].Term);
-        Assert.Equal("A", Payload(tail));
+        Assert.Equal("A", FollowerLogTestKit.Payload(tail));
     }
 
     /// <summary>A missing log file with a nonzero committed index fails readiness to restart.</summary>
@@ -271,30 +272,6 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
     private static FollowerLog OpenLog(TempDirectory dir) =>
         new(dir, GroupId, GroupComposition.Create(GroupId));
-
-    private static string Payload(System.Collections.Generic.IReadOnlyList<FollowerLogEntry> entries)
-    {
-        var result = new System.Text.StringBuilder();
-        for (var i = 0; i < entries.Count; i++)
-            result.Append(System.Text.Encoding.UTF8.GetString(entries[i].Payload.Span));
-
-        return result.ToString();
-    }
-
-    private static async Task CorruptTailAsync(string path)
-    {
-        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(false);
-        bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task CorruptByteAsync(string path, int offset)
-    {
-        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(false);
-        var index = offset < bytes.Length ? offset : bytes.Length - 1;
-        bytes[index] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken).ConfigureAwait(false);
-    }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
         new(
