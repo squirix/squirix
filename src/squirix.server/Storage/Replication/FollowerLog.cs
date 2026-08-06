@@ -492,10 +492,11 @@ internal sealed class FollowerLog : IFollowerLog
         toAppend = null;
         truncateAtIndex = null;
         var nextExpected = request.PrevLogIndex + 1;
+        var entries = request.Entries.Span;
 
-        for (var i = 0; i < request.Entries.Length; i++)
+        for (var i = 0; i < entries.Length; i++)
         {
-            var entry = request.Entries.Span[i];
+            var entry = entries[i];
             if (entry.LogIndex != nextExpected)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
 
@@ -508,15 +509,10 @@ internal sealed class FollowerLog : IFollowerLog
                 continue;
             }
 
-            // Already present locally with identical content: no durable write is required.
-            if (entry.LogIndex <= _lastLogIndex && _entries.TryGetValue(entry.LogIndex, out var existing) &&
-                existing.Term == entry.Term && existing.PayloadSpan.SequenceEqual(entry.PayloadSpan))
-                continue;
-
-            // An applied entry was committed and its payload released after application. By Leader Completeness
-            // a current-term leader cannot conflict at an applied index, so the re-appending is acknowledged
-            // idempotently without a durable write.
-            if (entry.LogIndex <= _meta.LastAppliedIndex)
+            // Entries already satisfied by local state need no durable write: duplicates already present with
+            // identical content, and applied entries whose payloads were released after application (Leader
+            // Completeness guarantees a current-term leader cannot conflict at an applied index).
+            if (IsSatisfiedByLocalState(in entry))
                 continue;
 
             if (entry.LogIndex <= _meta.CommitIndex)
@@ -530,6 +526,15 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         return null;
+
+        bool IsSatisfiedByLocalState(in FollowerLogEntry candidate)
+        {
+            if (candidate.LogIndex <= _lastLogIndex && _entries.TryGetValue(candidate.LogIndex, out var existing) &&
+                existing.Term == candidate.Term && existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan))
+                return true;
+
+            return candidate.LogIndex <= _meta.LastAppliedIndex;
+        }
     }
 
     private async Task TruncateFromAsync(ulong logIndex, CancellationToken cancellationToken)
