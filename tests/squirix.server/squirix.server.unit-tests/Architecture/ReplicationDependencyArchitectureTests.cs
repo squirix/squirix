@@ -19,13 +19,33 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     public async Task HostingOwnsReplicationComposition()
     {
         var root = RepositoryPaths.FindRepositoryRoot();
-        var mapping = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Node", "Hosting", "SquirixEndpointMapping.cs"), DefaultCancellationToken);
-        var composition = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Node", "Hosting", "ServerHostingComposition.cs"), DefaultCancellationToken);
+        var mappingPath = Path.Join(root, "src", "squirix.server", "Node", "Hosting", "SquirixEndpointMapping.cs");
+        var compositionPath = Path.Join(root, "src", "squirix.server", "Node", "Hosting", "ServerHostingComposition.cs");
+
+        Assert.True(File.Exists(mappingPath), $"Expected the endpoint mapping to exist at '{mappingPath}'.");
+        Assert.True(File.Exists(compositionPath), $"Expected the hosting composition to exist at '{compositionPath}'.");
+
+        var mapping = await File.ReadAllTextAsync(mappingPath, DefaultCancellationToken);
+        var composition = await File.ReadAllTextAsync(compositionPath, DefaultCancellationToken);
 
         Assert.Contains("FoundationOnly", mapping, StringComparison.Ordinal);
         Assert.Contains("SquirixReplicationServiceAdapter", mapping, StringComparison.Ordinal);
         Assert.Contains("FoundationOnly", composition, StringComparison.Ordinal);
         Assert.Contains("SquirixReplicationServiceAdapter", composition, StringComparison.Ordinal);
+
+        // The reverse direction must not exist: Storage.Replication never reaches into hosting composition types.
+        var storageReplicationRoot = Path.Join(root, "src", "squirix.server", "Storage", "Replication");
+        string[] forbidden =
+        [
+            "SquirixReplicationServiceAdapter",
+            "ServerHostingComposition",
+        ];
+        foreach (var path in Directory.GetFiles(storageReplicationRoot, "*.cs", SearchOption.TopDirectoryOnly))
+        {
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            for (var i = 0; i < forbidden.Length; i++)
+                Assert.DoesNotContain(forbidden[i], text, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
