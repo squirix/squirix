@@ -14,7 +14,10 @@ internal static class FollowerLogRefusal
     /// <summary>The append would skip an index, or an existing entry holds different canonical bytes.</summary>
     internal const string LogMismatch = "log-mismatch";
 
-    /// <summary>The group is not in the local static composition, or the log is not yet ready.</summary>
+    /// <summary>
+    /// The group is not in the local static composition, the log is not yet ready, or the requested
+    /// commit or applied watermark exceeds the currently durable or committed state.
+    /// </summary>
     internal const string NotReady = "not-ready";
 
     /// <summary>A frame checksum failed during startup validation.</summary>
