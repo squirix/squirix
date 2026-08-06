@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Xml.XPath;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -44,7 +45,7 @@ internal static class ServerArchitectureFixtures
         "src/squirix.server.host/Program.cs",
     ];
 
-    private static readonly Lazy<XmlDocument> ServerProject = new(LoadServerProject);
+    private static readonly Lazy<XPathNavigator> ServerProject = new(LoadServerProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
 
@@ -101,15 +102,15 @@ internal static class ServerArchitectureFixtures
                 continue;
 
             var hasImplicitUsings = false;
-            foreach (XmlNode node in LoadProject(path).GetElementsByTagName("*"))
+            var navigator = LoadProject(path);
+            var elements = navigator.Select("//*");
+            while (elements.MoveNext())
             {
-                if (node is not XmlElement element)
-                    continue;
-
+                var element = elements.Current!;
                 if (!string.Equals(element.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (!element.InnerText.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
+                if (!element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 hasImplicitUsings = true;
@@ -155,7 +156,7 @@ internal static class ServerArchitectureFixtures
 
     internal static MsbuildProjectIndex GetServerProjectIndex() => ServerProjectIndex.Value;
 
-    internal static XmlDocument LoadProject(string relativeOrAbsolutePath)
+    internal static XPathNavigator LoadProject(string relativeOrAbsolutePath)
     {
         var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
             RepositoryPaths.FindRepositoryRoot(),
@@ -164,17 +165,17 @@ internal static class ServerArchitectureFixtures
 
         var document = new XmlDocument();
         document.Load(path);
-        return document;
+        return document.CreateNavigator()!;
     }
 
-    internal static MsbuildProjectIndex ParseMsbuildProject(XmlDocument project)
+    internal static MsbuildProjectIndex ParseMsbuildProject(XPathNavigator project)
     {
         var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XmlElement>>(StringComparer.OrdinalIgnoreCase);
+        var includedElements = new Dictionary<string, List<XPathNavigator>>(StringComparer.OrdinalIgnoreCase);
         var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        CollectIndexData(project.DocumentElement, properties, includes, includedElements, localNames);
+        CollectIndexData(project, properties, includes, includedElements, localNames);
 
         return new MsbuildProjectIndex(
             properties.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
@@ -202,10 +203,10 @@ internal static class ServerArchitectureFixtures
 
     private static void AddInclude(
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XmlElement>> includedElements,
+        Dictionary<string, List<XPathNavigator>> includedElements,
         string localName,
         string include,
-        XmlElement element)
+        XPathNavigator element)
     {
         if (!includes.TryGetValue(localName, out var includeList))
         {
@@ -221,39 +222,34 @@ internal static class ServerArchitectureFixtures
             includedElements[localName] = elementList;
         }
 
-        elementList.Add(element);
+        elementList.Add(element.Clone());
     }
 
     private static void CollectIndexData(
-        XmlElement? root,
+        XPathNavigator root,
         Dictionary<string, string> properties,
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XmlElement>> includedElements,
+        Dictionary<string, List<XPathNavigator>> includedElements,
         HashSet<string> localNames)
     {
-        if (root is null)
-            return;
-
         var localName = root.LocalName;
         _ = localNames.Add(localName);
 
-        var include = root.GetAttribute("Include");
+        var include = root.GetAttribute("Include", string.Empty);
         if (!string.IsNullOrWhiteSpace(include))
         {
             AddInclude(includes, includedElements, localName, include, root);
         }
         else if (!properties.ContainsKey(localName))
         {
-            var value = root.InnerText;
+            var value = root.Value;
             if (!string.IsNullOrWhiteSpace(value))
                 properties[localName] = value.Trim();
         }
 
-        for (var node = root.FirstChild; node is not null; node = node.NextSibling)
-        {
-            if (node is XmlElement child)
-                CollectIndexData(child, properties, includes, includedElements, localNames);
-        }
+        var children = root.SelectChildren(XPathNodeType.Element);
+        while (children.MoveNext())
+            CollectIndexData(children.Current!, properties, includes, includedElements, localNames);
     }
 
     private static bool IsGeneratedOutputPath(string path)
@@ -263,19 +259,17 @@ internal static class ServerArchitectureFixtures
         var binMarker = $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
         var artifactsMarker = $"{Path.DirectorySeparatorChar}artifacts{Path.DirectorySeparatorChar}";
         var ndependOutMarker = $"{Path.DirectorySeparatorChar}NDependOut{Path.DirectorySeparatorChar}";
-        return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains(artifactsMarker, StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains(ndependOutMarker, StringComparison.OrdinalIgnoreCase);
+        return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains(artifactsMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(ndependOutMarker, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static XmlDocument LoadServerProject()
+    private static XPathNavigator LoadServerProject()
     {
         var path = Path.Join(RepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path));
 
         var document = new XmlDocument();
         document.Load(path);
-        return document;
+        return document.CreateNavigator()!;
     }
 }

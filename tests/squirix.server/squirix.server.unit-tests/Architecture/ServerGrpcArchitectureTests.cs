@@ -44,9 +44,9 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
     {
         var protobuf = ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
-        Assert.Equal("Server;Client", protobuf.GetAttribute("GrpcServices"));
-        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot"));
-        Assert.Equal("Internal", protobuf.GetAttribute("Access"));
+        Assert.Equal("Server;Client", protobuf.GetAttribute("GrpcServices", string.Empty));
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot", string.Empty));
+        Assert.Equal("Internal", protobuf.GetAttribute("Access", string.Empty));
     }
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>

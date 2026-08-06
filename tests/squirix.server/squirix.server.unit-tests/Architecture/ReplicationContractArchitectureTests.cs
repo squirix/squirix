@@ -22,9 +22,9 @@ public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
         Assert.DoesNotContain("squirix.replication", sharedProto, StringComparison.Ordinal);
         var serverProtobuf = ServerArchitectureFixtures.GetServerProjectIndex()
                                                        .RequireIncludedElement("Protobuf", @"Adapters\Grpc\Replication\SquirixReplication.proto");
-        Assert.Equal("Server;Client", serverProtobuf.GetAttribute("GrpcServices"));
-        Assert.Equal(@"Adapters\Grpc\Replication", serverProtobuf.GetAttribute("ProtoRoot"));
-        Assert.Equal("Internal", serverProtobuf.GetAttribute("Access"));
+        Assert.Equal("Server;Client", serverProtobuf.GetAttribute("GrpcServices", string.Empty));
+        Assert.Equal(@"Adapters\Grpc\Replication", serverProtobuf.GetAttribute("ProtoRoot", string.Empty));
+        Assert.Equal("Internal", serverProtobuf.GetAttribute("Access", string.Empty));
         var clientProjectPath = Path.Join(root, "src", "squirix", "Squirix.csproj");
         var clientProject = await File.ReadAllTextAsync(clientProjectPath, DefaultCancellationToken);
         Assert.DoesNotContain("SquirixReplication.proto", clientProject, StringComparison.Ordinal);
