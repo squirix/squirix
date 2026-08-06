@@ -48,9 +48,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The outcome of the applied advance.</returns>
     Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken);
 
-    /// <summary>Returns the committed prefix of the log.</summary>
+    /// <summary>
+    /// Returns the committed entries in the exclusive <c>LastAppliedIndex</c> to inclusive <c>CommitIndex</c>
+    /// range, rather than the full committed prefix, because applied payloads are released from memory.
+    /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The committed entries of the log.</returns>
+    /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
     /// <summary>Returns the uncommitted tail of the log, used to rebuild pending operations after a restart.</summary>
