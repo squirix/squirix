@@ -717,6 +717,9 @@ internal sealed class FollowerLog : IFollowerLog
     {
         private const int FrameHeaderByteCount = 9;
 
+        /// <summary>Page-aligned read buffer for the recovery file stream; frame parsing uses its own header size.</summary>
+        private const int LogFileReadBufferSize = 64 * 1024;
+
         private static readonly Action<object?> RecoveryTruncateCallback = static state =>
         {
             if (state is RecoveryTruncateWork work)
@@ -751,7 +754,7 @@ internal sealed class FollowerLog : IFollowerLog
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete,
-                FrameHeaderByteCount,
+                LogFileReadBufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             await using (stream.ConfigureAwait(false))
             {
