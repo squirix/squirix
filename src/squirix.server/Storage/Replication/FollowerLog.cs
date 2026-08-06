@@ -495,6 +495,11 @@ internal sealed class FollowerLog : IFollowerLog
         {
             await FollowerLogDurable.PersistMetaAsync(this, candidate, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a publish failure; preserve readiness so the caller can retry.
+            throw;
+        }
         catch
         {
             Readiness = FollowerLogReadiness.Failed;
