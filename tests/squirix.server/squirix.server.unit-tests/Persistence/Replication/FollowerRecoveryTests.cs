@@ -1,0 +1,244 @@
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
+using Xunit;
+
+namespace Squirix.Server.UnitTests.Persistence.Replication;
+
+/// <summary>Restart recovery of the replica-group follower log applies only the committed prefix.</summary>
+public sealed class FollowerRecoveryTests : ServerUnitTestBase
+{
+    private const string GroupId = "grp-1";
+
+    /// <summary>After restart only the committed prefix is exposed; uncommitted entries are not applied.</summary>
+    [Fact]
+    public async Task RestartAppliesCommittedPrefixOnly()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-committed-prefix");
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
+        Assert.Equal(2UL, reopened.GetStatus().CommitIndex);
+        Assert.Equal("ab", Payload(reopened.GetCommittedEntries()));
+    }
+
+    /// <summary>Uncommitted entries are never surfaced as committed, in memory or after restart.</summary>
+    [Fact]
+    public async Task UncommittedTailIsNotApplied()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-uncommitted-tail");
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
+            _ = Assert.Single(log.GetCommittedEntries());
+            _ = Assert.Single(log.GetUncommittedTail());
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        _ = Assert.Single(reopened.GetCommittedEntries());
+        _ = Assert.Single(reopened.GetUncommittedTail());
+    }
+
+    /// <summary>A corrupt or torn divergent tail is safely truncated on restart without touching the committed prefix.</summary>
+    [Fact]
+    public async Task DivergentTailIsTruncatedOrQuarantined()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-divergent-tail");
+        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(4UL, 1UL, "d"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+        }
+
+        await CorruptTailAsync(logPath);
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
+        Assert.Equal("ab", Payload(reopened.GetCommittedEntries()));
+        var tail = reopened.GetUncommittedTail();
+        _ = Assert.Single(tail);
+        Assert.Equal(3UL, tail[0].LogIndex);
+    }
+
+    /// <summary>Corruption inside the committed prefix closes readiness and startup fails.</summary>
+    [Fact]
+    public async Task CommittedPrefixConflictFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-committed-conflict");
+        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+        }
+
+        await CorruptByteAsync(logPath, 8);
+
+        await using var reopened = OpenLog(dir);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Contains("corrupt", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
+    /// <summary>An entry committed durably but not yet applied to memory is replayed after restart.</summary>
+    [Fact]
+    public async Task CrashBeforeMemoryApplyReplaysEntry()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-crash-before-apply");
+        var crashFaults = new CrashBeforeApplyFaults();
+
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create([GroupId]), crashFaults))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+            _ = NodeExceptionAssert.For<IOException>().Throws(log, static value => _ = value.GetCommittedEntries());
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal("a", Payload(reopened.GetCommittedEntries()));
+    }
+
+    /// <summary>Pending operations are rebuilt from the uncommitted tail after restart.</summary>
+    [Fact]
+    public async Task RestartRebuildsPendingOperationsFromTail()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-pending-rebuild");
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        var tail = reopened.GetUncommittedTail();
+        Assert.Equal(2, tail.Count);
+        Assert.Equal(2UL, tail[0].LogIndex);
+        Assert.Equal(3UL, tail[1].LogIndex);
+    }
+
+    /// <summary>Truncating a corrupt divergent tail at a startup releases the pending tail entries.</summary>
+    [Fact]
+    public async Task TruncatedTailReleasesPendingReservation()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-truncate-releases");
+        var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        await CorruptTailAsync(logPath);
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
+        var tail = reopened.GetUncommittedTail();
+        _ = Assert.Single(tail);
+        Assert.Equal(2UL, tail[0].LogIndex);
+    }
+
+    private static FollowerLog OpenLog(TempDirectory dir) =>
+        new(dir, GroupId, GroupComposition.Create([GroupId]));
+
+    private static string Payload(System.Collections.Generic.IReadOnlyList<FollowerLogEntry> entries)
+    {
+        var result = new System.Text.StringBuilder();
+        for (var i = 0; i < entries.Count; i++)
+            result.Append(System.Text.Encoding.UTF8.GetString(entries[i].Payload.Span));
+
+        return result.ToString();
+    }
+
+    private static async Task CorruptTailAsync(string path)
+    {
+        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task CorruptByteAsync(string path, int offset)
+    {
+        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        var index = offset < bytes.Length ? offset : bytes.Length - 1;
+        bytes[index] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken).ConfigureAwait(false);
+    }
+
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
+        new(
+            "leader-1",
+            term,
+            index - 1,
+            term,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
+
+    /// <summary>Fault hooks that simulate a crash at the memory-apply boundary exactly once.</summary>
+    private sealed class CrashBeforeApplyFaults : IFollowerLogFaultHooks
+    {
+        private bool _fired;
+
+        public void OnBeforeMemoryApply()
+        {
+            if (_fired)
+                return;
+
+            _fired = true;
+            throw new IOException("simulated crash before memory apply.");
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnFlushed()
+        {
+        }
+
+        public void OnFrameWritten()
+        {
+        }
+    }
+}
