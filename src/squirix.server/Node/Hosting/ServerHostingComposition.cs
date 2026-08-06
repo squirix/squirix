@@ -130,6 +130,9 @@ internal static class ServerHostingComposition
             // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
             // materialized; group membership is derived in a later milestone. Registered only when persistence is
             // enabled because the factory resolves PersistenceOptions, which is not registered otherwise.
+            // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
+            // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
+            // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
             _ = builder.Services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
         }
 

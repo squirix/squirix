@@ -10,6 +10,11 @@ namespace Squirix.Server.Storage.Replication;
 /// Storage-only orchestration: it opens a log per local group and exposes the committed records through the
 /// storage contract. Applying committed records to memory is the responsibility of an outer layer and is
 /// intentionally not performed here.
+/// <para>
+/// In the current milestone the coordinator is registered but <see cref="RecoverAllAsync" /> is not invoked
+/// from any production path: with the static local composition being empty, a production call would open no
+/// groups. Recovery wiring is introduced together with group-membership derivation (see M8-05).
+/// </para>
 /// </remarks>
 internal sealed class GroupRecovery : IAsyncDisposable
 {
