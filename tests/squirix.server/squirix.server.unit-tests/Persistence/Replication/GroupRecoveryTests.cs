@@ -22,9 +22,23 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
         Assert.NotNull(recovery.GetLog("grp-1"));
         Assert.NotNull(recovery.GetLog("grp-2"));
 
+        // Durable state is present, so the second recovery has something to restore.
+        _ = await recovery.GetLog("grp-1")!.AppendAsync(new FollowerLogAppendRequest(
+            "leader-1",
+            1UL,
+            0UL,
+            0UL,
+            0UL,
+            new System.ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("durable"))])), DefaultCancellationToken);
+        _ = await recovery.GetLog("grp-1")!.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
         await recovery.RecoverAllAsync(DefaultCancellationToken);
         Assert.NotNull(recovery.GetLog("grp-1"));
         Assert.NotNull(recovery.GetLog("grp-2"));
+        Assert.Equal(1UL, recovery.GetLog("grp-1")!.GetStatus().LastLogIndex);
+        var committed = recovery.GetCommittedRecords("grp-1");
+        var only = Assert.Single(committed);
+        Assert.Equal("durable", System.Text.Encoding.UTF8.GetString(only.Payload.Span));
     }
 
     /// <summary>When one group fails to recover, previously opened logs are disposed and the error propagates.</summary>
