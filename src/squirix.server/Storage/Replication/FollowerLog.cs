@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,6 +40,7 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
     private readonly IFollowerLogFaultHooks _faults;
+    [SuppressMessage("Reliability", "CA2213:Disposable fields should be disposed", Justification = "Disposing the semaphore could throw ObjectDisposedException in synchronous readers blocked on _gate.Wait(); idempotent disposal is handled via _disposed.")]
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _groupDir;
     private readonly string _logPath;
@@ -155,22 +157,15 @@ internal sealed class FollowerLog : IFollowerLog
         if (Interlocked.Exchange(ref _disposed, true))
             return;
 
+        await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await _gate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                _durability.Dispose();
-                _ = FileEx.TryDeleteFile(_metaTempPath);
-            }
-            finally
-            {
-                _ = _gate.Release();
-            }
+            _durability.Dispose();
+            _ = FileEx.TryDeleteFile(_metaTempPath);
         }
         finally
         {
-            _gate.Dispose();
+            _ = _gate.Release();
         }
     }
 
