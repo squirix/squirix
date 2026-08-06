@@ -21,7 +21,7 @@ public sealed class FollowerProtocolOrderingTests
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await log.OpenAsync(TestContext.Current.CancellationToken);
 
-        var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL), TestContext.Current.CancellationToken);
+        var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL, 1UL), TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
@@ -37,7 +37,7 @@ public sealed class FollowerProtocolOrderingTests
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await log.OpenAsync(TestContext.Current.CancellationToken);
 
-        var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL);
+        var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL, 1UL);
         var first = await log.AppendAsync(batch, TestContext.Current.CancellationToken);
         var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
         var second = await log.AppendAsync(batch, TestContext.Current.CancellationToken);
@@ -102,17 +102,17 @@ public sealed class FollowerProtocolOrderingTests
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
-        Batch([Entry(index, term, payload)], index - 1);
+        Batch([Entry(index, term, payload)], index - 1, term);
 
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) =>
         new(index, term, System.Text.Encoding.UTF8.GetBytes(payload));
 
-    private static FollowerLogAppendRequest Batch(FollowerLogEntry[] entries, ulong prevIndex) =>
+    private static FollowerLogAppendRequest Batch(FollowerLogEntry[] entries, ulong prevIndex, ulong term) =>
         new(
             "leader-1",
-            entries.Length > 0 ? entries[0].Term : 1UL,
+            term,
             prevIndex,
-            prevIndex is 0UL ? 0UL : entries[0].Term,
+            prevIndex is 0UL ? 0UL : term,
             0UL,
             new ReadOnlyMemory<FollowerLogEntry>(entries));
 }
