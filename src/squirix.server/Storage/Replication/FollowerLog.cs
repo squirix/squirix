@@ -177,19 +177,24 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            _disposed = true;
-            _durability.Dispose();
-            _ = FileEx.TryDeleteFile(_metaTempPath);
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                _disposed = true;
+                _durability.Dispose();
+                _ = FileEx.TryDeleteFile(_metaTempPath);
+            }
+            finally
+            {
+                _ = _gate.Release();
+            }
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Dispose();
         }
-
-        _gate.Dispose();
     }
 
     /// <inheritdoc />
