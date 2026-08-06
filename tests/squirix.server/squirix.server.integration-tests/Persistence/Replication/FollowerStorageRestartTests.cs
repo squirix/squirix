@@ -116,7 +116,7 @@ public sealed class FollowerStorageRestartTests
         "leader-1",
         term,
         index - 1,
-        term,
+        index is 1UL ? 0UL : term,
         0UL,
         new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
 
