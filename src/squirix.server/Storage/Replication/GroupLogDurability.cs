@@ -7,8 +7,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Low-level <see cref="RandomAccess" /> file access for a replica-group log with write-through on Windows.</summary>
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. On Windows,
-/// <see cref="FileOptions.WriteThrough" /> makes every write durable without an explicit disk flush; on other
-/// platforms <see cref="Flush" /> calls <see cref="RandomAccess.FlushToDisk" />.
+/// <see cref="FileOptions.WriteThrough" /> makes every write durable without an explicit disk flush;
+/// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to confirm durability.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
@@ -29,7 +29,7 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Open(string path, long length)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var options = FileOptions.Asynchronous;
+        var options = FileOptions.None;
         if (OperatingSystem.IsWindows())
             options |= FileOptions.WriteThrough;
 
@@ -57,14 +57,11 @@ internal sealed class GroupLogDurability : IDisposable
         RandomAccess.Write(handle, data.Span, fileOffset);
     }
 
-    /// <summary>Flushes the log to stable storage on platforms without write-through.</summary>
+    /// <summary>Flushes the log to stable storage.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
     internal void Flush()
     {
         var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
-        if (OperatingSystem.IsWindows())
-            return;
-
         RandomAccess.FlushToDisk(handle);
     }
 }
