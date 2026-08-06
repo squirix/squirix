@@ -90,7 +90,8 @@ public sealed class FollowerStorageRestartTests
         await FollowerLogTestKit.CorruptByteAsync(logPath, 8, TestContext.Current.CancellationToken);
 
         await using var reopened = OpenLog(dir);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(TestContext.Current.CancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("committed log frame", ex.Message, StringComparison.Ordinal);
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
