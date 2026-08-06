@@ -180,9 +180,9 @@ internal sealed class FollowerLog : IFollowerLog
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<FollowerLogEntry> GetCommittedEntries()
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken)
     {
-        _gate.Wait();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             _faults.OnBeforeMemoryApply();
@@ -209,9 +209,9 @@ internal sealed class FollowerLog : IFollowerLog
     }
 
     /// <inheritdoc />
-    public FollowerLogStatus GetStatus()
+    public async ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        _gate.Wait();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             return new FollowerLogStatus(
@@ -232,9 +232,9 @@ internal sealed class FollowerLog : IFollowerLog
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<FollowerLogEntry> GetUncommittedTail()
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
     {
-        _gate.Wait();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var result = new List<FollowerLogEntry>();

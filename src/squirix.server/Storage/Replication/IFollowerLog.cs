@@ -22,8 +22,9 @@ internal interface IFollowerLog : IAsyncDisposable
     FollowerLogReadiness Readiness { get; }
 
     /// <summary>Gets a snapshot of the durable log state.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A snapshot of the durable log state.</returns>
-    FollowerLogStatus GetStatus();
+    ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken);
 
     /// <summary>Appends an ordered batch of entries following the consistency checks of the replication protocol.</summary>
     /// <param name="request">The append request.</param>
@@ -48,10 +49,12 @@ internal interface IFollowerLog : IAsyncDisposable
     Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken);
 
     /// <summary>Returns the committed prefix of the log.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The committed entries of the log.</returns>
-    IReadOnlyList<FollowerLogEntry> GetCommittedEntries();
+    ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
     /// <summary>Returns the uncommitted tail of the log, used to rebuild pending operations after a restart.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The uncommitted tail entries of the log.</returns>
-    IReadOnlyList<FollowerLogEntry> GetUncommittedTail();
+    ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken);
 }

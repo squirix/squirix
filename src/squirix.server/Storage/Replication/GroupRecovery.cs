@@ -40,6 +40,18 @@ internal sealed class GroupRecovery : IAsyncDisposable
         await CloseLogsAsync().ConfigureAwait(false);
     }
 
+    /// <summary>Returns the recovered committed records for <paramref name="groupId" />.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The committed records for the group.</returns>
+    internal async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedRecordsAsync(string groupId, CancellationToken cancellationToken) =>
+        GetLog(groupId) is { } log ? await log.GetCommittedEntriesAsync(cancellationToken).ConfigureAwait(false) : [];
+
+    /// <summary>Returns the recovered follower log for <paramref name="groupId" />, or <see langword="null" />.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>The recovered follower log, or <see langword="null" /> when the group is not open.</returns>
+    internal IFollowerLog? GetLog(string groupId) => _logs.GetValueOrDefault(groupId);
+
     /// <summary>Opens and recovers the committed prefix for every group in the local composition.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every local group log is open and recovered.</returns>
@@ -70,22 +82,6 @@ internal sealed class GroupRecovery : IAsyncDisposable
             _logs[opened[i].GroupId] = opened[i];
     }
 
-    /// <summary>Returns the recovered follower log for <paramref name="groupId" />, or <see langword="null" />.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <returns>The recovered follower log, or <see langword="null" /> when the group is not open.</returns>
-    internal IFollowerLog? GetLog(string groupId) => _logs.GetValueOrDefault(groupId);
-
-    /// <summary>Returns the recovered committed records for <paramref name="groupId" />.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <returns>The committed records for the group.</returns>
-    internal IReadOnlyList<FollowerLogEntry> GetCommittedRecords(string groupId) => GetLog(groupId) is { } log ? log.GetCommittedEntries() : [];
-
-    /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="faultHooks">Optional fault-injection seam.</param>
-    /// <returns>A follower log for the group.</returns>
-    private FollowerLog CreateLog(string groupId, IFollowerLogFaultHooks? faultHooks = null) => new(_persistenceRoot, groupId, _composition, faultHooks);
-
     /// <summary>Disposes and forgets every currently open follower log.</summary>
     /// <returns>A task that completes when all open logs are disposed.</returns>
     private async Task CloseLogsAsync()
@@ -95,4 +91,10 @@ internal sealed class GroupRecovery : IAsyncDisposable
 
         _logs.Clear();
     }
+
+    /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="faultHooks">Optional fault-injection seam.</param>
+    /// <returns>A follower log for the group.</returns>
+    private FollowerLog CreateLog(string groupId, IFollowerLogFaultHooks? faultHooks = null) => new(_persistenceRoot, groupId, _composition, faultHooks);
 }

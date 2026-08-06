@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
@@ -33,8 +34,8 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal(2UL, reopened.GetStatus().CommitIndex);
-        Assert.Equal("ab", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
+        Assert.Equal(2UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+        Assert.Equal("ab", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
     }
 
     /// <summary>Uncommitted entries are never surfaced as committed, in memory or after restart.</summary>
@@ -50,14 +51,14 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
 
-            _ = Assert.Single(log.GetCommittedEntries());
-            _ = Assert.Single(log.GetUncommittedTail());
+            _ = Assert.Single(await log.GetCommittedEntriesAsync(DefaultCancellationToken));
+            _ = Assert.Single(await log.GetUncommittedTailAsync(DefaultCancellationToken));
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
-        _ = Assert.Single(reopened.GetCommittedEntries());
-        _ = Assert.Single(reopened.GetUncommittedTail());
+        _ = Assert.Single(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken));
+        _ = Assert.Single(await reopened.GetUncommittedTailAsync(DefaultCancellationToken));
     }
 
     /// <summary>A corrupt or torn divergent tail is safely truncated on restart without touching the committed prefix.</summary>
@@ -82,8 +83,8 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("ab", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
-        var tail = reopened.GetUncommittedTail();
+        Assert.Equal("ab", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
+        var tail = await reopened.GetUncommittedTailAsync(DefaultCancellationToken);
         _ = Assert.Single(tail);
         Assert.Equal(3UL, tail[0].LogIndex);
     }
@@ -123,12 +124,12 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             await log.OpenAsync(DefaultCancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
-            _ = NodeExceptionAssert.For<IOException>().Throws(log, static value => _ = value.GetCommittedEntries());
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException, IReadOnlyList<FollowerLogEntry>>(log.GetCommittedEntriesAsync(DefaultCancellationToken));
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
-        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
     }
 
     /// <summary>Pending operations are rebuilt from the uncommitted tail after restart.</summary>
@@ -148,7 +149,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
-        var tail = reopened.GetUncommittedTail();
+        var tail = await reopened.GetUncommittedTailAsync(DefaultCancellationToken);
         Assert.Equal(2, tail.Count);
         Assert.Equal(2UL, tail[0].LogIndex);
         Assert.Equal(3UL, tail[1].LogIndex);
@@ -175,7 +176,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        var tail = reopened.GetUncommittedTail();
+        var tail = await reopened.GetUncommittedTailAsync(DefaultCancellationToken);
         _ = Assert.Single(tail);
         Assert.Equal(2UL, tail[0].LogIndex);
     }
@@ -197,8 +198,8 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal(1UL, reopened.GetStatus().LastLogIndex);
-        var tail = reopened.GetUncommittedTail();
+        Assert.Equal(1UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        var tail = await reopened.GetUncommittedTailAsync(DefaultCancellationToken);
         _ = Assert.Single(tail);
         Assert.Equal(2UL, tail[0].Term);
         Assert.Equal("A", FollowerLogTestKit.Payload(tail));

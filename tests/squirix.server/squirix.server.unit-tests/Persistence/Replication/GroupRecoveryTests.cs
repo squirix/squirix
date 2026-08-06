@@ -36,8 +36,8 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
         await recovery.RecoverAllAsync(DefaultCancellationToken);
         Assert.NotNull(recovery.GetLog("grp-1"));
         Assert.NotNull(recovery.GetLog("grp-2"));
-        Assert.Equal(1UL, recovery.GetLog("grp-1")!.GetStatus().LastLogIndex);
-        var committed = recovery.GetCommittedRecords("grp-1");
+        Assert.Equal(1UL, (await recovery.GetLog("grp-1")!.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        var committed = await recovery.GetCommittedRecordsAsync("grp-1", DefaultCancellationToken);
         var only = Assert.Single(committed);
         Assert.Equal("durable", System.Text.Encoding.UTF8.GetString(only.Payload.Span));
     }

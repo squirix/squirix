@@ -30,7 +30,7 @@ public sealed class FollowerStorageRestartTests
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
+        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken)));
     }
 
     /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
@@ -49,8 +49,8 @@ public sealed class FollowerStorageRestartTests
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
-        _ = Assert.Single(reopened.GetCommittedEntries());
-        Assert.Equal(2UL, reopened.GetStatus().LastLogIndex);
+        _ = Assert.Single(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2UL, (await reopened.GetStatusAsync(TestContext.Current.CancellationToken)).LastLogIndex);
     }
 
     /// <summary>A crash during commit advance recovers deterministically to the advanced commit index.</summary>
@@ -69,8 +69,8 @@ public sealed class FollowerStorageRestartTests
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(1UL, reopened.GetStatus().CommitIndex);
-        Assert.Equal("a", FollowerLogTestKit.Payload(reopened.GetCommittedEntries()));
+        Assert.Equal(1UL, (await reopened.GetStatusAsync(TestContext.Current.CancellationToken)).CommitIndex);
+        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken)));
     }
 
     /// <summary>Corruption in the committed prefix fails readiness on restart.</summary>

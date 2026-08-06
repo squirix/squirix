@@ -25,7 +25,7 @@ public sealed class FollowerProtocolOrderingTests
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(0UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(0UL, (await log.GetStatusAsync(TestContext.Current.CancellationToken)).LastLogIndex);
     }
 
     /// <summary>A duplicate batch produces exactly one journal effect.</summary>
@@ -44,7 +44,7 @@ public sealed class FollowerProtocolOrderingTests
 
         Assert.True(first.Success);
         Assert.True(second.Success);
-        Assert.Equal(2UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(2UL, (await log.GetStatusAsync(TestContext.Current.CancellationToken)).LastLogIndex);
         Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
 
@@ -69,12 +69,12 @@ public sealed class FollowerProtocolOrderingTests
             var result = await log.AppendAsync(higher, TestContext.Current.CancellationToken);
 
             Assert.True(result.Success);
-            Assert.Equal(9UL, log.GetStatus().CurrentTerm);
+            Assert.Equal(9UL, (await log.GetStatusAsync(TestContext.Current.CancellationToken)).CurrentTerm);
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await reopened.OpenAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(9UL, reopened.GetStatus().CurrentTerm);
+        Assert.Equal(9UL, (await reopened.GetStatusAsync(TestContext.Current.CancellationToken)).CurrentTerm);
     }
 
     /// <summary>A divergent uncommitted tail is truncated and rewritten by the new leader.</summary>
@@ -94,8 +94,8 @@ public sealed class FollowerProtocolOrderingTests
         var result = await log.AppendAsync(Append(1UL, 2UL, "y"), TestContext.Current.CancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
-        var tail = log.GetUncommittedTail();
+        Assert.Equal(1UL, (await log.GetStatusAsync(TestContext.Current.CancellationToken)).LastLogIndex);
+        var tail = await log.GetUncommittedTailAsync(TestContext.Current.CancellationToken);
         _ = Assert.Single(tail);
         Assert.Equal(2UL, tail[0].Term);
         Assert.Equal("y", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));

@@ -30,8 +30,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         Assert.True(first.Success);
         Assert.True(second.Success);
-        Assert.Equal(2UL, log.GetStatus().LastLogIndex);
-        Assert.Equal(2, log.GetUncommittedTail().Count);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.Equal(2, (await log.GetUncommittedTailAsync(DefaultCancellationToken)).Count);
     }
 
     /// <summary>Replaying an identical entry acknowledges idempotently without a second journal effect.</summary>
@@ -50,7 +50,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         Assert.True(first.Success);
         Assert.True(second.Success);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
         Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
 
@@ -68,7 +68,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var gap = await log.AppendAsync(Append(3UL, 1UL, "three"), DefaultCancellationToken);
         Assert.False(gap.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, gap.RefusalCode);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>An uncommitted entry conflicting with the leader's batch is truncated and rewritten.</summary>
@@ -85,8 +85,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(Append(1UL, 2UL, "new"), DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
-        var tail = log.GetUncommittedTail();
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        var tail = await log.GetUncommittedTailAsync(DefaultCancellationToken);
         _ = Assert.Single(tail);
         Assert.Equal(2UL, tail[0].Term);
         Assert.Equal("new", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
@@ -117,8 +117,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(batch, DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
-        var tail = log.GetUncommittedTail();
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        var tail = await log.GetUncommittedTailAsync(DefaultCancellationToken);
         Assert.Equal(2, tail.Count);
         Assert.Equal(2UL, tail[0].LogIndex);
         Assert.Equal(2UL, tail[0].Term);
@@ -146,7 +146,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
         Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
-        Assert.Equal(2UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>A term conflict at the committed boundary also fails readiness.</summary>
@@ -193,7 +193,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         payload[0] = 0xFF;
         payload[3] = 0xFF;
 
-        var tail = log.GetUncommittedTail();
+        var tail = await log.GetUncommittedTailAsync(DefaultCancellationToken);
         Assert.Equal("abcd", System.Text.Encoding.UTF8.GetString(tail[0].Payload.Span));
     }
 
@@ -211,7 +211,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var stale = await log.AppendAsync(Append(2UL, 4UL, "y"), DefaultCancellationToken);
         Assert.False(stale.Success);
         Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>The commit index never moves backward even when a lower request arrives.</summary>
@@ -228,7 +228,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         var back = await log.AdvanceCommitAsync(0UL, DefaultCancellationToken);
         Assert.True(back.Success);
-        Assert.Equal(1UL, log.GetStatus().CommitIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
     }
 
     /// <summary>A commit index beyond the durable last index is refused.</summary>
@@ -245,7 +245,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AdvanceCommitAsync(9UL, DefaultCancellationToken);
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
-        Assert.Equal(0UL, log.GetStatus().CommitIndex);
+        Assert.Equal(0UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
     }
 
     /// <summary>A crafted group identifier cannot escape the storage root because segments are hex-encoded.</summary>
@@ -302,7 +302,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>A stale batch replaying already-durable entries within the local tail is still acknowledged idempotently.</summary>
@@ -328,8 +328,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(stale, DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
-        Assert.Equal(3, log.GetUncommittedTail().Count);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.Equal(3, (await log.GetUncommittedTailAsync(DefaultCancellationToken)).Count);
     }
 
     /// <summary>A heartbeat with a high commit index does not commit a retained divergent suffix beyond the verified predecessor.</summary>
@@ -352,8 +352,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(heartbeat, DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(2UL, log.GetStatus().CommitIndex);
-        Assert.Equal(2, log.GetCommittedEntries().Count);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+        Assert.Equal(2, (await log.GetCommittedEntriesAsync(DefaultCancellationToken)).Count);
     }
 
     /// <summary>A duplicate-prefix request cannot commit entries beyond the prefix it validates.</summary>
@@ -382,8 +382,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(duplicate, DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(3UL, log.GetStatus().CommitIndex);
-        Assert.Equal(3, log.GetCommittedEntries().Count);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+        Assert.Equal(3, (await log.GetCommittedEntriesAsync(DefaultCancellationToken)).Count);
     }
 
     /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>
@@ -400,15 +400,15 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
         _ = await log.AdvanceCommitAsync(3UL, DefaultCancellationToken);
 
-        Assert.Equal(3, log.GetCommittedEntries().Count);
+        Assert.Equal(3, (await log.GetCommittedEntriesAsync(DefaultCancellationToken)).Count);
 
         var result = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
 
         Assert.True(result.Success);
         Assert.Equal(2UL, result.AppliedIndex);
-        Assert.Equal(2UL, log.GetStatus().LastAppliedIndex);
-        Assert.Equal(3UL, log.GetStatus().CommitIndex);
-        var remaining = log.GetCommittedEntries();
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastAppliedIndex);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+        var remaining = await log.GetCommittedEntriesAsync(DefaultCancellationToken);
         var only = Assert.Single(remaining);
         Assert.Equal(3UL, only.LogIndex);
         Assert.Equal("c", System.Text.Encoding.UTF8.GetString(only.Payload.Span));
@@ -432,12 +432,12 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         var backward = await log.AdvanceAppliedAsync(0UL, DefaultCancellationToken);
         Assert.True(backward.Success);
-        Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastAppliedIndex);
 
         var beyond = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
         Assert.False(beyond.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, beyond.RefusalCode);
-        Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastAppliedIndex);
     }
 
     /// <summary>Re-appending an already-applied entry is acknowledged idempotently without failing readiness.</summary>
@@ -456,8 +456,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
 
         Assert.True(result.Success);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
-        Assert.Empty(log.GetCommittedEntries());
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.Empty(await log.GetCommittedEntriesAsync(DefaultCancellationToken));
     }
 
     /// <summary>A batch entry claiming a conflicting term at an applied index fails readiness instead of being silently accepted.</summary>
@@ -490,7 +490,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
         Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>A previous-log term conflict at an applied index fails readiness instead of being silently accepted.</summary>
@@ -519,7 +519,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
         Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
-        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>The applied watermark survives a restart and suppresses re-application of the applied prefix.</summary>
@@ -542,8 +542,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await using (var log = new FollowerLog(dir, GroupId, composition))
         {
             await log.OpenAsync(DefaultCancellationToken);
-            Assert.Equal(1UL, log.GetStatus().LastAppliedIndex);
-            var committed = log.GetCommittedEntries();
+            Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastAppliedIndex);
+            var committed = await log.GetCommittedEntriesAsync(DefaultCancellationToken);
             Assert.Equal(2UL, Assert.Single(committed).LogIndex);
         }
     }
