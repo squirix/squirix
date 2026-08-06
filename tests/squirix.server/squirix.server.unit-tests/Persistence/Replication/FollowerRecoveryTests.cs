@@ -132,6 +132,59 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
     }
 
+    /// <summary>A failed append that already wrote frames must not leave a stale suffix that a shorter retry and recovery accept.</summary>
+    [Fact]
+    public async Task ShorterRetryAfterFailedAppendTruncatesStaleSuffix()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
+        var faults = new FrameWriteFaults();
+
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+
+            // The three-entry batch is durably written, but the append faults right after the write, so the
+            // in-memory logical end never advances while the physical file already holds all three frames.
+            var longBatch = new FollowerLogAppendRequest(
+                "leader-1",
+                1UL,
+                0UL,
+                0UL,
+                0UL,
+                new ReadOnlyMemory<FollowerLogEntry>(
+                [
+                    new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("a")),
+                    new FollowerLogEntry(2UL, 1UL, System.Text.Encoding.UTF8.GetBytes("b")),
+                    new FollowerLogEntry(3UL, 1UL, System.Text.Encoding.UTF8.GetBytes("c")),
+                ]));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, DefaultCancellationToken));
+            Assert.Equal(0UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+
+            // The retry is shorter (two entries). Its durable write must size the file to its own end so the
+            // stale third frame written by the failed append is truncated and never surfaces after recovery.
+            var shortBatch = new FollowerLogAppendRequest(
+                "leader-1",
+                1UL,
+                0UL,
+                0UL,
+                0UL,
+                new ReadOnlyMemory<FollowerLogEntry>(
+                [
+                    new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("a")),
+                    new FollowerLogEntry(2UL, 1UL, System.Text.Encoding.UTF8.GetBytes("b")),
+                ]));
+            var retry = await log.AppendAsync(shortBatch, DefaultCancellationToken);
+            Assert.True(retry.Success);
+            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
+        Assert.Equal(2UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.Equal("ab", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
+    }
+
     /// <summary>Pending operations are rebuilt from the uncommitted tail after restart.</summary>
     [Fact]
     public async Task RestartRebuildsPendingOperationsFromTail()
@@ -271,17 +324,15 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
-    private static FollowerLog OpenLog(TempDirectory dir) =>
-        new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 
-    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
-        new(
-            "leader-1",
-            term,
-            index - 1,
-            index is 1UL ? 0UL : term,
-            0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
+        "leader-1",
+        term,
+        index - 1,
+        index is 1UL ? 0UL : term,
+        0UL,
+        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
 
     /// <summary>Fault hooks that simulate a crash at the memory-apply boundary exactly once.</summary>
     private sealed class CrashBeforeApplyFaults : IFollowerLogFaultHooks
@@ -307,6 +358,33 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         public void OnFrameWritten()
         {
+        }
+    }
+
+    /// <summary>Fault hooks that fault right after a frame write, before the flush, exactly once.</summary>
+    private sealed class FrameWriteFaults : IFollowerLogFaultHooks
+    {
+        private bool _fired;
+
+        public void OnBeforeMemoryApply()
+        {
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnFlushed()
+        {
+        }
+
+        public void OnFrameWritten()
+        {
+            if (_fired)
+                return;
+
+            _fired = true;
+            throw new IOException("simulated failure after the frame write.");
         }
     }
 }
