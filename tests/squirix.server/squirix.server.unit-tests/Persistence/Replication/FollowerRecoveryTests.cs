@@ -179,7 +179,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(2UL, tail[0].LogIndex);
     }
 
-    /// <summary>A conflicting uncommitted tail truncated during append is absent after restart.</summary>
+    /// <summary>A conflicting uncommitted tail truncated during appending is absent after restart.</summary>
     [Fact]
     public async Task TruncatedConflictIsAbsentAfterRestart()
     {
@@ -203,7 +203,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal("A", Payload(tail));
     }
 
-    /// <summary>A missing log file with a nonzero committed index fails readiness on restart.</summary>
+    /// <summary>A missing log file with a nonzero committed index fails readiness to restart.</summary>
     [Fact]
     public async Task MissingLogWithCommittedIndexFailsReadiness()
     {
@@ -225,7 +225,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
-    /// <summary>An empty log file with a nonzero committed index fails readiness on restart.</summary>
+    /// <summary>An empty log file with a nonzero committed index fails readiness to restart.</summary>
     [Fact]
     public async Task EmptyLogWithCommittedIndexFailsReadiness()
     {

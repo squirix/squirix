@@ -501,15 +501,6 @@ internal sealed class FollowerLog : IFollowerLog
 
     private async Task RecoverLogFileAsync(CancellationToken cancellationToken)
     {
-        void EnsureCommittedPrefixCovered()
-        {
-            if (_meta.CommitIndex > _lastLogIndex)
-            {
-                Readiness = FollowerLogReadiness.Failed;
-                throw new InvalidDataException($"Replica group '{GroupId}' commit index exceeds the durable log.");
-            }
-        }
-
         if (!File.Exists(_logPath))
         {
             ResetLogState();
@@ -545,6 +536,15 @@ internal sealed class FollowerLog : IFollowerLog
         _logLength = result.LastValidEnd;
         _meta = _meta with { LastLogIndex = _lastLogIndex };
         EnsureCommittedPrefixCovered();
+        return;
+
+        void EnsureCommittedPrefixCovered()
+        {
+            if (_meta.CommitIndex <= _lastLogIndex)
+                return;
+            Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{GroupId}' commit index exceeds the durable log.");
+        }
     }
 
     private void ResetLogState()
