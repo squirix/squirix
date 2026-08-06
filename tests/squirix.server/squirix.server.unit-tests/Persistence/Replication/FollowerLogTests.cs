@@ -467,6 +467,66 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Empty(log.GetCommittedEntries());
     }
 
+    /// <summary>A batch entry claiming a conflicting term at an applied index fails readiness instead of being silently accepted.</summary>
+    [Fact]
+    public async Task AppliedConflictInBatchFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-conflict-batch");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken);
+
+        // The batch rewrites the applied entry at index 1 with a conflicting term and appends a successor.
+        var request = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            0UL,
+            0UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([
+                new FollowerLogEntry(1UL, 2UL, System.Text.Encoding.UTF8.GetBytes("x")),
+                new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("y"))]));
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+    }
+
+    /// <summary>A previous-log term conflict at an applied index fails readiness instead of being silently accepted.</summary>
+    [Fact]
+    public async Task AppliedPreviousLogConflictFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-applied-prev-conflict");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        _ = await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken);
+
+        // The leader claims its previous entry at the applied index 1 has a conflicting term.
+        var request = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            1UL,
+            2UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("b"))]));
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+        Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+    }
+
     /// <summary>The applied watermark survives a restart and suppresses re-application of the applied prefix.</summary>
     [Fact]
     public async Task AdvanceAppliedSurvivesRestart()

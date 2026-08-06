@@ -19,8 +19,9 @@ namespace Squirix.Server.Storage.Replication;
 ///     </para>
 ///     <para>
 ///     Advancing the applied index persists the watermark first and then releases the applied entry payloads
-///     from memory; the frame offsets of applied entries stay available so a divergent tail at or above the
-///     committed index can still be truncated durably.
+///     from memory; the frame offsets and terms of applied entries stay available so a divergent tail at or
+///     above the committed index can still be truncated durably and applied-region term conflicts (a Leader
+///     Completeness violation) can still be detected and fail readiness.
 ///     </para>
 ///     <para>
 ///     Append follows the following half of the consensus AppendEntries rule: previous
@@ -37,7 +38,7 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly GroupComposition _composition;
     private readonly GroupLogDurability _durability = new();
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
-    private readonly SortedDictionary<ulong, long> _entryOffsets = [];
+    private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
     private readonly IFollowerLogFaultHooks _faults;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _groupDir;
@@ -422,18 +423,29 @@ internal sealed class FollowerLog : IFollowerLog
                 existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan))
                 return true;
 
-            return candidate.LogIndex <= _meta.LastAppliedIndex;
+            // The term of an applied entry was released with its payload, so it is read back from the retained
+            // frame metadata; a batch claiming a conflicting term there violates Leader Completeness and is
+            // rejected as a committed conflict below.
+            return candidate.LogIndex <= _meta.LastAppliedIndex &&
+                _entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term == candidate.Term;
         }
     }
 
     private FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogAppendRequest request)
     {
         // Previous-log consistency; the term at an applied index was released from memory, so the check
-        // covers only the retained region above the applied watermark.
+        // covers only the retained region above the applied watermark. The applied terms are still recorded in
+        // the retained frame metadata, so a leader claiming a conflicting term there violates Leader Completeness.
         if (request.PrevLogIndex > _lastLogIndex)
             return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
 
-        if (request.PrevLogIndex <= 0 || request.PrevLogIndex <= _meta.LastAppliedIndex || TermAt(request.PrevLogIndex) == request.PrevLogTerm)
+        if (request.PrevLogIndex <= 0)
+            return null;
+
+        if (request.PrevLogIndex <= _meta.LastAppliedIndex)
+            return TermAtApplied(request.PrevLogIndex) == request.PrevLogTerm ? null : FailReadiness();
+
+        if (TermAt(request.PrevLogIndex) == request.PrevLogTerm)
             return null;
 
         // A term conflict at or below the committed index violates Leader Completeness; fail readiness.
@@ -445,6 +457,11 @@ internal sealed class FollowerLog : IFollowerLog
         ulong TermAt(ulong logIndex)
         {
             return _entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
+        }
+
+        ulong TermAtApplied(ulong logIndex)
+        {
+            return _entryOffsets.TryGetValue(logIndex, out var location) ? location.Term : 0UL;
         }
     }
 
@@ -518,7 +535,7 @@ internal sealed class FollowerLog : IFollowerLog
             for (var i = 0; i < offsets.Count; i++)
             {
                 var entry = toAppend[i];
-                owner._entryOffsets[offsets[i].Key] = offsets[i].Value;
+                owner._entryOffsets[offsets[i].Key] = (offsets[i].Value, entry.Term);
                 owner._entries[offsets[i].Key] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
             }
 
@@ -540,10 +557,10 @@ internal sealed class FollowerLog : IFollowerLog
         internal static async Task TruncateFromAsync(FollowerLog owner, ulong logIndex, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!owner._entryOffsets.TryGetValue(logIndex, out var byteOffset))
+            if (!owner._entryOffsets.TryGetValue(logIndex, out var location))
                 throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot truncate from a missing index '{logIndex}'.");
 
-            var work = new TruncateDurableWork(owner._durability, byteOffset, owner._faults);
+            var work = new TruncateDurableWork(owner._durability, location.Offset, owner._faults);
             await Task.Factory.StartNew(TruncateDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
 
             var truncated = new List<ulong>();
@@ -560,7 +577,7 @@ internal sealed class FollowerLog : IFollowerLog
             }
 
             owner.SetLastLogIndex(logIndex - 1);
-            owner.SetLogLength(byteOffset);
+            owner.SetLogLength(location.Offset);
             owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
         }
 
@@ -788,7 +805,7 @@ internal sealed class FollowerLog : IFollowerLog
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
                 }
 
-                owner._entryOffsets[entry.LogIndex] = offset;
+                owner._entryOffsets[entry.LogIndex] = (offset, entry.Term);
                 owner._entries[entry.LogIndex] = entry;
                 owner.SetLastLogIndex(entry.LogIndex);
                 offset += consumed;
