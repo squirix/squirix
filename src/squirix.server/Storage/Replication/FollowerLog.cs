@@ -155,7 +155,7 @@ internal sealed class FollowerLog : IFollowerLog
             if (entries.Length is 0)
                 return await CompleteAppendAsync(request.LeaderCommitIndex, cancellationToken).ConfigureAwait(false);
 
-            var error = PrepareAppendBatch(entries, out var toAppend, out var truncateAtIndex);
+            var error = PrepareAppendBatch(request, out var toAppend, out var truncateAtIndex);
             if (error is not null)
                 return error.Value;
 
@@ -426,47 +426,41 @@ internal sealed class FollowerLog : IFollowerLog
         return Task.Factory.StartNew(MetaDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
     }
 
-    private FollowerLogAppendResult? PrepareAppendBatch(ReadOnlyMemory<FollowerLogEntry> entries, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
+    private FollowerLogAppendResult? PrepareAppendBatch(FollowerLogAppendRequest request, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
     {
         toAppend = null;
         truncateAtIndex = null;
-        var nextExpected = _lastLogIndex + 1;
+        var nextExpected = request.PrevLogIndex + 1;
 
-        for (var i = 0; i < entries.Length; i++)
+        for (var i = 0; i < request.Entries.Length; i++)
         {
-            var entry = entries.Span[i];
-            if (entry.LogIndex < nextExpected)
-            {
-                if (TryGetEntry(entry.LogIndex, out var existing) && existing.Term == entry.Term && existing.PayloadSpan.SequenceEqual(entry.PayloadSpan))
-                    continue;
-
-                if (entry.LogIndex <= _meta.CommitIndex)
-                    return FailReadiness();
-
-                // The leader's entry conflicts with an uncommitted local entry. Truncate the divergent tail from
-                // this index and rewrite it with the leader's batch (Raft AppendEntries receiver rule 2).
-                if (truncateAtIndex is null)
-                {
-                    truncateAtIndex = entry.LogIndex;
-                    nextExpected = entry.LogIndex;
-                }
-                else if (entry.LogIndex != nextExpected)
-                {
-                    return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
-                }
-
-                toAppend ??= [];
-                toAppend.Add(entry);
-                nextExpected++;
-                continue;
-            }
-
+            var entry = request.Entries.Span[i];
             if (entry.LogIndex != nextExpected)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
 
+            nextExpected++;
+
+            // Once the divergent tail is being rewritten, every subsequent entry must be re-appended durably.
+            if (truncateAtIndex is not null)
+            {
+                toAppend ??= [];
+                toAppend.Add(entry);
+                continue;
+            }
+
+            // Already present locally with identical content: no durable write is required.
+            if (entry.LogIndex <= _lastLogIndex && TryGetEntry(entry.LogIndex, out var existing) &&
+                existing.Term == entry.Term && existing.PayloadSpan.SequenceEqual(entry.PayloadSpan))
+                continue;
+
+            if (entry.LogIndex <= _meta.CommitIndex)
+                return FailReadiness();
+
+            if (entry.LogIndex <= _lastLogIndex)
+                truncateAtIndex = entry.LogIndex;
+
             toAppend ??= [];
             toAppend.Add(entry);
-            nextExpected++;
         }
 
         return null;

@@ -278,6 +278,61 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(Directory.Exists(root));
     }
 
+    /// <summary>A batch whose first entry does not follow the declared predecessor is rejected as malformed.</summary>
+    [Fact]
+    public async Task RejectsBatchNotFollowingDeclaredPredecessor()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-predecessor");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+
+        // Declares index 1 as predecessor but skips index 2: the batch starts at index 3.
+        var malformed = new FollowerLogAppendRequest(
+            "leader-1",
+            1UL,
+            1UL,
+            1UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 1UL, System.Text.Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, System.Text.Encoding.UTF8.GetBytes("d"))]));
+        var result = await log.AppendAsync(malformed, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
+    }
+
+    /// <summary>A stale batch replaying already-durable entries within the local tail is still acknowledged idempotently.</summary>
+    [Fact]
+    public async Task AcknowledgesStaleBatchWithinLocalTail()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-stale-repeat");
+        var composition = GroupComposition.Create([GroupId]);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+
+        var stale = new FollowerLogAppendRequest(
+            "leader-1",
+            1UL,
+            2UL,
+            1UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 1UL, System.Text.Encoding.UTF8.GetBytes("c"))]));
+        var result = await log.AppendAsync(stale, DefaultCancellationToken);
+
+        Assert.True(result.Success);
+        Assert.Equal(3UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(3, log.GetUncommittedTail().Count);
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
         new(
             "leader-1",
