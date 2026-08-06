@@ -97,10 +97,6 @@ internal static class ServerHostingComposition
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<MtlsOptions>(),
                 sp.GetRequiredService<MtlsCertificateMaterial>()));
-
-        // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
-        // materialized; group membership is derived in a later milestone.
-        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
     }
 
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
@@ -128,7 +124,14 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
         if (persistenceEnabled)
+        {
             _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+
+            // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
+            // materialized; group membership is derived in a later milestone. Registered only when persistence is
+            // enabled because the factory resolves PersistenceOptions, which is not registered otherwise.
+            _ = builder.Services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+        }
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
