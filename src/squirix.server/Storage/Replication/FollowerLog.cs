@@ -389,6 +389,7 @@ internal sealed class FollowerLog : IFollowerLog
 
         _lastLogIndex = offsets[^1].Key;
         _logLength = startOffset + totalLength;
+        _meta = _meta with { LastLogIndex = _lastLogIndex };
     }
 
     private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, CancellationToken cancellationToken)
