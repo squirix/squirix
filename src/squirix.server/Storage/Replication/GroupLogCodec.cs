@@ -112,18 +112,7 @@ internal static class GroupLogCodec
 
         // Offset walks the fixed-width term/commit fields first, then the
         // length-prefixed variable fields that close the payload.
-        var offset = 5;
-        if (!TryReadFixedFields(buffer, ref offset, out var fields))
-            return false;
-        if (!TryReadString(buffer, ref offset, out var groupId))
-            return false;
-        if (!TryReadBytes(buffer, ref offset, out var fingerprint))
-            return false;
-        if (!TryReadString(buffer, ref offset, out var votedFor))
-            return false;
-
-        meta = new GroupLogMetadata(groupId, fingerprint, fields.ConfigurationGeneration, fields.CurrentTerm, votedFor, fields.LastLogIndex, fields.CommitIndex, fields.LastAppliedIndex);
-        return true;
+        return TryReadMetaFields(buffer, out meta);
     }
 
     /// <summary>Computes the exact encoded length of a log frame.</summary>
@@ -268,6 +257,27 @@ internal static class GroupLogCodec
         offset += 8;
 
         fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
+        return true;
+    }
+
+    /// <summary>Reads the term/commit fixed fields and the trailing variable fields into a metadata value.</summary>
+    /// <param name="buffer">The CRC-validated encoded metadata payload.</param>
+    /// <param name="meta">The decoded metadata when every field is structurally valid.</param>
+    /// <returns><see langword="true" /> when all fields decode; otherwise <see langword="false" />.</returns>
+    private static bool TryReadMetaFields(ReadOnlySpan<byte> buffer, out GroupLogMetadata meta)
+    {
+        meta = default;
+        var offset = 5;
+        if (!TryReadFixedFields(buffer, ref offset, out var fields))
+            return false;
+        if (!TryReadString(buffer, ref offset, out var groupId))
+            return false;
+        if (!TryReadBytes(buffer, ref offset, out var fingerprint))
+            return false;
+        if (!TryReadString(buffer, ref offset, out var votedFor))
+            return false;
+
+        meta = new GroupLogMetadata(groupId, fingerprint, fields.ConfigurationGeneration, fields.CurrentTerm, votedFor, fields.LastLogIndex, fields.CommitIndex, fields.LastAppliedIndex);
         return true;
     }
 
