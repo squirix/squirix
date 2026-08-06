@@ -155,6 +155,65 @@ internal static class GroupLogCodec
     {
         entry = default;
         consumed = 0;
+        if (!TryReadFrameCore(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength, out var frameConsumed))
+            return false;
+
+        entry = new FollowerLogEntry(logIndex, term, OwnedBufferKit.CopyToOwned(buffer.Slice(payloadStart, payloadLength)));
+        consumed = frameConsumed;
+        return true;
+    }
+
+    /// <summary>Validates a complete log frame and reads its index and term without allocating the payload.</summary>
+    /// <param name="buffer">The buffer containing the frame.</param>
+    /// <param name="logIndex">The decoded entry index when the frame is valid.</param>
+    /// <param name="term">The decoded entry term when the frame is valid.</param>
+    /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
+    internal static bool TryReadFrameFields(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term)
+    {
+        logIndex = 0;
+        term = 0;
+        return TryReadFrameCore(buffer, out logIndex, out term, out _, out _, out _);
+    }
+
+    /// <summary>Reads the total encoded length of a log frame from its 9-byte header (magic, version, body length).</summary>
+    /// <param name="header">The 9-byte frame header: magic(4), version(1), bodyLength(4).</param>
+    /// <param name="frameLength">The total frame length including the header, body and CRC when valid.</param>
+    /// <returns><see langword="true" /> when the header is structurally valid; otherwise <see langword="false" />.</returns>
+    internal static bool TryReadFrameHeaderLength(ReadOnlySpan<byte> header, out int frameLength)
+    {
+        frameLength = 0;
+        if (header.Length < FrameHeaderByteCount + 4)
+            return false;
+
+        if (BinaryPrimitives.ReadUInt32LittleEndian(header[..4]) != FrameMagic)
+            return false;
+
+        if (header[4] != FrameVersion)
+            return false;
+
+        var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(header.Slice(5, 4));
+        if (bodyLength is not (>= FrameFixedByteCount and <= int.MaxValue - FrameHeaderByteCount - 4 - 4))
+            return false;
+
+        frameLength = FrameHeaderByteCount + 4 + bodyLength + 4;
+        return true;
+    }
+
+    /// <summary>Validates a CRC-complete log frame and reads its index, term and payload extent without copying the payload.</summary>
+    /// <param name="buffer">The buffer containing the frame.</param>
+    /// <param name="logIndex">The decoded entry index when the frame is valid.</param>
+    /// <param name="term">The decoded entry term when the frame is valid.</param>
+    /// <param name="payloadStart">The payload start offset within the buffer when the frame is valid.</param>
+    /// <param name="payloadLength">The payload length in bytes when the frame is valid.</param>
+    /// <param name="consumed">The number of bytes consumed by the frame when valid.</param>
+    /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
+    private static bool TryReadFrameCore(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term, out int payloadStart, out int payloadLength, out int consumed)
+    {
+        logIndex = 0;
+        term = 0;
+        payloadStart = 0;
+        payloadLength = 0;
+        consumed = 0;
         if (buffer.Length < FrameHeaderByteCount + 4)
             return false;
 
@@ -175,17 +234,16 @@ internal static class GroupLogCodec
             return false;
 
         var offset = bodyStart;
-        var logIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        logIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
-        var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
         offset += 8;
-        var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
+        payloadLength = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
         offset += 4;
         if (payloadLength < 0 || payloadLength != bodyLength - FrameFixedByteCount)
             return false;
 
-        var payload = OwnedBufferKit.CopyToOwned(buffer.Slice(offset, payloadLength));
-        entry = new FollowerLogEntry(logIndex, term, payload);
+        payloadStart = offset;
         consumed = crcOffset + 4;
         return true;
     }

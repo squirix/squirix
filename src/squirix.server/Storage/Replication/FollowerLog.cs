@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -679,6 +678,8 @@ internal sealed class FollowerLog : IFollowerLog
     /// <summary>Startup recovery: rebuilds the in-memory log from the durable frame file.</summary>
     private static class FollowerLogRecovery
     {
+        private const int FrameHeaderByteCount = 9;
+
         private static readonly Action<object?> RecoveryTruncateCallback = static state =>
         {
             if (state is RecoveryTruncateWork work)
@@ -708,41 +709,72 @@ internal sealed class FollowerLog : IFollowerLog
                 return;
             }
 
-            var bytes = await File.ReadAllBytesAsync(owner._logPath, cancellationToken).ConfigureAwait(false);
-
-            // An empty file is treated the same as no file at all.
-            if (bytes.Length is 0)
+            var stream = new FileStream(
+                owner._logPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                FrameHeaderByteCount,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using (stream.ConfigureAwait(false))
             {
-                ResetLogState(owner);
+                // An empty file is treated the same as no file at all.
+                if (stream.Length == 0)
+                {
+                    ResetLogState(owner);
+                    EnsureCommittedPrefixCovered(owner);
+                    return;
+                }
+
+                // Anything preceding the expected header marks the file as unusable.
+                if (stream.Length < GroupLogCodec.LogFileHeader.Length)
+                {
+                    owner.Readiness = FollowerLogReadiness.Failed;
+                    throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
+                }
+
+                await ReadAndValidateLogFileHeaderAsync(stream, owner, cancellationToken).ConfigureAwait(false);
+
+                owner._entries.Clear();
+                owner._entryOffsets.Clear();
+                owner.SetLastLogIndex(0);
+
+                var result = await WalkFramesAsync(owner, stream, cancellationToken).ConfigureAwait(false);
+
+                // A torn trailing frame is truncated back to the last valid boundary on disk,
+                // since a CRC mismatch alone cannot tell an appended tail from corruption.
+                if (result.Truncated && result.LastValidEnd < stream.Length)
+                {
+                    var work = new RecoveryTruncateWork(owner._logPath, result.LastValidEnd);
+                    await Task.Factory.StartNew(RecoveryTruncateCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                              .ConfigureAwait(false);
+                }
+
+                owner.SetLogLength(result.LastValidEnd);
+                owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
+                PruneAppliedEntries(owner);
                 EnsureCommittedPrefixCovered(owner);
+            }
+        }
+
+        /// <summary>Reads and verifies the log file header, failing recovery when it is corrupt.</summary>
+        /// <param name="stream">The open log file positioned at its start.</param>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="cancellationToken">A token to observe while reading.</param>
+        /// <exception cref="InvalidDataException">The log file header is corrupt.</exception>
+        private static async Task ReadAndValidateLogFileHeaderAsync(FileStream stream, FollowerLog owner, CancellationToken cancellationToken)
+        {
+            var header = ArrayPool<byte>.Shared.Rent(GroupLogCodec.LogFileHeader.Length);
+            await stream.ReadExactlyAsync(header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), cancellationToken).ConfigureAwait(false);
+            if (header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
+            {
+                ArrayPool<byte>.Shared.Return(header);
                 return;
             }
 
-            // Anything preceding the expected header marks the file as unusable.
-            if (bytes.Length < GroupLogCodec.LogFileHeader.Length || !bytes.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
-            {
-                owner.Readiness = FollowerLogReadiness.Failed;
-                throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
-            }
-
-            owner._entries.Clear();
-            owner._entryOffsets.Clear();
-            owner.SetLastLogIndex(0);
-
-            var result = WalkFrames(owner, bytes);
-
-            // A torn trailing frame is truncated back to the last valid boundary on disk,
-            // since a CRC mismatch alone cannot tell an appended tail from corruption.
-            if (result.Truncated && result.LastValidEnd < bytes.Length)
-            {
-                var work = new RecoveryTruncateWork(owner._logPath, result.LastValidEnd);
-                await Task.Factory.StartNew(RecoveryTruncateCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
-            }
-
-            owner.SetLogLength(result.LastValidEnd);
-            owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
-            PruneAppliedEntries(owner);
-            EnsureCommittedPrefixCovered(owner);
+            ArrayPool<byte>.Shared.Return(header);
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
         }
 
         private static void EnsureCommittedPrefixCovered(FollowerLog owner)
@@ -760,59 +792,109 @@ internal sealed class FollowerLog : IFollowerLog
             owner.SetMeta(owner._meta with { LastLogIndex = 0 });
         }
 
-        private static bool TryReadFrameAt(ReadOnlySpan<byte> buffer, int offset, out FollowerLogEntry entry, out int consumed)
+        private static async Task<WalkResult> WalkFramesAsync(FollowerLog owner, FileStream stream, CancellationToken cancellationToken)
         {
-            entry = default;
-            consumed = 0;
-            if (buffer.Length - offset < 9)
-                return false;
+            var lastValidEnd = GroupLogCodec.LogFileHeader.Length;
 
-            var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(offset + 5, 4));
-            if (bodyLength < 20)
-                return false;
-
-            if (offset + 9 + bodyLength + 4 > buffer.Length)
-                return false;
-
-            if (!GroupLogCodec.TryReadFrame(buffer[offset..], out entry, out consumed))
-                return false;
-
-            return true;
-        }
-
-        private static WalkResult WalkFrames(FollowerLog owner, byte[] bytes)
-        {
-            var buffer = bytes.AsSpan();
-            var offset = GroupLogCodec.LogFileHeader.Length;
-            var lastValidEnd = offset;
-
-            while (offset < bytes.Length)
+            while (stream.Position < stream.Length)
             {
                 var nextLogIndex = owner._lastLogIndex + 1;
-                if (!TryReadFrameAt(buffer, offset, out var entry, out var consumed))
+
+                // A partial header is a torn trailing frame.
+                if (stream.Length - stream.Position < FrameHeaderByteCount)
+                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+                var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
+                await stream.ReadExactlyAsync(frameHeader.AsMemory(0, FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+
+                // A header that fails structural validation is either a torn tail or a corrupt committed frame.
+                if (!GroupLogCodec.TryReadFrameHeaderLength(frameHeader, out var frameLength))
                 {
-                    if (nextLogIndex > owner._meta.CommitIndex)
-                        return new WalkResult(lastValidEnd, true);
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
+                    ArrayPool<byte>.Shared.Return(frameHeader);
+                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
                 }
 
-                if (entry.LogIndex != nextLogIndex)
+                // A frame that ends past EOF is a torn trailing frame.
+                if (stream.Length - stream.Position < frameLength - FrameHeaderByteCount)
                 {
-                    if (nextLogIndex > owner._meta.CommitIndex)
-                        return new WalkResult(lastValidEnd, true);
-                    owner.Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
+                    ArrayPool<byte>.Shared.Return(frameHeader);
+                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
                 }
 
-                owner._entryOffsets[entry.LogIndex] = (offset, entry.Term);
-                owner._entries[entry.LogIndex] = entry;
-                owner.SetLastLogIndex(entry.LogIndex);
-                offset += consumed;
-                lastValidEnd = offset;
+                var frame = ArrayPool<byte>.Shared.Rent(frameLength);
+                frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
+                await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+                ArrayPool<byte>.Shared.Return(frameHeader);
+
+                var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
+                ArrayPool<byte>.Shared.Return(frame);
+                if (tail is not null)
+                    return tail.Value;
+
+                lastValidEnd += frameLength;
             }
 
             return new WalkResult(lastValidEnd, false);
+        }
+
+        /// <summary>Records a CRC-validated frame, keeping the payload only above the applied watermark.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="nextLogIndex">The index the frame must carry.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="frame">The complete frame at its start offset.</param>
+        /// <returns>The recovery result when the frame must be truncated; otherwise <see langword="null" />.</returns>
+        private static WalkResult? RecordFrame(FollowerLog owner, ulong nextLogIndex, long lastValidEnd, ReadOnlySpan<byte> frame)
+        {
+            // Frames at or below the applied watermark need only their index and term, not their payload.
+            if (nextLogIndex <= owner._meta.LastAppliedIndex)
+            {
+                if (!GroupLogCodec.TryReadFrameFields(frame, out var logIndex, out var term))
+                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+                if (logIndex != nextLogIndex)
+                    return CommittedGap(owner, lastValidEnd, nextLogIndex);
+
+                owner._entryOffsets[logIndex] = (lastValidEnd, term);
+                owner.SetLastLogIndex(logIndex);
+                return null;
+            }
+
+            if (!GroupLogCodec.TryReadFrame(frame, out var entry, out _))
+                return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+            if (entry.LogIndex != nextLogIndex)
+                return CommittedGap(owner, lastValidEnd, nextLogIndex);
+
+            owner._entryOffsets[entry.LogIndex] = (lastValidEnd, entry.Term);
+            owner._entries[entry.LogIndex] = entry;
+            owner.SetLastLogIndex(entry.LogIndex);
+            return null;
+        }
+
+        /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="nextLogIndex">The expected index of the invalid frame.</param>
+        /// <exception cref="InvalidDataException">The invalid frame lies within the committed region.</exception>
+        private static WalkResult UncommittedTail(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
+        {
+            if (nextLogIndex > owner._meta.CommitIndex)
+                return new WalkResult(lastValidEnd, true);
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
+        }
+
+        /// <summary>Fails recovery for a gap within the committed region.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="nextLogIndex">The expected index of the missing frame.</param>
+        /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
+        private static WalkResult CommittedGap(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
+        {
+            if (nextLogIndex > owner._meta.CommitIndex)
+                return new WalkResult(lastValidEnd, true);
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
         }
 
         /// <summary>Result of walking the log frames during startup recovery.</summary>
