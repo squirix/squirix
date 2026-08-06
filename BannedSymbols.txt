@@ -9,6 +9,7 @@ M:System.FormattableString.Invariant(System.FormattableString);Use string interp
 T:System.Linq.Enumerable;LINQ is banned in this solution. Use explicit loops instead.
 T:System.Linq.EnumerableQuery`1;LINQ is banned in this solution. Use explicit loops instead.
 T:System.Linq.ParallelEnumerable;LINQ is banned in this solution. Use explicit loops instead.
+N:System.Xml.Linq;System.Xml.Linq (LINQ-to-XML) is banned. Use System.Xml (XmlDocument / XmlReader) instead.
 M:System.Linq.Enumerable.ToArray`1(System.Collections.Generic.IEnumerable{``0});Avoid unnecessary array copies. Return List<T>/IReadOnlyList<T> or use collection expressions ([.. source]) when an array is required.
 M:System.Linq.Enumerable.ToList`1(System.Collections.Generic.IEnumerable{``0});Avoid unnecessary list materialization. Use explicit loops or pre-sized collections instead.
 M:System.Collections.Generic.List`1.ToArray();Avoid unnecessary array copies when a list or span view is sufficient.

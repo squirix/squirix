@@ -6,7 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Xml.Linq;
+using System.Xml;
 
 var requiredDocs = new[]
 {
@@ -426,11 +426,14 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
-            var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken).ConfigureAwait(false);
-            XElement? metadata = null;
-            foreach (var element in document.Root?.Elements() ?? [])
+            var document = new XmlDocument();
+            document.Load(stream);
+
+            var root = document.DocumentElement ?? throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
+            XmlElement? metadata = null;
+            foreach (XmlNode node in root.ChildNodes)
             {
-                if (!string.Equals(element.Name.LocalName, "metadata", StringComparison.Ordinal))
+                if (node is not XmlElement element || !string.Equals(element.LocalName, "metadata", StringComparison.Ordinal))
                     continue;
 
                 metadata = element;
@@ -443,12 +446,12 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
             {
                 string? value = null;
-                foreach (var element in metadata.Elements())
+                foreach (XmlNode node in metadata.ChildNodes)
                 {
-                    if (!string.Equals(element.Name.LocalName, name, StringComparison.Ordinal))
+                    if (node is not XmlElement element || !string.Equals(element.LocalName, name, StringComparison.Ordinal))
                         continue;
 
-                    value = element.Value.Trim();
+                    value = element.InnerText.Trim();
                     break;
                 }
 
@@ -456,31 +459,31 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
                     throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
             }
 
-            XElement? repository = null;
-            foreach (var element in metadata.Elements())
+            XmlElement? repository = null;
+            foreach (XmlNode node in metadata.ChildNodes)
             {
-                if (!string.Equals(element.Name.LocalName, "repository", StringComparison.Ordinal))
+                if (node is not XmlElement element || !string.Equals(element.LocalName, "repository", StringComparison.Ordinal))
                     continue;
 
                 repository = element;
                 break;
             }
 
-            var repositoryUrl = repository?.Attribute("url")?.Value.Trim();
+            var repositoryUrl = repository?.GetAttribute("url").Trim();
             if (string.IsNullOrWhiteSpace(repositoryUrl))
                 throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
 
-            XElement? licenseElement = null;
-            foreach (var element in metadata.Elements())
+            XmlElement? licenseElement = null;
+            foreach (XmlNode node in metadata.ChildNodes)
             {
-                if (!string.Equals(element.Name.LocalName, "license", StringComparison.Ordinal))
+                if (node is not XmlElement element || !string.Equals(element.LocalName, "license", StringComparison.Ordinal))
                     continue;
 
                 licenseElement = element;
                 break;
             }
 
-            if (string.IsNullOrWhiteSpace(licenseElement?.Value.Trim()))
+            if (string.IsNullOrWhiteSpace(licenseElement?.InnerText.Trim()))
                 throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
         }
     }

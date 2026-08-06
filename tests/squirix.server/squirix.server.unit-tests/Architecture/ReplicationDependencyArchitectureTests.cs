@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using System.Xml;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -35,6 +36,8 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     public async Task NsDepCopPolicyMatchesReplicationDag()
     {
         var config = await File.ReadAllTextAsync(Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "config.nsdepcop"), DefaultCancellationToken);
+        var policy = new XmlDocument();
+        policy.LoadXml(config);
 
         // Canonical replacement for the broad Cluster → Storage ban: only Cluster.Replication → Storage.Replication survives.
         Assert.Contains(@"Squirix\.Server\.Cluster(?:\.(?!Replication(?:\.|$)).*)?$", config, StringComparison.Ordinal);
@@ -42,19 +45,19 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         Assert.Contains(@"Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$", config, StringComparison.Ordinal);
 
         // Storage.Replication must not depend upward on Node, Adapters, or Cluster.
-        Assert.Contains("From=\"Squirix.Server.Storage.Replication.*\" To=\"Squirix.Server.Node.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Storage.Replication.*\" To=\"Squirix.Server.Adapters.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Storage.Replication.*\" To=\"Squirix.Server.Cluster.*\"", config, StringComparison.Ordinal);
+        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Node.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Adapters.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Cluster.*");
 
         // Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and cache.
-        Assert.Contains("From=\"Squirix.Server.Cluster.Replication.*\" To=\"Squirix.Server.Adapters.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Cluster.Replication.*\" To=\"Squirix.Server.Node.Hosting.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Cluster.Replication.*\" To=\"Squirix.Server.Node.App.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Cluster.Replication.*\" To=\"Squirix.Server.Cluster.Transport.*\"", config, StringComparison.Ordinal);
-        Assert.Contains("From=\"Squirix.Server.Cluster.Replication.*\" To=\"Squirix.Server.LocalCache.*\"", config, StringComparison.Ordinal);
+        AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.Hosting.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.App.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Cluster.Transport.*");
+        AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.LocalCache.*");
 
         // Node.App must not bypass Cluster.Replication into Storage.Replication.
-        Assert.Contains("From=\"Squirix.Server.Node.App.*\" To=\"Squirix.Server.Storage.Replication.*\"", config, StringComparison.Ordinal);
+        AssertDisallowedEdge(policy, "Squirix.Server.Node.App.*", "Squirix.Server.Storage.Replication.*");
     }
 
     /// <summary>Cluster.Replication sources must not import dumping or banned namespaces.</summary>
@@ -157,5 +160,27 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
                 Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{path} contains '{marker}'");
             }
         }
+    }
+
+    private static void AssertDisallowedEdge(XmlDocument policy, string from, string to)
+    {
+        var edge = FindEdge(policy, from, to);
+        Assert.True(edge is not null, $"Expected an edge from '{from}' to '{to}' in config.nsdepcop.");
+        Assert.True(string.Equals(edge.LocalName, "Disallowed", StringComparison.Ordinal), $"Edge from '{from}' to '{to}' must be declared under a <Disallowed> element, found <{edge.LocalName}>.");
+    }
+
+    private static XmlElement? FindEdge(XmlDocument policy, string from, string to)
+    {
+        foreach (XmlNode node in policy.GetElementsByTagName("*"))
+        {
+            if (node is not XmlElement element)
+                continue;
+
+            if (!string.Equals(element.GetAttribute("From"), from, StringComparison.Ordinal) || !string.Equals(element.GetAttribute("To"), to, StringComparison.Ordinal))
+                continue;
+            return element;
+        }
+
+        return null;
     }
 }

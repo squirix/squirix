@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -44,7 +44,7 @@ internal static class ServerArchitectureFixtures
         "src/squirix.server.host/Program.cs",
     ];
 
-    private static readonly Lazy<XDocument> ServerProject = new(LoadServerProject);
+    private static readonly Lazy<XmlDocument> ServerProject = new(LoadServerProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
 
@@ -101,12 +101,15 @@ internal static class ServerArchitectureFixtures
                 continue;
 
             var hasImplicitUsings = false;
-            foreach (var element in LoadProject(path).Descendants())
+            foreach (XmlNode node in LoadProject(path).GetElementsByTagName("*"))
             {
-                if (!string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
+                if (node is not XmlElement element)
                     continue;
 
-                if (!element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(element.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!element.InnerText.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 hasImplicitUsings = true;
@@ -152,23 +155,26 @@ internal static class ServerArchitectureFixtures
 
     internal static MsbuildProjectIndex GetServerProjectIndex() => ServerProjectIndex.Value;
 
-    internal static XDocument LoadProject(string relativeOrAbsolutePath)
+    internal static XmlDocument LoadProject(string relativeOrAbsolutePath)
     {
         var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
             RepositoryPaths.FindRepositoryRoot(),
             relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path));
-        return XDocument.Load(path);
+
+        var document = new XmlDocument();
+        document.Load(path);
+        return document;
     }
 
-    internal static MsbuildProjectIndex ParseMsbuildProject(XDocument project)
+    internal static MsbuildProjectIndex ParseMsbuildProject(XmlDocument project)
     {
         var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+        var includedElements = new Dictionary<string, List<XmlElement>>(StringComparer.OrdinalIgnoreCase);
         var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        CollectIndexData(project.Root, properties, includes, includedElements, localNames);
+        CollectIndexData(project.DocumentElement, properties, includes, includedElements, localNames);
 
         return new MsbuildProjectIndex(
             properties.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
@@ -196,10 +202,10 @@ internal static class ServerArchitectureFixtures
 
     private static void AddInclude(
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XElement>> includedElements,
+        Dictionary<string, List<XmlElement>> includedElements,
         string localName,
         string include,
-        XElement element)
+        XmlElement element)
     {
         if (!includes.TryGetValue(localName, out var includeList))
         {
@@ -219,33 +225,33 @@ internal static class ServerArchitectureFixtures
     }
 
     private static void CollectIndexData(
-        XElement? root,
+        XmlElement? root,
         Dictionary<string, string> properties,
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XElement>> includedElements,
+        Dictionary<string, List<XmlElement>> includedElements,
         HashSet<string> localNames)
     {
         if (root is null)
             return;
 
-        var localName = root.Name.LocalName;
+        var localName = root.LocalName;
         _ = localNames.Add(localName);
 
-        var include = root.Attribute("Include")?.Value;
+        var include = root.GetAttribute("Include");
         if (!string.IsNullOrWhiteSpace(include))
         {
             AddInclude(includes, includedElements, localName, include, root);
         }
         else if (!properties.ContainsKey(localName))
         {
-            var value = root.Value;
+            var value = root.InnerText;
             if (!string.IsNullOrWhiteSpace(value))
                 properties[localName] = value.Trim();
         }
 
-        for (var node = root.FirstNode; node is not null; node = node.NextNode)
+        for (var node = root.FirstChild; node is not null; node = node.NextSibling)
         {
-            if (node is XElement child)
+            if (node is XmlElement child)
                 CollectIndexData(child, properties, includes, includedElements, localNames);
         }
     }
@@ -263,10 +269,13 @@ internal static class ServerArchitectureFixtures
             || normalized.Contains(ndependOutMarker, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static XDocument LoadServerProject()
+    private static XmlDocument LoadServerProject()
     {
         var path = Path.Join(RepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path));
-        return XDocument.Load(path);
+
+        var document = new XmlDocument();
+        document.Load(path);
+        return document;
     }
 }
