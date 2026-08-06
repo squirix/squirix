@@ -22,7 +22,7 @@ namespace Squirix.Server.Storage.Replication;
 ///     <c>(term, log_index)</c> consistency, consecutive append without gaps, idempotent duplicate
 ///     acknowledgement, higher-term persistence before response, and committed-prefix conflicts fail readiness.
 ///     An uncommitted entry that conflicts with the leader's batch truncates the divergent tail, which is then
-///     rewritten with the leader's entries before the append is acknowledged.
+///     rewritten with the leader's entries before the appending is acknowledged.
 ///     </para>
 /// </remarks>
 internal sealed class FollowerLog : IFollowerLog
@@ -154,7 +154,7 @@ internal sealed class FollowerLog : IFollowerLog
             var entries = request.Entries;
             var lastVerifiedIndex = entries.Length is 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
             if (entries.Length is 0)
-                return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
+                return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
 
             var error = PrepareAppendBatch(request, out var toAppend, out var truncateAtIndex);
             if (error is not null)
@@ -166,7 +166,7 @@ internal sealed class FollowerLog : IFollowerLog
             if (toAppend is { Count: > 0 })
                 await AppendFramesDurableAsync(toAppend, cancellationToken).ConfigureAwait(false);
 
-            return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
+            return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex is not null, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -314,7 +314,7 @@ internal sealed class FollowerLog : IFollowerLog
             }
             else
             {
-                // The log file exists without its atomically-published metadata, so the committed boundary is unknown.
+                // The log file exists without its atomically published metadata, so the committed boundary is unknown.
                 // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
                 // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
                 Readiness = FollowerLogReadiness.Failed;
@@ -392,7 +392,7 @@ internal sealed class FollowerLog : IFollowerLog
         _meta = _meta with { LastLogIndex = _lastLogIndex };
     }
 
-    private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, CancellationToken cancellationToken)
+    private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, bool metaDirty, CancellationToken cancellationToken)
     {
         var commitAdvanced = false;
         if (leaderCommitIndex > _meta.CommitIndex)
@@ -405,7 +405,8 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
-        await PersistMetaAsync(cancellationToken).ConfigureAwait(false);
+        if (commitAdvanced || metaDirty)
+            await PersistMetaAsync(cancellationToken).ConfigureAwait(false);
         if (commitAdvanced)
             _faults.OnCommitAdvanced();
 
