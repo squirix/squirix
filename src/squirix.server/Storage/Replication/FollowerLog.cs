@@ -307,7 +307,11 @@ internal sealed class FollowerLog : IFollowerLog
             }
             else
             {
-                _meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                // The log file exists without its atomically-published metadata, so the committed boundary is unknown.
+                // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
+                // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
+                Readiness = FollowerLogReadiness.Failed;
+                throw new InvalidDataException($"Replica group '{GroupId}' metadata is missing while the log file exists; the group requires recovery or repair.");
             }
 
             await RecoverLogFileAsync(cancellationToken).ConfigureAwait(false);

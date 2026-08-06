@@ -225,6 +225,28 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
+    /// <summary>A missing metadata file with an existing log fails readiness instead of truncating the durable log.</summary>
+    [Fact]
+    public async Task MissingMetaWithExistingLogFailsReadiness()
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-missing-meta");
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        File.Delete(metaPath);
+
+        await using var reopened = OpenLog(dir);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Contains("metadata is missing", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
     /// <summary>An empty log file with a nonzero committed index fails readiness to restart.</summary>
     [Fact]
     public async Task EmptyLogWithCommittedIndexFailsReadiness()
