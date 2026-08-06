@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
@@ -11,7 +12,7 @@ public sealed class FollowerProtocolOrderingTests
 {
     private const string GroupId = "grp-1";
 
-    /// <summary>An out-of-order batch is rejected without any partial append.</summary>
+    /// <summary>An out-of-order batch is rejected without any partial appending.</summary>
     [Fact]
     public async Task OutOfOrderBatchIsRejectedWithoutPartialAppend()
     {
@@ -38,14 +39,16 @@ public sealed class FollowerProtocolOrderingTests
 
         var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL);
         var first = await log.AppendAsync(batch, TestContext.Current.CancellationToken);
+        var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
         var second = await log.AppendAsync(batch, TestContext.Current.CancellationToken);
 
         Assert.True(first.Success);
         Assert.True(second.Success);
         Assert.Equal(2UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
 
-    /// <summary>A higher term is persisted durably before the append is acknowledged.</summary>
+    /// <summary>A higher term is persisted durably before the appending is acknowledged.</summary>
     [Fact]
     public async Task HigherTermPersistsBeforeResponse()
     {

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -44,11 +45,13 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await log.OpenAsync(DefaultCancellationToken);
 
         var first = await log.AppendAsync(Append(1UL, 1UL, "dup"), DefaultCancellationToken);
+        var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
         var second = await log.AppendAsync(Append(1UL, 1UL, "dup"), DefaultCancellationToken);
 
         Assert.True(first.Success);
         Assert.True(second.Success);
         Assert.Equal(1UL, log.GetStatus().LastLogIndex);
+        Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
 
     /// <summary>A gap in the batch is rejected without any appending.</summary>
@@ -109,7 +112,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             1UL,
             1UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("B")), new FollowerLogEntry(3UL, 2UL, System.Text.Encoding.UTF8.GetBytes("C"))]));
+            new ReadOnlyMemory<FollowerLogEntry>(
+                [new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("B")), new FollowerLogEntry(3UL, 2UL, System.Text.Encoding.UTF8.GetBytes("C"))]));
         var result = await log.AppendAsync(batch, DefaultCancellationToken);
 
         Assert.True(result.Success);
@@ -183,13 +187,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await log.OpenAsync(DefaultCancellationToken);
 
         var payload = System.Text.Encoding.UTF8.GetBytes("abcd");
-        var request = new FollowerLogAppendRequest(
-            "leader-1",
-            1UL,
-            0UL,
-            1UL,
-            0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
         _ = await log.AppendAsync(request, DefaultCancellationToken);
 
         payload[0] = 0xFF;
@@ -298,7 +296,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             1UL,
             1UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 1UL, System.Text.Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, System.Text.Encoding.UTF8.GetBytes("d"))]));
+            new ReadOnlyMemory<FollowerLogEntry>(
+                [new FollowerLogEntry(3UL, 1UL, System.Text.Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, System.Text.Encoding.UTF8.GetBytes("d"))]));
         var result = await log.AppendAsync(malformed, DefaultCancellationToken);
 
         Assert.False(result.Success);
@@ -349,13 +348,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
         // A new term-3 leader heartbeat at index 2 and claims index 4 committed; the term-2 suffix stays uncommitted.
-        var heartbeat = new FollowerLogAppendRequest(
-            "leader-3",
-            3UL,
-            2UL,
-            1UL,
-            4UL,
-            ReadOnlyMemory<FollowerLogEntry>.Empty);
+        var heartbeat = new FollowerLogAppendRequest("leader-3", 3UL, 2UL, 1UL, 4UL, ReadOnlyMemory<FollowerLogEntry>.Empty);
         var result = await log.AppendAsync(heartbeat, DefaultCancellationToken);
 
         Assert.True(result.Success);
@@ -487,9 +480,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
             0UL,
             0UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([
+            new ReadOnlyMemory<FollowerLogEntry>(
+            [
                 new FollowerLogEntry(1UL, 2UL, System.Text.Encoding.UTF8.GetBytes("x")),
-                new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("y"))]));
+                new FollowerLogEntry(2UL, 2UL, System.Text.Encoding.UTF8.GetBytes("y")),
+            ]));
         var result = await log.AppendAsync(request, DefaultCancellationToken);
 
         Assert.False(result.Success);
@@ -553,12 +548,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
     }
 
-    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
-        new(
-            "leader-1",
-            term,
-            index - 1,
-            index is 1UL ? 0UL : term,
-            0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
+        "leader-1",
+        term,
+        index - 1,
+        index is 1UL ? 0UL : term,
+        0UL,
+        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
 }
