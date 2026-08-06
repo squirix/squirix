@@ -7,7 +7,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Low-level <see cref="RandomAccess" /> file access for a replica-group log with write-through on Windows.</summary>
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. On Windows,
-/// <see cref="FileOptions.WriteThrough" /> makes every write durable without an explicit disk flush;
+/// <see cref="FileOptions.WriteThrough" /> makes every writing durable without an explicit disk flush;
 /// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to confirm durability.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
@@ -47,7 +47,7 @@ internal sealed class GroupLogDurability : IDisposable
         RandomAccess.SetLength(handle, length);
     }
 
-    /// <summary>Writes bytes at <paramref name="fileOffset" />.</summary>
+    /// <summary>Writes bytes at <paramref name="fileOffset" /> and sizes the file to exactly <paramref name="fileOffset" /> plus the data length.</summary>
     /// <param name="data">The bytes to write.</param>
     /// <param name="fileOffset">The byte offset at which to write.</param>
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
@@ -55,6 +55,10 @@ internal sealed class GroupLogDurability : IDisposable
     {
         var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
         RandomAccess.Write(handle, data.Span, fileOffset);
+
+        // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the
+        // intended new end on every successful writing truncates any stale suffix so recovery never accepts it.
+        RandomAccess.SetLength(handle, fileOffset + data.Length);
     }
 
     /// <summary>Flushes the log to stable storage.</summary>
