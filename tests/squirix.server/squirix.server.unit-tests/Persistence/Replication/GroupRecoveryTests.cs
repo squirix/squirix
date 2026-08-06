@@ -19,7 +19,8 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
         await using var recovery = new GroupRecovery(dir, GroupComposition.Create("grp-1", "grp-2"));
 
         await recovery.RecoverAllAsync(DefaultCancellationToken);
-        Assert.NotNull(recovery.GetLog("grp-1"));
+        var firstGrp1 = recovery.GetLog("grp-1");
+        Assert.NotNull(firstGrp1);
         Assert.NotNull(recovery.GetLog("grp-2"));
 
         // Durable state is present, so the second recovery has something to restore.
@@ -30,13 +31,21 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
             0UL,
             0UL,
             new System.ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, System.Text.Encoding.UTF8.GetBytes("durable"))]));
-        _ = await recovery.GetLog("grp-1")!.AppendAsync(request, DefaultCancellationToken);
-        _ = await recovery.GetLog("grp-1")!.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        _ = await firstGrp1.AppendAsync(request, DefaultCancellationToken);
+        _ = await firstGrp1.AdvanceCommitAsync(1UL, DefaultCancellationToken);
 
         await recovery.RecoverAllAsync(DefaultCancellationToken);
-        Assert.NotNull(recovery.GetLog("grp-1"));
+        var reopenedGrp1 = recovery.GetLog("grp-1");
+        Assert.NotNull(reopenedGrp1);
         Assert.NotNull(recovery.GetLog("grp-2"));
-        Assert.Equal(1UL, (await recovery.GetLog("grp-1")!.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.NotSame(firstGrp1, reopenedGrp1);
+
+        // The original log was disposed during recovery and rejects subsequent operations.
+        var rejected = await firstGrp1.AppendAsync(request, DefaultCancellationToken);
+        Assert.False(rejected.Success);
+        Assert.Equal(FollowerLogRefusal.NotReady, rejected.RefusalCode);
+
+        Assert.Equal(1UL, (await reopenedGrp1.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
         var committed = await recovery.GetCommittedRecordsAsync("grp-1", DefaultCancellationToken);
         var only = Assert.Single(committed);
         Assert.Equal("durable", System.Text.Encoding.UTF8.GetString(only.Payload.Span));
