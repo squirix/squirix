@@ -76,9 +76,9 @@ internal sealed class FollowerLog : IFollowerLog
         _faults = faultHooks ?? NoOpFaults;
         GroupId = groupId;
         _groupDir = GroupStoragePaths.GetGroupDirectory(persistenceRoot, groupId);
-        _metaPath = Path.Join(_groupDir, "group.meta");
-        _metaTempPath = Path.Join(_groupDir, "group.meta.tmp");
-        _logPath = Path.Join(_groupDir, "group.log");
+        _metaPath = GroupStoragePaths.GetMetadataPath(persistenceRoot, groupId);
+        _metaTempPath = GroupStoragePaths.GetMetadataTempPath(persistenceRoot, groupId);
+        _logPath = GroupStoragePaths.GetLogPath(persistenceRoot, groupId);
     }
 
     /// <inheritdoc />
