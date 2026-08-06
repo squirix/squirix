@@ -34,12 +34,22 @@ internal sealed class GroupRecovery
     /// <returns>A task that completes when every local group log is open and recovered.</returns>
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
+        await DisposeLogsAsync().ConfigureAwait(false);
         _logs.Clear();
-        foreach (var groupId in _composition.GroupIds)
+        try
         {
-            var log = CreateLog(groupId);
-            await log.OpenAsync(cancellationToken).ConfigureAwait(false);
-            _logs[groupId] = log;
+            foreach (var groupId in _composition.GroupIds)
+            {
+                var log = CreateLog(groupId);
+                await log.OpenAsync(cancellationToken).ConfigureAwait(false);
+                _logs[groupId] = log;
+            }
+        }
+        catch
+        {
+            await DisposeLogsAsync().ConfigureAwait(false);
+            _logs.Clear();
+            throw;
         }
     }
 
@@ -52,4 +62,10 @@ internal sealed class GroupRecovery
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committed records for the group.</returns>
     internal IReadOnlyList<FollowerLogEntry> GetCommittedRecords(string groupId) => GetLog(groupId) is { } log ? log.GetCommittedEntries() : [];
+
+    private async Task DisposeLogsAsync()
+    {
+        foreach (var log in _logs.Values)
+            await log.DisposeAsync().ConfigureAwait(false);
+    }
 }
