@@ -207,18 +207,15 @@ internal static class ExploreRunner
             for (var i = 0; i < state.Nodes.Count; i++)
             {
                 var node = state.Nodes[i];
-                if (node.AppliedIndex >= node.CommitIndex)
+                if (node.AppliedIndex < node.CommitIndex)
                 {
-                    CollectBrokenReadReady(state, i, node, broken, output);
-                    continue;
+                    var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                    var applied = node.AppliedIndex + 1;
+                    var ready = ComputeReadReady(node, applied, profile, broken) || node.ReadReady;
+
+                    nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready });
+                    output.Add(state.WithNodes(nodes));
                 }
-
-                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                var applied = node.AppliedIndex + 1;
-                var ready = ComputeReadReady(node, applied, profile, broken) || node.ReadReady;
-
-                nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready });
-                output.Add(state.WithNodes(nodes));
             }
         }
 
@@ -234,17 +231,6 @@ internal static class ExploreRunner
                 nodes[i] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = old.Index, BadOldCommit = true });
                 output.Add(state.WithNodes(nodes));
             }
-        }
-
-        private static void CollectBrokenReadReady(ClusterState state, int index, NodeState node, BrokenMode broken, List<ClusterState> output)
-        {
-            // Broken read-index may still mark ready without apply.
-            if (broken is not BrokenMode.ReadIndex || node.Role is not NodeRole.Leader || node is not { ReadIndex: > 0, ReadReady: false })
-                return;
-
-            var bad = ModelTransitionUtil.CloneNodes(state.Nodes);
-            bad[index] = ModelTransitionUtil.Patch(node, new NodePatch { ReadReady = true });
-            output.Add(state.WithNodes(bad));
         }
 
         private static void CollectClientProposals(ClusterState state, ExploreProfile profile, List<ClusterState> output)
