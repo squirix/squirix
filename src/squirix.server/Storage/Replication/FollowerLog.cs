@@ -934,7 +934,7 @@ internal sealed class FollowerLog : IFollowerLog
 
         private static async Task<WalkResult> WalkFramesAsync(FollowerLog owner, FileStream stream, CancellationToken cancellationToken)
         {
-            var lastValidEnd = GroupLogCodec.LogFileHeader.Length;
+            long lastValidEnd = GroupLogCodec.LogFileHeader.Length;
 
             while (stream.Position < stream.Length)
             {
