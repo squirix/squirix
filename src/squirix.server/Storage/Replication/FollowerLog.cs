@@ -813,16 +813,19 @@ internal sealed class FollowerLog : IFollowerLog
         private static async Task ReadAndValidateLogFileHeaderAsync(FileStream stream, FollowerLog owner, CancellationToken cancellationToken)
         {
             var header = ArrayPool<byte>.Shared.Rent(GroupLogCodec.LogFileHeader.Length);
-            await stream.ReadExactlyAsync(header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), cancellationToken).ConfigureAwait(false);
-            if (header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
+            try
+            {
+                await stream.ReadExactlyAsync(header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), cancellationToken).ConfigureAwait(false);
+                if (!header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
+                {
+                    owner.Readiness = FollowerLogReadiness.Failed;
+                    throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
+                }
+            }
+            finally
             {
                 ArrayPool<byte>.Shared.Return(header);
-                return;
             }
-
-            ArrayPool<byte>.Shared.Return(header);
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
         }
 
         private static void EnsureCommittedPrefixCovered(FollowerLog owner)
@@ -853,33 +856,39 @@ internal sealed class FollowerLog : IFollowerLog
                     return UncommittedTail(owner, lastValidEnd, nextLogIndex);
 
                 var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
-                await stream.ReadExactlyAsync(frameHeader.AsMemory(0, FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await stream.ReadExactlyAsync(frameHeader.AsMemory(0, FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
 
-                // A header that fails structural validation is either a torn tail or a corrupt committed frame.
-                if (!GroupLogCodec.TryReadFrameHeaderLength(frameHeader, out var frameLength))
+                    // A header that fails structural validation is either a torn tail or a corrupt committed frame.
+                    if (!GroupLogCodec.TryReadFrameHeaderLength(frameHeader, out var frameLength))
+                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+                    // A frame that ends past EOF is a torn trailing frame.
+                    if (stream.Length - stream.Position < frameLength - FrameHeaderByteCount)
+                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+                    var frame = ArrayPool<byte>.Shared.Rent(frameLength);
+                    try
+                    {
+                        frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
+                        await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+
+                        var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
+                        if (tail is not null)
+                            return tail.Value;
+
+                        lastValidEnd += frameLength;
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(frame);
+                    }
+                }
+                finally
                 {
                     ArrayPool<byte>.Shared.Return(frameHeader);
-                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
                 }
-
-                // A frame that ends past EOF is a torn trailing frame.
-                if (stream.Length - stream.Position < frameLength - FrameHeaderByteCount)
-                {
-                    ArrayPool<byte>.Shared.Return(frameHeader);
-                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-                }
-
-                var frame = ArrayPool<byte>.Shared.Rent(frameLength);
-                frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
-                await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
-                ArrayPool<byte>.Shared.Return(frameHeader);
-
-                var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
-                ArrayPool<byte>.Shared.Return(frame);
-                if (tail is not null)
-                    return tail.Value;
-
-                lastValidEnd += frameLength;
             }
 
             return new WalkResult(lastValidEnd, false);
