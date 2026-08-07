@@ -371,10 +371,10 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, 2UL, "c"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(4UL, 2UL, "d"), DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(3UL, 2UL, "c", 1UL), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(4UL, 2UL, "d", 2UL), DefaultCancellationToken)).Success);
         _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
         // A new term-3 leader heartbeat at index 2 and claims index 4 committed; the term-2 suffix stays uncommitted.
@@ -395,10 +395,10 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, 2UL, "c"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(4UL, 2UL, "d"), DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(3UL, 2UL, "c", 1UL), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(4UL, 2UL, "d", 2UL), DefaultCancellationToken)).Success);
         _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
         // The leader re-sends only entry 3 and claims index 4 committed; entry 4 was not validated by this request.
@@ -578,11 +578,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
     }
 
-    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload, ulong? prevLogTerm = null) => new(
         "leader-1",
         term,
         index - 1,
-        index is 1UL ? 0UL : term,
+        prevLogTerm ?? (index is 1UL ? 0UL : term),
         0UL,
         new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, System.Text.Encoding.UTF8.GetBytes(payload))]));
 }
