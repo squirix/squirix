@@ -1,5 +1,5 @@
 #:property PublishAot=false
-using System.Xml.Linq;
+using System.Xml;
 
 const string supportedTargetFramework = "net10.0";
 var projectExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".csproj", ".props", ".targets" };
@@ -112,10 +112,11 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
 
 void ValidateFile(string repoRoot, string path, List<string> outFailures)
 {
-    XDocument document;
+    XmlDocument document;
     try
     {
-        document = XDocument.Load(path, LoadOptions.None);
+        document = new XmlDocument();
+        document.Load(path);
     }
     catch (InvalidOperationException ex)
     {
@@ -138,14 +139,17 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         return;
     }
 
-    foreach (var element in document.Descendants())
+    foreach (XmlNode node in document.GetElementsByTagName("*"))
     {
-        var localName = element.Name.LocalName;
+        if (node is not XmlElement element)
+            continue;
+
+        var localName = element.LocalName;
         if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal)
             && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
             continue;
 
-        foreach (var framework in element.Value.Split(';'))
+        foreach (var framework in element.InnerText.Split(';'))
         {
             var value = framework.Trim();
             if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))

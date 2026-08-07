@@ -82,7 +82,7 @@ public sealed class DirectoryExTests
         using var root = new TempDirectory("squirix-directoryex-symlink-async");
         var ct = TestContext.Current.CancellationToken;
         var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
+        _ = Directory.CreateDirectory(real);
         var link = Path.Join(root.Path, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
@@ -123,7 +123,7 @@ public sealed class DirectoryExTests
     {
         using var root = new TempDirectory("squirix-directoryex-symlink");
         var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
+        _ = Directory.CreateDirectory(real);
         var link = Path.Join(root.Path, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
