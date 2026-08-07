@@ -634,7 +634,7 @@ internal sealed class FollowerLog : IFollowerLog
             try
             {
                 var work = new TruncateDurableWork(owner._durability, location.Offset, owner._faults);
-                await Task.Factory.StartNew(TruncateDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+                await Task.Factory.StartNew(TruncateDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
             }
             finally
             {
