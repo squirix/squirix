@@ -33,7 +33,7 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal sealed class FollowerLog : IFollowerLog
 {
-    private static readonly IFollowerLogFaultHooks NoOpFaults = new NoOpFaultHooks();
+    private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
     private readonly GroupComposition _composition;
     private readonly GroupLogDurability _durability = new();
@@ -41,9 +41,9 @@ internal sealed class FollowerLog : IFollowerLog
     /// <summary>
     /// Applied entries are pruned from memory once their watermark is durable, so this working set is bounded
     /// by the applied watermark during a single process lifetime. Payloads are intentionally retained until the
-    /// group is closed or the process restarts: groups are expected to be opened/closed on membership events in
-    /// a later milestone, and enforced retention limits will be introduced together with that lifecycle. See the
-    /// durable ordered follower log specification (M8-05) for the retention decision.
+    /// group is closed or the process restarts: groups are expected to be opened/closed on membership
+    /// events in a later milestone, and enforced retention limits will be introduced together with that
+    /// lifecycle. See the durable ordered follower log specification (M8-05) for the retention decision.
     /// </summary>
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
 
@@ -67,7 +67,7 @@ internal sealed class FollowerLog : IFollowerLog
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
         _composition = composition ?? throw new ArgumentNullException(nameof(composition));
-        _faults = faultHooks ?? NoOpFaults;
+        _faults = faultHooks ?? DefaultFaults;
         GroupId = groupId;
         _groupDir = GroupStoragePaths.GetGroupDirectory(persistenceRoot, groupId);
         _metaPath = GroupStoragePaths.GetMetadataPath(persistenceRoot, groupId);
@@ -104,7 +104,7 @@ internal sealed class FollowerLog : IFollowerLog
             // The watermark is persisted before the payloads are released; on a crash between the two, restart
             // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
             var candidate = _meta with { LastAppliedIndex = appliedIndex };
-            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
             SetMeta(candidate);
             FollowerLogRecovery.PruneAppliedEntries(this);
             return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
@@ -133,7 +133,7 @@ internal sealed class FollowerLog : IFollowerLog
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
             var candidate = _meta with { CommitIndex = commitIndex };
-            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
             SetMeta(candidate);
             _faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
@@ -148,19 +148,19 @@ internal sealed class FollowerLog : IFollowerLog
     public async Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
-        request = SnapshotRequestEntries(request);
+        request = FollowerLogAppend.SnapshotRequestEntries(request);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
 
-            var termError = await AdvanceTermIfHigherAsync(request, cancellationToken).ConfigureAwait(false);
+            var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(this, request, cancellationToken).ConfigureAwait(false);
             if (termError is not null)
                 return termError.Value;
 
-            var consistencyError = VerifyPreviousLogConsistency(request);
-            return consistencyError ?? await AppendVerifiedBatchAsync(request, cancellationToken).ConfigureAwait(false);
+            var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(this, request);
+            return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(this, request, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -285,7 +285,7 @@ internal sealed class FollowerLog : IFollowerLog
             if (!metaExists && !logExists)
             {
                 var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
-                await PersistMetaOrFailReadinessAsync(fresh, cancellationToken).ConfigureAwait(false);
+                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, fresh, cancellationToken).ConfigureAwait(false);
                 SetMeta(fresh);
                 SetLastLogIndex(0);
                 SetLogLength(0);
@@ -324,213 +324,209 @@ internal sealed class FollowerLog : IFollowerLog
         }
     }
 
-    /// <summary>
-    /// Snapshots the request entry array and each entry payload into owned buffers before the first await, so the
-    /// synchronous <c>Entries</c> / <c>Payload</c> spans cannot be mutated by the caller while the append is suspended.
-    /// </summary>
-    /// <param name="request">The append request to snapshot.</param>
-    /// <returns>A request whose entries and payloads are owned copies of the original.</returns>
-    private static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
-    {
-        if (request.Entries.IsEmpty)
-            return request;
-
-        var snapshot = new FollowerLogEntry[request.Entries.Length];
-        for (var i = 0; i < request.Entries.Length; i++)
-        {
-            var entry = request.Entries.Span[i];
-            snapshot[i] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
-        }
-
-        return request with { Entries = snapshot };
-    }
-
-    private async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
-    {
-        // Higher term is persisted durably before any further response; the old leader stops being authoritative.
-        if (request.CurrentTerm > _meta.CurrentTerm)
-        {
-            var candidate = _meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
-            await PersistMetaOrFailReadinessAsync(candidate, cancellationToken).ConfigureAwait(false);
-            SetMeta(candidate);
-            return null;
-        }
-
-        if (request.CurrentTerm < _meta.CurrentTerm)
-            return new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm, _lastLogIndex);
-
-        return null;
-    }
-
-    private async Task<FollowerLogAppendResult> AppendVerifiedBatchAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
-    {
-        // Validate the whole batch for contiguity and conflicts before writing anything.
-        var entries = request.Entries;
-        var lastVerifiedIndex = entries.Length is 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
-        if (entries.Length is 0)
-            return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
-
-        var error = PrepareAppendBatch(request, out var toAppend, out var truncateAtIndex);
-        if (error is not null)
-            return error.Value;
-
-        if (truncateAtIndex is not null)
-            await FollowerLogDurable.TruncateFromAsync(this, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
-
-        if (toAppend is { Count: > 0 })
-            await FollowerLogDurable.AppendFramesDurableAsync(this, toAppend, cancellationToken).ConfigureAwait(false);
-
-        return await CompleteAppendAsync(request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex is not null, cancellationToken)
-           .ConfigureAwait(false);
-    }
-
-    private async Task<FollowerLogAppendResult> CompleteAppendAsync(ulong leaderCommitIndex, ulong lastVerifiedIndex, bool metaDirty, CancellationToken cancellationToken)
-    {
-        var commitAdvanced = false;
-        GroupLogMetadata? commitCandidate = null;
-        if (leaderCommitIndex > _meta.CommitIndex)
-        {
-            var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
-            if (target > _meta.CommitIndex)
-            {
-                commitCandidate = _meta with { CommitIndex = target };
-                commitAdvanced = true;
-            }
-        }
-
-        if (commitAdvanced || metaDirty)
-        {
-            await PersistMetaOrFailReadinessAsync(commitCandidate ?? _meta, cancellationToken).ConfigureAwait(false);
-            if (commitCandidate is { } candidate)
-                SetMeta(candidate);
-        }
-
-        if (commitAdvanced)
-            _faults.OnCommitAdvanced();
-
-        return new FollowerLogAppendResult(true, string.Empty, _meta.CurrentTerm, _lastLogIndex);
-    }
-
-    private FollowerLogAppendResult FailReadiness()
-    {
-        Readiness = FollowerLogReadiness.Failed;
-        return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
-    }
-
-    /// <summary>
-    /// Persists <paramref name="candidate" /> durably before it is exposed through <see cref="_meta" />; on
-    /// publication failure the log is marked failed and the in-memory state stays unchanged.
-    /// </summary>
-    /// <param name="candidate">The metadata to persist and then publish.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task PersistMetaOrFailReadinessAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await FollowerLogDurable.PersistMetaAsync(this, candidate, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation is not a publish failure; preserve readiness so the caller can retry.
-            throw;
-        }
-        catch
-        {
-            Readiness = FollowerLogReadiness.Failed;
-            throw;
-        }
-    }
-
-    private FollowerLogAppendResult? PrepareAppendBatch(FollowerLogAppendRequest request, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
-    {
-        toAppend = null;
-        truncateAtIndex = null;
-        var nextExpected = request.PrevLogIndex + 1;
-        var entries = request.Entries.Span;
-
-        for (var i = 0; i < entries.Length; i++)
-        {
-            var entry = entries[i];
-            if (entry.LogIndex != nextExpected)
-                return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
-
-            nextExpected++;
-
-            // Once the divergent tail is being rewritten, every subsequent entry must be re-appended durably.
-            if (truncateAtIndex is not null)
-            {
-                toAppend!.Add(entry);
-                continue;
-            }
-
-            // Entries already satisfied by local state need no durable writing: duplicates already present with
-            // identical content, and applied entries whose payloads were released after application (Leader
-            // Completeness guarantees a current-term leader cannot conflict at an applied index).
-            if (IsSatisfiedByLocalState(in entry))
-                continue;
-
-            if (entry.LogIndex <= _meta.CommitIndex)
-                return FailReadiness();
-
-            if (entry.LogIndex <= _lastLogIndex)
-                truncateAtIndex = entry.LogIndex;
-
-            toAppend ??= [];
-            toAppend.Add(entry);
-        }
-
-        return null;
-
-        bool IsSatisfiedByLocalState(in FollowerLogEntry candidate)
-        {
-            if (candidate.LogIndex <= _lastLogIndex && _entries.TryGetValue(candidate.LogIndex, out var existing) && existing.Term == candidate.Term &&
-                existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan))
-                return true;
-
-            // The term of an applied entry was released with its payload, so it is read back from the retained
-            // frame metadata; a batch claiming a conflicting term there violates Leader Completeness and is
-            // rejected as a committed conflict below.
-            return candidate.LogIndex <= _meta.LastAppliedIndex && _entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term == candidate.Term;
-        }
-    }
-
-    private void SetLastLogIndex(ulong value) => _lastLogIndex = value;
-
-    private void SetLogLength(long value) => _logLength = value;
-
     private void SetMeta(GroupLogMetadata meta) => _meta = meta;
 
-    private FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogAppendRequest request)
+    private void SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
+
+    private void SetLogLength(long logLength) => _logLength = logLength;
+
+    /// <summary>Append-protocol operations for a follower log.</summary>
+    private static class FollowerLogAppend
     {
-        // Previous-log consistency; the term at an applied index was released from memory, so the check
-        // covers only the retained region above the applied watermark. The applied terms are still recorded in
-        // the retained frame metadata, so a leader claiming a conflicting term there violates Leader Completeness.
-        if (request.PrevLogIndex > _lastLogIndex)
-            return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
-
-        if (request.PrevLogIndex <= 0)
-            return null;
-
-        if (request.PrevLogIndex <= _meta.LastAppliedIndex)
-            return TermAtApplied(request.PrevLogIndex) == request.PrevLogTerm ? null : FailReadiness();
-
-        if (TermAt(request.PrevLogIndex) == request.PrevLogTerm)
-            return null;
-
-        // A term conflict at or below the committed index violates Leader Completeness; fail readiness.
-        if (request.PrevLogIndex <= _meta.CommitIndex)
-            return FailReadiness();
-
-        return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
-
-        ulong TermAt(ulong logIndex)
+        internal static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
         {
-            return _entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
+            var entries = request.Entries;
+            var owned = new FollowerLogEntry[entries.Length];
+            for (var i = 0; i < entries.Length; i++)
+            {
+                var entry = entries.Span[i];
+                owned[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray());
+            }
+
+            return new FollowerLogAppendRequest(
+                request.LeaderNodeId,
+                request.CurrentTerm,
+                request.PrevLogIndex,
+                request.PrevLogTerm,
+                request.LeaderCommitIndex,
+                owned);
         }
 
-        ulong TermAtApplied(ulong logIndex)
+        internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(FollowerLog owner, FollowerLogAppendRequest request, CancellationToken cancellationToken)
         {
-            return _entryOffsets.TryGetValue(logIndex, out var location) ? location.Term : 0UL;
+            // Higher term is persisted durably before any further response; the old leader stops being authoritative.
+            if (request.CurrentTerm > owner._meta.CurrentTerm)
+            {
+                var candidate = owner._meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
+                await PersistMetaOrFailReadinessAsync(owner, candidate, cancellationToken).ConfigureAwait(false);
+                owner.SetMeta(candidate);
+                return null;
+            }
+
+            if (request.CurrentTerm < owner._meta.CurrentTerm)
+                return new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, owner._meta.CurrentTerm, owner._lastLogIndex);
+
+            return null;
+        }
+
+        internal static async Task<FollowerLogAppendResult> AppendVerifiedBatchAsync(FollowerLog owner, FollowerLogAppendRequest request, CancellationToken cancellationToken)
+        {
+            // Validate the whole batch for contiguity and conflicts before writing anything.
+            var entries = request.Entries;
+            var lastVerifiedIndex = entries.Length is 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
+            if (entries.Length is 0)
+                return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
+
+            var error = PrepareAppendBatch(owner, request, out var toAppend, out var truncateAtIndex);
+            if (error is not null)
+                return error.Value;
+
+            if (truncateAtIndex is not null)
+                await FollowerLogDurable.TruncateFromAsync(owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
+
+            if (toAppend is { Count: > 0 })
+                await FollowerLogDurable.AppendFramesDurableAsync(owner, toAppend, cancellationToken).ConfigureAwait(false);
+
+            return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex is not null, cancellationToken)
+               .ConfigureAwait(false);
+        }
+
+        internal static async Task PersistMetaOrFailReadinessAsync(FollowerLog owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await FollowerLogDurable.PersistMetaAsync(owner, candidate, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is not a publication failure; preserve readiness so the caller can retry.
+                throw;
+            }
+            catch
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
+        internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLog owner, FollowerLogAppendRequest request)
+        {
+            // Previous-log consistency; the term at an applied index was released from memory, so the check
+            // covers only the retained region above the applied watermark. The term of an applied entry is read
+            // back from the retained frame metadata; a leader claiming a conflicting term there violates the
+            // Leader Completeness property.
+            if (request.PrevLogIndex > owner._lastLogIndex)
+                return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
+
+            if (request.PrevLogIndex <= 0)
+                return null;
+
+            if (request.PrevLogIndex <= owner._meta.LastAppliedIndex)
+                return TermAtApplied(owner, request.PrevLogIndex) == request.PrevLogTerm ? null : FailReadiness(owner);
+
+            if (TermAt(owner, request.PrevLogIndex) == request.PrevLogTerm)
+                return null;
+
+            // A term conflict at or below the committed index violates the Leader Completeness property; fail readiness.
+            if (request.PrevLogIndex <= owner._meta.CommitIndex)
+                return FailReadiness(owner);
+
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
+
+            static ulong TermAt(FollowerLog owner, ulong logIndex)
+            {
+                return owner._entries.TryGetValue(logIndex, out var entry) ? entry.Term : 0UL;
+            }
+
+            static ulong TermAtApplied(FollowerLog owner, ulong logIndex)
+            {
+                return owner._entryOffsets.TryGetValue(logIndex, out var location) ? location.Term : 0UL;
+            }
+        }
+
+        private static async Task<FollowerLogAppendResult> CompleteAppendAsync(FollowerLog owner, ulong leaderCommitIndex, ulong lastVerifiedIndex, bool metaDirty, CancellationToken cancellationToken)
+        {
+            var commitAdvanced = false;
+            GroupLogMetadata? commitLogical = null;
+            if (leaderCommitIndex > owner._meta.CommitIndex)
+            {
+                var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
+                if (target > owner._meta.CommitIndex)
+                {
+                    commitLogical = owner._meta with { CommitIndex = target };
+                    commitAdvanced = true;
+                }
+            }
+
+            if (commitAdvanced || metaDirty)
+            {
+                await PersistMetaOrFailReadinessAsync(owner, commitLogical ?? owner._meta, cancellationToken).ConfigureAwait(false);
+                if (commitLogical is { } candidate)
+                    owner.SetMeta(candidate);
+            }
+
+            if (commitAdvanced)
+                owner._faults.OnCommitAdvanced();
+
+            return new FollowerLogAppendResult(true, string.Empty, owner._meta.CurrentTerm, owner._lastLogIndex);
+        }
+
+        private static FollowerLogAppendResult FailReadiness(FollowerLog owner)
+        {
+            owner.Readiness = FollowerLogReadiness.Failed;
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
+        }
+
+        private static FollowerLogAppendResult? PrepareAppendBatch(FollowerLog owner, FollowerLogAppendRequest request, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
+        {
+            toAppend = null;
+            truncateAtIndex = null;
+            var nextExpected = request.PrevLogIndex + 1;
+            var entries = request.Entries.Span;
+
+            for (var i = 0; i < entries.Length; i++)
+            {
+                var entry = entries[i];
+                if (entry.LogIndex != nextExpected)
+                    return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
+
+                nextExpected++;
+
+                // Once the divergent tail is being rewritten, every subsequent entry must be re-appended durably.
+                if (truncateAtIndex is not null)
+                {
+                    toAppend!.Add(entry);
+                    continue;
+                }
+
+                // Entries already satisfied by local state need no durable writing: duplicates already present with
+                // identical content, and applied entries whose payloads were released after application (Leader
+                // Completeness guarantees a current-term leader cannot create a conflict at an applied index).
+                if (IsSatisfiedByLocalState(owner, in entry))
+                    continue;
+
+                if (entry.LogIndex <= owner._meta.CommitIndex)
+                    return FailReadiness(owner);
+
+                if (entry.LogIndex <= owner._lastLogIndex)
+                    truncateAtIndex = entry.LogIndex;
+
+                toAppend ??= [];
+                toAppend.Add(entry);
+            }
+
+            return null;
+
+            static bool IsSatisfiedByLocalState(FollowerLog owner, in FollowerLogEntry candidate)
+            {
+                if (candidate.LogIndex <= owner._lastLogIndex && owner._entries.TryGetValue(candidate.LogIndex, out var existing) && existing.Term == candidate.Term &&
+                    existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan))
+                    return true;
+
+                // The term of an applied entry was released with its payload, so it is read back from the retained
+                // frame metadata; a batch re-appending at an applied index is a committed conflict and is rejected below.
+                return candidate.LogIndex <= owner._meta.LastAppliedIndex && owner._entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term != candidate.Term;
+            }
         }
     }
 
@@ -618,7 +614,7 @@ internal sealed class FollowerLog : IFollowerLog
             var work = new MetaDurableWork(owner._metaTempPath, owner._metaPath, buffer, encodedLength);
 
             // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
-            // after the explicit check guarantees the callback always runs and the buffer is always returned.
+            // after the explicit check guarantees the worker always runs and the buffer is always returned.
             return Task.Factory.StartNew(MetaDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
         }
 
@@ -841,7 +837,7 @@ internal sealed class FollowerLog : IFollowerLog
         /// <summary>Fails recovery for a gap within the committed region.</summary>
         /// <param name="owner">The log being recovered.</param>
         /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="nextLogIndex">The expected index of the missing frame.</param>
+        /// <param name="nextLogIndex">The index of the missing frame.</param>
         /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
         private static WalkResult CommittedGap(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
         {
@@ -926,7 +922,7 @@ internal sealed class FollowerLog : IFollowerLog
         /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
         /// <param name="owner">The log being recovered.</param>
         /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="nextLogIndex">The expected index of the invalid frame.</param>
+        /// <param name="nextLogIndex">The index of the invalid frame.</param>
         /// <exception cref="InvalidDataException">The invalid frame lies within the committed region.</exception>
         private static WalkResult UncommittedTail(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
         {

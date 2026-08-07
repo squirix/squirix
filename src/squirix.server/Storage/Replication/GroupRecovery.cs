@@ -64,8 +64,27 @@ internal sealed class GroupRecovery : IAsyncDisposable
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed), this);
+
+        // A re-recovery replaces the currently open logs, so the previous set is closed first.
         await CloseLogsAsync().ConfigureAwait(false);
 
+        // Open the committed prefix of every local group; on failure the already-opened logs are disposed.
+        var opened = await OpenLogsAsync(cancellationToken).ConfigureAwait(false);
+
+        // Publish the recovered logs atomically so concurrent readers never observe a partial set.
+        if (await TryPublishAsync(opened).ConfigureAwait(false))
+            return;
+
+        // The coordinator was disposed while the logs were being opened; dispose them so they do not leak.
+        foreach (var log in opened)
+            await log.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Opens and recovers every group log in the composition, disposing the already-opened set on failure.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The recovered follower logs.</returns>
+    private async Task<List<IFollowerLog>> OpenLogsAsync(CancellationToken cancellationToken)
+    {
         var opened = new List<IFollowerLog>();
         try
         {
@@ -83,28 +102,26 @@ internal sealed class GroupRecovery : IAsyncDisposable
             throw;
         }
 
-        var publish = true;
+        return opened;
+    }
+
+    /// <summary>Atomically publishes <paramref name="opened" /> as the current snapshot, unless the coordinator was disposed.</summary>
+    /// <param name="opened">The recovered follower logs to publish.</param>
+    /// <returns><see langword="true" /> when the snapshot was published; <see langword="false" /> when the coordinator is disposed.</returns>
+    private ValueTask<bool> TryPublishAsync(List<IFollowerLog> opened)
+    {
         lock (_gate)
         {
+            // The coordinator was disposed while the logs were being opened, so nothing may be published.
             if (Volatile.Read(ref _disposed))
-            {
-                publish = false;
-            }
-            else
-            {
-                var snapshot = new Dictionary<string, IFollowerLog>(opened.Count, StringComparer.Ordinal);
-                for (var i = 0; i < opened.Count; i++)
-                    snapshot[opened[i].GroupId] = opened[i];
-                Volatile.Write(ref _logs, snapshot);
-            }
+                return ValueTask.FromResult(false);
+
+            var snapshot = new Dictionary<string, IFollowerLog>(opened.Count, StringComparer.Ordinal);
+            for (var i = 0; i < opened.Count; i++)
+                snapshot[opened[i].GroupId] = opened[i];
+            Volatile.Write(ref _logs, snapshot);
+            return ValueTask.FromResult(true);
         }
-
-        if (publish)
-            return;
-
-        // The coordinator was disposed while recovery opened the logs; dispose them so they do not leak.
-        foreach (var log in opened)
-            await log.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Disposes and forgets every currently open follower log.</summary>
