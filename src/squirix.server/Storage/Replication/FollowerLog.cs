@@ -907,7 +907,7 @@ internal sealed class FollowerLog : IFollowerLog
                 return null;
             }
 
-            if (!GroupLogCodec.TryReadFrame(frame, out var entry, out _))
+            if (!GroupLogCodec.TryReadFrame(frame, out var entry))
                 return UncommittedTail(owner, lastValidEnd, nextLogIndex);
 
             if (entry.LogIndex != nextLogIndex)
