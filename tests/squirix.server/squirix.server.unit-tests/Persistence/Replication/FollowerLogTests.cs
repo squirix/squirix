@@ -30,8 +30,36 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         Assert.True(first.Success);
         Assert.True(second.Success);
+        Assert.Equal(1UL, first.CurrentTerm);
+        Assert.Equal(1UL, first.LastLogIndex);
+        Assert.Equal(1UL, second.CurrentTerm);
+        Assert.Equal(2UL, second.LastLogIndex);
         Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
         Assert.Equal(2, (await log.GetUncommittedTailAsync(DefaultCancellationToken)).Count);
+    }
+
+    /// <summary>Status exposes the durable group identity and metadata along with the journal watermarks.</summary>
+    [Fact]
+    public async Task StatusExposesDurableGroupMetadata()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-status");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+
+        var status = await log.GetStatusAsync(DefaultCancellationToken);
+
+        Assert.Equal(GroupId, status.GroupId);
+        Assert.True(status.TopologyFingerprint.IsEmpty);
+        Assert.Equal(0UL, status.ConfigurationGeneration);
+        Assert.Equal(string.Empty, status.VotedFor);
+        Assert.Equal(1UL, status.CurrentTerm);
+        Assert.Equal(1UL, status.LastLogIndex);
+        Assert.Equal(0UL, status.CommitIndex);
+        Assert.Equal(0UL, status.LastAppliedIndex);
+        Assert.Equal(FollowerLogReadiness.Ready, status.Readiness);
     }
 
     /// <summary>Replaying an identical entry acknowledges idempotently without a second journal effect.</summary>
@@ -228,6 +256,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         var back = await log.AdvanceCommitAsync(0UL, DefaultCancellationToken);
         Assert.True(back.Success);
+        Assert.Equal(1UL, back.CommitIndex);
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
     }
 
@@ -245,6 +274,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AdvanceCommitAsync(9UL, DefaultCancellationToken);
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
+        Assert.Equal(0UL, result.CommitIndex);
         Assert.Equal(0UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
     }
 
