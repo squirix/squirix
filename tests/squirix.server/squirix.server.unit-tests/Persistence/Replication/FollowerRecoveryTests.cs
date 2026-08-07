@@ -324,6 +324,48 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
+    /// <summary>A truncate that modifies the file and then faults must not leave the in-memory index ahead of durable storage.</summary>
+    [Fact]
+    public async Task TruncateFailureReconcilesMemoryAheadOfDurable()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-truncate-fault");
+        var faults = new TruncateFlushFaults();
+
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(4UL, 1UL, "d"), DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+
+        // Arm the fault so the durable truncate's flush throws after the file has been sized back down.
+        faults.Arm();
+
+        // New leader (term 2) rewrites the uncommitted index 3. The durable truncate applies (file shortened
+        // through index 2) but then faults, so the in-memory log must be reconciled, not left ahead.
+        var batch = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            2UL,
+            1UL,
+            0UL,
+            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 2UL, System.Text.Encoding.UTF8.GetBytes("C"))]));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(batch, DefaultCancellationToken));
+
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        Assert.Empty(await log.GetUncommittedTailAsync(DefaultCancellationToken));
+
+        // A subsequent request must not validate against the vanished suffix; the rewrite now persists.
+        var retry = await log.AppendAsync(batch, DefaultCancellationToken);
+        Assert.True(retry.Success);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        var tail = await log.GetUncommittedTailAsync(DefaultCancellationToken);
+        var entry = Assert.Single(tail);
+        Assert.Equal(3UL, entry.LogIndex);
+        Assert.Equal(2UL, entry.Term);
+    }
+
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
@@ -386,5 +428,35 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _fired = true;
             throw new IOException("simulated failure after the frame write.");
         }
+    }
+
+    /// <summary>Fault hooks that throw from the flush boundary once armed, exactly once.</summary>
+    private sealed class TruncateFlushFaults : IFollowerLogFaultHooks
+    {
+        private bool _armed;
+        private bool _fired;
+
+        public void OnBeforeMemoryApply()
+        {
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnFlushed()
+        {
+            if (!_armed || _fired)
+                return;
+
+            _fired = true;
+            throw new IOException("simulated failure after the durable truncate.");
+        }
+
+        public void OnFrameWritten()
+        {
+        }
+
+        internal void Arm() => _armed = true;
     }
 }

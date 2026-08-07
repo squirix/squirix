@@ -604,9 +604,6 @@ internal sealed class FollowerLog : IFollowerLog
             if (!owner._entryOffsets.TryGetValue(logIndex, out var location))
                 throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot truncate from a missing index '{logIndex}'.");
 
-            var work = new TruncateDurableWork(owner._durability, location.Offset, owner._faults);
-            await Task.Factory.StartNew(TruncateDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
-
             var truncated = new List<ulong>();
             foreach (var index in owner._entries.Keys)
             {
@@ -614,15 +611,27 @@ internal sealed class FollowerLog : IFollowerLog
                     truncated.Add(index);
             }
 
-            for (var i = 0; i < truncated.Count; i++)
+            try
             {
-                _ = owner._entries.Remove(truncated[i]);
-                _ = owner._entryOffsets.Remove(truncated[i]);
+                var work = new TruncateDurableWork(owner._durability, location.Offset, owner._faults);
+                await Task.Factory.StartNew(TruncateDurableCallback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
             }
+            finally
+            {
+                // Reconcile the in-memory indexes even when the durable truncate throws (SetLength may already
+                // have been applied), so the ready log never validates against a suffix that may no longer be
+                // durable. The exception still propagates so the caller can retry; at worst the in-memory state
+                // trails the durable file (an uncommitted tail the leader will rewrite).
+                for (var i = 0; i < truncated.Count; i++)
+                {
+                    _ = owner._entries.Remove(truncated[i]);
+                    _ = owner._entryOffsets.Remove(truncated[i]);
+                }
 
-            owner.SetLastLogIndex(logIndex - 1);
-            owner.SetLogLength(location.Offset);
-            owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
+                owner.SetLastLogIndex(logIndex - 1);
+                owner.SetLogLength(location.Offset);
+                owner.SetMeta(owner._meta with { LastLogIndex = owner._lastLogIndex });
+            }
         }
 
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
