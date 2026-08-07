@@ -1,12 +1,12 @@
-namespace Squirix.Server.Cluster.Replication;
+namespace Squirix.Server.Storage.Replication;
 
-/// <summary>Stable closed refusal markers for the internal replication wire.</summary>
+/// <summary>Stable refusal markers returned by the follower log before any journal mutation.</summary>
 /// <remarks>
-/// These are the wire-side twin of the storage refusal constants mirrored in
-/// <c>Squirix.Server.Storage.Replication.FollowerLogRefusal</c>. The values must stay identical; a guard
-/// test asserts the mirror in both directions.
+/// These strings are the storage-side twin of the closed wire refusal codes. The values must stay identical
+/// to <c>Squirix.Server.Cluster.Replication.RefusalCodes</c>; the storage layer may not reference the cluster
+/// namespace, so the constants are mirrored here and the transport adapter maps them through.
 /// </remarks>
-internal static class RefusalCodes
+internal static class FollowerLogRefusal
 {
     /// <summary>The caller advertised a lower term than the durably persisted current term.</summary>
     internal const string StaleTerm = "stale-term";

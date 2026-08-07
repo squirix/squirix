@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Xml.Linq;
+using System.Xml.XPath;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -9,7 +9,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>Indexed view of an MSBuild project document for architecture assertions.</summary>
 internal sealed class MsbuildProjectIndex
 {
-    private readonly FrozenDictionary<string, List<XElement>> _includedElements;
+    private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;
     private readonly FrozenDictionary<string, List<string>> _includes;
     private readonly FrozenSet<string> _localNames;
     private readonly FrozenDictionary<string, string> _properties;
@@ -17,7 +17,7 @@ internal sealed class MsbuildProjectIndex
     internal MsbuildProjectIndex(
         FrozenDictionary<string, string> properties,
         FrozenDictionary<string, List<string>> includes,
-        FrozenDictionary<string, List<XElement>> includedElements,
+        FrozenDictionary<string, List<XPathNavigator>> includedElements,
         FrozenSet<string> localNames)
     {
         _properties = properties;
@@ -30,15 +30,15 @@ internal sealed class MsbuildProjectIndex
 
     internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-    internal XElement RequireIncludedElement(string localName, string include)
+    internal XPathNavigator RequireIncludedElement(string localName, string include)
     {
         Assert.True(_includedElements.TryGetValue(localName, out var elements));
 
-        XElement? match = null;
+        XPathNavigator? match = null;
         for (var i = 0; i < elements.Count; i++)
         {
             var element = elements[i];
-            if (!string.Equals(element.Attribute("Include")?.Value, include, StringComparison.Ordinal))
+            if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
                 continue;
             match = element;
             break;

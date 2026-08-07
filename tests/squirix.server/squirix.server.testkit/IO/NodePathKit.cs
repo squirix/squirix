@@ -150,18 +150,6 @@ public static class NodePathKit
         return $"pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}-start{NodeInvariantIndexStrings.Format(startTicks)}";
     }
 
-    private static long GetProcessStartTicks()
-    {
-        try
-        {
-            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
-        {
-            return DateTime.UtcNow.Ticks;
-        }
-    }
-
     private static string CombineCore(bool sanitize, string path1, string path2)
     {
         ReadOnlySpan<string?> paths = [path1, path2];
@@ -208,6 +196,18 @@ public static class NodePathKit
             return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
 
         return JoinSegments(buffer.AsSpan(0, count));
+    }
+
+    private static long GetProcessStartTicks()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return DateTime.UtcNow.Ticks;
+        }
     }
 
     private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)
@@ -283,7 +283,7 @@ public static class NodePathKit
             if (Array.IndexOf(InvalidFileNameChars, s[i]) < 0)
                 continue;
 
-            sb.Clear();
+            _ = sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];

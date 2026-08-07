@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml;
+using System.Xml.XPath;
 using Squirix.Client;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
@@ -17,7 +18,7 @@ public sealed class ClientArchitectureTests
 {
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
     private static readonly Lazy<string> RepositoryRoot = new(ResolveRepositoryRoot);
-    private static readonly Lazy<XDocument> ClientProject = new(LoadClientProject);
+    private static readonly Lazy<XPathNavigator> ClientProject = new(LoadClientProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ClientProjectIndex = new(static () => ParseMsbuildProject(ClientProject.Value));
 
@@ -45,9 +46,9 @@ public sealed class ClientArchitectureTests
     {
         var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
-        Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
+        Assert.Equal("Client", protobuf.GetAttribute("GrpcServices", string.Empty));
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot", string.Empty));
+        Assert.Equal("Internal", protobuf.GetAttribute("Access", string.Empty));
         _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
     }
 
@@ -86,10 +87,10 @@ public sealed class ClientArchitectureTests
 
     private static void AddMsbuildInclude(
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XElement>> includedElements,
+        Dictionary<string, List<XPathNavigator>> includedElements,
         string localName,
         string include,
-        XElement element)
+        XPathNavigator element)
     {
         if (!includes.TryGetValue(localName, out var includeList))
         {
@@ -105,39 +106,37 @@ public sealed class ClientArchitectureTests
             includedElements[localName] = elementList;
         }
 
-        elementList.Add(element);
+        elementList.Add(element.Clone());
     }
 
-    private static void CollectMsbuildIncludes(XElement? root, Dictionary<string, List<string>> includes, Dictionary<string, List<XElement>> includedElements)
+    private static void CollectMsbuildIncludes(XPathNavigator root, Dictionary<string, List<string>> includes, Dictionary<string, List<XPathNavigator>> includedElements)
     {
-        if (root is null)
-            return;
-
-        var localName = root.Name.LocalName;
-        var include = root.Attribute("Include")?.Value;
+        var localName = root.LocalName;
+        var include = root.GetAttribute("Include", string.Empty);
         if (!string.IsNullOrWhiteSpace(include))
             AddMsbuildInclude(includes, includedElements, localName, include, root);
 
-        for (var node = root.FirstNode; node is not null; node = node.NextNode)
-        {
-            if (node is XElement child)
-                CollectMsbuildIncludes(child, includes, includedElements);
-        }
+        var children = root.SelectChildren(XPathNodeType.Element);
+        while (children.MoveNext())
+            CollectMsbuildIncludes(children.Current!, includes, includedElements);
     }
 
-    private static XDocument LoadClientProject()
+    private static XPathNavigator LoadClientProject()
     {
         var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path));
-        return XDocument.Load(path);
+
+        var document = new XmlDocument();
+        document.Load(path);
+        return document.CreateNavigator()!;
     }
 
-    private static MsbuildProjectIndex ParseMsbuildProject(XDocument project)
+    private static MsbuildProjectIndex ParseMsbuildProject(XPathNavigator project)
     {
         var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+        var includedElements = new Dictionary<string, List<XPathNavigator>>(StringComparer.OrdinalIgnoreCase);
 
-        CollectMsbuildIncludes(project.Root, includes, includedElements);
+        CollectMsbuildIncludes(project, includes, includedElements);
 
         return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
     }
@@ -158,10 +157,10 @@ public sealed class ClientArchitectureTests
 
     private sealed class MsbuildProjectIndex
     {
-        private readonly FrozenDictionary<string, List<XElement>> _includedElements;
+        private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;
         private readonly FrozenDictionary<string, List<string>> _includes;
 
-        internal MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XElement>> includedElements)
+        internal MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XPathNavigator>> includedElements)
         {
             _includes = includes;
             _includedElements = includedElements;
@@ -169,15 +168,15 @@ public sealed class ClientArchitectureTests
 
         internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-        internal XElement RequireIncludedElement(string localName, string include)
+        internal XPathNavigator RequireIncludedElement(string localName, string include)
         {
             Assert.True(_includedElements.TryGetValue(localName, out var elements));
 
-            XElement? match = null;
+            XPathNavigator? match = null;
             for (var i = 0; i < elements.Count; i++)
             {
                 var element = elements[i];
-                if (!string.Equals(element.Attribute("Include")?.Value, include, StringComparison.Ordinal))
+                if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
                     continue;
                 match = element;
                 break;

@@ -137,7 +137,7 @@ public sealed class ProtocolModelSurfaceTests
     private static string CreateTempDir()
     {
         var path = Path.Join(Path.GetTempPath(), "squirix-protocol-model-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
+        _ = Directory.CreateDirectory(path);
         return path;
     }
 }

@@ -23,6 +23,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -79,6 +80,25 @@ internal static class ServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
+    /// <summary>
+    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
+    /// </summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
+    {
+        _ = services.AddSquirixClusterLocator(cluster);
+        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
+        _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
+        if (args.FoundationOnly)
+            _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
+                sp.GetRequiredService<TopologyOptions>(),
+                sp.GetRequiredService<MtlsOptions>(),
+                sp.GetRequiredService<MtlsCertificateMaterial>()));
+    }
+
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -104,7 +124,17 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
         if (persistenceEnabled)
+        {
             _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+
+            // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
+            // materialized; group membership is derived in a later milestone. Registered only when persistence is
+            // enabled because the factory resolves PersistenceOptions, which is not registered otherwise.
+            // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
+            // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
+            // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
+            _ = builder.Services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+        }
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
@@ -119,23 +149,13 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
     }
 
-    /// <summary>
-    /// Registers cluster locator, inter-node transport, and replication planning services.
-    /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
-    /// </summary>
-    /// <param name="services">DI service collection.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
+    private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
-        _ = services.AddSquirixClusterLocator(cluster);
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
-        _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
-        if (args.FoundationOnly)
-            _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<MtlsOptions>(),
-                sp.GetRequiredService<MtlsCertificateMaterial>()));
+        _ = app.MapSquirixEndpoints(authEnabled);
+        var extensions = app.Services.GetService<ExtensionOptions>();
+        extensions?.MapEndpoints?.Invoke(app);
+        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
+        return app;
     }
 
     [SuppressMessage(
@@ -157,15 +177,6 @@ internal static class ServerHostingComposition
         var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
         return (mtlsOptions, mtlsMaterial);
-    }
-
-    private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
-    {
-        _ = app.MapSquirixEndpoints(authEnabled);
-        var extensions = app.Services.GetService<ExtensionOptions>();
-        extensions?.MapEndpoints?.Invoke(app);
-        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
-        return app;
     }
 
     private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
