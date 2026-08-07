@@ -604,7 +604,7 @@ internal sealed class FollowerLog : IFollowerLog
             {
                 var entry = toAppend[i];
                 owner._entryOffsets[offsets[i].Key] = (offsets[i].Value, entry.Term);
-                owner._entries[offsets[i].Key] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
+                owner._entries[offsets[i].Key] = entry;
             }
 
             owner.SetLastLogIndex(offsets[^1].Key);
