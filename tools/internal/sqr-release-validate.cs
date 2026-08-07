@@ -426,66 +426,140 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
-            var document = new XmlDocument();
-            document.Load(stream);
-
-            var root = document.DocumentElement ?? throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
-            XmlElement? metadata = null;
-            foreach (XmlNode node in root.ChildNodes)
+            var settings = new XmlReaderSettings
             {
-                if (node is not XmlElement element || !string.Equals(element.LocalName, "metadata", StringComparison.Ordinal))
-                    continue;
-
-                metadata = element;
-                break;
-            }
-
-            if (metadata is null)
-                throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
-
-            foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
-            {
-                string? value = null;
-                foreach (XmlNode node in metadata.ChildNodes)
-                {
-                    if (node is not XmlElement element || !string.Equals(element.LocalName, name, StringComparison.Ordinal))
-                        continue;
-
-                    value = element.InnerText.Trim();
-                    break;
-                }
-
-                if (string.IsNullOrWhiteSpace(value))
-                    throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
-            }
-
-            XmlElement? repository = null;
-            foreach (XmlNode node in metadata.ChildNodes)
-            {
-                if (node is not XmlElement element || !string.Equals(element.LocalName, "repository", StringComparison.Ordinal))
-                    continue;
-
-                repository = element;
-                break;
-            }
-
-            var repositoryUrl = repository?.GetAttribute("url").Trim();
-            if (string.IsNullOrWhiteSpace(repositoryUrl))
-                throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
-
-            XmlElement? licenseElement = null;
-            foreach (XmlNode node in metadata.ChildNodes)
-            {
-                if (node is not XmlElement element || !string.Equals(element.LocalName, "license", StringComparison.Ordinal))
-                    continue;
-
-                licenseElement = element;
-                break;
-            }
-
-            if (string.IsNullOrWhiteSpace(licenseElement?.InnerText.Trim()))
-                throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
+                Async = true,
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+            };
+            using var reader = XmlReader.Create(stream, settings);
+            await ValidateMetadataXmlAsync(reader, packagePath, cancellationToken).ConfigureAwait(false);
         }
+    }
+}
+
+static async Task ValidateMetadataXmlAsync(XmlReader reader, string packagePath, CancellationToken cancellationToken)
+{
+    var rootDepth = -1;
+    while (await reader.ReadAsync().ConfigureAwait(false))
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (reader.NodeType is not XmlNodeType.Element)
+            continue;
+
+        if (rootDepth < 0)
+        {
+            // The first element is the document root; <metadata> is expected as a direct child.
+            rootDepth = reader.Depth;
+            if (string.Equals(reader.LocalName, "metadata", StringComparison.Ordinal))
+            {
+                await ValidateMetadataElementAsync(reader, packagePath, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            continue;
+        }
+
+        if (reader.Depth == rootDepth + 1 && string.Equals(reader.LocalName, "metadata", StringComparison.Ordinal))
+        {
+            await ValidateMetadataElementAsync(reader, packagePath, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!reader.IsEmptyElement)
+            await reader.SkipAsync().ConfigureAwait(false);
+    }
+
+    throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
+}
+
+static async Task ValidateMetadataElementAsync(XmlReader reader, string packagePath, CancellationToken cancellationToken)
+{
+    string? id = null;
+    string? version = null;
+    string? authors = null;
+    string? description = null;
+    string? tags = null;
+    string? repositoryUrl = null;
+    string? license = null;
+
+    var subtree = reader.ReadSubtree();
+    try
+    {
+        while (await subtree.ReadAsync().ConfigureAwait(false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (subtree.NodeType is not XmlNodeType.Element || subtree.Depth is not 1)
+                continue;
+
+            switch (subtree.LocalName)
+            {
+                case "id":
+                    id = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+                case "version":
+                    version = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+                case "authors":
+                    authors = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+                case "description":
+                    description = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+                case "tags":
+                    tags = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+                case "repository":
+                    repositoryUrl = subtree.GetAttribute("url")?.Trim();
+                    break;
+                case "license":
+                    license = await ReadElementTextAsync(subtree).ConfigureAwait(false);
+                    break;
+            }
+        }
+    }
+    finally
+    {
+        subtree.Dispose();
+    }
+
+    foreach (var (name, value) in new (string Name, string? Value)[] { ("id", id), ("version", version), ("authors", authors), ("description", description), ("tags", tags) })
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
+    }
+
+    if (string.IsNullOrWhiteSpace(repositoryUrl))
+        throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
+
+    if (string.IsNullOrWhiteSpace(license))
+        throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
+}
+
+static async Task<string> ReadElementTextAsync(XmlReader reader)
+{
+    if (reader.IsEmptyElement)
+        return string.Empty;
+
+    var subtree = reader.ReadSubtree();
+    try
+    {
+        // Accumulating every descendant text node keeps the extracted value equivalent to XmlElement.InnerText
+        // while fully consuming the subtree, so the caller's reader resumes at the next sibling.
+        var text = new System.Text.StringBuilder();
+        while (await subtree.ReadAsync().ConfigureAwait(false))
+        {
+            if (subtree.NodeType is XmlNodeType.Text)
+                text.Append(subtree.Value);
+        }
+
+        return text.ToString().Trim();
+    }
+    finally
+    {
+        subtree.Dispose();
     }
 }
 
