@@ -39,11 +39,10 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly GroupLogDurability _durability = new();
 
     /// <summary>
-    /// Applied entries are pruned from memory once their watermark is durable, so this working set is bounded
-    /// by the applied watermark during a single process lifetime. Payloads are intentionally retained until the
-    /// group is closed or the process restarts: groups are expected to be opened/closed on membership
-    /// events in a later milestone, and enforced retention limits will be introduced together with that
-    /// lifecycle. See the durable ordered follower log specification (M8-05) for the retention decision.
+    /// Payloads are retained while their entries remain above the applied watermark. Applied entries are released
+    /// from memory once the applied watermark is durably persisted, so this working set is bounded below by the
+    /// applied watermark during a single process lifetime, and by the group's lifecycle otherwise (payloads released
+    /// on restart). See the durable ordered follower log specification (M8-05) for the retention decision.
     /// </summary>
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
 
