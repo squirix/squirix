@@ -64,8 +64,10 @@ public sealed class GroupRecoveryTests : ServerUnitTestBase
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.RecoverAllAsync(DefaultCancellationToken));
 
-        // The partial state is rolled back.
+        // The partial state is rolled back: no log stays open regardless of which group the composition
+        // enumerated first, so the assertion does not depend on FrozenSet<string> ordering.
         Assert.Null(recovery.GetLog("grp-1"));
+        Assert.Null(recovery.GetLog("grp-2"));
 
         // After the corrupt group is removed, a fresh recovery succeeds end-to-end.
         Directory.Delete(GroupStoragePaths.GetGroupDirectory(dir, "grp-2"), true);
