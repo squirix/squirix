@@ -19,9 +19,14 @@ namespace Squirix.Server.Storage.Replication;
 internal sealed class GroupRecovery : IAsyncDisposable
 {
     private readonly GroupComposition _composition;
-    private readonly Dictionary<string, IFollowerLog> _logs = new(StringComparer.Ordinal);
     private readonly string _persistenceRoot;
+    private readonly Lock _gate = new();
 
+    /// <summary>
+    /// The open follower logs are published as an immutable snapshot so readers observe a fully-built map and never a
+    /// partially-populated one while <see cref="RecoverAllAsync" /> / <see cref="CloseLogsAsync" /> swap the collection.
+    /// </summary>
+    private IReadOnlyDictionary<string, IFollowerLog> _logs = new Dictionary<string, IFollowerLog>(StringComparer.Ordinal);
     private bool _disposed;
 
     internal GroupRecovery(string persistenceRoot, GroupComposition composition)
@@ -33,10 +38,10 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Volatile.Read(ref _disposed))
             return;
 
-        _disposed = true;
+        Volatile.Write(ref _disposed, true);
         await CloseLogsAsync().ConfigureAwait(false);
     }
 
@@ -50,7 +55,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <summary>Returns the recovered follower log for <paramref name="groupId" />, or <see langword="null" />.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The recovered follower log, or <see langword="null" /> when the group is not open.</returns>
-    internal IFollowerLog? GetLog(string groupId) => _logs.GetValueOrDefault(groupId);
+    internal IFollowerLog? GetLog(string groupId) => Volatile.Read(ref _logs).GetValueOrDefault(groupId);
 
     /// <summary>Opens and recovers the committed prefix for every group in the local composition.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -58,7 +63,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <exception cref="ObjectDisposedException">Thrown when the coordinator is already disposed.</exception>
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed), this);
         await CloseLogsAsync().ConfigureAwait(false);
 
         var opened = new List<IFollowerLog>();
@@ -78,18 +83,38 @@ internal sealed class GroupRecovery : IAsyncDisposable
             throw;
         }
 
-        for (var i = 0; i < opened.Count; i++)
-            _logs[opened[i].GroupId] = opened[i];
+        var publish = true;
+        lock (_gate)
+        {
+            if (Volatile.Read(ref _disposed))
+            {
+                publish = false;
+            }
+            else
+            {
+                var snapshot = new Dictionary<string, IFollowerLog>(opened.Count, StringComparer.Ordinal);
+                for (var i = 0; i < opened.Count; i++)
+                    snapshot[opened[i].GroupId] = opened[i];
+                Volatile.Write(ref _logs, snapshot);
+            }
+        }
+
+        if (publish)
+            return;
+
+        // The coordinator was disposed while recovery opened the logs; dispose them so they do not leak.
+        foreach (var log in opened)
+            await log.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Disposes and forgets every currently open follower log.</summary>
     /// <returns>A task that completes when all open logs are disposed.</returns>
     private async Task CloseLogsAsync()
     {
-        foreach (var log in _logs.Values)
+        var previous = Volatile.Read(ref _logs);
+        Volatile.Write(ref _logs, new Dictionary<string, IFollowerLog>(StringComparer.Ordinal));
+        foreach (var log in previous.Values)
             await log.DisposeAsync().ConfigureAwait(false);
-
-        _logs.Clear();
     }
 
     /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
