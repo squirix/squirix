@@ -8,8 +8,10 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Durable, ordered follower log for one replica group.</summary>
 /// <remarks>
 /// Only committed entries that are not yet applied are exposed through the storage contract. Uncommitted
-/// entries are retained on disk but are never applied to memory and never surfaced to callers. Advancing the
-/// applied index releases applied entry payloads from memory.
+/// entries are retained on disk and are never applied to memory. Normal memory-apply callers never observe
+/// them; only recovery callers retrieve the uncommitted tail through <see cref="GetUncommittedTailAsync" />
+/// to rebuild pending operations after a restart. Advancing the applied index releases applied entry payloads
+/// from memory.
 /// </remarks>
 internal interface IFollowerLog : IAsyncDisposable
 {
