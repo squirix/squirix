@@ -215,7 +215,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await log.OpenAsync(DefaultCancellationToken);
 
         var payload = System.Text.Encoding.UTF8.GetBytes("abcd");
-        var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
         _ = await log.AppendAsync(request, DefaultCancellationToken);
 
         payload[0] = 0xFF;
