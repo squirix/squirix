@@ -46,10 +46,13 @@ internal sealed class FollowerLog : IFollowerLog
     /// durable ordered follower log specification (M8-05) for the retention decision.
     /// </summary>
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
+
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
     private readonly IFollowerLogFaultHooks _faults;
+
     [SuppressMessage("Reliability", "CA2213:Disposable fields should be disposed", Justification = "Disposing the semaphore could throw ObjectDisposedException in synchronous readers blocked on _gate.Wait(); idempotent disposal is handled via _disposed.")]
     private readonly SemaphoreSlim _gate = new(1, 1);
+
     private readonly string _groupDir;
     private readonly string _logPath;
     private readonly string _metaPath;
@@ -145,6 +148,7 @@ internal sealed class FollowerLog : IFollowerLog
     public async Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
+        request = SnapshotRequestEntries(request);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -320,6 +324,27 @@ internal sealed class FollowerLog : IFollowerLog
         }
     }
 
+    /// <summary>
+    /// Snapshots the request entry array and each entry payload into owned buffers before the first await, so the
+    /// synchronous <c>Entries</c> / <c>Payload</c> spans cannot be mutated by the caller while the append is suspended.
+    /// </summary>
+    /// <param name="request">The append request to snapshot.</param>
+    /// <returns>A request whose entries and payloads are owned copies of the original.</returns>
+    private static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
+    {
+        if (request.Entries.IsEmpty)
+            return request;
+
+        var snapshot = new FollowerLogEntry[request.Entries.Length];
+        for (var i = 0; i < request.Entries.Length; i++)
+        {
+            var entry = request.Entries.Span[i];
+            snapshot[i] = entry with { Payload = BufferEx.CopyToOwned(entry.PayloadSpan) };
+        }
+
+        return request with { Entries = snapshot };
+    }
+
     private async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         // Higher term is persisted durably before any further response; the old leader stops being authoritative.
@@ -392,6 +417,30 @@ internal sealed class FollowerLog : IFollowerLog
         return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, _meta.CurrentTerm, _lastLogIndex);
     }
 
+    /// <summary>
+    /// Persists <paramref name="candidate" /> durably before it is exposed through <see cref="_meta" />; on
+    /// publication failure the log is marked failed and the in-memory state stays unchanged.
+    /// </summary>
+    /// <param name="candidate">The metadata to persist and then publish.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task PersistMetaOrFailReadinessAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FollowerLogDurable.PersistMetaAsync(this, candidate, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a publish failure; preserve readiness so the caller can retry.
+            throw;
+        }
+        catch
+        {
+            Readiness = FollowerLogReadiness.Failed;
+            throw;
+        }
+    }
+
     private FollowerLogAppendResult? PrepareAppendBatch(FollowerLogAppendRequest request, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
     {
         toAppend = null;
@@ -441,10 +490,15 @@ internal sealed class FollowerLog : IFollowerLog
             // The term of an applied entry was released with its payload, so it is read back from the retained
             // frame metadata; a batch claiming a conflicting term there violates Leader Completeness and is
             // rejected as a committed conflict below.
-            return candidate.LogIndex <= _meta.LastAppliedIndex &&
-                _entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term == candidate.Term;
+            return candidate.LogIndex <= _meta.LastAppliedIndex && _entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term == candidate.Term;
         }
     }
+
+    private void SetLastLogIndex(ulong value) => _lastLogIndex = value;
+
+    private void SetLogLength(long value) => _logLength = value;
+
+    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
 
     private FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogAppendRequest request)
     {
@@ -477,36 +531,6 @@ internal sealed class FollowerLog : IFollowerLog
         ulong TermAtApplied(ulong logIndex)
         {
             return _entryOffsets.TryGetValue(logIndex, out var location) ? location.Term : 0UL;
-        }
-    }
-
-    private void SetLastLogIndex(ulong value) => _lastLogIndex = value;
-
-    private void SetLogLength(long value) => _logLength = value;
-
-    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
-
-    /// <summary>
-    /// Persists <paramref name="candidate" /> durably before it is exposed through <see cref="_meta" />; on
-    /// publication failure the log is marked failed and the in-memory state stays unchanged.
-    /// </summary>
-    /// <param name="candidate">The metadata to persist and then publish.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task PersistMetaOrFailReadinessAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await FollowerLogDurable.PersistMetaAsync(this, candidate, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation is not a publish failure; preserve readiness so the caller can retry.
-            throw;
-        }
-        catch
-        {
-            Readiness = FollowerLogReadiness.Failed;
-            throw;
         }
     }
 
@@ -814,6 +838,27 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
+        /// <summary>Fails recovery for a gap within the committed region.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="nextLogIndex">The expected index of the missing frame.</param>
+        /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
+        private static WalkResult CommittedGap(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
+        {
+            if (nextLogIndex > owner._meta.CommitIndex)
+                return new WalkResult(lastValidEnd, true);
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
+        }
+
+        private static void EnsureCommittedPrefixCovered(FollowerLog owner)
+        {
+            if (owner._meta.CommitIndex <= owner._lastLogIndex)
+                return;
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' commit index exceeds the durable log.");
+        }
+
         /// <summary>Reads and verifies the log file header, failing recovery when it is corrupt.</summary>
         /// <param name="stream">The open log file positioned at its start.</param>
         /// <param name="owner">The log being recovered.</param>
@@ -837,12 +882,38 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
-        private static void EnsureCommittedPrefixCovered(FollowerLog owner)
+        /// <summary>Records a CRC-validated frame, keeping the payload only above the applied watermark.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="nextLogIndex">The index the frame must carry.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="frame">The complete frame at its start offset.</param>
+        /// <returns>The recovery result when the frame must be truncated; otherwise <see langword="null" />.</returns>
+        private static WalkResult? RecordFrame(FollowerLog owner, ulong nextLogIndex, long lastValidEnd, ReadOnlySpan<byte> frame)
         {
-            if (owner._meta.CommitIndex <= owner._lastLogIndex)
-                return;
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' commit index exceeds the durable log.");
+            // Frames at or below the applied watermark need only their index and term, not their payload.
+            if (nextLogIndex <= owner._meta.LastAppliedIndex)
+            {
+                if (!GroupLogCodec.TryReadFrameFields(frame, out var logIndex, out var term))
+                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+                if (logIndex != nextLogIndex)
+                    return CommittedGap(owner, lastValidEnd, nextLogIndex);
+
+                owner._entryOffsets[logIndex] = (lastValidEnd, term);
+                owner.SetLastLogIndex(logIndex);
+                return null;
+            }
+
+            if (!GroupLogCodec.TryReadFrame(frame, out var entry))
+                return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
+            if (entry.LogIndex != nextLogIndex)
+                return CommittedGap(owner, lastValidEnd, nextLogIndex);
+
+            owner._entryOffsets[entry.LogIndex] = (lastValidEnd, entry.Term);
+            owner._entries[entry.LogIndex] = entry;
+            owner.SetLastLogIndex(entry.LogIndex);
+            return null;
         }
 
         private static void ResetLogState(FollowerLog owner)
@@ -850,6 +921,19 @@ internal sealed class FollowerLog : IFollowerLog
             owner.SetLogLength(0);
             owner.SetLastLogIndex(0);
             owner.SetMeta(owner._meta with { LastLogIndex = 0 });
+        }
+
+        /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="nextLogIndex">The expected index of the invalid frame.</param>
+        /// <exception cref="InvalidDataException">The invalid frame lies within the committed region.</exception>
+        private static WalkResult UncommittedTail(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
+        {
+            if (nextLogIndex > owner._meta.CommitIndex)
+                return new WalkResult(lastValidEnd, true);
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
         }
 
         private static async Task<WalkResult> WalkFramesAsync(FollowerLog owner, FileStream stream, CancellationToken cancellationToken)
@@ -901,66 +985,6 @@ internal sealed class FollowerLog : IFollowerLog
             }
 
             return new WalkResult(lastValidEnd, false);
-        }
-
-        /// <summary>Records a CRC-validated frame, keeping the payload only above the applied watermark.</summary>
-        /// <param name="owner">The log being recovered.</param>
-        /// <param name="nextLogIndex">The index the frame must carry.</param>
-        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="frame">The complete frame at its start offset.</param>
-        /// <returns>The recovery result when the frame must be truncated; otherwise <see langword="null" />.</returns>
-        private static WalkResult? RecordFrame(FollowerLog owner, ulong nextLogIndex, long lastValidEnd, ReadOnlySpan<byte> frame)
-        {
-            // Frames at or below the applied watermark need only their index and term, not their payload.
-            if (nextLogIndex <= owner._meta.LastAppliedIndex)
-            {
-                if (!GroupLogCodec.TryReadFrameFields(frame, out var logIndex, out var term))
-                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                if (logIndex != nextLogIndex)
-                    return CommittedGap(owner, lastValidEnd, nextLogIndex);
-
-                owner._entryOffsets[logIndex] = (lastValidEnd, term);
-                owner.SetLastLogIndex(logIndex);
-                return null;
-            }
-
-            if (!GroupLogCodec.TryReadFrame(frame, out var entry))
-                return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-            if (entry.LogIndex != nextLogIndex)
-                return CommittedGap(owner, lastValidEnd, nextLogIndex);
-
-            owner._entryOffsets[entry.LogIndex] = (lastValidEnd, entry.Term);
-            owner._entries[entry.LogIndex] = entry;
-            owner.SetLastLogIndex(entry.LogIndex);
-            return null;
-        }
-
-        /// <summary>Fails recovery for an invalid frame within the committed region.</summary>
-        /// <param name="owner">The log being recovered.</param>
-        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="nextLogIndex">The expected index of the invalid frame.</param>
-        /// <exception cref="InvalidDataException">The invalid frame lies within the committed region.</exception>
-        private static WalkResult UncommittedTail(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
-        {
-            if (nextLogIndex > owner._meta.CommitIndex)
-                return new WalkResult(lastValidEnd, true);
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
-        }
-
-        /// <summary>Fails recovery for a gap within the committed region.</summary>
-        /// <param name="owner">The log being recovered.</param>
-        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="nextLogIndex">The expected index of the missing frame.</param>
-        /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
-        private static WalkResult CommittedGap(FollowerLog owner, long lastValidEnd, ulong nextLogIndex)
-        {
-            if (nextLogIndex > owner._meta.CommitIndex)
-                return new WalkResult(lastValidEnd, true);
-            owner.Readiness = FollowerLogReadiness.Failed;
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
         }
 
         /// <summary>Result of walking the log frames during startup recovery.</summary>
