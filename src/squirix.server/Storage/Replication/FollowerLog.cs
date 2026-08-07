@@ -50,7 +50,10 @@ internal sealed class FollowerLog : IFollowerLog
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
     private readonly IFollowerLogFaultHooks _faults;
 
-    [SuppressMessage("Reliability", "CA2213:Disposable fields should be disposed", Justification = "Disposing the semaphore could throw ObjectDisposedException in synchronous readers blocked on _gate.Wait(); idempotent disposal is handled via _disposed.")]
+    [SuppressMessage(
+        "Reliability",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "Disposing the semaphore could throw ObjectDisposedException in synchronous readers blocked on _gate.Wait(); idempotent disposal is handled via _disposed.")]
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private readonly string _groupDir;
@@ -343,13 +346,7 @@ internal sealed class FollowerLog : IFollowerLog
                 owned[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray());
             }
 
-            return new FollowerLogAppendRequest(
-                request.LeaderNodeId,
-                request.CurrentTerm,
-                request.PrevLogIndex,
-                request.PrevLogTerm,
-                request.LeaderCommitIndex,
-                owned);
+            return new FollowerLogAppendRequest(request.LeaderNodeId, request.CurrentTerm, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex, owned);
         }
 
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(FollowerLog owner, FollowerLogAppendRequest request, CancellationToken cancellationToken)
@@ -444,7 +441,12 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
-        private static async Task<FollowerLogAppendResult> CompleteAppendAsync(FollowerLog owner, ulong leaderCommitIndex, ulong lastVerifiedIndex, bool metaDirty, CancellationToken cancellationToken)
+        private static async Task<FollowerLogAppendResult> CompleteAppendAsync(
+            FollowerLog owner,
+            ulong leaderCommitIndex,
+            ulong lastVerifiedIndex,
+            bool metaDirty,
+            CancellationToken cancellationToken)
         {
             var commitAdvanced = false;
             GroupLogMetadata? commitLogical = null;
@@ -477,7 +479,11 @@ internal sealed class FollowerLog : IFollowerLog
             return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
         }
 
-        private static FollowerLogAppendResult? PrepareAppendBatch(FollowerLog owner, FollowerLogAppendRequest request, out List<FollowerLogEntry>? toAppend, out ulong? truncateAtIndex)
+        private static FollowerLogAppendResult? PrepareAppendBatch(
+            FollowerLog owner,
+            FollowerLogAppendRequest request,
+            out List<FollowerLogEntry>? toAppend,
+            out ulong? truncateAtIndex)
         {
             toAppend = null;
             truncateAtIndex = null;
@@ -525,7 +531,8 @@ internal sealed class FollowerLog : IFollowerLog
 
                 // The term of an applied entry was released with its payload, so it is read back from the retained
                 // frame metadata; a batch re-appending at an applied index is a committed conflict and is rejected below.
-                return candidate.LogIndex <= owner._meta.LastAppliedIndex && owner._entryOffsets.TryGetValue(candidate.LogIndex, out var location) && location.Term != candidate.Term;
+                return candidate.LogIndex <= owner._meta.LastAppliedIndex && owner._entryOffsets.TryGetValue(candidate.LogIndex, out var location) &&
+                       location.Term == candidate.Term;
             }
         }
     }
@@ -634,7 +641,8 @@ internal sealed class FollowerLog : IFollowerLog
             try
             {
                 var work = new TruncateDurableWork(owner._durability, location.Offset, owner._faults);
-                await Task.Factory.StartNew(TruncateDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+                await Task.Factory.StartNew(TruncateDurableCallback, work, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                          .ConfigureAwait(false);
             }
             finally
             {
