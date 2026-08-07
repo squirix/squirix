@@ -551,7 +551,7 @@ static async Task<string> ReadElementTextAsync(XmlReader reader)
         var text = new System.Text.StringBuilder();
         while (await subtree.ReadAsync().ConfigureAwait(false))
         {
-            if (subtree.NodeType is XmlNodeType.Text)
+            if (subtree.NodeType is XmlNodeType.Text or XmlNodeType.CDATA)
                 text.Append(subtree.Value);
         }
 
