@@ -149,17 +149,14 @@ internal static class GroupLogCodec
     /// <summary>Reads a single log frame from a buffer starting at a frame boundary.</summary>
     /// <param name="buffer">The buffer containing the frame.</param>
     /// <param name="entry">The decoded entry when the frame is valid.</param>
-    /// <param name="consumed">The number of bytes consumed by the frame when valid.</param>
     /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
-    internal static bool TryReadFrame(ReadOnlySpan<byte> buffer, out FollowerLogEntry entry, out int consumed)
+    internal static bool TryReadFrame(ReadOnlySpan<byte> buffer, out FollowerLogEntry entry)
     {
         entry = default;
-        consumed = 0;
-        if (!TryReadFrameCore(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength, out var frameConsumed))
+        if (!TryReadFrameCore(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength))
             return false;
 
         entry = new FollowerLogEntry(logIndex, term, OwnedBufferKit.CopyToOwned(buffer.Slice(payloadStart, payloadLength)));
-        consumed = frameConsumed;
         return true;
     }
 
@@ -172,7 +169,7 @@ internal static class GroupLogCodec
     {
         logIndex = 0;
         term = 0;
-        return TryReadFrameCore(buffer, out logIndex, out term, out _, out _, out _);
+        return TryReadFrameCore(buffer, out logIndex, out term, out _, out _);
     }
 
     /// <summary>Reads the total encoded length of a log frame from its 9-byte header (magic, version, body length).</summary>
@@ -205,15 +202,13 @@ internal static class GroupLogCodec
     /// <param name="term">The decoded entry term when the frame is valid.</param>
     /// <param name="payloadStart">The payload start offset within the buffer when the frame is valid.</param>
     /// <param name="payloadLength">The payload length in bytes when the frame is valid.</param>
-    /// <param name="consumed">The number of bytes consumed by the frame when valid.</param>
     /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
-    private static bool TryReadFrameCore(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term, out int payloadStart, out int payloadLength, out int consumed)
+    private static bool TryReadFrameCore(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term, out int payloadStart, out int payloadLength)
     {
         logIndex = 0;
         term = 0;
         payloadStart = 0;
         payloadLength = 0;
-        consumed = 0;
 
         // A frame is header(5) + length(4) + body + crc(4); anything shorter cannot be validated.
         if (buffer.Length < FrameHeaderByteCount + 4)
@@ -253,7 +248,6 @@ internal static class GroupLogCodec
             return false;
 
         payloadStart = offset;
-        consumed = crcOffset + 4;
         return true;
     }
 
