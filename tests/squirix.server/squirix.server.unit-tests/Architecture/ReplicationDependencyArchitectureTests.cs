@@ -187,8 +187,10 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     private static void AssertDisallowedEdge(XmlDocument policy, string from, string to)
     {
         var edge = FindEdge(policy, from, to);
-        Assert.True(edge is not null, $"Expected an edge from '{from}' to '{to}' in config.nsdepcop.");
-        Assert.True(string.Equals(edge.LocalName, "Disallowed", StringComparison.Ordinal), $"Edge from '{from}' to '{to}' must be declared under a <Disallowed> element, found <{edge.LocalName}>.");
+        Assert.NotNull(edge);
+        Assert.True(
+            string.Equals(edge.LocalName, "Disallowed", StringComparison.Ordinal),
+            $"Edge from '{from}' to '{to}' must be declared under a <Disallowed> element, found <{edge.LocalName}>.");
     }
 
     /// <summary>Asserts <paramref name="registration" /> appears inside a branch guarded by <paramref name="guard" />.</summary>
