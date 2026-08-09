@@ -371,6 +371,37 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
+    /// <summary>
+    /// A compacted snapshot base is refused because the probe lies below the snapshot boundary: the frame was
+    /// compacted away and its term is unverifiable, so the below-boundary rule (not a payload comparison) produces
+    /// the LogMismatch refusal while Readiness stays Ready.
+    /// </summary>
+    [Fact]
+    public async Task ProbeBelowCompactedBoundaryRejected()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-compacted-snapshot-base-conflict");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken)).Success);
+        Assert.Equal(2UL, (await log.CreateSnapshotAsync(2UL, DefaultCancellationToken)).LastIncludedIndex);
+        var compact = await log.CompactAsync(DefaultCancellationToken);
+        Assert.True(compact.Success);
+
+        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
     /// <summary>A commit index beyond the durable last index is refused.</summary>
     [Fact]
     public async Task DoesNotCommitBeyondDurableLastIndex()
@@ -387,6 +418,61 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
         Assert.Equal(0UL, result.CommitIndex);
         Assert.Equal(0UL, (await log.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+    }
+
+    /// <summary>
+    /// A leader retransmission of the committed base frame passes the exact payload comparison while the frame
+    /// is still retained in memory, and stays acknowledged through application and baseline installation.
+    /// </summary>
+    [Fact]
+    public async Task DuplicateAppendAtSnapshotBaseAccepted()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-base-duplicate");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
+
+        // While index one is still retained in Entries, the identical retransmission must pass the exact
+        // payload comparison rather than the applied-region term-only acceptance.
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+
+        Assert.True((await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken)).Success);
+        var snapshot = await log.CreateSnapshotAsync(1UL, DefaultCancellationToken);
+        Assert.Equal(1UL, snapshot.LastIncludedIndex);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
+    /// <summary>
+    /// After application releases the base frame's payload, a retransmission of the snapshot-base entry is
+    /// acknowledged through the retained-frame term check alone: Leader Completeness forbids a conflicting
+    /// term at an applied index.
+    /// </summary>
+    [Fact]
+    public async Task AppliedBaseDuplicateAcceptedByTerm()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-base-duplicate-applied");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken)).Success);
+
+        // CreateSnapshotAsync installs the baseline without compacting the journal, so the released frame
+        // keeps its offset in EntryOffsets and a retransmission must be an exact duplicate, not a conflict.
+        var snapshot = await log.CreateSnapshotAsync(1UL, DefaultCancellationToken);
+        Assert.Equal(1UL, snapshot.LastIncludedIndex);
+
+        var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+
+        Assert.True(retransmission.Success);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>A duplicate-prefix request cannot commit entries beyond the prefix it validates.</summary>
@@ -528,6 +614,34 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(stale.Success);
         Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
+    /// <summary>A re-sent snapshot base entry with a conflicting payload is rejected while the base entry is still
+    /// retained in memory, even though the index and term match the snapshot baseline.</summary>
+    [Fact]
+    public async Task ResidentBasePayloadConflictRejected()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-snapshot-base-conflict");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
+        Assert.Equal(2UL, (await log.CreateSnapshotAsync(2UL, DefaultCancellationToken)).LastIncludedIndex);
+
+        // The leader re-sends the snapshot base entry at index 2 with the same term but a different payload while the
+        // local basis entry is still resident; the exact payload comparison must reject the conflict instead of the
+        // snapshot-baseline term fallback acknowledging it.
+        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>Status exposes the durable group identity and metadata along with the journal watermarks.</summary>

@@ -18,6 +18,9 @@ internal static class GroupStoragePaths
     private const string MetadataFileName = "group.meta";
     private const string MetadataTempName = "group.meta.tmp";
     private const string LogFileName = "group.log";
+    private const string LogTempName = "group.log.compact.tmp";
+    private const string SnapshotFileName = "group.snapshot";
+    private const string SnapshotTempName = "group.snapshot.tmp";
 
     /// <summary>Resolves the replication storage root directory under the persistence root.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
@@ -57,4 +60,22 @@ internal static class GroupStoragePaths
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns>The log file path.</returns>
     internal static string GetLogPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogFileName);
+
+    /// <summary>Resolves the temporary log path used for atomic compaction replacement.</summary>
+    /// <param name="persistenceRoot">The persistence data directory.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <returns>The temporary log path.</returns>
+    internal static string GetLogTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogTempName);
+
+    /// <summary>Resolves the durable snapshot file path for a group.</summary>
+    /// <param name="persistenceRoot">The persistence data directory.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <returns>The snapshot file path.</returns>
+    internal static string GetSnapshotPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotFileName);
+
+    /// <summary>Resolves the temporary snapshot file path used for atomic replacement.</summary>
+    /// <param name="persistenceRoot">The persistence data directory.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <returns>The temporary snapshot file path.</returns>
+    internal static string GetSnapshotTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotTempName);
 }

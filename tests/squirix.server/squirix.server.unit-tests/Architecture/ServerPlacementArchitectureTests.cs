@@ -58,6 +58,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             $"{ServerArchitectureNamespaces.Node}.App.Decorators",
             "Squirix.Server.Runtime.Contracts",
             ServerArchitectureNamespaces.Storage,
+            $"{ServerArchitectureNamespaces.Storage}.Replication",
             $"{ServerArchitectureNamespaces.Storage}.Snapshot",
             $"{ServerArchitectureNamespaces.Storage}.Journaling",
             $"{ServerArchitectureNamespaces.Storage}.Journaling.Compaction",
