@@ -37,4 +37,19 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         Assert.Equal("journal-value", roundTrip.Value);
         Assert.Equal(4, roundTrip.Version);
     }
+
+    /// <summary>Disposing the same pooled payload lease multiple times returns the rented buffer to the pool only once.</summary>
+    [Fact]
+    public void PooledPayloadDisposeIsIdempotent()
+    {
+        var entry = new NodeCacheEntry<string> { Value = "lease", Version = 1 };
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var lease = JournalEntryPayload.Encode(in prepared);
+        var alias = lease;
+        Assert.Equal(prepared.EncodedLength, lease.Span.Length);
+        Assert.Equal(prepared.EncodedLength, alias.Span.Length);
+        alias.Dispose();
+        lease.Dispose();
+        lease.Dispose();
+    }
 }
