@@ -15,7 +15,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
 {
     private static readonly byte[] OneByteResponse = [1];
 
-    /// <summary>Oversized UTF-8 fields are rejected by length computation.</summary>
+    /// <summary>Length computation rejects oversized UTF-8 fields.</summary>
     [Fact]
     public void ComputeEncodedLengthRejectsOversizedOperationId()
     {

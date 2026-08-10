@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -25,28 +24,21 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-        var bytes = ArrayPool<byte>.Shared.Rent(original.Length);
-        try
-        {
-            original.CopyTo(bytes.AsSpan(0, original.Length));
-            bytes[original.Length - 1] ^= 0xFF;
-            await File.WriteAllBytesAsync(path, bytes.AsMemory(0, original.Length), DefaultCancellationToken);
-            var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var bytes = new byte[original.Length];
+        original.CopyTo(bytes);
+        bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
 
-            _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
-                dir.Path,
-                static dataDirectory =>
-                {
-                    using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
-                    while (records.MoveNext())
-                        _ = records.Current;
-                });
-            Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(bytes);
-        }
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            dir.Path,
+            static dataDirectory =>
+            {
+                using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
+                while (records.MoveNext())
+                    _ = records.Current;
+            });
+        Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
     }
 
     /// <summary>CRC mismatch throws <see cref="InvalidDataException" /> to surface corruption.</summary>
