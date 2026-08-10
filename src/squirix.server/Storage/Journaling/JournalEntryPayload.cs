@@ -11,8 +11,16 @@ internal static class JournalEntryPayload
     internal static PooledJournalPayload Encode(in PreparedJournalEntry prepared)
     {
         var pooledBuffer = ArrayPool<byte>.Shared.Rent(prepared.EncodedLength);
-        CacheEntryCodec.Write(prepared.ObjectEntry, pooledBuffer);
-        return new PooledJournalPayload(pooledBuffer, prepared.EncodedLength);
+        try
+        {
+            CacheEntryCodec.Write(prepared.ObjectEntry, pooledBuffer);
+            return new PooledJournalPayload(pooledBuffer, prepared.EncodedLength);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(pooledBuffer);
+            throw;
+        }
     }
 
     internal static void EnsureEncodedLengthWithinLimit<T>(NodeCacheEntry<T> entry)

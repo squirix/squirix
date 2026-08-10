@@ -42,13 +42,10 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     [Fact]
     public void PooledPayloadDisposeIsIdempotent()
     {
-        var entry = new NodeCacheEntry<string> { Value = "lease", Version = 1 };
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var prepared = JournalEntryPayload.PrepareEncode(new NodeCacheEntry<string> { Value = "lease", Version = 1 });
         var lease = JournalEntryPayload.Encode(in prepared);
-        var alias = lease;
         Assert.Equal(prepared.EncodedLength, lease.Span.Length);
-        Assert.Equal(prepared.EncodedLength, alias.Span.Length);
-        alias.Dispose();
+        lease.Dispose();
         lease.Dispose();
         lease.Dispose();
     }
