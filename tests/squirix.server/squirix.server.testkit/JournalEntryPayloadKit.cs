@@ -1,5 +1,3 @@
-using System;
-using System.Buffers;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 
@@ -21,14 +19,7 @@ public static class JournalEntryPayloadKit
     private static byte[] Encode<T>(NodeCacheEntry<T> entry)
     {
         var prepared = JournalEntryPayload.PrepareEncode(entry);
-        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
-        try
-        {
-            return FixtureBufferKit.CopyToOwned(buffer.AsSpan(0, length));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        using var buffer = JournalEntryPayload.Encode(in prepared);
+        return FixtureBufferKit.CopyToOwned(buffer.Span);
     }
 }

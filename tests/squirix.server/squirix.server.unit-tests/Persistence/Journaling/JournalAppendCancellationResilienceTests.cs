@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -89,25 +88,18 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         const int payloadSize = 16_000;
-        var payload = ArrayPool<byte>.Shared.Rent(payloadSize);
-        try
-        {
-            Array.Fill(payload, Convert.ToByte('z'), 0, payloadSize);
+        var payload = new byte[payloadSize];
+        Array.Fill(payload, Convert.ToByte('z'));
 
-            var deadline = Environment.TickCount64 + 30_000;
-            for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
-            {
-                await journal.AppendPutAsync(CacheKey.Default($"k{NodeInvariantIndexStrings.Format(i)}"), payload.AsMemory(0, payloadSize), DefaultCancellationToken);
-                await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-                i++;
-            }
-
-            Assert.Equal(2, pipelined.CurrentSegmentIndex);
-        }
-        finally
+        var deadline = Environment.TickCount64 + 30_000;
+        for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
         {
-            ArrayPool<byte>.Shared.Return(payload);
+            await journal.AppendPutAsync(CacheKey.Default($"k{NodeInvariantIndexStrings.Format(i)}"), payload, DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+            i++;
         }
+
+        Assert.Equal(2, pipelined.CurrentSegmentIndex);
     }
 
     private static async Task AppendIgnoringCancellationAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, int cancelAfterMs)

@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
@@ -96,17 +95,9 @@ public sealed class TestKeyOwnerHelper
             return HashBytes(buffer);
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-        try
-        {
-            var buffer = rented.AsSpan(0, byteCount);
-            WriteRouteKey(canonical, key, buffer);
-            return HashBytes(buffer);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var owned = new byte[byteCount];
+        WriteRouteKey(canonical, key, owned);
+        return HashBytes(owned);
     }
 
     private static ulong HashVNode(string node, int index)
@@ -118,15 +109,8 @@ public sealed class TestKeyOwnerHelper
             return HashBytes(WriteVNodeKey(node, index, buffer));
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-        try
-        {
-            return HashBytes(WriteVNodeKey(node, index, rented.AsSpan(0, byteCount)));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var owned = new byte[byteCount];
+        return HashBytes(WriteVNodeKey(node, index, owned));
     }
 
     private static int WriteNonNegativeIntUtf8(int value, Span<byte> destination)

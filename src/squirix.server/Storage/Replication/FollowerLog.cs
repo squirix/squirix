@@ -52,7 +52,7 @@ internal sealed class FollowerLog : IFollowerLog
     [SuppressMessage(
         "Reliability",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposing the semaphore could throw ObjectDisposedException in synchronous readers blocked on _gate.Wait(); idempotent disposal is handled via _disposed.")]
+        Justification = "Disposing _gate may throw ObjectDisposedException in synchronous readers blocked on Wait(); idempotent disposal guarded by _disposed.")]
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private readonly string _groupDir;
@@ -326,28 +326,15 @@ internal sealed class FollowerLog : IFollowerLog
         }
     }
 
-    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
-
     private void SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
 
     private void SetLogLength(long logLength) => _logLength = logLength;
 
+    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
+
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend
     {
-        internal static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
-        {
-            var entries = request.Entries;
-            var owned = new FollowerLogEntry[entries.Length];
-            for (var i = 0; i < entries.Length; i++)
-            {
-                var entry = entries.Span[i];
-                owned[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray());
-            }
-
-            return new FollowerLogAppendRequest(request.LeaderNodeId, request.CurrentTerm, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex, owned);
-        }
-
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(FollowerLog owner, FollowerLogAppendRequest request, CancellationToken cancellationToken)
         {
             // Higher term is persisted durably before any further response; the old leader stops being authoritative.
@@ -403,6 +390,19 @@ internal sealed class FollowerLog : IFollowerLog
                 owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
+        }
+
+        internal static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
+        {
+            var entries = request.Entries;
+            var owned = new FollowerLogEntry[entries.Length];
+            for (var i = 0; i < entries.Length; i++)
+            {
+                var entry = entries.Span[i];
+                owned[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray());
+            }
+
+            return request with { Entries = owned };
         }
 
         internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLog owner, FollowerLogAppendRequest request)

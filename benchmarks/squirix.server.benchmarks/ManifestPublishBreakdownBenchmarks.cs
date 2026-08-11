@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Globalization;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
@@ -131,7 +130,6 @@ public class ManifestPublishBreakdownBenchmarks
 
         public void Dispose()
         {
-            ArrayPool<byte>.Shared.Return(_encodeBuffer);
             PointerWriter.Dispose();
             Store.Dispose();
             _dataDir.Dispose();
@@ -152,7 +150,7 @@ public class ManifestPublishBreakdownBenchmarks
             var store = new ManifestStore(options);
             store.PublishRollBlocking(1, 1);
 
-            var encodeBuffer = ArrayPool<byte>.Shared.Rent(EncodeBufferSize);
+            var encodeBuffer = new byte[EncodeBufferSize];
             var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);
             var currentPath = PathEx.Combine(dataDir.Path, $"{FilePrefixes.Manifest}current");
             var pointerWriter = new PersistentPointerWriter(currentPath);

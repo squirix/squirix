@@ -58,12 +58,35 @@
         <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
     </PropertyGroup>
 
+    <!-- Benchmark-project analyzer exemptions. BenchmarkDotNet requires public instance
+         methods on non-static benchmark types, and measured workloads must not be tuned
+         by library-grade code-quality rules. -->
     <PropertyGroup Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058;ZA0901</NoWarn>
+        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058;ZA0901;ZA0302</NoWarn>
+        <!-- CA1515: 'Consider making public types internal'. Benchmark types must stay public
+             so BenchmarkDotNet can discover and instantiate them. -->
+        <!-- CA1822: 'Mark members as static'. Benchmark methods must remain instance methods;
+             BenchmarkDotNet cannot invoke static members per iteration. -->
+        <!-- IDE0058: 'Expression value is never used'. Benchmark steps often call side-effect
+             APIs whose return value is intentionally discarded. -->
+        <!-- ZA0901: 'Consider sealing class to enable JIT devirtualization'. Sealing matters for
+             production hot paths; benchmark harness types are outside the measured workload. -->
+        <!-- ZA0302: 'Use ArrayPool for large temporary arrays'. Benchmarks may hold plain
+             scratch buffers; pooling adds setup/teardown noise that distorts the workload. -->
     </PropertyGroup>
 
+    <!-- Test-project analyzer exemptions. Test code favors readability and framework
+         requirements over library-grade performance rules. -->
     <PropertyGroup Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA2007;MA0004</NoWarn>
+        <NoWarn>$(NoWarn);CA1515;CA2007;MA0004;ZA0302</NoWarn>
+        <!-- CA1515: 'Consider making public types internal'. Test classes and fixtures
+             must stay public so the xUnit runner can discover them. -->
+        <!-- CA2007: 'Do not directly await a Task'. There is no SynchronizationContext
+             in tests, so ConfigureAwait(false) is pointless noise. -->
+        <!-- MA0004: 'Use Task.ConfigureAwait'. Meziantou variant of the same await rule;
+             tests run without a synchronization context. -->
+        <!-- ZA0302: 'Use ArrayPool for large temporary arrays'. Tests may allocate plain
+             arrays for clarity; pooling would only complicate setup and teardown. -->
     </PropertyGroup>
 
     <!-- In-repo Roslyn analyzers (skip the analyzer project itself). -->

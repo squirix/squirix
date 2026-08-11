@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -23,20 +22,9 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
         var lengthEx = NodeExceptionAssert.For<SquirixException>().Throws(overLength, static value => EntryPayloadSizeGuard.EnsureLengthWithinLimit(value));
         Assert.Equal(SquirixErrorCode.PayloadTooLarge, lengthEx.Code);
 
-        var rented = ArrayPool<byte>.Shared.Rent(overLength);
-        try
-        {
-            EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(rented.AsSpan(0, overLength));
-            Assert.Fail("Expected PayloadTooLarge.");
-        }
-        catch (SquirixException bytesEx)
-        {
-            Assert.Equal(SquirixErrorCode.PayloadTooLarge, bytesEx.Code);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var bytes = new byte[overLength];
+        var bytesEx = NodeExceptionAssert.For<SquirixException>().Throws(bytes, static value => EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(value.AsSpan()));
+        Assert.Equal(SquirixErrorCode.PayloadTooLarge, bytesEx.Code);
 
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(EntryLimits.MaxEntrySizeBytes);
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit([]);
