@@ -2,7 +2,6 @@ using System;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Squirix.Server.Core.Serialization;
 
 namespace Squirix.Server.Core;
 
@@ -78,9 +77,13 @@ public sealed class NodeCacheEntry<T>
         }
     }
 
-    internal object? Normalize() => Value switch
+    internal object? Normalize()
     {
-        null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => Value,
-        _ => SerializerProvider.Instance.SerializeToElement(Value),
-    };
+        if (Value is null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement)
+            return Value;
+
+        // Serialize through object? so STJ resolves the runtime type, not the declared entry type T;
+        // otherwise base/interface-declared entries lose derived properties before persistence.
+        return SerializerProvider.Instance.SerializeToElement<object?>(Value);
+    }
 }

@@ -29,4 +29,30 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
         Assert.Equal(1, id.GetInt32());
     }
+
+    /// <summary>
+    /// <see cref="NodeCacheEntry{T}.Normalize" /> serializes the runtime type, not the declared entry type,
+    /// so derived properties on a base/interface-declared entry survive normalization.
+    /// </summary>
+    [Fact]
+    public void NormalizeSerializesRuntimeTypeOfDerivedValue()
+    {
+        var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "survives" });
+        var normalized = entry.Normalize();
+        var element = Assert.IsType<JsonElement>(normalized);
+        Assert.True(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field));
+        Assert.Equal("survives", field.GetString());
+    }
+
+    private interface IValueContract
+    {
+        string Kind { get; }
+    }
+
+    private sealed record DerivedValue : IValueContract
+    {
+        public string Kind { get; init; } = "derived";
+
+        public string? DerivedField { get; init; }
+    }
 }
