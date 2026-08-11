@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace Squirix.Server.Runtime;
+namespace Squirix.Server.Core.Serialization;
 
-internal static class SerializationProvider
+internal static class SerializerProvider
 {
     internal static IServerSerializer Instance { get; } = CreateDefault();
 

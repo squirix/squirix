@@ -5,7 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 

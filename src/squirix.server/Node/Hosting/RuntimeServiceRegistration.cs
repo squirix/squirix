@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Core.Serialization;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;

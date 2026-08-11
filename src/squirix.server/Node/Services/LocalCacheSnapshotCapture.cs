@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Storage.Entries.Binary;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -39,10 +38,10 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 
     private static NodeCacheEntry<object?> ToSnapshotEntry(NodeCacheEntry<T> source)
     {
-        var normalized = CacheEntryCodec.NormalizeValue(source.Value);
-        if (source is NodeCacheEntry<object?> objectEntry && Equals(normalized, objectEntry.Value))
-            return objectEntry;
+        var value = source.Normalize();
+        if (source is NodeCacheEntry<object?> entry && Equals(value, entry.Value))
+            return entry;
 
-        return new NodeCacheEntry<object?>(normalized, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
+        return new NodeCacheEntry<object?>(value, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
     }
 }

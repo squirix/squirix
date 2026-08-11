@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Adapters.Rest;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core.Serialization;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 

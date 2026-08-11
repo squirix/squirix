@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core.Serialization;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.MemoryPressure;
@@ -46,7 +46,7 @@ internal static class PressureBootstrap
                 if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
                     return (false, baseline);
 
-                var section = SerializationProvider.Instance.Deserialize<PressureSettings>(memoryPressure.GetRawText());
+                var section = SerializerProvider.Instance.Deserialize<PressureSettings>(memoryPressure.GetRawText());
                 var merged = section is null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },

@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core.Serialization;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -71,6 +71,25 @@ internal static class ServerProtoEx
         Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
 
+    private static TOut CastReference<TOut, TIn>(TIn input)
+        where TIn : class?
+    {
+        // Local copy keeps the cast site distinct from client ProtoEx.ReinterpretReference.
+        var held = input;
+        return Unsafe.As<TIn, TOut>(ref held);
+    }
+
+    private static TOut CastScalar<TOut, TIn>(TIn input)
+        where TIn : struct => Unsafe.As<TIn, TOut>(ref input);
+
+    private static T? Coerce<T>(object? value) => value is T result ? result : default;
+
+    private static T? DeserializeFromProtoValue<T>(Value value)
+    {
+        var buffer = ValueJson.WriteValueToBuffer(value);
+        return SerializerProvider.Deserialize<T>(buffer.WrittenSpan);
+    }
+
     private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire)
     {
         var kind = wire.KindCase;
@@ -91,12 +110,74 @@ internal static class ServerProtoEx
         throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
     }
 
+    private static T? FromStruct<T>(Struct s)
+    {
+        if (typeof(T) != typeof(object))
+        {
+            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(SingleFieldEnvelopeName, out var onlyWrapped))
+                return DeserializeFromProtoValue<T>(Value.ForStruct(s));
+
+            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
+        }
+
+        if (s.Fields.Count is 1 && s.Fields.TryGetValue(SingleFieldEnvelopeName, out var only))
+            return Coerce<T>(ProtoValueToClrScalarOrJson(only));
+
+        var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return Coerce<T>(document.RootElement.Clone());
+    }
+
     private static bool IsWireScalarKind(CacheValue.KindOneofCase kind) => kind switch
     {
         CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
             or CacheValue.KindOneofCase.DoubleValue => true,
         _ => false,
     };
+
+    private static object? MapCacheValueAsObject(CacheValue value) => value.KindCase switch
+    {
+        CacheValue.KindOneofCase.StringValue => value.StringValue,
+        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
+        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue),
+        _ => FromStruct<object?>(WrapWireScalarAsStruct(value)),
+    };
+
+    private static object? ProtoValueToClrScalarOrJson(Value v)
+    {
+        switch (v.KindCase)
+        {
+            case Value.KindOneofCase.StringValue:
+                return v.StringValue;
+
+            case Value.KindOneofCase.BoolValue:
+                return v.BoolValue;
+
+            case Value.KindOneofCase.NumberValue:
+                return v.NumberValue;
+
+            case Value.KindOneofCase.NullValue:
+                return null;
+
+            case Value.KindOneofCase.StructValue:
+            case Value.KindOneofCase.ListValue:
+            {
+                var buffer = ValueJson.WriteValueToBuffer(v);
+                using var document = JsonDocument.Parse(buffer.WrittenMemory);
+                return document.RootElement.Clone();
+            }
+
+            case Value.KindOneofCase.None:
+            default:
+                return null;
+        }
+    }
+
+    private static Struct ToStruct<T>(T? value) => ValueJson.EncodeToStruct(value);
 
     private static bool TryDecodeExactWirePrimitive<T>(CacheValue wire, out T? decoded)
     {
@@ -149,6 +230,30 @@ internal static class ServerProtoEx
         return true;
     }
 
+    private static bool TryReadScalarValue<T>(Value value, [MaybeNullWhen(false)] out T result)
+    {
+        if (typeof(T) == typeof(string) && value.KindCase is Value.KindOneofCase.StringValue)
+        {
+            result = CastReference<T, string>(value.StringValue);
+            return true;
+        }
+
+        if (typeof(T) == typeof(bool) && value.KindCase is Value.KindOneofCase.BoolValue)
+        {
+            result = CastScalar<T, bool>(value.BoolValue);
+            return true;
+        }
+
+        if (value.KindCase is Value.KindOneofCase.NumberValue && typeof(T) == typeof(double))
+        {
+            result = CastScalar<T, double>(value.NumberValue);
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
     private static Struct WrapWireScalarAsStruct(CacheValue wire)
     {
         Value boxed;
@@ -182,111 +287,6 @@ internal static class ServerProtoEx
         var envelope = new Struct();
         envelope.Fields.Add(SingleFieldEnvelopeName, boxed);
         return envelope;
-    }
-
-    private static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    private static T? DeserializeFromProtoValue<T>(Value value)
-    {
-        var buffer = ValueJson.WriteValueToBuffer(value);
-        return SerializationProvider.Deserialize<T>(buffer.WrittenSpan);
-    }
-
-    private static T? FromStruct<T>(Struct s)
-    {
-        if (typeof(T) != typeof(object))
-        {
-            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(SingleFieldEnvelopeName, out var onlyWrapped))
-                return DeserializeFromProtoValue<T>(Value.ForStruct(s));
-
-            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
-        }
-
-        if (s.Fields.Count is 1 && s.Fields.TryGetValue(SingleFieldEnvelopeName, out var only))
-            return Coerce<T>(ProtoValueToClrScalarOrJson(only));
-
-        var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return Coerce<T>(document.RootElement.Clone());
-    }
-
-    private static object? MapCacheValueAsObject(CacheValue value) => value.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => value.StringValue,
-        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
-        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
-        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue),
-        _ => FromStruct<object?>(WrapWireScalarAsStruct(value)),
-    };
-
-    private static object? ProtoValueToClrScalarOrJson(Value v)
-    {
-        switch (v.KindCase)
-        {
-            case Value.KindOneofCase.StringValue:
-                return v.StringValue;
-
-            case Value.KindOneofCase.BoolValue:
-                return v.BoolValue;
-
-            case Value.KindOneofCase.NumberValue:
-                return v.NumberValue;
-
-            case Value.KindOneofCase.NullValue:
-                return null;
-
-            case Value.KindOneofCase.StructValue:
-            case Value.KindOneofCase.ListValue:
-            {
-                var buffer = ValueJson.WriteValueToBuffer(v);
-                using var document = JsonDocument.Parse(buffer.WrittenMemory);
-                return document.RootElement.Clone();
-            }
-
-            case Value.KindOneofCase.None:
-            default:
-                return null;
-        }
-    }
-
-    private static TOut CastReference<TOut, TIn>(TIn input)
-        where TIn : class?
-    {
-        // Local copy keeps the cast site distinct from client ProtoEx.ReinterpretReference.
-        var held = input;
-        return Unsafe.As<TIn, TOut>(ref held);
-    }
-
-    private static TOut CastScalar<TOut, TIn>(TIn input)
-        where TIn : struct => Unsafe.As<TIn, TOut>(ref input);
-
-    private static Struct ToStruct<T>(T? value) => ValueJson.EncodeToStruct(value);
-
-    private static bool TryReadScalarValue<T>(Value value, [MaybeNullWhen(false)] out T result)
-    {
-        if (typeof(T) == typeof(string) && value.KindCase is Value.KindOneofCase.StringValue)
-        {
-            result = CastReference<T, string>(value.StringValue);
-            return true;
-        }
-
-        if (typeof(T) == typeof(bool) && value.KindCase is Value.KindOneofCase.BoolValue)
-        {
-            result = CastScalar<T, bool>(value.BoolValue);
-            return true;
-        }
-
-        if (value.KindCase is Value.KindOneofCase.NumberValue && typeof(T) == typeof(double))
-        {
-            result = CastScalar<T, double>(value.NumberValue);
-            return true;
-        }
-
-        result = default;
-        return false;
     }
 
     /// <summary>JSON ↔ protobuf <see cref="Value" /> helpers owned by <see cref="ServerProtoEx" />.</summary>
@@ -323,7 +323,7 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(Value.ForBool(flag));
 
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-            var root = SerializationProvider.Instance.SerializeToElement(value);
+            var root = SerializerProvider.Instance.SerializeToElement(value);
             return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
         }
 
@@ -344,6 +344,27 @@ internal static class ServerProtoEx
 #pragma warning restore MA0045
 
             return buffer;
+        }
+
+        private static ListValue BuildListValueFromJsonArray(JsonElement arrayElement)
+        {
+            var list = new ListValue();
+            var destination = list.Values;
+            var count = arrayElement.GetArrayLength();
+            for (var offset = 0; offset < count; offset++)
+                destination.Add(ConvertJsonElementToProtoValue(arrayElement[offset]));
+
+            return list;
+        }
+
+        private static Struct BuildStructFromJsonObject(JsonElement objectElement)
+        {
+            var result = new Struct();
+            var fields = result.Fields;
+            foreach (var property in objectElement.EnumerateObject())
+                fields[property.Name] = ConvertJsonElementToProtoValue(property.Value);
+
+            return result;
         }
 
         private static Value ConvertJsonElementToProtoValue(JsonElement element)
@@ -373,16 +394,6 @@ internal static class ServerProtoEx
             throw new ArgumentOutOfRangeException(nameof(element), "Unsupported JSON value kind.");
         }
 
-        private static Struct BuildStructFromJsonObject(JsonElement objectElement)
-        {
-            var result = new Struct();
-            var fields = result.Fields;
-            foreach (var property in objectElement.EnumerateObject())
-                fields[property.Name] = ConvertJsonElementToProtoValue(property.Value);
-
-            return result;
-        }
-
         private static Struct CreateSingleFieldStruct(Value fieldValue)
         {
             var envelope = new Struct();
@@ -390,15 +401,36 @@ internal static class ServerProtoEx
             return envelope;
         }
 
-        private static ListValue BuildListValueFromJsonArray(JsonElement arrayElement)
+        /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>
+        /// <param name="writer">JSON writer receiving the array.</param>
+        /// <param name="listValue">Protobuf list whose items are written.</param>
+        private static void WriteListItems(Utf8JsonWriter writer, ListValue listValue)
         {
-            var list = new ListValue();
-            var destination = list.Values;
-            var count = arrayElement.GetArrayLength();
-            for (var offset = 0; offset < count; offset++)
-                destination.Add(ConvertJsonElementToProtoValue(arrayElement[offset]));
+            writer.WriteStartArray();
+            var items = listValue.Values;
+            for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+                WriteValue(writer, items[itemIndex]);
 
-            return list;
+            writer.WriteEndArray();
+        }
+
+        /// <summary>Writes struct fields as a JSON object, recursing through nested values.</summary>
+        /// <param name="writer">JSON writer receiving the object.</param>
+        /// <param name="structValue">Protobuf struct whose fields are written.</param>
+        private static void WriteStructFields(Utf8JsonWriter writer, Struct structValue)
+        {
+            writer.WriteStartObject();
+            var fields = structValue.Fields;
+            using var fieldEnumerator = fields.GetEnumerator();
+            for (var index = 0; index < fields.Count; index++)
+            {
+                _ = fieldEnumerator.MoveNext();
+                var field = fieldEnumerator.Current;
+                writer.WritePropertyName(field.Key);
+                WriteValue(writer, field.Value);
+            }
+
+            writer.WriteEndObject();
         }
 
         /// <summary>
@@ -434,38 +466,6 @@ internal static class ServerProtoEx
                 default:
                     throw new InvalidOperationException($"Unsupported protobuf value kind: {value.KindCase}.");
             }
-        }
-
-        /// <summary>Writes struct fields as a JSON object, recursing through nested values.</summary>
-        /// <param name="writer">JSON writer receiving the object.</param>
-        /// <param name="structValue">Protobuf struct whose fields are written.</param>
-        private static void WriteStructFields(Utf8JsonWriter writer, Struct structValue)
-        {
-            writer.WriteStartObject();
-            var fields = structValue.Fields;
-            using var fieldEnumerator = fields.GetEnumerator();
-            for (var index = 0; index < fields.Count; index++)
-            {
-                _ = fieldEnumerator.MoveNext();
-                var field = fieldEnumerator.Current;
-                writer.WritePropertyName(field.Key);
-                WriteValue(writer, field.Value);
-            }
-
-            writer.WriteEndObject();
-        }
-
-        /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>
-        /// <param name="writer">JSON writer receiving the array.</param>
-        /// <param name="listValue">Protobuf list whose items are written.</param>
-        private static void WriteListItems(Utf8JsonWriter writer, ListValue listValue)
-        {
-            writer.WriteStartArray();
-            var items = listValue.Values;
-            for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
-                WriteValue(writer, items[itemIndex]);
-
-            writer.WriteEndArray();
         }
     }
 }

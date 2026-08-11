@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using Squirix.Server.Core.Serialization;
 
 namespace Squirix.Server.Core;
 
@@ -75,4 +77,10 @@ public sealed class NodeCacheEntry<T>
             field = value;
         }
     }
+
+    internal object? Normalize() => Value switch
+    {
+        null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => Value,
+        _ => SerializerProvider.Instance.SerializeToElement(Value),
+    };
 }

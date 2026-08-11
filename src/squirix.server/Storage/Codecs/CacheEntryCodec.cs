@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -8,22 +9,22 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core.Serialization;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Storage.Entries.Binary;
+namespace Squirix.Server.Storage.Codecs;
 
 /// <summary>Binary cache-entry encoding for journal and snapshot payloads.</summary>
 internal static class CacheEntryCodec
 {
-    internal const int MaxUtf16StringLength = ushort.MaxValue;
     private const byte False = 0;
+    private const int MaxUtf16StringLength = ushort.MaxValue;
     private const byte True = 1;
 
     internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
     {
         var length = 1 + 1 + 8;
-        length += CacheEntryTagEncoding.ComputeLength(entry.Tags);
+        length += TagEncoding.ComputeLength(entry.Tags);
         length += CacheEntryValueEncoding.ComputeLength(entry.Value);
         if (entry.ExpiresUtc is not null)
             length += 8;
@@ -33,21 +34,6 @@ internal static class CacheEntryCodec
 
         return length;
     }
-
-    /// <summary>
-    /// Returns a value already in a directly-encodable form: primitives, strings, byte arrays and
-    /// <see cref="JsonElement" /> pass through unchanged, while any other object is serialized to a
-    /// <see cref="JsonElement" /> exactly once. Callers normalize before the
-    /// <see cref="ComputeEncodedLength" /> / <see cref="Write" /> pair so an arbitrary object is not
-    /// re-serialized on every length and write pass.
-    /// </summary>
-    /// <param name="value">The raw cache value.</param>
-    /// <returns>The same value when directly encodable; otherwise its <see cref="JsonElement" /> form.</returns>
-    internal static object? NormalizeValue(object? value) => value switch
-    {
-        null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => value,
-        _ => SerializationProvider.Instance.SerializeToElement(value),
-    };
 
     internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
     {
@@ -107,12 +93,11 @@ internal static class CacheEntryCodec
 
         BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], entry.Version);
         offset += 8;
-        offset += CacheEntryTagEncoding.Write(entry.Tags, destination[offset..]);
+        offset += TagEncoding.WriteTag(entry.Tags, destination[offset..]);
         _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
     }
 
-    private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope envelope) =>
-        new(typedValue, envelope.Version, envelope.ExpiresUtc, envelope.Expiration, envelope.Tags);
+    private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
 
     private static bool TryReadEnvelope(ReadOnlySpan<byte> source, out ReadEnvelope envelope)
     {
@@ -166,7 +151,7 @@ internal static class CacheEntryCodec
         value = null;
 
         // Tags and value are length-prefixed sections; both must parse before coercion to T.
-        if (!CacheEntryTagEncoding.TryRead(source[offset..], out tags, out var tagsBytes))
+        if (!TagEncoding.TryReadTag(source[offset..], out tags, out var tagsBytes))
             return false;
 
         offset += tagsBytes;
@@ -226,7 +211,7 @@ internal static class CacheEntryCodec
             float or double => 1 + 8,
             decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
             JsonElement je => JsonTreeCodec.ComputeEncodedLengthInternal(je),
-            _ => JsonTreeCodec.ComputeEncodedLengthInternal(SerializationProvider.Instance.SerializeToElement(value)),
+            _ => JsonTreeCodec.ComputeEncodedLengthInternal(SerializerProvider.Instance.SerializeToElement(value)),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -359,7 +344,7 @@ internal static class CacheEntryCodec
         {
             value = null;
             bytesRead = 0;
-            if (!CacheEntryTagEncoding.TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
+            if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
                 return false;
 
             value = BufferEx.CopyToOwned(rawBytes);
@@ -371,7 +356,7 @@ internal static class CacheEntryCodec
         {
             value = null;
             bytesRead = 0;
-            if (!CacheEntryTagEncoding.TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
+            if (!TagEncoding.TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
                 return false;
 
             if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
@@ -428,7 +413,7 @@ internal static class CacheEntryCodec
         {
             value = null;
             bytesRead = 0;
-            if (!CacheEntryTagEncoding.TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
+            if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
                 return false;
 
             value = Encoding.UTF8.GetString(stringBytes);
@@ -447,13 +432,13 @@ internal static class CacheEntryCodec
         private static int WriteBytes(byte[] bytes, Span<byte> destination)
         {
             destination[0] = ValueKind.Bytes;
-            return 1 + CacheEntryTagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
+            return 1 + TagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
         }
 
         private static int WriteDecimal(decimal value, Span<byte> destination)
         {
             destination[0] = ValueKind.Decimal;
-            return 1 + CacheEntryTagEncoding.WriteUtf8Prefixed(value.ToString(CultureInfo.InvariantCulture), destination[1..]);
+            return 1 + TagEncoding.WriteUtf8Prefixed(value.ToString(CultureInfo.InvariantCulture), destination[1..]);
         }
 
         private static int WriteDouble(object value, Span<byte> destination)
@@ -477,12 +462,12 @@ internal static class CacheEntryCodec
         }
 
         private static int WriteSerializedObject(object value, Span<byte> destination) =>
-            JsonTreeCodec.WriteInternal(SerializationProvider.Instance.SerializeToElement(value), destination);
+            JsonTreeCodec.WriteInternal(SerializerProvider.Instance.SerializeToElement(value), destination);
 
         private static int WriteString(string value, Span<byte> destination)
         {
             destination[0] = ValueKind.String;
-            return 1 + CacheEntryTagEncoding.WriteUtf32PrefixedString(value, destination[1..]);
+            return 1 + TagEncoding.WriteUtf32PrefixedString(value, destination[1..]);
         }
     }
 
@@ -834,5 +819,167 @@ internal static class CacheEntryCodec
                 return 2 + byteCount;
             }
         }
+    }
+
+    /// <summary>Tag encoding helpers for <see cref="CacheEntryCodec" />.</summary>
+    private static class TagEncoding
+    {
+        internal static int ComputeLength(FrozenDictionary<string, string>? tags)
+        {
+            if (tags is null || tags.Count is 0)
+                return 2;
+
+            var length = 2;
+            foreach (var (key, value) in tags)
+            {
+                var keyBytes = Encoding.UTF8.GetByteCount(key);
+                var valueBytes = Encoding.UTF8.GetByteCount(value);
+                if (keyBytes > MaxUtf16StringLength || valueBytes > MaxUtf16StringLength)
+                    throw new InvalidDataException("Snapshot tag key or value exceeds maximum encoded length.");
+
+                length += 2 + 2 + keyBytes + valueBytes;
+            }
+
+            return length;
+        }
+
+        internal static bool TryReadTag(ReadOnlySpan<byte> source, out FrozenDictionary<string, string>? tags, out int bytesRead)
+        {
+            tags = null;
+            bytesRead = 0;
+            if (source.Length < 2)
+                return false;
+
+            var count = BinaryPrimitives.ReadUInt16LittleEndian(source);
+            bytesRead = 2;
+            if (count is 0)
+                return true;
+
+            var dict = new Dictionary<string, string>(count, StringComparer.Ordinal);
+            for (var i = 0; i < count; i++)
+            {
+                if (!TryReadUtf8Prefixed(source[bytesRead..], out var key, out var keyBytes))
+                    return false;
+
+                bytesRead += keyBytes;
+                if (!TryReadUtf8Prefixed(source[bytesRead..], out var value, out var valueBytes))
+                    return false;
+
+                bytesRead += valueBytes;
+                dict[key] = value;
+            }
+
+            tags = dict.ToFrozenDictionary(StringComparer.Ordinal);
+            return true;
+        }
+
+        internal static bool TryReadUtf32Prefixed(ReadOnlySpan<byte> source, out ReadOnlySpan<byte> bytes, out int bytesRead)
+        {
+            bytes = default;
+            bytesRead = 0;
+            if (source.Length < 4)
+                return false;
+
+            var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
+            var lengthInt = int.CreateChecked(length);
+            bytesRead = 4 + lengthInt;
+            if (source.Length < bytesRead)
+                return false;
+
+            bytes = source.Slice(4, lengthInt);
+            return true;
+        }
+
+        internal static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
+        {
+            text = string.Empty;
+            bytesRead = 0;
+            if (source.Length < 2)
+                return false;
+
+            var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
+            bytesRead = 2 + length;
+            if (source.Length < bytesRead)
+                return false;
+
+            text = Encoding.UTF8.GetString(source.Slice(2, length));
+            return true;
+        }
+
+        internal static int WriteTag(FrozenDictionary<string, string>? tags, Span<byte> destination)
+        {
+            if (tags is null || tags.Count is 0)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(destination, 0);
+                return 2;
+            }
+
+            BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(tags.Count));
+            var offset = 2;
+            foreach (var (key, value) in tags)
+            {
+                offset += WriteUtf8Prefixed(key, destination[offset..]);
+                offset += WriteUtf8Prefixed(value, destination[offset..]);
+            }
+
+            return offset;
+        }
+
+        internal static int WriteUtf32Prefixed(ReadOnlySpan<byte> bytes, Span<byte> destination)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(bytes.Length));
+            bytes.CopyTo(destination[4..]);
+            return 4 + bytes.Length;
+        }
+
+        internal static int WriteUtf32PrefixedString(string text, Span<byte> destination)
+        {
+            var byteCount = Encoding.UTF8.GetByteCount(text);
+            BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(byteCount));
+            _ = Encoding.UTF8.GetBytes(text, destination[4..]);
+            return 4 + byteCount;
+        }
+
+        internal static int WriteUtf8Prefixed(string text, Span<byte> destination)
+        {
+            var byteCount = Encoding.UTF8.GetByteCount(text);
+            if (byteCount > MaxUtf16StringLength)
+                throw new InvalidDataException("Snapshot string exceeds maximum encoded length.");
+
+            BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
+            _ = Encoding.UTF8.GetBytes(text, destination[2..]);
+            return 2 + byteCount;
+        }
+    }
+
+    /// <summary>Tagged cache-value kinds in binary snapshot/journal payloads.</summary>
+    private static class ValueKind
+    {
+        /// <summary>JSON array encoded as a recursive binary tree.</summary>
+        internal const byte Array = 8;
+
+        /// <summary>Boolean value.</summary>
+        internal const byte Bool = 1;
+
+        /// <summary>Raw byte array value.</summary>
+        internal const byte Bytes = 3;
+
+        /// <summary>Decimal serialized as invariant text.</summary>
+        internal const byte Decimal = 6;
+
+        /// <summary>IEEE double value.</summary>
+        internal const byte Double = 5;
+
+        /// <summary>64-bit integer value.</summary>
+        internal const byte Int64 = 4;
+
+        /// <summary>Null value.</summary>
+        internal const byte Null = 0;
+
+        /// <summary>JSON object encoded as a recursive binary tree.</summary>
+        internal const byte Object = 7;
+
+        /// <summary>UTF-8 string value.</summary>
+        internal const byte String = 2;
     }
 }

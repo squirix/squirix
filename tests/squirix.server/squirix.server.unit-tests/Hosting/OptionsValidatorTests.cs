@@ -1,10 +1,10 @@
 using System;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core.Serialization;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Snapshot;
@@ -155,24 +155,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
-    [Fact]
-    public void ConfigValidatorRejectsPlaintextHttpPeerUrls()
-    {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
-        {
-            ClusterId = "c1",
-            NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
-            VirtualNodes = 128,
-        };
-
-        var result = v.Validate(Options.DefaultName, cfg);
-
-        Assert.True(result.Failed);
-    }
-
     /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
     [Fact]
     public void ConfigValidatorRejectsInvalidReplicaCount()
@@ -226,10 +208,25 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         };
         var aboveDistinctResult = v.Validate(Options.DefaultName, aboveDistinct);
         Assert.True(aboveDistinctResult.Failed);
-        Assert.Contains(
-            "ReplicaCount cannot exceed the number of configured peers.",
-            aboveDistinctResult.Failures,
-            StringComparer.Ordinal);
+        Assert.Contains("ReplicaCount cannot exceed the number of configured peers.", aboveDistinctResult.Failures, StringComparer.Ordinal);
+    }
+
+    /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
+    [Fact]
+    public void ConfigValidatorRejectsPlaintextHttpPeerUrls()
+    {
+        var v = new ConfigValidator();
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = new Uri("https://localhost:6001"),
+            VirtualNodes = 128,
+        };
+
+        var result = v.Validate(Options.DefaultName, cfg);
+
+        Assert.True(result.Failed);
     }
 
     /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
