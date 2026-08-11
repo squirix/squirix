@@ -15,8 +15,8 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
-/// Compacts the current state (snapshot + journal tail) into a single journal segment,
-/// then atomically replaces old journal files and updates the manifest.
+/// Compacts the current state (snapshot plus journal tail) into a single journal segment,
+/// then atomically replaces old journal files, and updates the manifest.
 /// Invariants after completion:
 /// - All used file handles are closed
 /// - At least one valid journal segment exists
@@ -252,16 +252,9 @@ internal static class JournalCompactor
                     continue;
 
                 var encode = JournalEntryPayload.PrepareEncode(e);
-                var payloadLength = JournalEntryPayload.Encode(in encode, out var payloadBuffer);
-                try
-                {
-                    seq = await WriteCompactedPutEntryAsync(fs, k, payloadBuffer.AsMemory(0, payloadLength), seq, cancellationToken).ConfigureAwait(false);
-                    wroteAny = true;
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(payloadBuffer);
-                }
+                using var payloadBuffer = JournalEntryPayload.Encode(in encode);
+                seq = await WriteCompactedPutEntryAsync(fs, k, payloadBuffer.Memory, seq, cancellationToken).ConfigureAwait(false);
+                wroteAny = true;
             }
 
             foreach (var pair in idempotencyState)

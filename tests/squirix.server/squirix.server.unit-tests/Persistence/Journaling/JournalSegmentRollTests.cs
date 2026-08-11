@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,38 +37,30 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var overflowRented = ArrayPool<byte>.Shared.Rent(LargePayloadSize);
-        try
-        {
-            Array.Fill(overflowRented, Convert.ToByte('y'), 0, LargePayloadSize);
-            var overflowPayload = overflowRented.AsMemory(0, LargePayloadSize);
-            var overflowKey = CacheKey.Default("overflow-key");
-            var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
-            await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
-            var segmentOnePath = SegmentPath(dir, 1);
-            var bytesBefore = new FileInfo(segmentOnePath).Length;
+        var segmentOnePath = SegmentPath(dir, 1);
+        var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-            await BlockNextManifestWriteAsync(manifestStore, dir);
-            var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
-            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+        await BlockNextManifestWriteAsync(manifestStore, dir);
+        var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
-            var deadline = Environment.TickCount64 + 5_000;
-            while (!journal.HasFlushLoopFailure && Environment.TickCount64 < deadline)
-                await Task.Delay(10, DefaultCancellationToken);
+        var deadline = Environment.TickCount64 + 5_000;
+        while (!journal.HasFlushLoopFailure && Environment.TickCount64 < deadline)
+            await Task.Delay(10, DefaultCancellationToken);
 
-            Assert.True(journal.HasFlushLoopFailure);
+        Assert.True(journal.HasFlushLoopFailure);
 
-            Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
-            Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));
-            Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
-            if (File.Exists(SegmentPath(dir, 2)))
-                Assert.False(ContainsPutKey(dir, 2, "overflow-key"));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(overflowRented);
-        }
+        Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
+        Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));
+        Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
+        if (File.Exists(SegmentPath(dir, 2)))
+            Assert.False(ContainsPutKey(dir, 2, "overflow-key"));
     }
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
@@ -87,32 +78,24 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var overflowRented = ArrayPool<byte>.Shared.Rent(LargePayloadSize);
-        try
-        {
-            Array.Fill(overflowRented, Convert.ToByte('y'), 0, LargePayloadSize);
-            var overflowPayload = overflowRented.AsMemory(0, LargePayloadSize);
-            var overflowKey = CacheKey.Default("overflow-key");
-            var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
-            await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
-            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-            await StoreTestSupport.WaitUntilAsync(
-                manifestStore,
-                static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal is 2,
-                TimeSpan.FromSeconds(5),
-                DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(
+            manifestStore,
+            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal is 2,
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
-            Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
-            Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
-            Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(overflowRented);
-        }
+        Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
+        Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
     }
 
     private static Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
@@ -155,34 +138,26 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
-        var fillRented = ArrayPool<byte>.Shared.Rent(FillPayloadSize);
-        try
+        var fillPayload = new byte[FillPayloadSize];
+        Array.Fill(fillPayload, Convert.ToByte('x'));
+        var fillKey = CacheKey.Default("fill");
+        var fillFrameLen = FrameLength(fillPayload, fillKey);
+        const long maxBytes = 1024L * 1024L;
+
+        for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex is 1; i++)
         {
-            Array.Fill(fillRented, Convert.ToByte('x'), 0, FillPayloadSize);
-            var fillPayload = fillRented.AsMemory(0, FillPayloadSize);
-            var fillKey = CacheKey.Default("fill");
-            var fillFrameLen = FrameLength(fillPayload, fillKey);
-            const long maxBytes = 1024L * 1024L;
+            if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
+                break;
 
-            for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex is 1; i++)
-            {
-                if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
-                    break;
+            if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
+                break;
 
-                if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
-                    break;
-
-                await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
-                await journal.AwaitDurabilityCommitAsync(cancellationToken);
-            }
-
-            Assert.Equal(1, journal.CurrentSegmentIndex);
-            Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes);
+            await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(fillRented);
-        }
+
+        Assert.Equal(1, journal.CurrentSegmentIndex);
+        Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes);
     }
 
     private static int FrameLength(ReadOnlyMemory<byte> payload, CacheKey key)

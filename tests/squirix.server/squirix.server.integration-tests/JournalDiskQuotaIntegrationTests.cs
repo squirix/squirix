@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -57,34 +56,26 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 
     private static async Task<Exception> FillUntilJournalQuotaAsync(IJournalCoordinator journal)
     {
-        var payload = ArrayPool<byte>.Shared.Rent(200 * 1024);
-        try
+        var bytes = new byte[200 * 1024];
+        for (var i = 0; i < 32; i++)
         {
-            var bytes = payload.AsMemory(0, 200 * 1024);
-            for (var i = 0; i < 32; i++)
+            try
             {
-                try
-                {
-                    await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
-                                 .ConfigureAwait(false);
-                }
-                catch (JournalCapacityExceededException ex)
-                {
-                    return ex;
-                }
-                catch (InvalidOperationException ex) when (ex.InnerException is JournalCapacityExceededException capacity)
-                {
-                    return capacity;
-                }
+                await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
+                             .ConfigureAwait(false);
             }
+            catch (JournalCapacityExceededException ex)
+            {
+                return ex;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is JournalCapacityExceededException capacity)
+            {
+                return capacity;
+            }
+        }
 
-            Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
-            throw new InvalidOperationException("unreachable");
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(payload);
-        }
+        Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
+        throw new InvalidOperationException("unreachable");
     }
 
     private async Task AssertJournalDiskPressureAsync(Uri uri)

@@ -28,16 +28,6 @@ public class EntryPayloadWritePathBenchmarks
     [Benchmark(Baseline = true, Description = "journal only (1x binary encode)")]
     public int BinarySerializeOnce() => EntryPayloadWritePathBenchmarkSupport.BinarySerializeOnce(_entry);
 
-    /// <summary>Current write path: validation guard and journal each encode independently.</summary>
-    /// <returns>Combined serialized byte length from both passes.</returns>
-    [Benchmark(Description = "guard + journal (2x binary encode)")]
-    public int BinarySerializeTwice() => EntryPayloadWritePathBenchmarkSupport.BinarySerializeTwice(_entry);
-
-    /// <summary>Reuse candidate: encode once, validate by length, pass the same bytes to journal append.</summary>
-    /// <returns>Serialized byte length after validation.</returns>
-    [Benchmark(Description = "reuse payload (1x encode + length check)")]
-    public int SerializeOnceThenLengthCheck() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheck(_entry);
-
     /// <summary>Builds the entry under test for the selected payload profile.</summary>
     /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile" /> is not a supported value.</exception>
     [GlobalSetup]

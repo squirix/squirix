@@ -207,15 +207,14 @@ internal static class ExploreRunner
             for (var i = 0; i < state.Nodes.Count; i++)
             {
                 var node = state.Nodes[i];
-                if (node.AppliedIndex < node.CommitIndex)
-                {
-                    var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                    var applied = node.AppliedIndex + 1;
-                    var ready = ComputeReadReady(node, applied, profile, broken) || node.ReadReady;
+                if (node.AppliedIndex >= node.CommitIndex)
+                    continue;
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                var applied = node.AppliedIndex + 1;
+                var ready = ComputeReadReady(node, applied, profile, broken) || node.ReadReady;
 
-                    nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready });
-                    output.Add(state.WithNodes(nodes));
-                }
+                nodes[i] = ModelTransitionUtil.Patch(node, new NodePatch { AppliedIndex = applied, ReadReady = ready });
+                output.Add(state.WithNodes(nodes));
             }
         }
 

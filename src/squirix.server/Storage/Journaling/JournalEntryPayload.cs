@@ -8,11 +8,19 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Sync encode/decode of journal Put payloads via <see cref="CacheEntryCodec" />.</summary>
 internal static class JournalEntryPayload
 {
-    internal static int Encode(in PreparedJournalEntry prepared, out byte[] pooledBuffer)
+    internal static PooledJournalPayload Encode(in PreparedJournalEntry prepared)
     {
-        pooledBuffer = ArrayPool<byte>.Shared.Rent(prepared.EncodedLength);
-        CacheEntryCodec.Write(prepared.ObjectEntry, pooledBuffer);
-        return prepared.EncodedLength;
+        var pooledBuffer = ArrayPool<byte>.Shared.Rent(prepared.EncodedLength);
+        try
+        {
+            CacheEntryCodec.Write(prepared.ObjectEntry, pooledBuffer);
+            return new PooledJournalPayload(pooledBuffer, prepared.EncodedLength);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(pooledBuffer);
+            throw;
+        }
     }
 
     internal static void EnsureEncodedLengthWithinLimit<T>(NodeCacheEntry<T> entry)
