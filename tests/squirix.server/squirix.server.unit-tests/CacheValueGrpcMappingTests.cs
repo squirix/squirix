@@ -492,6 +492,21 @@ public sealed class CacheValueGrpcMappingTests
         Assert.Equal(JsonValueKind.Null, roundTrip.Value[2].ValueKind);
     }
 
+    /// <summary>Large Int64 wire values preserve exact precision for typed long and JsonElement reads.</summary>
+    [Fact]
+    public async Task LargeInt64PreservesExactValueAsync()
+    {
+        const long big = 9_007_199_254_740_993L;
+        var wire = new CacheValue { Int64Value = big };
+
+        Assert.Equal(big, await ServerProtoEx.MapCacheValueAsync<long>(wire));
+
+        var element = await ServerProtoEx.MapCacheValueAsync<JsonElement>(wire);
+        Assert.Equal(JsonValueKind.Number, element.ValueKind);
+        Assert.Equal(big, element.GetInt64());
+        Assert.Equal(big.ToString(CultureInfo.InvariantCulture), element.GetRawText());
+    }
+
     private sealed class ValuePayload
     {
         public string Value { get; init; } = string.Empty;
