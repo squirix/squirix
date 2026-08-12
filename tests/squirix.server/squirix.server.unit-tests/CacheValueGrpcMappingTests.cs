@@ -313,7 +313,7 @@ public sealed class CacheValueGrpcMappingTests
             {
                 Fields =
                 {
-                    ["\u0000squirix:scalar"] = new Value
+                    ["\0squirix:scalar"] = new Value
                     {
                         ListValue = new ListValue
                         {
@@ -338,7 +338,7 @@ public sealed class CacheValueGrpcMappingTests
             {
                 Fields =
                 {
-                    ["\u0000squirix:scalar"] = Value.ForStruct(new Struct { Fields = { ["inner"] = Value.ForString("x") } }),
+                    ["\0squirix:scalar"] = Value.ForStruct(new Struct { Fields = { ["inner"] = Value.ForString("x") } }),
                 },
             },
         };
@@ -352,13 +352,13 @@ public sealed class CacheValueGrpcMappingTests
     {
         var nullWire = new CacheValue
         {
-            StructValue = new Struct { Fields = { ["\u0000squirix:scalar"] = Value.ForNull() } },
+            StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForNull() } },
         };
         Assert.Null(await ServerProtoEx.MapCacheValueAsync<object>(nullWire));
 
         var unsetWire = new CacheValue
         {
-            StructValue = new Struct { Fields = { ["\u0000squirix:scalar"] = new Value() } },
+            StructValue = new Struct { Fields = { ["\0squirix:scalar"] = new Value() } },
         };
         Assert.Null(await ServerProtoEx.MapCacheValueAsync<object>(unsetWire));
     }
@@ -371,15 +371,15 @@ public sealed class CacheValueGrpcMappingTests
         {
             StructValue = new Struct
             {
-                Fields = { ["\u0000squirix:scalar"] = Value.ForString("wrapped") },
+                Fields = { ["\0squirix:scalar"] = Value.ForString("wrapped") },
             },
         };
 
         Assert.Equal("wrapped", await ServerProtoEx.MapCacheValueAsync<string>(wire));
         Assert.Equal("wrapped", await ServerProtoEx.MapCacheValueAsync<object>(wire));
-        var numberWire = new CacheValue { StructValue = new Struct { Fields = { ["\u0000squirix:scalar"] = Value.ForNumber(1.5d) } } };
+        var numberWire = new CacheValue { StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForNumber(1.5d) } } };
         Assert.Equal(1.5d, await ServerProtoEx.MapCacheValueAsync<double>(numberWire));
-        var boolWire = new CacheValue { StructValue = new Struct { Fields = { ["\u0000squirix:scalar"] = Value.ForBool(true) } } };
+        var boolWire = new CacheValue { StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForBool(true) } } };
         Assert.True(await ServerProtoEx.MapCacheValueAsync<bool>(boolWire));
     }
 
@@ -389,7 +389,7 @@ public sealed class CacheValueGrpcMappingTests
     {
         var wire = new CacheEntryWire
         {
-            Value = new Struct { Fields = { ["\u0000squirix:scalar"] = Value.ForString("exp") } },
+            Value = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForString("exp") } },
             ExpiresUtc = new Timestamp { Seconds = 0, Nanos = 0 },
             Expiration = Duration.FromTimeSpan(TimeSpan.FromSeconds(9)),
         };
@@ -432,6 +432,20 @@ public sealed class CacheValueGrpcMappingTests
         var roundTrip = await wire.MapFromProtoAsync<object?>();
 
         var element = Assert.IsType<JsonElement>(roundTrip.Value);
+        Assert.Equal(JsonValueKind.Number, element.ValueKind);
+        Assert.Equal(big.ToString(CultureInfo.InvariantCulture), element.GetRawText());
+    }
+
+    /// <summary>Large int64 compact wire values preserve precision when decoded as decimal or JsonElement.</summary>
+    [Fact]
+    public async Task LargeInt64WireValuePreservesPrecisionAsync()
+    {
+        const long big = 9_007_199_254_740_993L;
+        var wire = new CacheValue { Int64Value = big };
+
+        Assert.Equal(big, await ServerProtoEx.MapCacheValueAsync<decimal>(wire));
+
+        var element = await ServerProtoEx.MapCacheValueAsync<JsonElement>(wire);
         Assert.Equal(JsonValueKind.Number, element.ValueKind);
         Assert.Equal(big.ToString(CultureInfo.InvariantCulture), element.GetRawText());
     }

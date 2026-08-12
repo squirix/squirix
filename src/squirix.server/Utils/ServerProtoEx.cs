@@ -14,9 +14,9 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
-    private const string ScalarEnvelopeKey = "\u0000squirix:scalar";
-    private const string NumberEnvelopeInt64Key = "\u0000squirix:int64";
-    private const string NumberEnvelopeDecimalKey = "\u0000squirix:decimal";
+    private const string ScalarEnvelopeKey = "\0squirix:scalar";
+    private const string NumberEnvelopeInt64Key = "\0squirix:int64";
+    private const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
 
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
@@ -271,7 +271,7 @@ internal static class ServerProtoEx
                 boxed = Value.ForNumber(wire.Int32Value);
                 break;
             case CacheValue.KindOneofCase.Int64Value:
-                boxed = Value.ForNumber(wire.Int64Value);
+                boxed = CreateNumberEnvelope(NumberEnvelopeInt64Key, wire.Int64Value.ToString(CultureInfo.InvariantCulture));
                 break;
             case CacheValue.KindOneofCase.DoubleValue:
                 boxed = Value.ForNumber(wire.DoubleValue);
@@ -291,6 +291,13 @@ internal static class ServerProtoEx
         return envelope;
     }
 
+    private static Value CreateNumberEnvelope(string markerKey, string numberText)
+    {
+        var s = new Struct();
+        s.Fields.Add(markerKey, Value.ForString(numberText));
+        return Value.ForStruct(s);
+    }
+
     /// <summary>JSON ↔ protobuf <see cref="Value" /> helpers owned by <see cref="ServerProtoEx" />.</summary>
     private static class ValueJson
     {
@@ -304,11 +311,39 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(Value.ForNull());
 
             if (value is JsonElement jsonElement)
-            {
-                return jsonElement.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(jsonElement)
-                    : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(jsonElement));
-            }
+                return EncodeJsonElement(jsonElement);
 
+            // Scalar and fallback arms live in a helper to keep local-variable count low.
+            return EncodeBoxedScalar(value);
+        }
+
+        /// <summary>
+        /// Serializes a protobuf <see cref="Value" /> tree to a UTF-8 JSON buffer for serializer decode.
+        /// </summary>
+        /// <param name="value">Protobuf value to encode.</param>
+        /// <returns>Buffer containing the JSON payload.</returns>
+        internal static ArrayBufferWriter<byte> WriteValueToBuffer(Value value)
+        {
+            var buffer = new ArrayBufferWriter<byte>(256);
+
+            // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decoding.
+#pragma warning disable MA0045
+            using var writer = new Utf8JsonWriter(buffer);
+            WriteValue(writer, value);
+            writer.Flush();
+#pragma warning restore MA0045
+
+            return buffer;
+        }
+
+        private static Struct EncodeJsonElement(JsonElement element)
+        {
+            return element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
+                : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
+        }
+
+        private static Struct EncodeBoxedScalar<T>(T value)
+        {
             if (value is string text)
                 return CreateSingleFieldStruct(Value.ForString(text));
 
@@ -330,25 +365,6 @@ internal static class ServerProtoEx
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
             var root = SerializerProvider.Instance.SerializeToElement(value);
             return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
-        }
-
-        /// <summary>
-        /// Serializes a protobuf <see cref="Value" /> tree to a UTF-8 JSON buffer for serializer decode.
-        /// </summary>
-        /// <param name="value">Protobuf value to encode.</param>
-        /// <returns>Buffer containing the JSON payload.</returns>
-        internal static ArrayBufferWriter<byte> WriteValueToBuffer(Value value)
-        {
-            var buffer = new ArrayBufferWriter<byte>(256);
-
-            // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decode.
-#pragma warning disable MA0045
-            using var writer = new Utf8JsonWriter(buffer);
-            WriteValue(writer, value);
-            writer.Flush();
-#pragma warning restore MA0045
-
-            return buffer;
         }
 
         private static ListValue BuildListValueFromJsonArray(JsonElement arrayElement)
@@ -414,39 +430,29 @@ internal static class ServerProtoEx
             return envelope;
         }
 
-        private static Value CreateNumberEnvelope(string markerKey, string numberText)
-        {
-            var s = new Struct();
-            s.Fields.Add(markerKey, Value.ForString(numberText));
-            return Value.ForStruct(s);
-        }
-
         private static bool TryWriteNumberEnvelope(Utf8JsonWriter writer, Struct s)
         {
             if (s.Fields.Count is not 1)
                 return false;
 
-            var enumerator = s.Fields.GetEnumerator();
-            _ = enumerator.MoveNext();
-            var field = enumerator.Current;
-
-            if (string.Equals(field.Key, NumberEnvelopeInt64Key, StringComparison.Ordinal)
-                && field.Value.KindCase is Value.KindOneofCase.StringValue
-                && long.TryParse(field.Value.StringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
+            if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
+                    longField.StringValue,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var longValue))
             {
                 writer.WriteNumberValue(longValue);
                 return true;
             }
 
-            if (string.Equals(field.Key, NumberEnvelopeDecimalKey, StringComparison.Ordinal)
-                && field.Value.KindCase is Value.KindOneofCase.StringValue
-                && decimal.TryParse(field.Value.StringValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var decimalValue))
-            {
-                writer.WriteNumberValue(decimalValue);
-                return true;
-            }
-
-            return false;
+            if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue || !decimal.TryParse(
+                    decimalField.StringValue,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out var decimalValue))
+                return false;
+            writer.WriteNumberValue(decimalValue);
+            return true;
         }
 
         /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>

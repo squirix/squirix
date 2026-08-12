@@ -88,7 +88,7 @@ public sealed class ProtoExTests
         {
             StructValue = new Struct
             {
-                Fields = { ["\u0000squirix:scalar"] = wrapped },
+                Fields = { ["\0squirix:scalar"] = wrapped },
             },
         };
 

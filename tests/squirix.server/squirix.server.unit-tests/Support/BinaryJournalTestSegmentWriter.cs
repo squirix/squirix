@@ -17,15 +17,15 @@ internal static class BinaryJournalTestSegmentWriter
     internal static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
     {
         var body = JournalEntryPayloadKit.EncodePut(value);
-        return Task.FromResult(
-            new JournalRecord
-            {
-                Sequence = seq,
-                UnixMs = 1,
-                Operation = JournalOperationKind.Put,
-                Key = CacheKey.Default(key),
-                PutEntryBytes = body,
-            });
+        var record = new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = body,
+        };
+        return Task.FromResult(record);
     }
 
     internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)

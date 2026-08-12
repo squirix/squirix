@@ -14,9 +14,9 @@ namespace Squirix.Internal;
 /// </summary>
 internal static class ProtoEx
 {
-    private const string ScalarEnvelopeKey = "\u0000squirix:scalar";
-    private const string NumberEnvelopeInt64Key = "\u0000squirix:int64";
-    private const string NumberEnvelopeDecimalKey = "\u0000squirix:decimal";
+    private const string ScalarEnvelopeKey = "\0squirix:scalar";
+    private const string NumberEnvelopeInt64Key = "\0squirix:int64";
+    private const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
 
     internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
@@ -66,12 +66,8 @@ internal static class ProtoEx
             });
     }
 
-    private static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) =>
-        kind is CacheValue.KindOneofCase.StringValue
-            or CacheValue.KindOneofCase.BoolValue
-            or CacheValue.KindOneofCase.Int32Value
-            or CacheValue.KindOneofCase.Int64Value
-            or CacheValue.KindOneofCase.DoubleValue;
+    private static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) => kind is CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue
+        or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue;
 
     private static bool TryMapTypedPrimitive<T>(CacheValue value, out T? result)
     {
@@ -232,27 +228,24 @@ internal static class ProtoEx
         if (s.Fields.Count is not 1)
             return false;
 
-        var enumerator = s.Fields.GetEnumerator();
-        _ = enumerator.MoveNext();
-        var field = enumerator.Current;
-
-        if (string.Equals(field.Key, NumberEnvelopeInt64Key, StringComparison.Ordinal)
-            && field.Value.KindCase is Value.KindOneofCase.StringValue
-            && long.TryParse(field.Value.StringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
+        if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
+                longField.StringValue,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var longValue))
         {
             writer.WriteNumberValue(longValue);
             return true;
         }
 
-        if (string.Equals(field.Key, NumberEnvelopeDecimalKey, StringComparison.Ordinal)
-            && field.Value.KindCase is Value.KindOneofCase.StringValue
-            && decimal.TryParse(field.Value.StringValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var decimalValue))
-        {
-            writer.WriteNumberValue(decimalValue);
-            return true;
-        }
-
-        return false;
+        if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue || !decimal.TryParse(
+                decimalField.StringValue,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var decimalValue))
+            return false;
+        writer.WriteNumberValue(decimalValue);
+        return true;
     }
 
     private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
@@ -313,7 +306,9 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.StringValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForString(value.StringValue)),
         CacheValue.KindOneofCase.BoolValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
         CacheValue.KindOneofCase.Int32Value => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
-        CacheValue.KindOneofCase.Int64Value => WrapAsStruct(ScalarEnvelopeKey, CreateNumberEnvelope(NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
+        CacheValue.KindOneofCase.Int64Value => WrapAsStruct(
+            ScalarEnvelopeKey,
+            CreateNumberEnvelope(NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct(ScalarEnvelopeKey, Value.ForNull()),
         CacheValue.KindOneofCase.StructValue => value.StructValue,

@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using JetBrains.Annotations;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -11,10 +12,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 /// <summary>Unit tests for <see cref="JournalEntryPayload" />.</summary>
 public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 {
-    private interface IValueContract
-    {
-        string Kind { get; }
-    }
+    private interface IValueContract;
 
     /// <summary>
     /// Derived properties on a base/interface-declared entry survive the journal encode/decode round-trip
@@ -45,7 +43,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         lease.Dispose();
     }
 
-    /// <summary>Put payloads round-trip entry metadata through the binary cache-entry codec.</summary>
+    /// <summary>Put payload round-trip entry metadata through the binary cache-entry codec.</summary>
     [Fact]
     public void PutPayloadRoundTripsMetadata()
     {
@@ -75,8 +73,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 
     private sealed record DerivedValue : IValueContract
     {
+        [UsedImplicitly]
         public string? DerivedField { get; init; }
-
-        public string Kind { get; } = "derived";
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using JetBrains.Annotations;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -8,17 +9,14 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>Tests for value normalization on <see cref="NodeCacheEntry{T}" />.</summary>
 public sealed class NodeCacheEntryTests : ServerUnitTestBase
 {
-    private interface IValueContract
-    {
-        string Kind { get; }
-    }
+    private interface IValueContract;
 
     /// <summary>
     /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly encodable values unchanged and
     /// serializes arbitrary objects to a <see cref="JsonElement" />.
     /// </summary>
     [Fact]
-    public void NormalizePreservesEncodables()
+    public void NormalizePreservesData()
     {
         Assert.Null(new NodeCacheEntry<object?>(null).Normalize());
         Assert.True(Assert.IsType<bool>(new NodeCacheEntry<object?>(true).Normalize()));
@@ -51,8 +49,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
 
     private sealed record DerivedValue : IValueContract
     {
+        [UsedImplicitly]
         public string? DerivedField { get; init; }
-
-        public string Kind { get; } = "derived";
     }
 }
