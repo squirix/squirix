@@ -9,7 +9,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Squirix.Server.Core;
-using Squirix.Server.Core.Serialization;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Codecs;
@@ -673,11 +672,11 @@ internal static class CacheEntryCodec
                     return false;
 
                 var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-                var lengthInt = int.CreateChecked(length);
-                bytesRead = 4 + lengthInt;
-                if (source.Length < bytesRead)
+                if (length > uint.CreateTruncating(source.Length - 4))
                     return false;
 
+                var lengthInt = Convert.ToInt32(length);
+                bytesRead = 4 + lengthInt;
                 bytes = source.Slice(4, lengthInt);
                 return true;
             }
@@ -829,6 +828,9 @@ internal static class CacheEntryCodec
             if (tags is null || tags.Count is 0)
                 return 2;
 
+            if (tags.Count > ushort.MaxValue)
+                throw new InvalidDataException($"Tag count {tags.Count} exceeds the maximum of {ushort.MaxValue}.");
+
             var length = 2;
             foreach (var (key, value) in tags)
             {
@@ -881,11 +883,11 @@ internal static class CacheEntryCodec
                 return false;
 
             var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-            var lengthInt = int.CreateChecked(length);
-            bytesRead = 4 + lengthInt;
-            if (source.Length < bytesRead)
+            if (length > uint.CreateTruncating(source.Length - 4))
                 return false;
 
+            var lengthInt = Convert.ToInt32(length);
+            bytesRead = 4 + lengthInt;
             bytes = source.Slice(4, lengthInt);
             return true;
         }
