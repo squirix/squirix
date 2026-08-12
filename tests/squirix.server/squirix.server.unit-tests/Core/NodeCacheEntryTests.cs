@@ -8,6 +8,11 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>Tests for value normalization on <see cref="NodeCacheEntry{T}" />.</summary>
 public sealed class NodeCacheEntryTests : ServerUnitTestBase
 {
+    private interface IValueContract
+    {
+        string Kind { get; }
+    }
+
     /// <summary>
     /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly-encodable values unchanged and
     /// serializes arbitrary objects to a <see cref="JsonElement" />.
@@ -44,15 +49,10 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         Assert.Equal("survives", field.GetString());
     }
 
-    private interface IValueContract
-    {
-        string Kind { get; }
-    }
-
     private sealed record DerivedValue : IValueContract
     {
-        public string Kind { get; init; } = "derived";
-
         public string? DerivedField { get; init; }
+
+        public string Kind { get; } = "derived";
     }
 }
