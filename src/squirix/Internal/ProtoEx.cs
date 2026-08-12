@@ -149,7 +149,7 @@ internal static class ProtoEx
     {
         var buffer = new ArrayBufferWriter<byte>(256);
 
-        // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decode.
+        // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decoding.
 #pragma warning disable MA0045
         using (var writer = new Utf8JsonWriter(buffer))
         {
