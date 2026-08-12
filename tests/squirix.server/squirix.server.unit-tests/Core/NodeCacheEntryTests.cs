@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using JetBrains.Annotations;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
