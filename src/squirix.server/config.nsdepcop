@@ -93,7 +93,7 @@
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Services.*" />
 
-  <!-- Kernel must not reach the runtime implementation layer (serialization port lives in Runtime.Contracts, not Runtime). -->
+  <!-- Kernel must not reach the runtime implementation layer (serialization port lives in Core.Serialization, not Runtime). -->
   <Disallowed
       From="/^Squirix\.Server\.Core(?:\.(?!Runtime\.Contracts(?:\.|$)).*)?$/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
