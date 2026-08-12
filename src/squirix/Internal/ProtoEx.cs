@@ -207,13 +207,17 @@ internal static class ProtoEx
 
     private static Value ConvertNumberToProtoValue(JsonElement element)
     {
+        var asDouble = element.GetDouble();
+        if (asDouble is 0.0 && BitConverter.DoubleToInt64Bits(asDouble) != 0)
+            return Value.ForNumber(asDouble);
+
         if (element.TryGetInt64(out var int64))
             return CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture));
 
         if (element.TryGetDecimal(out var dec))
             return CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture));
 
-        return Value.ForNumber(element.GetDouble());
+        return Value.ForNumber(asDouble);
     }
 
     private static Value CreateNumberEnvelope(string markerKey, string numberText)

@@ -405,13 +405,17 @@ internal static class ServerProtoEx
 
         private static Value ConvertJsonNumber(JsonElement element)
         {
+            var asDouble = element.GetDouble();
+            if (asDouble is 0.0 && BitConverter.DoubleToInt64Bits(asDouble) != 0)
+                return Value.ForNumber(asDouble);
+
             if (element.TryGetInt64(out var asInt64))
                 return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
 
             if (element.TryGetDecimal(out var asDecimal))
                 return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
 
-            return Value.ForNumber(element.GetDouble());
+            return Value.ForNumber(asDouble);
         }
 
         private static Struct CreateSingleFieldStruct(Value fieldValue)

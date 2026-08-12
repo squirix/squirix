@@ -507,6 +507,31 @@ public sealed class CacheValueGrpcMappingTests
         Assert.Equal(big.ToString(CultureInfo.InvariantCulture), element.GetRawText());
     }
 
+    /// <summary>Negative zero preserves IEEE 754 sign bit through JSON round-trip.</summary>
+    [Fact]
+    public async Task NegativeZeroRoundTripsPreservedAsync()
+    {
+        using var document = JsonDocument.Parse("-0.0");
+        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
+        var wire = source.MapToProto();
+        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
+
+        Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
+        var roundTripDouble = roundTrip.Value.GetDouble();
+        Assert.Equal(0.0, roundTripDouble);
+        Assert.Equal(BitConverter.DoubleToInt64Bits(-0.0), BitConverter.DoubleToInt64Bits(roundTripDouble));
+    }
+
+    /// <summary>Negative zero wire value preserves IEEE 754 sign bit through gRPC mapping.</summary>
+    [Fact]
+    public async Task NegativeZeroWireValuePreservedAsync()
+    {
+        var wire = ServerProtoEx.CacheValueToGrpcValue(-0.0);
+        var roundTrip = await ServerProtoEx.MapCacheValueAsync<double>(wire);
+
+        Assert.Equal(BitConverter.DoubleToInt64Bits(-0.0), BitConverter.DoubleToInt64Bits(roundTrip));
+    }
+
     private sealed class ValuePayload
     {
         public string Value { get; init; } = string.Empty;
