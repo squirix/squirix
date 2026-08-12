@@ -14,7 +14,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly-encodable values unchanged and
+    /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly encodable values unchanged and
     /// serializes arbitrary objects to a <see cref="JsonElement" />.
     /// </summary>
     [Fact]

@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Core.Serialization;
+using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.MemoryPressure;

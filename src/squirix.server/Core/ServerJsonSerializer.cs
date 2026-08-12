@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Squirix.Server.Core.Serialization;
+namespace Squirix.Server.Core;
 
 /// <summary>
 /// <see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.

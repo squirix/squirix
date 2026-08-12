@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Core.Serialization;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Xunit;

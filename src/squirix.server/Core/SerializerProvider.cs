@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace Squirix.Server.Core.Serialization;
+namespace Squirix.Server.Core;
 
 internal static class SerializerProvider
 {

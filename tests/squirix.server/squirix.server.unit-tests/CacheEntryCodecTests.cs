@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Text.Json;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
@@ -143,8 +142,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     public void ComputeEncodedLengthRejectsExcessiveTagCount()
     {
         var tags = EntryTagsKit.CreateCount(65_536);
-        var entry = new NodeCacheEntry<object?>(null, tags: tags);
-        _ = Assert.Throws<InvalidDataException>(() => CacheEntryCodec.ComputeEncodedLength(entry));
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(new NodeCacheEntry<object?>(null, tags: tags), static value => CacheEntryCodec.ComputeEncodedLength(value));
     }
 
     private static void RoundTripValue(object? value)

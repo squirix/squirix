@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
-using Squirix.Server.Core.Serialization;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
