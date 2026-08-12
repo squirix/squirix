@@ -390,37 +390,28 @@ internal static class ServerProtoEx
 
         private static Value ConvertJsonElementToProtoValue(JsonElement element)
         {
-            var kind = element.ValueKind;
-            if (kind is JsonValueKind.Object)
-                return Value.ForStruct(BuildStructFromJsonObject(element));
-
-            if (kind is JsonValueKind.Array)
-                return new Value { ListValue = BuildListValueFromJsonArray(element) };
-
-            if (kind is JsonValueKind.String)
-                return Value.ForString(element.GetString());
-
-            if (kind is JsonValueKind.Number)
+            return element.ValueKind switch
             {
-                if (element.TryGetInt64(out var asInt64))
-                    return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
+                JsonValueKind.Object => Value.ForStruct(BuildStructFromJsonObject(element)),
+                JsonValueKind.Array => new Value { ListValue = BuildListValueFromJsonArray(element) },
+                JsonValueKind.String => Value.ForString(element.GetString()),
+                JsonValueKind.Number => ConvertJsonNumber(element),
+                JsonValueKind.True => Value.ForBool(true),
+                JsonValueKind.False => Value.ForBool(false),
+                JsonValueKind.Null or JsonValueKind.Undefined => Value.ForNull(),
+                _ => throw new ArgumentOutOfRangeException(nameof(element), "Unsupported JSON value kind."),
+            };
+        }
 
-                if (element.TryGetDecimal(out var asDecimal))
-                    return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
+        private static Value ConvertJsonNumber(JsonElement element)
+        {
+            if (element.TryGetInt64(out var asInt64))
+                return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
 
-                return Value.ForNumber(element.GetDouble());
-            }
+            if (element.TryGetDecimal(out var asDecimal))
+                return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
 
-            if (kind is JsonValueKind.True)
-                return Value.ForBool(true);
-
-            if (kind is JsonValueKind.False)
-                return Value.ForBool(false);
-
-            if (kind is JsonValueKind.Null or JsonValueKind.Undefined)
-                return Value.ForNull();
-
-            throw new ArgumentOutOfRangeException(nameof(element), "Unsupported JSON value kind.");
+            return Value.ForNumber(element.GetDouble());
         }
 
         private static Struct CreateSingleFieldStruct(Value fieldValue)
@@ -487,6 +478,14 @@ internal static class ServerProtoEx
             writer.WriteEndObject();
         }
 
+        private static void WriteStructValue(Utf8JsonWriter writer, Struct structValue)
+        {
+            if (TryWriteNumberEnvelope(writer, structValue))
+                return;
+
+            WriteStructFields(writer, structValue);
+        }
+
         /// <summary>
         /// Emits a protobuf <see cref="Value" /> tree as JSON so <c>ISquirixSerializer</c> can deserialize complex cache payloads.
         /// </summary>
@@ -512,10 +511,7 @@ internal static class ServerProtoEx
                     writer.WriteStringValue(value.StringValue);
                     return;
                 case Value.KindOneofCase.StructValue:
-                    if (TryWriteNumberEnvelope(writer, value.StructValue))
-                        return;
-
-                    WriteStructFields(writer, value.StructValue);
+                    WriteStructValue(writer, value.StructValue);
                     return;
                 case Value.KindOneofCase.ListValue:
                     WriteListItems(writer, value.ListValue);

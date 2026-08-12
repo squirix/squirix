@@ -277,28 +277,27 @@ internal static class ProtoEx
             case JsonElement je:
                 return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct(ScalarEnvelopeKey, ValueFromJson(je));
 
-            case string text:
-                return WrapAsStruct(ScalarEnvelopeKey, Value.ForString(text));
-
-            case int number:
-                return WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number));
-
-            case long number:
-                return WrapAsStruct(ScalarEnvelopeKey, CreateNumberEnvelope(NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture)));
-
-            case double number:
-                return WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number));
-
-            case bool boolean:
-                return WrapAsStruct(ScalarEnvelopeKey, Value.ForBool(boolean));
-
-            case decimal dec:
-                return WrapAsStruct(ScalarEnvelopeKey, CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
-
             default:
+                if (EncodeScalarAsStruct(value) is { } scalar)
+                    return scalar;
+
                 var root = serializer.SerializeToElement(value);
                 return root.ValueKind is JsonValueKind.Object ? StructFromJson(root) : WrapAsStruct(ScalarEnvelopeKey, ValueFromJson(root));
         }
+    }
+
+    private static Struct? EncodeScalarAsStruct<T>(T? value)
+    {
+        return value switch
+        {
+            string text => WrapAsStruct(ScalarEnvelopeKey, Value.ForString(text)),
+            int number => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number)),
+            long number => WrapAsStruct(ScalarEnvelopeKey, CreateNumberEnvelope(NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture))),
+            double number => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number)),
+            bool boolean => WrapAsStruct(ScalarEnvelopeKey, Value.ForBool(boolean)),
+            decimal dec => WrapAsStruct(ScalarEnvelopeKey, CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture))),
+            _ => null,
+        };
     }
 
     private static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
@@ -362,7 +361,6 @@ internal static class ProtoEx
 
     private static void WriteValue(Utf8JsonWriter writer, Value value)
     {
-        // Emit protobuf Value trees as JSON so ISquirixSerializer can deserialize complex cache payloads.
         switch (value.KindCase)
         {
             case Value.KindOneofCase.NullValue:
@@ -379,39 +377,44 @@ internal static class ProtoEx
                 writer.WriteBooleanValue(value.BoolValue);
                 return;
             case Value.KindOneofCase.StructValue:
-            {
-                if (TryWriteNumberEnvelope(writer, value.StructValue))
-                    return;
-
-                writer.WriteStartObject();
-                var fields = value.StructValue.Fields;
-
-                // Index-based loop avoids foreach enumerator allocations while writing nested structs.
-                using var fieldEnumerator = fields.GetEnumerator();
-                for (var index = 0; index < fields.Count; index++)
-                {
-                    _ = fieldEnumerator.MoveNext();
-                    var field = fieldEnumerator.Current;
-                    writer.WritePropertyName(field.Key);
-                    WriteValue(writer, field.Value);
-                }
-
-                writer.WriteEndObject();
+                WriteStructValue(writer, value.StructValue);
                 return;
-            }
-
             case Value.KindOneofCase.ListValue:
-                writer.WriteStartArray();
-                var values = value.ListValue.Values;
-
-                // Lists recurse through WriteValue so mixed scalar and structured elements round-trip.
-                for (var index = 0; index < values.Count; index++)
-                    WriteValue(writer, values[index]);
-
-                writer.WriteEndArray();
+                WriteListValue(writer, value.ListValue);
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(value), "Unsupported protobuf value kind.");
         }
+    }
+
+    private static void WriteStructValue(Utf8JsonWriter writer, Struct structValue)
+    {
+        if (TryWriteNumberEnvelope(writer, structValue))
+            return;
+
+        writer.WriteStartObject();
+        var fields = structValue.Fields;
+
+        using var fieldEnumerator = fields.GetEnumerator();
+        for (var index = 0; index < fields.Count; index++)
+        {
+            _ = fieldEnumerator.MoveNext();
+            var field = fieldEnumerator.Current;
+            writer.WritePropertyName(field.Key);
+            WriteValue(writer, field.Value);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteListValue(Utf8JsonWriter writer, ListValue listValue)
+    {
+        writer.WriteStartArray();
+        var values = listValue.Values;
+
+        for (var index = 0; index < values.Count; index++)
+            WriteValue(writer, values[index]);
+
+        writer.WriteEndArray();
     }
 }
