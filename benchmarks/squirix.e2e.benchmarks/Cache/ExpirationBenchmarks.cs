@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -44,13 +45,13 @@ public class ExpirationBenchmarks : BenchmarkBase
     }
 
     /// <summary>Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.</summary>
-    /// <returns>A task that completes when the batch has finished.</returns>
     [IterationSetup(Target = nameof(RemoveExpirationShouldClearExpirationAsync))]
-    public async Task SeedRemoveExpirationIterationAsync()
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void SeedRemoveExpirationIteration()
     {
         var offset = Interlocked.Add(ref _removeExpirationOffset, DestructiveExpirationBatchSize);
         for (var i = 0; i < DestructiveExpirationBatchSize; i++)
-            await Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).ConfigureAwait(false);
+            Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     /// <summary>Measures TouchAsync absolute expiration path.</summary>
