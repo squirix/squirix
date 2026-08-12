@@ -1,6 +1,6 @@
 using System;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -12,20 +12,6 @@ namespace Squirix.Server.UnitTests.Memory;
 /// </summary>
 public sealed class PressureOptionsTests
 {
-    /// <summary>Verifies non-positive byte limits are rejected.</summary>
-    /// <param name="maxBytes">Invalid limit value.</param>
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(-1000)]
-    public static void ValidateRejectsNonPositiveMaxBytes(long maxBytes)
-    {
-        var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
-
-        Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
-    }
-
     /// <summary>Verifies invalid threshold combinations are rejected.</summary>
     /// <param name="critical">Critical threshold value.</param>
     /// <param name="high">High threshold value.</param>
@@ -46,6 +32,20 @@ public sealed class PressureOptionsTests
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains(expectedMessageFragment, ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies non-positive byte limits are rejected.</summary>
+    /// <param name="maxBytes">Invalid limit value.</param>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-1000)]
+    public static void ValidateRejectsNonPositiveMaxBytes(long maxBytes)
+    {
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies default threshold values match the contract.</summary>

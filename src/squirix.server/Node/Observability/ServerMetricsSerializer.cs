@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core;
 
 namespace Squirix.Server.Node.Observability;
 

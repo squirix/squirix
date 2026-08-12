@@ -94,7 +94,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var deadline = Environment.TickCount64 + 30_000;
         for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
         {
-            await journal.AppendPutAsync(CacheKey.Default($"k{NodeInvariantIndexStrings.Format(i)}"), payload, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
             i++;
         }
@@ -120,7 +120,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var tasks = new Task[iterations];
         for (var i = 0; i < iterations; i++)
         {
-            var key = CacheKey.Default($"k{NodeInvariantIndexStrings.Format(i)}");
+            var key = CacheKey.Default(NodeInvariantIndexStrings.Format(i));
 
             // Use 1..4 ms (not 0): a zero due-time CTS is already canceled and only exercises the
             // pre-enqueue path, which is less representative of the durability-waiter race this test

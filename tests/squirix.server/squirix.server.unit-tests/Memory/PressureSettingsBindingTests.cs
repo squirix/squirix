@@ -1,7 +1,7 @@
 using System.Text;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

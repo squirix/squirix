@@ -1,6 +1,6 @@
 using System;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
 using Xunit;
 

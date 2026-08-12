@@ -12,13 +12,13 @@ namespace Squirix.Server.TestKit;
 ///     </para>
 ///     <para>
 ///     The operation starts before the helper is entered, so only faults captured by the awaitable are
-///     observed. Assertions on operations that throw synchronously (for example argument validation in a
+///     observed. Assertions on operations that throw synchronously (for example, argument validation in a
 ///     non-async method body) must keep using <c>Assert.ThrowsAsync</c>.
 ///     </para>
 /// </remarks>
 public static class NodeAsyncAssert
 {
-    /// <summary>Awaits an in-flight operation and asserts it faults with <typeparamref name="TException" /> or a derived type.</summary>
+    /// <summary>Awaits an in-flight operation and asserts its faults with <typeparamref name="TException" /> or a derived type.</summary>
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
@@ -31,7 +31,7 @@ public static class NodeAsyncAssert
         return AwaitAsync<TException>(operation, false);
     }
 
-    /// <summary>Awaits an in-flight operation and asserts it faults with <typeparamref name="TException" /> or a derived type.</summary>
+    /// <summary>Awaits an in-flight operation and asserts its faults with <typeparamref name="TException" /> or a derived type.</summary>
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
@@ -39,7 +39,7 @@ public static class NodeAsyncAssert
     public static Task<TException> ThrowsAnyAsync<TException>(ValueTask operation)
         where TException : Exception => AwaitAsync<TException>(operation, false);
 
-    /// <summary>Awaits an in-flight operation and asserts it faults with <typeparamref name="TException" /> or a derived type.</summary>
+    /// <summary>Awaits an in-flight operation and asserts its faults with <typeparamref name="TException" /> or a derived type.</summary>
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <typeparam name="TResult">Operation result type, discarded when the operation completes successfully.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
@@ -48,7 +48,7 @@ public static class NodeAsyncAssert
     public static Task<TException> ThrowsAnyAsync<TException, TResult>(ValueTask<TResult> operation)
         where TException : Exception => AwaitAsync<TException, TResult>(operation, false);
 
-    /// <summary>Awaits an in-flight operation and asserts it faults with exactly <typeparamref name="TException" />.</summary>
+    /// <summary>Awaits an in-flight operation and asserts its faults with exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
@@ -61,7 +61,7 @@ public static class NodeAsyncAssert
         return AwaitAsync<TException>(operation, true);
     }
 
-    /// <summary>Awaits an in-flight operation and asserts it faults with exactly <typeparamref name="TException" />.</summary>
+    /// <summary>Awaits an in-flight operation and asserts its faults with exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>

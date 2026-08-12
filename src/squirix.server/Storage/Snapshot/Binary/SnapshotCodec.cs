@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;

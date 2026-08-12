@@ -1,4 +1,6 @@
 using System;
+using System.Text.Json;
+using JetBrains.Annotations;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -10,7 +12,38 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 /// <summary>Unit tests for <see cref="JournalEntryPayload" />.</summary>
 public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 {
-    /// <summary>Put payloads round-trip entry metadata through the binary cache-entry codec.</summary>
+    private interface IValueContract;
+
+    /// <summary>
+    /// Derived properties on a base/interface-declared entry survive the journal encode/decode round-trip
+    /// because <see cref="NodeCacheEntry{T}.Normalize" /> serializes the runtime type.
+    /// </summary>
+    [Fact]
+    public void ObjectEntryRoundTripsRuntimeTypeOfDerivedValue()
+    {
+        var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "journal-survives" });
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        using var buffer = JournalEntryPayload.Encode(in prepared);
+        Assert.True(JournalEntryPayload.TryDecode<object?>(buffer.Span, out var roundTrip));
+        Assert.NotNull(roundTrip);
+        var element = Assert.IsType<JsonElement>(roundTrip.Value);
+        Assert.True(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field));
+        Assert.Equal("journal-survives", field.GetString());
+    }
+
+    /// <summary>Disposing the same pooled payload lease multiple times returns the rented buffer to the pool only once.</summary>
+    [Fact]
+    public void PooledPayloadDisposeIsIdempotent()
+    {
+        var prepared = JournalEntryPayload.PrepareEncode(new NodeCacheEntry<string> { Value = "lease", Version = 1 });
+        var lease = JournalEntryPayload.Encode(in prepared);
+        Assert.Equal(prepared.EncodedLength, lease.Span.Length);
+        lease.Dispose();
+        lease.Dispose();
+        lease.Dispose();
+    }
+
+    /// <summary>Put payload round-trip entry metadata through the binary cache-entry codec.</summary>
     [Fact]
     public void PutPayloadRoundTripsMetadata()
     {
@@ -38,15 +71,9 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         Assert.Equal(4, roundTrip.Version);
     }
 
-    /// <summary>Disposing the same pooled payload lease multiple times returns the rented buffer to the pool only once.</summary>
-    [Fact]
-    public void PooledPayloadDisposeIsIdempotent()
+    private sealed record DerivedValue : IValueContract
     {
-        var prepared = JournalEntryPayload.PrepareEncode(new NodeCacheEntry<string> { Value = "lease", Version = 1 });
-        var lease = JournalEntryPayload.Encode(in prepared);
-        Assert.Equal(prepared.EncodedLength, lease.Span.Length);
-        lease.Dispose();
-        lease.Dispose();
-        lease.Dispose();
+        [UsedImplicitly]
+        public string? DerivedField { get; init; }
     }
 }

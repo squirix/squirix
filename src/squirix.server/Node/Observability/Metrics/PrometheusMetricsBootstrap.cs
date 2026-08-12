@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Runtime;
+using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability.Metrics;
@@ -40,7 +40,7 @@ internal static class PrometheusMetricsBootstrap
                 if (!root.TryGetProperty("PrometheusMetrics", out var prometheusMetrics))
                     return (false, baseline);
 
-                var section = SerializationProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
+                var section = SerializerProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
                 var merged = section is null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },
