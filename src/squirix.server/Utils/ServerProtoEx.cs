@@ -1,12 +1,12 @@
 using System;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
-using Squirix.Server.Core.Serialization;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -14,7 +14,9 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
-    private const string SingleFieldEnvelopeName = "value";
+    private const string ScalarEnvelopeKey = "\u0000squirix:scalar";
+    private const string NumberEnvelopeInt64Key = "\u0000squirix:int64";
+    private const string NumberEnvelopeDecimalKey = "\u0000squirix:decimal";
 
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
@@ -114,13 +116,13 @@ internal static class ServerProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(SingleFieldEnvelopeName, out var onlyWrapped))
+            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(ScalarEnvelopeKey, out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
             return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
-        if (s.Fields.Count is 1 && s.Fields.TryGetValue(SingleFieldEnvelopeName, out var only))
+        if (s.Fields.Count is 1 && s.Fields.TryGetValue(ScalarEnvelopeKey, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
         var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
@@ -285,7 +287,7 @@ internal static class ServerProtoEx
         }
 
         var envelope = new Struct();
-        envelope.Fields.Add(SingleFieldEnvelopeName, boxed);
+        envelope.Fields.Add(ScalarEnvelopeKey, boxed);
         return envelope;
     }
 
@@ -314,13 +316,16 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(Value.ForNumber(int32));
 
             if (value is long int64)
-                return CreateSingleFieldStruct(Value.ForNumber(int64));
+                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture)));
 
             if (value is double floating)
                 return CreateSingleFieldStruct(Value.ForNumber(floating));
 
             if (value is bool flag)
                 return CreateSingleFieldStruct(Value.ForBool(flag));
+
+            if (value is decimal dec)
+                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
 
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
             var root = SerializerProvider.Instance.SerializeToElement(value);
@@ -380,7 +385,15 @@ internal static class ServerProtoEx
                 return Value.ForString(element.GetString());
 
             if (kind is JsonValueKind.Number)
-                return element.TryGetInt64(out var asInt64) ? Value.ForNumber(asInt64) : Value.ForNumber(element.GetDouble());
+            {
+                if (element.TryGetInt64(out var asInt64))
+                    return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
+
+                if (element.TryGetDecimal(out var asDecimal))
+                    return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
+
+                return Value.ForNumber(element.GetDouble());
+            }
 
             if (kind is JsonValueKind.True)
                 return Value.ForBool(true);
@@ -397,8 +410,43 @@ internal static class ServerProtoEx
         private static Struct CreateSingleFieldStruct(Value fieldValue)
         {
             var envelope = new Struct();
-            envelope.Fields.Add(SingleFieldEnvelopeName, fieldValue);
+            envelope.Fields.Add(ScalarEnvelopeKey, fieldValue);
             return envelope;
+        }
+
+        private static Value CreateNumberEnvelope(string markerKey, string numberText)
+        {
+            var s = new Struct();
+            s.Fields.Add(markerKey, Value.ForString(numberText));
+            return Value.ForStruct(s);
+        }
+
+        private static bool TryWriteNumberEnvelope(Utf8JsonWriter writer, Struct s)
+        {
+            if (s.Fields.Count is not 1)
+                return false;
+
+            var enumerator = s.Fields.GetEnumerator();
+            _ = enumerator.MoveNext();
+            var field = enumerator.Current;
+
+            if (string.Equals(field.Key, NumberEnvelopeInt64Key, StringComparison.Ordinal)
+                && field.Value.KindCase is Value.KindOneofCase.StringValue
+                && long.TryParse(field.Value.StringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
+            {
+                writer.WriteNumberValue(longValue);
+                return true;
+            }
+
+            if (string.Equals(field.Key, NumberEnvelopeDecimalKey, StringComparison.Ordinal)
+                && field.Value.KindCase is Value.KindOneofCase.StringValue
+                && decimal.TryParse(field.Value.StringValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var decimalValue))
+            {
+                writer.WriteNumberValue(decimalValue);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>
@@ -458,6 +506,9 @@ internal static class ServerProtoEx
                     writer.WriteStringValue(value.StringValue);
                     return;
                 case Value.KindOneofCase.StructValue:
+                    if (TryWriteNumberEnvelope(writer, value.StructValue))
+                        return;
+
                     WriteStructFields(writer, value.StructValue);
                     return;
                 case Value.KindOneofCase.ListValue:
