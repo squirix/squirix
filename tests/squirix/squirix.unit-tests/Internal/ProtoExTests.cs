@@ -88,7 +88,7 @@ public sealed class ProtoExTests
         {
             StructValue = new Struct
             {
-                Fields = { ["value"] = wrapped },
+                Fields = { ["\0squirix:scalar"] = wrapped },
             },
         };
 
@@ -126,6 +126,22 @@ public sealed class ProtoExTests
         Assert.Equal(2, y.GetArrayLength());
         Assert.True(y[0].GetBoolean());
         Assert.Equal(JsonValueKind.Null, y[1].ValueKind);
+    }
+
+    /// <summary>Negative zero JSON values preserve sign through protobuf round-trip.</summary>
+    [Fact]
+    public async Task NegativeZeroPreservesSignAsync()
+    {
+        var serializer = new SystemTextJsonSerializer();
+        using var document = JsonDocument.Parse("-0.0");
+        var entry = new CacheEntry<JsonElement> { Value = document.RootElement.Clone() };
+
+        var wire = ProtoEx.MapEntryToProto(entry, serializer);
+        var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<JsonElement>(wire, serializer);
+
+        Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
+        Assert.Equal(0.0, roundTrip.Value.GetDouble());
+        Assert.Equal("-0", roundTrip.Value.GetRawText());
     }
 
     /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>

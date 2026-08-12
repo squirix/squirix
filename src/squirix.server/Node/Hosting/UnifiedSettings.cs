@@ -4,9 +4,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Utils;
 
@@ -63,10 +63,8 @@ internal static class UnifiedSettings
                 failures.AddRange(snapshotResult.Failures);
         }
 
-        var (prometheusFound, prometheus) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(
-            settingsFilePath,
-            new PrometheusMetricsEndpointOptions(),
-            cancellationToken).ConfigureAwait(false);
+        var options = new PrometheusMetricsEndpointOptions();
+        var (prometheusFound, prometheus) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settingsFilePath, options, cancellationToken).ConfigureAwait(false);
         if (!prometheusFound)
             return;
 
@@ -92,7 +90,7 @@ internal static class UnifiedSettings
                 if (!root.TryGetProperty("Snapshot", out var snapshot))
                     return (false, baseline);
 
-                var section = SerializationProvider.Instance.Deserialize<TriggerOptions>(snapshot.GetRawText());
+                var section = SerializerProvider.Instance.Deserialize<TriggerOptions>(snapshot.GetRawText());
                 return (true, section ?? baseline);
             },
             cancellationToken).ConfigureAwait(false);

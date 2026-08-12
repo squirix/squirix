@@ -1,7 +1,8 @@
 using System;
+using System.IO;
 using System.Text.Json;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -36,6 +37,15 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
                 Assert.True(ValueEquals(ctx.value, roundTrip!.Value));
                 Assert.Equal(7, roundTrip.Version);
             });
+    }
+
+    /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
+    [Fact]
+    public void RoundTripsDecimalAndByteArrayValues()
+    {
+        RoundTripValue(12.5m);
+        byte[] payload = [9, 8, 7];
+        RoundTripValue(payload);
     }
 
     /// <summary>Complex JSON values round-trip through the codec as JsonElement trees.</summary>
@@ -104,32 +114,12 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         Assert.Null(asNull!.Value);
     }
 
-    /// <summary>NormalizeValue keeps encodable forms and serializes arbitrary objects once.</summary>
+    /// <summary>TryRead fails on truncated envelopes.</summary>
     [Fact]
-    public void NormalizeValuePreservesEncodables()
+    public void TryReadReturnsFalseForTruncatedEnvelope()
     {
-        Assert.Null(CacheEntryCodec.NormalizeValue(null));
-        Assert.True(Assert.IsType<bool>(CacheEntryCodec.NormalizeValue(true)));
-        Assert.Equal("x", CacheEntryCodec.NormalizeValue("x"));
-        byte[] bytes = [1, 2];
-        Assert.Same(bytes, CacheEntryCodec.NormalizeValue(bytes));
-        const sbyte tiny = 3;
-        Assert.Equal(tiny, CacheEntryCodec.NormalizeValue(tiny));
-        Assert.Equal(4m, CacheEntryCodec.NormalizeValue(4m));
-
-        var normalized = CacheEntryCodec.NormalizeValue(new { Id = 1 });
-        var element = Assert.IsType<JsonElement>(normalized);
-        Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
-        Assert.Equal(1, id.GetInt32());
-    }
-
-    /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
-    [Fact]
-    public void RoundTripsDecimalAndByteArrayValues()
-    {
-        RoundTripValue(12.5m);
-        byte[] payload = [9, 8, 7];
-        RoundTripValue(payload);
+        Assert.False(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead));
+        Assert.Equal(0, bytesRead);
     }
 
     /// <summary>Write rejects destinations that are too small for the encoded entry.</summary>
@@ -148,12 +138,12 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             });
     }
 
-    /// <summary>TryRead fails on truncated envelopes.</summary>
+    /// <summary>ComputeEncodedLength rejects tag dictionaries exceeding ushort.MaxValue entries.</summary>
     [Fact]
-    public void TryReadReturnsFalseForTruncatedEnvelope()
+    public void ComputeEncodedLengthRejectsExcessiveTagCount()
     {
-        Assert.False(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead));
-        Assert.Equal(0, bytesRead);
+        var tags = EntryTagsKit.CreateCount(65_536);
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(new NodeCacheEntry<object?>(null, tags: tags), static value => CacheEntryCodec.ComputeEncodedLength(value));
     }
 
     private static void RoundTripValue(object? value)

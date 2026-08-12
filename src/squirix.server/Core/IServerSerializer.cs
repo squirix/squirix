@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace Squirix.Server.Runtime;
+namespace Squirix.Server.Core;
 
 /// <summary>Abstraction over serialization used by server runtime components.</summary>
 internal interface IServerSerializer

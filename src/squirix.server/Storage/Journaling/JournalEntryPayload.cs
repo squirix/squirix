@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 
 namespace Squirix.Server.Storage.Journaling;
 
