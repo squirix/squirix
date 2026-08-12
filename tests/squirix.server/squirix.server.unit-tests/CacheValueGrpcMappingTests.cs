@@ -450,6 +450,20 @@ public sealed class CacheValueGrpcMappingTests
         Assert.Equal(big.ToString(CultureInfo.InvariantCulture), element.GetRawText());
     }
 
+    /// <summary>Negative zero JSON values preserve sign through server protobuf round-trip.</summary>
+    [Fact]
+    public async Task NegativeZeroPreservesSignAsync()
+    {
+        using var document = JsonDocument.Parse("-0.0");
+        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
+        var wire = source.MapToProto();
+        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
+
+        Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
+        Assert.Equal(0.0, roundTrip.Value.GetDouble());
+        Assert.Equal("-0", roundTrip.Value.GetRawText());
+    }
+
     /// <summary>Decimal values preserve precision through struct round-trips.</summary>
     [Fact]
     public async Task DecimalPreservesPrecisionThroughRoundTripAsync()
