@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using Squirix.E2EBenchmarks.Fixtures;
 using Squirix.E2EBenchmarks.Support.Harness;
@@ -12,14 +12,14 @@ namespace Squirix.E2EBenchmarks.Cache;
 public class WireStructuredAllocBenchmarks : WireAllocBenchmarkBase<BenchmarkUserProfile>
 {
     /// <summary>Re-seeds expiring entries outside the measured remove-expiration benchmark body.</summary>
-    /// <returns>A task that completes when reseeding finishes.</returns>
     [IterationSetup(Target = nameof(RemoveExpirationAsync))]
-    public Task SeedRemoveExpirationIterationAsync() => SeedRemoveExpirationIterationCoreAsync();
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void SeedRemoveExpirationIteration() => SeedRemoveExpirationIterationCoreAsync().GetAwaiter().GetResult();
 
     /// <summary>Re-seeds hit keys outside the measured remove benchmark body.</summary>
-    /// <returns>A task that completes when reseeding finishes.</returns>
     [IterationSetup(Target = nameof(RemoveAsync))]
-    public Task SeedRemoveIterationAsync() => SeedRemoveIterationCoreAsync();
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void SeedRemoveIteration() => SeedRemoveIterationCoreAsync().GetAwaiter().GetResult();
 
     /// <inheritdoc />
     protected override void ConsumeValue(BenchmarkUserProfile? value) => Consumer.Consume(value?.Id ?? 0);

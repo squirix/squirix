@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -31,9 +32,9 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>Ensure "missing" key is absent for negative-path benchmarks.</summary>
-    /// <returns>A task that completes after the missing key is removed.</returns>
     [IterationSetup(Targets = [nameof(ContainsMissingBatchedAsync), nameof(RemoveMissingBatchedAsync)])]
-    public async Task EnsureMissingAbsentAsync() => _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void EnsureMissingAbsent() => _ = SharedCache.RemoveAsync(MissingKey, CancellationToken.None).GetAwaiter().GetResult();
 
     /// <summary>Measures repeated reads against a pre-seeded key.</summary>
     [Benchmark]
