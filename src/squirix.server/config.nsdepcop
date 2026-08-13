@@ -108,6 +108,9 @@
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Observability.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Endpoint.*" />
 
+  <!-- Contracts must not depend on the runtime implementation layer (adapters implement own port interfaces). -->
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:\.(?!Contracts(?:\.|$)).*)$/" />
+
   <!-- Runtime adapters implement contracts; must not become a second transport layer. -->
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Node.Hosting.*" />
