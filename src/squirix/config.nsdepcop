@@ -5,15 +5,14 @@
   Intended layer stack (outer → inner):
 
     Squirix (public API: ISquirixClient, ICache, exceptions)
-      → Squirix.Core / Squirix.Errors / Squirix.Serialization / Squirix.Utils
+      → Squirix.Core (public helpers)
       → Squirix.Internal (remote cache, session factory)
         → Squirix.Internal.Cluster (gRPC client pool, call policy, bootstrap failover)
-        → Squirix.Internal.Decorators (validation, cancellation classification)
       → Squirix.Transport.Grpc.* (shared generated transport CLR)
 
-  Public sub-namespaces (Core, Errors, Serialization) must remain usable without
-  importing Internal.*. SquirixClient in root namespace Squirix is the deliberate
-  façade that may construct Internal implementations.
+  Public sub-namespace Core must remain usable without importing Internal.*.
+  SquirixClient in root namespace Squirix is the deliberate façade that may
+  construct Internal implementations.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -46,33 +45,12 @@
   <Disallowed From="/^Squirix\.Core(?:\.|$)/" To="/^Squirix$/" />
   <Disallowed From="/^Squirix\.Core(?:\.|$)/" To="/^Squirix\.Client(?:\.|$)/" />
 
-  <!-- Error contracts are public vocabulary; must not depend on transport/session internals. -->
-  <Disallowed From="Squirix.Errors.*" To="Squirix.Internal.*" />
-
-  <!-- Serializer surface must stay independent from client-pool metrics (today: MetricsDecoratedSerializer → Internal.Cluster.Observability). -->
-  <Disallowed From="Squirix.Serialization.*" To="Squirix.Internal.*" />
-
-  <!-- Proto/helpers must not depend on remote session implementation. -->
-  <Disallowed From="Squirix.Utils.*" To="Squirix.Internal.*" />
-
   <!-- ═══ Internal layering ═══ -->
-
-  <!-- Transport pool must not depend on decorator pipeline (keeps gRPC layer reusable). -->
-  <Disallowed From="Squirix.Internal.Cluster.Transport.*" To="Squirix.Internal.Decorators.*" />
-
-  <!-- Call policy retry/timeout logic must not depend on decorator classifiers (today: CallPolicy → Internal.Decorators). -->
-  <Disallowed From="Squirix.Internal.Cluster.Reliability.*" To="Squirix.Internal.Decorators.*" />
-
-  <!-- Bootstrap failover must not depend on concrete remote cache implementation details beyond ports. -->
-  <Disallowed From="Squirix.Internal.Cluster.Bootstrap.*" To="Squirix.Internal.Decorators.*" />
 
   <!-- Cluster internals must not reach the public surface, public helpers, or the remote session factory. -->
   <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix$/" />
   <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Client(?:\.|$)/" />
   <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Core(?:\.|$)/" />
   <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Internal$/" />
-
-  <!-- Validation decorators are input guards; must not open gRPC channels directly. -->
-  <Disallowed From="Squirix.Internal.Decorators.*" To="Squirix.Internal.Cluster.Transport.*" />
 
 </NsDepCopConfig>

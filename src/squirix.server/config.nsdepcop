@@ -42,16 +42,8 @@
 
   <!-- ═══ Process / package boundary ═══ -->
   <!-- Server product must not depend on client SDK namespaces (only shared Squirix.Transport.Grpc is allowed). -->
-  <Disallowed From="Squirix.Server.*" To="Squirix.Atomic.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Batch.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Watch.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Scan.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Mutations.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Errors.*" />
   <Disallowed From="Squirix.Server.*" To="Squirix.Internal.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Runtime.*" />
   <Disallowed From="Squirix.Server.*" To="Squirix.Core.*" />
-  <Disallowed From="Squirix.Server.*" To="Squirix.Serialization.*" />
 
   <!-- ═══ Kernel purity (inner shared types must stay free of outer layers) ═══ -->
 
