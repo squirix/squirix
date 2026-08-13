@@ -73,7 +73,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
             NullLogger<RecoveryService<object?>>.Instance,
             new RecoveryDependencies<object?>(
                 persistence,
-                scenario.ManifestStore,
+                scenario.Ledger,
                 scenario.Cache,
                 new JournalStartupGate(false),
                 idempotencyStore,
@@ -85,8 +85,8 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
     {
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
-            await scenario.ManifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            scenario.ManifestStore,
+            await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            scenario.Ledger,
             new JournalStartupGate(),
             DefaultCancellationToken);
 

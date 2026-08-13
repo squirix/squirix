@@ -3,6 +3,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -27,7 +28,7 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
         };
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),

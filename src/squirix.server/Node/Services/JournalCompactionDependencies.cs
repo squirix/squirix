@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Cluster;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -11,7 +12,7 @@ internal sealed class JournalCompactionDependencies
     internal JournalCompactionDependencies(
         Coordinator snapshot,
         IExclusiveMaintenanceExecutor journalMaintenance,
-        ManifestStore manifest,
+        Ledger manifest,
         ISnapshotReader snapshotReader,
         PersistenceOptions persistence,
         TopologyOptions cluster,
@@ -30,7 +31,7 @@ internal sealed class JournalCompactionDependencies
 
     internal IExclusiveMaintenanceExecutor JournalMaintenance { get; }
 
-    internal ManifestStore Manifest { get; }
+    internal Ledger Manifest { get; }
 
     internal PersistenceOptions Persistence { get; }
 

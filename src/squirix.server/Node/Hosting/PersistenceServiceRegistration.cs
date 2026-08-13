@@ -47,7 +47,7 @@ internal static class PersistenceServiceRegistration
             sp.GetRequiredService<ILogger<RecoveryService<object?>>>(),
             new RecoveryDependencies<object?>(
                 sp.GetRequiredService<PersistenceOptions>(),
-                sp.GetRequiredService<ManifestStore>(),
+                sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ILocalCacheRecovery<object?>>(),
                 sp.GetRequiredService<JournalStartupGate>(),
                 sp.GetRequiredService<RpcMutationIdempotencyStore>(),
@@ -62,7 +62,7 @@ internal static class PersistenceServiceRegistration
             new JournalCompactionDependencies(
                 sp.GetRequiredService<Coordinator>(),
                 sp.GetRequiredService<IExclusiveMaintenanceExecutor>(),
-                sp.GetRequiredService<ManifestStore>(),
+                sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ISnapshotReader>(),
                 sp.GetRequiredService<PersistenceOptions>(),
                 sp.GetRequiredService<TopologyOptions>())));
@@ -70,7 +70,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddSingleton(static sp => new JournalCompactionController(
             sp.GetRequiredService<PersistenceOptions>(),
-            sp.GetRequiredService<ManifestStore>(),
+            sp.GetRequiredService<Ledger>(),
             sp.GetRequiredService<ISnapshotReader>(),
             sp.GetRequiredService<IJournalCoordinator>(),
             sp.GetRequiredService<ILogger<JournalCompactionController>>()));
@@ -82,7 +82,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton(runtime);
         _ = services.AddSingleton(runtime.Retention);
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
-        _ = services.AddSingleton(runtime.ManifestStore);
+        _ = services.AddSingleton(runtime.Ledger);
         _ = services.AddSingleton(runtime.Gate);
         _ = services.AddSingleton(runtime.JournalCoordinator);
         _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
@@ -127,7 +127,7 @@ internal static class PersistenceServiceRegistration
             new CoordinatorDependencies(
                 sp.GetRequiredService<ISnapshotEntryCapture>(),
                 sp.GetRequiredService<ISnapshotWriter>(),
-                sp.GetRequiredService<ManifestStore>(),
+                sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<IIdempotencySnapshotExporter>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<IBackgroundSnapshotMemoryThrottle>(),
@@ -142,7 +142,7 @@ internal static class PersistenceServiceRegistration
         private PersistenceRuntime(PersistenceOptions persistence)
         {
             Retention = new RetentionCleanupReadiness(persistence);
-            ManifestStore = new ManifestStore(persistence, retentionReadiness: Retention, failureMetrics: ManifestRetentionFailureMetrics.Instance);
+            Ledger = new Ledger(persistence, retentionReadiness: Retention, failureMetrics: ManifestRetentionFailureMetrics.Instance);
             Gate = new JournalStartupGate(false);
             JournalCoordinator = new JournalCoordinatorHost();
         }
@@ -151,7 +151,7 @@ internal static class PersistenceServiceRegistration
 
         internal JournalCoordinatorHost JournalCoordinator { get; }
 
-        internal ManifestStore ManifestStore { get; }
+        internal Ledger Ledger { get; }
 
         internal RetentionCleanupReadiness Retention { get; }
 
@@ -161,7 +161,7 @@ internal static class PersistenceServiceRegistration
             if (_disposed)
                 return;
 
-            ManifestStore.Dispose();
+            Ledger.Dispose();
             _disposed = true;
         }
 
@@ -169,8 +169,8 @@ internal static class PersistenceServiceRegistration
         {
             ArgumentNullException.ThrowIfNull(persistence);
             var runtime = new PersistenceRuntime(persistence);
-            var manifest = await runtime.ManifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            await runtime.JournalCoordinator.InitializeAsync(persistence, manifest, runtime.ManifestStore, runtime.Gate, cancellationToken).ConfigureAwait(false);
+            var manifest = await runtime.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            await runtime.JournalCoordinator.InitializeAsync(persistence, manifest, runtime.Ledger, runtime.Gate, cancellationToken).ConfigureAwait(false);
             return runtime;
         }
     }

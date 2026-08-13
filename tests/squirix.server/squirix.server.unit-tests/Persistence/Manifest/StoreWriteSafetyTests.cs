@@ -1,6 +1,5 @@
 using System.IO;
 using System.Threading.Tasks;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -9,7 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>
-/// Safety tests for <see cref="ManifestStore.WriteAsync" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
+/// Safety tests for <see cref="Ledger.WriteAsync" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
 /// </summary>
 public sealed class StoreWriteSafetyTests : ServerUnitTestBase
 {
@@ -21,7 +20,7 @@ public sealed class StoreWriteSafetyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("manifest-store-monotonic");
         var options = StoreTestSupport.CreateOptions(dir);
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
 
         var first = NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(1));

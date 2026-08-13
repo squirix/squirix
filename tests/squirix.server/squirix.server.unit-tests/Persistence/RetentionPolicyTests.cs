@@ -23,7 +23,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
     public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         CreateJournalSegment(1);
         CreateJournalSegment(2);
@@ -66,7 +66,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DataDir = Dir,
             SnapshotRetentionCount = 2,
         };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         CreateSnapshot(1);
         CreateSnapshot(2);

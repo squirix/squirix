@@ -19,13 +19,13 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
     /// <summary>
-    /// Verifies that <see cref="ManifestStore" /> creates an initial manifest and updates the CURRENT pointer.
+    /// Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
     [Fact]
     public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         var currentPath = NodePathKit.Combine(Dir, "man-current");
@@ -38,7 +38,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     public async Task ManifestStoreReturnsDefaultCurrentPointerIsMissing()
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
 
@@ -51,7 +51,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     public async Task ManifestStoreThrowsCurrentPointerTargetIsMissing()
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
         WriteCurrentPointer(Dir, 123);
 
         _ = await NodeAsyncAssert.ThrowsAsync<FileNotFoundException>(store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
@@ -62,7 +62,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     public async Task ManifestStoreThrowsWhenCurrentPointerIsEmpty()
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
@@ -73,7 +73,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);

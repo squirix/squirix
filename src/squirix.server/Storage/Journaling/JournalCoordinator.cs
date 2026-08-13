@@ -24,7 +24,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     };
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
-    private readonly ManifestRollPublisher _manifestRollPublisher;
+    private readonly RollPublisher _manifestRollPublisher;
     private readonly Lock _pendingMemoryApplyLock = new();
 
     private readonly IJournalSegmentWriter _segmentWriter;
@@ -37,15 +37,15 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private int _pendingMemoryApplyCount;
     private TaskCompletionSource? _pendingMemoryApplyDrained;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, JournalStartupGate startupGate)
     {
         Options = opt;
-        ManifestStore = manifestStore;
+        Ledger = manifestStore;
         StartupGate = startupGate;
         _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this);
         DurabilityPipeline = new JournalCoordinatorDurabilityPipeline(this);
-        _manifestRollPublisher = new ManifestRollPublisher(manifestStore, ex => DurabilityPipeline.OnManifestRollFailed(ex));
+        _manifestRollPublisher = new RollPublisher(manifestStore, ex => DurabilityPipeline.OnManifestRollFailed(ex));
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline, _manifestRollPublisher);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
@@ -102,7 +102,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     internal ref Exception? JournalThreadFailureField => ref _journalThreadFailure;
 
-    internal ManifestStore ManifestStore { get; }
+    internal Ledger Ledger { get; }
 
     internal SemaphoreSlim MutationGate { get; } = new(1, 1);
 
@@ -506,9 +506,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     {
         private readonly JournalCoordinator _coordinator;
         private readonly JournalCoordinatorDurabilityPipeline _durabilityPipeline;
-        private readonly ManifestRollPublisher _manifestRollPublisher;
+        private readonly RollPublisher _manifestRollPublisher;
 
-        internal JournalEventLoopBridge(JournalCoordinator coordinator, JournalCoordinatorDurabilityPipeline durabilityPipeline, ManifestRollPublisher manifestRollPublisher)
+        internal JournalEventLoopBridge(JournalCoordinator coordinator, JournalCoordinatorDurabilityPipeline durabilityPipeline, RollPublisher manifestRollPublisher)
         {
             _coordinator = coordinator;
             _durabilityPipeline = durabilityPipeline;

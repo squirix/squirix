@@ -30,7 +30,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
         await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
@@ -59,7 +59,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, DefaultCancellationToken);
 
-        await scenario.ManifestStore.WriteAsync(
+        await scenario.Ledger.WriteAsync(
             new State
             {
                 Format = 1,
@@ -74,13 +74,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(
-                persistence,
-                scenario.ManifestStore,
-                scenario.Cache,
-                gate,
-                new RpcMutationIdempotencyStore(),
-                StoreFactory.CreateReader(persistence)));
+            new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, new RpcMutationIdempotencyStore(), StoreFactory.CreateReader(persistence)));
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(DefaultCancellationToken));
 

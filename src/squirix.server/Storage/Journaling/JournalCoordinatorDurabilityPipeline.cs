@@ -79,7 +79,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             await beginWaitTask.ConfigureAwait(false);
             await action(cancellationToken).ConfigureAwait(false);
 
-            var manifest = await _owner.ManifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
             var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
 

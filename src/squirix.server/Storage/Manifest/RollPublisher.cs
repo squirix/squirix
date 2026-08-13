@@ -2,35 +2,25 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
-namespace Squirix.Server.Storage;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
-internal sealed class ManifestRollPublisher : IDisposable
+internal sealed class RollPublisher : IDisposable
 {
-    private static readonly ParameterizedThreadStart ProcessQueueCallback = static state =>
-    {
-        if (state is ManifestRollPublisher publisher)
-            publisher.ProcessQueue();
-    };
-
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
-    private readonly BlockingCollection<ManifestRollRequest> _queue = [];
-    private readonly Thread _thread;
+    private readonly BlockingCollection<RollRequest> _queue = [];
+    private readonly ManualResetEventSlim _stopped = new();
     private int _disposed;
     private int _inFlight;
 
-    internal ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
+    internal RollPublisher(Ledger manifestStore, Action<Exception>? onRollFailed = null)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
-        _thread = new Thread(ProcessQueueCallback)
-        {
-            IsBackground = true,
-            Name = "squirix-manifest-roll",
-        };
-        _thread.Start(this);
+        _ = Task.Factory.StartNew(ProcessQueue, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
     public void Dispose()
@@ -39,8 +29,9 @@ internal sealed class ManifestRollPublisher : IDisposable
             return;
 
         _queue.CompleteAdding();
-        _ = _thread.Join(TimeSpan.FromSeconds(30));
+        _ = _stopped.Wait(TimeSpan.FromSeconds(30));
         _queue.Dispose();
+        _stopped.Dispose();
     }
 
     /// <summary>Enqueues a roll; <paramref name="onSuccess" /> runs on the manifest thread after a successful publish.</summary>
@@ -55,7 +46,7 @@ internal sealed class ManifestRollPublisher : IDisposable
         ArgumentNullException.ThrowIfNull(onSuccess);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
 
-        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
+        if (!_queue.TryAdd(new RollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
             throw new InvalidOperationException("manifest roll publisher is shutting down.");
     }
 
@@ -86,14 +77,18 @@ internal sealed class ManifestRollPublisher : IDisposable
         {
             // Queue completed during shutdown.
         }
+        finally
+        {
+            _stopped.Set();
+        }
     }
 
-    private sealed class ManifestRollRequest
+    private sealed class RollRequest
     {
         private readonly Action<Exception>? _captureFailure;
         private readonly Action? _onSuccess;
 
-        internal ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
+        internal RollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
         {
             CurrentJournal = currentJournal;
             NextSequence = nextSequence;

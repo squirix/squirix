@@ -8,6 +8,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
@@ -28,7 +29,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -69,7 +70,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -98,7 +99,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
     }
 
-    private static Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
+    private static Task BlockNextManifestWriteAsync(Ledger manifestStore, string dataDir)
     {
         manifestStore.PublishRollBlocking(1, 1);
         return File.WriteAllTextAsync(NodePathKit.Combine(dataDir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
