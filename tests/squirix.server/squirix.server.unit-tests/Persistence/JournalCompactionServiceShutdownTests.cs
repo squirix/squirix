@@ -12,6 +12,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
@@ -30,7 +31,7 @@ public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-compact-shutdown");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
-        using var store = new ManifestStore(persistence);
+        using var store = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken),

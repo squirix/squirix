@@ -29,7 +29,7 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -90,7 +90,7 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -127,7 +127,7 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),

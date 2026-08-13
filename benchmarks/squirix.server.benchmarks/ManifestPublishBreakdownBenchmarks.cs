@@ -48,7 +48,7 @@ public class ManifestPublishBreakdownBenchmarks
         var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
-            session.Store.PublishRollBlocking(_nextJournal++, _nextSequence++);
+            session.Ledger.PublishRollBlocking(_nextJournal++, _nextSequence++);
     }
 
     /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
@@ -104,11 +104,11 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(TempDirectory dataDir, ManifestStore store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
+        private Session(TempDirectory dataDir, Ledger store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
         {
             _dataDir = dataDir;
             _encodeBuffer = warmup.EncodeBuffer;
-            Store = store;
+            Ledger = store;
             Format = warmup.Format;
             Snapshot = warmup.Snapshot;
             SnapshotPathUtf8 = warmup.SnapshotPathUtf8;
@@ -116,7 +116,7 @@ public class ManifestPublishBreakdownBenchmarks
             PointerWriter = pointerWriter;
         }
 
-        internal ManifestStore Store { get; }
+        internal Ledger Ledger { get; }
 
         private int Format { get; }
 
@@ -131,7 +131,7 @@ public class ManifestPublishBreakdownBenchmarks
         public void Dispose()
         {
             PointerWriter.Dispose();
-            Store.Dispose();
+            Ledger.Dispose();
             _dataDir.Dispose();
         }
 
@@ -147,7 +147,7 @@ public class ManifestPublishBreakdownBenchmarks
                 ManifestRetentionCount = retention,
                 SnapshotRetentionCount = retention,
             };
-            var store = new ManifestStore(options);
+            var store = new Ledger(options);
             store.PublishRollBlocking(1, 1);
 
             var encodeBuffer = new byte[EncodeBufferSize];

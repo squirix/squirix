@@ -25,7 +25,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-disjoint");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, only);
         await manifestStore.WriteAsync(
@@ -51,7 +51,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-active-range");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
@@ -80,7 +80,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-snap-watermark");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, envelope);
         var manifest = new State
@@ -113,7 +113,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-first-available");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, envelope);
         var manifest = new State
@@ -140,7 +140,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-roll-boundary");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
 
         var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
         var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
@@ -176,7 +176,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-obsolete-crc");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var obsoletePath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, stale);
@@ -209,7 +209,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-post-compact");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
@@ -246,7 +246,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-active-truncate");
         var persistence = NewPersistence(dir);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");

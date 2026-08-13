@@ -24,7 +24,7 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal static class JournalCompactor
 {
-    internal static async Task CompactAsync(PersistenceOptions options, ManifestStore manifestStore, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
+    internal static async Task CompactAsync(PersistenceOptions options, Ledger manifestStore, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(snapshotReader);
@@ -154,7 +154,7 @@ internal static class JournalCompactor
 
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         State oldManifest,
         int newFirstIdx,
         ulong lastSeq,

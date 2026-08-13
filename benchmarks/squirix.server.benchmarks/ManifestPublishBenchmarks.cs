@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
 
@@ -40,7 +41,7 @@ public class ManifestPublishBenchmarks
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.
-        _host.Store.PublishRollBlocking(1, _nextSequence++);
+        _host.Ledger.PublishRollBlocking(1, _nextSequence++);
     }
 
     /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
@@ -50,7 +51,7 @@ public class ManifestPublishBenchmarks
     {
         var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
         for (var journal = 1; journal <= _operationsPerInvoke; journal++)
-            host.Store.PublishRollBlocking(journal, _nextSequence++);
+            host.Ledger.PublishRollBlocking(journal, _nextSequence++);
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>
@@ -58,17 +59,17 @@ public class ManifestPublishBenchmarks
     {
         private readonly TempDirectory _dataDir;
 
-        private Host(TempDirectory dataDir, ManifestStore manifestStore)
+        private Host(TempDirectory dataDir, Ledger manifestStore)
         {
             _dataDir = dataDir;
-            Store = manifestStore;
+            Ledger = manifestStore;
         }
 
-        internal ManifestStore Store { get; }
+        internal Ledger Ledger { get; }
 
         public ValueTask DisposeAsync()
         {
-            Store.Dispose();
+            Ledger.Dispose();
             _dataDir.Dispose();
             return ValueTask.CompletedTask;
         }
@@ -80,7 +81,7 @@ public class ManifestPublishBenchmarks
 
             var dataDir = new TempDirectory(tempDirectoryPrefix);
             var persistence = options with { DataDir = dataDir.Path };
-            var manifestStore = new ManifestStore(persistence);
+            var manifestStore = new Ledger(persistence);
             return Task.FromResult(new Host(dataDir, manifestStore));
         }
     }

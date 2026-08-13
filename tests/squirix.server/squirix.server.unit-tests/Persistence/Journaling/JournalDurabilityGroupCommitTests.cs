@@ -8,6 +8,7 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -199,7 +200,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -273,7 +274,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -307,7 +308,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxBatch = 32,
         };
 
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),

@@ -26,7 +26,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase, IAsyncLifetime
             DataDir = Dir.Path,
             ManifestRetentionCount = 2,
         };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         for (var i = 1; i <= 20; i++)
             store.PublishRollBlocking(i, Convert.ToUInt64(i));

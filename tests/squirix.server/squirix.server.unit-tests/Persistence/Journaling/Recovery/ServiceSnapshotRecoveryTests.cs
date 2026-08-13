@@ -36,7 +36,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         var tailRecord = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(11UL, "tail", "from-journal");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [baseRecord, tailRecord]);
 
-        await scenario.ManifestStore.WriteAsync(
+        await scenario.Ledger.WriteAsync(
             new State
             {
                 Format = 1,
@@ -74,7 +74,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, record);
 
-        await scenario.ManifestStore.WriteAsync(
+        await scenario.Ledger.WriteAsync(
             new State
             {
                 Format = 1,
@@ -105,13 +105,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(
-                persistence,
-                scenario.ManifestStore,
-                scenario.Cache,
-                gate,
-                new RpcMutationIdempotencyStore(),
-                StoreFactory.CreateReader(persistence)));
+            new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, new RpcMutationIdempotencyStore(), StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
     }
 }

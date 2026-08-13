@@ -31,7 +31,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly JournalStartupGate _journalStartupGate;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
     private readonly ISnapshotReader _snapshotReader;
@@ -43,7 +43,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _log = log ?? throw new ArgumentNullException(nameof(log));
         ArgumentNullException.ThrowIfNull(deps);
         _opt = deps.Persistence;
-        _manifestStore = deps.ManifestStore;
+        _manifestStore = deps.Ledger;
         _localCache = deps.LocalCache;
         _journalStartupGate = deps.JournalStartupGate;
         _idempotency = deps.Idempotency;

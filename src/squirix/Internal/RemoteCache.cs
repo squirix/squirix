@@ -250,7 +250,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
-    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
+    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example, touch operations).</summary>
     private static class ExpirationInputValidator
     {
         /// <summary>
@@ -365,7 +365,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
             /// </summary>
             /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter increment type mismatch.</returns>
+            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter-increment type mismatch.</returns>
             internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
                                                                                             detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
                                                                                                 "expected",
@@ -401,7 +401,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                 /// <summary>No recognized stable contract for the given detail string.</summary>
                 None = 0,
 
-                /// <summary>Counter increment type mismatch (FailedPrecondition detail).</summary>
+                /// <summary>Counter-increment type mismatch (FailedPrecondition detail).</summary>
                 CounterIncrementTypeMismatch = 1,
 
                 /// <summary>Explicit insert version is not greater than the stored version (FailedPrecondition detail).</summary>
@@ -422,7 +422,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
             /// <remarks>
             /// Classification order matches the domain transport error mapper historical behavior:
-            /// counter increment type mismatch is evaluated before insert-version precondition text.
+            /// counter-increment type mismatch is evaluated before insert-version precondition text.
             /// </remarks>
             private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
             {

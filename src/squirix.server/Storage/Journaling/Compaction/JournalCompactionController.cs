@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage.Journaling.Compaction;
@@ -16,7 +17,7 @@ internal sealed class JournalCompactionController : IDisposable
 {
     private readonly IJournalCoordinator _journalWriter;
     private readonly ILogger<JournalCompactionController> _log;
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly PersistenceOptions _opt;
     private readonly ISnapshotReader _snapshotReader;
@@ -24,7 +25,7 @@ internal sealed class JournalCompactionController : IDisposable
 
     internal JournalCompactionController(
         PersistenceOptions opt,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ISnapshotReader snapshotReader,
         IJournalCoordinator journalWriter,
         ILogger<JournalCompactionController> log)

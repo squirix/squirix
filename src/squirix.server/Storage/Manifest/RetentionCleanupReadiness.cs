@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Squirix.Server.Storage.Manifest;
 
-namespace Squirix.Server.Storage;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Tracks persistent retention cleanup failures for readiness degradation.</summary>
 internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStatus

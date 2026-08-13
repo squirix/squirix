@@ -7,7 +7,6 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Diagnostics;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
@@ -29,7 +28,7 @@ internal static class NodeEndpointServiceRegistration
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = persistenceEnabled ? services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
                 new HealthReadyDependencies(
-                    sp.GetRequiredService<ManifestStore>(),
+                    sp.GetRequiredService<Ledger>(),
                     sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
                     sp.GetRequiredService<IJournalCoordinator>(),
                     sp.GetRequiredService<Coordinator>(),
@@ -111,7 +110,7 @@ internal static class NodeEndpointServiceRegistration
     private sealed class HealthReadyDependencies
     {
         internal HealthReadyDependencies(
-            ManifestStore manifestStore,
+            Ledger manifestStore,
             IRetentionCleanupReadinessStatus retentionCleanup,
             IJournalCoordinator journal,
             Coordinator snapshot,
@@ -119,7 +118,7 @@ internal static class NodeEndpointServiceRegistration
             TopologyOptions cluster,
             IMemoryUsageAccounting memoryAccounting)
         {
-            ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
+            Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
             RetentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
             Journal = journal ?? throw new ArgumentNullException(nameof(journal));
             Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
@@ -134,7 +133,7 @@ internal static class NodeEndpointServiceRegistration
 
         internal IJournalCoordinator Journal { get; }
 
-        internal ManifestStore ManifestStore { get; }
+        internal Ledger Ledger { get; }
 
         internal IMemoryUsageAccounting MemoryAccounting { get; }
 
@@ -149,7 +148,7 @@ internal static class NodeEndpointServiceRegistration
         private readonly TopologyOptions _cluster;
         private readonly IJournalCompactionStatus _compaction;
         private readonly IJournalCoordinator _journal;
-        private readonly ManifestStore _manifestStore;
+        private readonly Ledger _manifestStore;
         private readonly IMemoryUsageAccounting _memoryAccounting;
         private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
         private readonly PressureOptions _memoryPressureOptions;
@@ -159,7 +158,7 @@ internal static class NodeEndpointServiceRegistration
         internal HealthReadyDetailsProvider(HealthReadyDependencies deps, IMemoryPressureStateEvaluator memoryEvaluator, PressureOptions memoryPressureOptions)
         {
             ArgumentNullException.ThrowIfNull(deps);
-            _manifestStore = deps.ManifestStore;
+            _manifestStore = deps.Ledger;
             _retentionCleanup = deps.RetentionCleanup;
             _journal = deps.Journal;
             _snapshot = deps.Snapshot;

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -7,7 +8,7 @@ internal sealed class CoordinatorDependencies
     internal CoordinatorDependencies(
         ISnapshotEntryCapture entryCapture,
         ISnapshotWriter snapWriter,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         IIdempotencySnapshotExporter idempotency,
         string nodeId,
         IBackgroundSnapshotMemoryThrottle backgroundSnapshotMemoryThrottle,
@@ -15,7 +16,7 @@ internal sealed class CoordinatorDependencies
     {
         EntryCapture = entryCapture ?? throw new ArgumentNullException(nameof(entryCapture));
         SnapWriter = snapWriter ?? throw new ArgumentNullException(nameof(snapWriter));
-        ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
+        Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
         NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
         BackgroundSnapshotMemoryThrottle = backgroundSnapshotMemoryThrottle ?? throw new ArgumentNullException(nameof(backgroundSnapshotMemoryThrottle));
@@ -28,7 +29,7 @@ internal sealed class CoordinatorDependencies
 
     internal IIdempotencySnapshotExporter Idempotency { get; }
 
-    internal ManifestStore ManifestStore { get; }
+    internal Ledger Ledger { get; }
 
     internal string NodeId { get; }
 

@@ -6,6 +6,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -24,7 +25,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-tracing-journal-decorator");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var core = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -58,7 +59,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 600_000,
         };
-        using var manifestStore = new ManifestStore(options);
+        using var manifestStore = new Ledger(options);
         await using var core = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),

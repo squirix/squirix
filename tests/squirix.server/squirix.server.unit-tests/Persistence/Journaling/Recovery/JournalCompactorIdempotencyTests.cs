@@ -7,6 +7,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -28,7 +29,7 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-compact-idempotency-frames");
         var persistence = CreatePersistence(dir.Path);
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await WritePutAndIdempotencyAsync(persistence, manifestStore);
 
         await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
@@ -55,8 +56,8 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
         var persistence = CreatePersistence(scenario.DataDir);
-        await WritePutAndIdempotencyAsync(persistence, scenario.ManifestStore);
-        await JournalCompactor.CompactAsync(persistence, scenario.ManifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore();
         await RunRecoveryAsync(scenario, persistence, idempotencyStore);
@@ -76,7 +77,7 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
             NullLogger<RecoveryService<object?>>.Instance,
             new RecoveryDependencies<object?>(
                 persistence,
-                scenario.ManifestStore,
+                scenario.Ledger,
                 scenario.Cache,
                 new JournalStartupGate(false),
                 idempotencyStore,
@@ -84,7 +85,7 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
         return recovery.StartAsync(DefaultCancellationToken);
     }
 
-    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, ManifestStore manifestStore)
+    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore)
     {
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,

@@ -220,12 +220,12 @@
        NsDepCop regex has no back-reference between From/To, so enumerate pairs explicitly.
        Only namespaces with actual children in src need rules; rest are flat leaves.
        Carve-outs baked into To patterns:
-       - Storage → Storage.Manifest and Storage.Journaling.Abstractions allowed (durability root composes own subsystems)
-       - Storage.Journaling → Abstractions / Read / Codec allowed (JournalCoordinator composes pipeline)
+        - Storage.Journaling.Abstractions allowed (durability root composes own subsystems);
+        - Storage.Journaling → Abstractions / Read / Codec allowed (JournalCoordinator composes pipeline)
         - Runtime → Runtime.Contracts allowed (adapters implement own port interfaces)
         Cluster has its own exact-parent rule above (line ~167), not duplicated here.
         Snapshot/Observability/Adapters.Grpc: parents must route through siblings, not own children. -->
-  <Disallowed From="/^Squirix\.Server\.Storage$/" To="/^Squirix\.Server\.Storage\.(?!Manifest(?:\.|$)|Journaling\.Abstractions(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
+   <Disallowed From="/^Squirix\.Server\.Storage$/" To="/^Squirix\.Server\.Storage\.(?!Journaling\.Abstractions(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
   <Disallowed From="/^Squirix\.Server\.Storage\.Journaling$/" To="/^Squirix\.Server\.Storage\.Journaling\.(?!Abstractions(?:\.|$)|Read(?:\.|$)|Codec(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
   <Disallowed From="/^Squirix\.Server\.Storage\.Snapshot$/" To="/^Squirix\.Server\.Storage\.Snapshot\..+$/" />
   <Disallowed From="/^Squirix\.Server\.Runtime$/" To="/^Squirix\.Server\.Runtime\.(?!Contracts(?:\.|$))[A-Za-z_][A-Za-z0-9_.]*$/" />
