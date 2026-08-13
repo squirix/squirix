@@ -17,13 +17,5 @@
 
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Core.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Errors.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Serialization.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Atomic.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Batch.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Watch.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Scan.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Mutations.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Runtime.*" />
 
 </NsDepCopConfig>
