@@ -7,6 +7,20 @@ namespace Squirix.Internal;
 /// <summary>Maps CLR scalar and typed-primitive cache values to and from protobuf representations.</summary>
 internal static class ProtoScalarMapping
 {
+    internal static T? Coerce<T>(object? value) => value is T result ? result : default;
+
+    internal static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
+    {
+        CacheValue.KindOneofCase.StringValue => value.StringValue,
+        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
+        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => ProtoStructCodec.FromStruct<object?>(structValue, serializer),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+    };
+
     internal static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) => kind is CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue
         or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue;
 
@@ -24,7 +38,17 @@ internal static class ProtoScalarMapping
         };
     }
 
-    internal static bool TryMapBool<T>(CacheValue value, out T? result)
+    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
+        where TValue : class?
+    {
+        var reference = value;
+        return Unsafe.As<TValue, TTarget>(ref reference);
+    }
+
+    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
+        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+
+    private static bool TryMapBool<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(bool))
         {
@@ -36,7 +60,7 @@ internal static class ProtoScalarMapping
         return false;
     }
 
-    internal static bool TryMapDouble<T>(CacheValue value, out T? result)
+    private static bool TryMapDouble<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(double))
         {
@@ -48,7 +72,7 @@ internal static class ProtoScalarMapping
         return false;
     }
 
-    internal static bool TryMapInt32<T>(CacheValue value, out T? result)
+    private static bool TryMapInt32<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(int))
         {
@@ -60,7 +84,7 @@ internal static class ProtoScalarMapping
         return false;
     }
 
-    internal static bool TryMapInt64<T>(CacheValue value, out T? result)
+    private static bool TryMapInt64<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(long))
         {
@@ -72,7 +96,7 @@ internal static class ProtoScalarMapping
         return false;
     }
 
-    internal static bool TryMapString<T>(CacheValue value, out T? result)
+    private static bool TryMapString<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(string))
         {
@@ -83,28 +107,4 @@ internal static class ProtoScalarMapping
         result = default;
         return false;
     }
-
-    internal static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    internal static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => value.StringValue,
-        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
-        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
-        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => ProtoStructCodec.FromStruct<object?>(structValue, serializer),
-        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
-    };
-
-    internal static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
-        where TValue : class?
-    {
-        var reference = value;
-        return Unsafe.As<TValue, TTarget>(ref reference);
-    }
-
-    internal static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
-        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
 }

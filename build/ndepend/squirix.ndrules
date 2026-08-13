@@ -85,14 +85,15 @@ where f.ParentType != null &&
        f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
 select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
-// JournalCoordinator and ManifestRollPublisher own long-lived WAL/manifest I/O threads by design.
-// Task.Run is banned on infrastructure paths; do not refactor these to the thread pool.
+// JournalCoordinator owns a long-lived WAL I/O thread by design.
+// Task.Run is banned on infrastructure paths; do not refactor it to the thread pool.
+// Manifest roll publishing now uses a Task (TaskCreationOptions.LongRunning) and no longer
+// creates a raw Thread, so it is not excluded here.
 notmycode
 from m in Methods
 where m.IsConstructor &&
       m.ParentType != null &&
-      (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
-       m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher")
+      m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator"
 select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude ExceptionExpectation helpers from ND1208</Name>
 // CA1000 / MA0018 forbid static members on generic types; instance Throws helpers are intentional.
