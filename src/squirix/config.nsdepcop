@@ -42,6 +42,10 @@
   <!-- Cache name/key validators are public helpers; must not pull remote implementation. -->
   <Disallowed From="Squirix.Core.*" To="Squirix.Internal.*" />
 
+  <!-- Public helpers must not depend on the public client façade. -->
+  <Disallowed From="/^Squirix\.Core(?:\.|$)/" To="/^Squirix$/" />
+  <Disallowed From="/^Squirix\.Core(?:\.|$)/" To="/^Squirix\.Client(?:\.|$)/" />
+
   <!-- Error contracts are public vocabulary; must not depend on transport/session internals. -->
   <Disallowed From="Squirix.Errors.*" To="Squirix.Internal.*" />
 
@@ -61,6 +65,12 @@
 
   <!-- Bootstrap failover must not depend on concrete remote cache implementation details beyond ports. -->
   <Disallowed From="Squirix.Internal.Cluster.Bootstrap.*" To="Squirix.Internal.Decorators.*" />
+
+  <!-- Cluster internals must not reach the public surface, public helpers, or the remote session factory. -->
+  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix$/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Client(?:\.|$)/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Core(?:\.|$)/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Internal$/" />
 
   <!-- Validation decorators are input guards; must not open gRPC channels directly. -->
   <Disallowed From="Squirix.Internal.Decorators.*" To="Squirix.Internal.Cluster.Transport.*" />

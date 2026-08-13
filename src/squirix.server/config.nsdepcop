@@ -62,6 +62,14 @@
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.Errors(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Low-level helpers (paths, CRC, buffers) must remain infrastructure-agnostic. -->
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Storage.*" />
@@ -69,6 +77,15 @@
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.Utils(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Logging must stay free of outer orchestration. -->
   <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Adapters.*" />
@@ -76,11 +93,28 @@
   <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.Logging(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Runtime contracts are the inward-facing port surface. -->
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Endpoint.*" />
 
   <!-- Runtime adapters implement contracts; must not become a second transport layer. -->
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />
@@ -92,6 +126,12 @@
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.LocalCache.*" />
 
   <!-- Kernel must not reach the runtime implementation layer (serialization port lives in Core.Serialization, not Runtime). -->
   <Disallowed
@@ -125,6 +165,9 @@
   <!-- Storage must not depend on cache decorator pipeline. -->
   <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.App.*" />
 
+  <!-- Persistence must not depend on node endpoint routing. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Endpoint.*" />
+
   <!-- ═══ Local in-memory cache ═══ -->
 
   <!-- Owner cache must not depend on transport adapters. -->
@@ -141,6 +184,16 @@
 
   <!-- Entry sizing must not depend on memory-pressure gate types (today: estimators → Node.MemoryPressure). -->
   <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.MemoryPressure.*" />
+
+  <!-- Owner cache must not depend on node orchestration, gates, observability, endpoint routing, or runtime. -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.LocalCache(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- ═══ Cluster (distributed routing & inter-node transport) ═══ -->
 
@@ -215,6 +268,13 @@
 
   <!-- Backpressure gate must stay independent from storage internals. -->
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Storage.*" />
+
+  <!-- Backpressure gate must stay free of node orchestration, hosting, endpoint routing, and transport adapters. -->
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Adapters.*" />
 
   <!-- Hosted services orchestrate storage but must not depend on transport adapters. -->
   <Disallowed From="Squirix.Server.Node.Services.*" To="Squirix.Server.Adapters.*" />
