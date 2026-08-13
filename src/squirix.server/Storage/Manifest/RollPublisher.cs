@@ -2,22 +2,17 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
 internal sealed class RollPublisher : IDisposable
 {
-    private static readonly ParameterizedThreadStart ProcessQueueCallback = static state =>
-    {
-        if (state is RollPublisher publisher)
-            publisher.ProcessQueue();
-    };
-
     private readonly Ledger _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
     private readonly BlockingCollection<RollRequest> _queue = [];
-    private readonly Thread _thread;
+    private readonly ManualResetEventSlim _stopped = new();
     private int _disposed;
     private int _inFlight;
 
@@ -25,12 +20,7 @@ internal sealed class RollPublisher : IDisposable
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
-        _thread = new Thread(ProcessQueueCallback)
-        {
-            IsBackground = true,
-            Name = "squirix-manifest-roll",
-        };
-        _thread.Start(this);
+        _ = Task.Factory.StartNew(ProcessQueue, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
     public void Dispose()
@@ -39,8 +29,9 @@ internal sealed class RollPublisher : IDisposable
             return;
 
         _queue.CompleteAdding();
-        _ = _thread.Join(TimeSpan.FromSeconds(30));
+        _ = _stopped.Wait(TimeSpan.FromSeconds(30));
         _queue.Dispose();
+        _stopped.Dispose();
     }
 
     /// <summary>Enqueues a roll; <paramref name="onSuccess" /> runs on the manifest thread after a successful publish.</summary>
@@ -85,6 +76,10 @@ internal sealed class RollPublisher : IDisposable
         catch (InvalidOperationException)
         {
             // Queue completed during shutdown.
+        }
+        finally
+        {
+            _stopped.Set();
         }
     }
 
