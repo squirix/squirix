@@ -4,14 +4,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
-using Index = Squirix.Server.Storage.Manifest.Index;
 
-namespace Squirix.Server.Storage;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
-internal sealed class ManifestStore : IDisposable
+internal sealed class Ledger : IDisposable
 {
     private readonly IndexAllocator _allocator;
     private readonly Lock _cacheSync = new();
@@ -22,9 +20,9 @@ internal sealed class ManifestStore : IDisposable
     private readonly RetentionWorker _retentionWorker;
     private bool _disposed;
 
-    internal ManifestStore(
+    internal Ledger(
         PersistenceOptions options,
-        ILogger<ManifestStore>? logger = null,
+        ILogger<Ledger>? logger = null,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
         IManifestRetentionFailureMetrics? failureMetrics = null,
         IStorageFileOperations? fileOperations = null)

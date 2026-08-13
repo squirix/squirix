@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -17,7 +18,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
         _dataDirectory = dataDirectory;
         DataDir = dataDirectory.Path;
         Persistence = new PersistenceOptions { DataDir = dataDirectory.Path, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-        ManifestStore = new ManifestStore(Persistence);
+        Ledger = new Ledger(Persistence);
         Cache = new PhysicalCache<object?>();
     }
 
@@ -28,7 +29,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
     internal string DataDir { get; }
 
     /// <summary>Gets the scenario manifest store.</summary>
-    internal ManifestStore ManifestStore { get; }
+    internal Ledger Ledger { get; }
 
     /// <summary>Gets the scenario persistence options.</summary>
     private PersistenceOptions Persistence { get; }
@@ -40,7 +41,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
             return;
 
         _disposed = true;
-        ManifestStore.Dispose();
+        Ledger.Dispose();
         await Cache.DisposeAsync().ConfigureAwait(false);
         _dataDirectory.Dispose();
     }

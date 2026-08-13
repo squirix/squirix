@@ -21,7 +21,7 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
     public async Task PublishRollBlockingIncrementsIndexWithoutDiskRead()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         store.PublishRollBlocking(1, 1);
         store.PublishRollBlocking(2, 2);
@@ -35,7 +35,7 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
     public async Task WriteAsyncCreatesCurrentPointerAndManifestFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
@@ -56,7 +56,7 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
     public async Task WriteAsyncUpdatesCurrentPointerInPlaceTmpFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 

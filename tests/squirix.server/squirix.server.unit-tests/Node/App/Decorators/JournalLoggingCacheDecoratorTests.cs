@@ -9,6 +9,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -107,7 +108,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new ManifestStore(options);
+        var manifestStore = new Ledger(options);
         var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -124,12 +125,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     private sealed class Harness : IAsyncDisposable
     {
         private readonly TempDirectory _dir;
-        private readonly ManifestStore _manifestStore;
+        private readonly Ledger _manifestStore;
         private readonly PhysicalCache<string> _physical;
 
         internal Harness(
             TempDirectory dir,
-            ManifestStore manifestStore,
+            Ledger manifestStore,
             IJournalCoordinator journal,
             PhysicalCache<string> physical,
             RecordingLogicalCache inner,

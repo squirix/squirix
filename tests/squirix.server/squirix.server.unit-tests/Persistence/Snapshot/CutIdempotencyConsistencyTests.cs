@@ -35,7 +35,7 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -57,7 +57,7 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
 
     private static async Task<string> CutSnapshotDuringPostFlushIdempotencyAsync(
         IJournalCoordinator journal,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ISnapshotWriter writer,
         RpcMutationIdempotencyStore idempotency,
         CancellationToken cancellationToken)

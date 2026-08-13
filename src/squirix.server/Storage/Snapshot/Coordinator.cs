@@ -28,7 +28,7 @@ internal sealed class Coordinator
     private readonly CaptureScratch _captureScratch = new();
     private readonly ISnapshotEntryCapture _entryCapture;
     private readonly IIdempotencySnapshotExporter _idempotency;
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly string _nodeId;
     private readonly ISnapshotWriter _snapWriter;
     private readonly ISnapshotTelemetry _telemetry;
@@ -41,7 +41,7 @@ internal sealed class Coordinator
         ArgumentNullException.ThrowIfNull(deps);
         _entryCapture = deps.EntryCapture;
         _snapWriter = deps.SnapWriter;
-        _manifestStore = deps.ManifestStore;
+        _manifestStore = deps.Ledger;
         _idempotency = deps.Idempotency;
         _nodeId = deps.NodeId;
         _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;

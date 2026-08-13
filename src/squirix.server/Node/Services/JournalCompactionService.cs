@@ -21,7 +21,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 {
     private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
     private readonly ILogger<JournalCompactionService<T>> _log;
-    private readonly ManifestStore _manifest;
+    private readonly Ledger _manifest;
     private readonly string _nodeId;
     private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
@@ -74,6 +74,20 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         RunState.Failed => nameof(RunState.Failed),
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported enum value."),
     };
+
+    private void AccumulateTailStats(int replayFromSegment, out int segments, out long bytes)
+    {
+        segments = 0;
+        bytes = 0;
+        foreach (var segment in JournalReader.EnumerateSegments(_persistence.DataDir, Math.Max(1, replayFromSegment)))
+        {
+            if (!File.Exists(segment.Path) || segment.Index < replayFromSegment)
+                continue;
+
+            segments++;
+            bytes += new FileInfo(segment.Path).Length;
+        }
+    }
 
     private void ChangeState(RunState next)
     {
@@ -213,6 +227,28 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
+    private void SubscribeSnapshotCompleted()
+    {
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
+            return;
+
+        _snap.SnapshotCompleted += _onSnapshotCompleted;
+    }
+
+    private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
+    {
+        AccumulateTailStats(replayFromSegment, out segments, out bytes);
+        return segments >= _opt.MinTailSegments || bytes >= _opt.MinTailBytes;
+    }
+
+    private void UnsubscribeSnapshotCompleted()
+    {
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
+            return;
+
+        _snap.SnapshotCompleted -= _onSnapshotCompleted;
+    }
+
     private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)
     {
         var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -237,41 +273,5 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         {
             Volatile.Write(ref _wake, null);
         }
-    }
-
-    private void SubscribeSnapshotCompleted()
-    {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
-            return;
-
-        _snap.SnapshotCompleted += _onSnapshotCompleted;
-    }
-
-    private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
-    {
-        AccumulateTailStats(replayFromSegment, out segments, out bytes);
-        return segments >= _opt.MinTailSegments || bytes >= _opt.MinTailBytes;
-    }
-
-    private void AccumulateTailStats(int replayFromSegment, out int segments, out long bytes)
-    {
-        segments = 0;
-        bytes = 0;
-        foreach (var segment in JournalReader.EnumerateSegments(_persistence.DataDir, Math.Max(1, replayFromSegment)))
-        {
-            if (!File.Exists(segment.Path) || segment.Index < replayFromSegment)
-                continue;
-
-            segments++;
-            bytes += new FileInfo(segment.Path).Length;
-        }
-    }
-
-    private void UnsubscribeSnapshotCompleted()
-    {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
-            return;
-
-        _snap.SnapshotCompleted -= _onSnapshotCompleted;
     }
 }

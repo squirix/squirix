@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;

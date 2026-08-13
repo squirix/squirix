@@ -3,25 +3,25 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 
-namespace Squirix.Server.Storage;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
-internal sealed class ManifestRollPublisher : IDisposable
+internal sealed class RollPublisher : IDisposable
 {
     private static readonly ParameterizedThreadStart ProcessQueueCallback = static state =>
     {
-        if (state is ManifestRollPublisher publisher)
+        if (state is RollPublisher publisher)
             publisher.ProcessQueue();
     };
 
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
-    private readonly BlockingCollection<ManifestRollRequest> _queue = [];
+    private readonly BlockingCollection<RollRequest> _queue = [];
     private readonly Thread _thread;
     private int _disposed;
     private int _inFlight;
 
-    internal ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
+    internal RollPublisher(Ledger manifestStore, Action<Exception>? onRollFailed = null)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
@@ -55,7 +55,7 @@ internal sealed class ManifestRollPublisher : IDisposable
         ArgumentNullException.ThrowIfNull(onSuccess);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
 
-        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
+        if (!_queue.TryAdd(new RollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
             throw new InvalidOperationException("manifest roll publisher is shutting down.");
     }
 
@@ -88,12 +88,12 @@ internal sealed class ManifestRollPublisher : IDisposable
         }
     }
 
-    private sealed class ManifestRollRequest
+    private sealed class RollRequest
     {
         private readonly Action<Exception>? _captureFailure;
         private readonly Action? _onSuccess;
 
-        internal ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
+        internal RollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
         {
             CurrentJournal = currentJournal;
             NextSequence = nextSequence;

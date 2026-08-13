@@ -47,7 +47,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new ManifestStore(persistence);
+        using var manifestStore = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
@@ -70,7 +70,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
     }
 
-    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, ManifestStore manifestStore, CancellationToken cancellationToken)
+    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<object?>();
         await using (cache.ConfigureAwait(false))
@@ -95,7 +95,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
 
     private static async Task<SnapshotRef> CutSnapshotDuringSegmentRollAsync(
         JournalCoordinator journal,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ISnapshotWriter writer,
         byte[] overflowPayload,
         CancellationToken cancellationToken)

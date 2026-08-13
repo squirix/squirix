@@ -12,7 +12,7 @@ internal static class JournalCoordinatorFactory
     internal static async Task<IJournalCoordinator> CreateAsync(
         PersistenceOptions persistence,
         State manifest,
-        ManifestStore store,
+        Ledger store,
         JournalStartupGate gate,
         CancellationToken cancellationToken = default)
     {

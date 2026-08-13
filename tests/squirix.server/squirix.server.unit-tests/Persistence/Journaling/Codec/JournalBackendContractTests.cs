@@ -6,6 +6,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Xunit;
@@ -80,7 +81,7 @@ public sealed class JournalBackendContractTests
     {
         var dir = new TempDirectory("journal-contract");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
-        var manifestStore = new ManifestStore(options);
+        var manifestStore = new Ledger(options);
         var gate = new JournalStartupGate();
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
         var coordinator = await JournalCoordinatorFactory.CreateAsync(options, manifest, manifestStore, gate, CancellationToken.None);
@@ -89,7 +90,7 @@ public sealed class JournalBackendContractTests
 
     private static async Task<JournalRecord> ReadLastRecordAsync(CoordinatorContext context)
     {
-        var manifest = await context.ManifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
+        var manifest = await context.Ledger.ReadCurrentOrDefaultAsync(CancellationToken.None);
         JournalRecord? last = null;
         using var records = JournalReadPath.ReadAll(context.Options.DataDir, manifest.CurrentJournal, CancellationToken.None);
         while (records.MoveNext())
@@ -103,24 +104,24 @@ public sealed class JournalBackendContractTests
     {
         private readonly TempDirectory _directory;
 
-        internal CoordinatorContext(TempDirectory directory, PersistenceOptions options, ManifestStore manifestStore, IJournalCoordinator coordinator)
+        internal CoordinatorContext(TempDirectory directory, PersistenceOptions options, Ledger manifestStore, IJournalCoordinator coordinator)
         {
             _directory = directory;
             Options = options;
-            ManifestStore = manifestStore;
+            Ledger = manifestStore;
             Coordinator = coordinator;
         }
 
         internal IJournalCoordinator Coordinator { get; }
 
-        internal ManifestStore ManifestStore { get; }
+        internal Ledger Ledger { get; }
 
         internal PersistenceOptions Options { get; }
 
         public async ValueTask DisposeAsync()
         {
             await Coordinator.DisposeAsync().ConfigureAwait(false);
-            ManifestStore.Dispose();
+            Ledger.Dispose();
             _directory.Dispose();
         }
     }

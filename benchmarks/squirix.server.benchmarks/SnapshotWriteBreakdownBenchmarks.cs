@@ -76,12 +76,12 @@ public class SnapshotWriteBreakdownBenchmarks
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
         private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
-        private readonly ManifestStore _manifestStore;
+        private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
         private int _nextFileIndex = 10_000;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, ManifestStore manifestStore)
+        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
         {
             _dataDir = dataDir;
             _items = items;
@@ -117,7 +117,7 @@ public class SnapshotWriteBreakdownBenchmarks
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
             var writer = new SnapshotWriter(dataDir);
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
-            var manifestStore = new ManifestStore(
+            var manifestStore = new Ledger(
                 new PersistenceOptions
                 {
                     DataDir = dataDir.Path,
@@ -129,8 +129,7 @@ public class SnapshotWriteBreakdownBenchmarks
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
-        internal async Task PublishSnapshotAsync() =>
-            _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
+        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
 
         /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
         internal async Task WriteManifestOnlyAsync()
@@ -169,7 +168,8 @@ public class SnapshotWriteBreakdownBenchmarks
             }
         }
 
-        private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+        private string BuildSnapshotPath(int index) =>
+            PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
         private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
     }

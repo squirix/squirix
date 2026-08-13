@@ -36,7 +36,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         var readiness = new RetentionCleanupReadiness(options);
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, DefaultCancellationToken);
-        using var store = new ManifestStore(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
+        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
         await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures is 1, TimeSpan.FromSeconds(5), DefaultCancellationToken);
@@ -66,7 +66,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", DefaultCancellationToken);
         await File.WriteAllTextAsync(currentJournalPath, "current journal", DefaultCancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
-        using var store = new ManifestStore(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleJournalSegment));
+        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleJournalSegment));
         await store.WriteAsync(
             new State
             {
@@ -109,7 +109,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         using var dir = new TempDirectory("manifest-retention-delete-failure");
         var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        using var store = new ManifestStore(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
+        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
 
@@ -153,7 +153,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             DataDir = dir,
             SnapshotRetentionCount = 1,
         };
-        using var store = new ManifestStore(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
+        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
         await store.WriteAsync(
             new State
             {
@@ -193,7 +193,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             File.SetAttributes(path, FileAttributes.Normal);
     }
 
-    private sealed class CollectingLogger : ILogger<ManifestStore>
+    private sealed class CollectingLogger : ILogger<Ledger>
     {
         internal List<(LogLevel Level, string Message)> Entries { get; } = [];
 
