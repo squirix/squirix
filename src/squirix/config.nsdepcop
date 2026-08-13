@@ -48,9 +48,9 @@
   <!-- ═══ Internal layering ═══ -->
 
   <!-- Cluster internals must not reach the public surface, public helpers, or the remote session factory. -->
-  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix$/" />
-  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Client(?:\.|$)/" />
-  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Core(?:\.|$)/" />
-  <Disallowed From="/^Squirix\.Internal\.Cluster\..*$/" To="/^Squirix\.Internal$/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster(?:\.|$).*$/" To="/^Squirix$/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster(?:\.|$).*$/" To="/^Squirix\.Client(?:\.|$)/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster(?:\.|$).*$/" To="/^Squirix\.Core(?:\.|$)/" />
+  <Disallowed From="/^Squirix\.Internal\.Cluster(?:\.|$).*$/" To="/^Squirix\.Internal$/" />
 
 </NsDepCopConfig>
