@@ -137,7 +137,7 @@
       "CodeNext": 123
     },
     {
-      "FileName": "ManifestRollPublisher.cs",
+      "FileName": "RollPublisher.cs",
       "ErrorCode": "V3163",
       "Message": "An exception handling block does not contain any code.",
       "CodePrev": 125,
@@ -329,7 +329,7 @@
       "CodeNext": 123
     },
     {
-      "FileName": "ManifestRollPublisher.cs",
+      "FileName": "RollPublisher.cs",
       "ErrorCode": "V5606",
       "Message": "An empty exception handler. Silent suppression of exceptions may hide the presence of bugs or vulnerabilities.",
       "CodePrev": 125,
