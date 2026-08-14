@@ -95,13 +95,6 @@ where m.IsConstructor &&
       m.ParentType != null &&
       m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator"
 select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude ExceptionExpectation helpers from ND1208</Name>
-// CA1000 / MA0018 forbid static members on generic types; instance Throws helpers are intentional.
-notmycode
-from m in Methods
-where m.ParentType != null &&
-      m.ParentType.SimpleName.EndsWith("ExceptionExpectation")
-select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection helpers</Name>
 // Collection expressions synthesize <>z__ReadOnly* types that throw reserved exception types.
 notmycode
@@ -113,15 +106,6 @@ notmycode
 from m in Methods
 where m.ParentType != null &&
       (m.ParentType.IsGeneratedByCompiler || m.ParentType.Name.StartsWith("<>z__"))
-select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CapturedMeasurement equality operators from ND1701</Name>
-// Operators exist to satisfy value-type equality rules; call sites use Equals directly.
-notmycode
-from m in Methods
-where m.IsOperator &&
-      m.ParentType != null &&
-      m.ParentType.Name == "CapturedMeasurement" &&
-      (m.SimpleName == "op_Equality" || m.SimpleName == "op_Inequality")
 select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude JournalSegmentPolicy from class-to-struct suggestion</Name>
 // Sealed reference type keeps Policy property semantics simple; struct conversion fights MA0008/RCS1085.
@@ -192,9 +176,7 @@ let isExcludedStaticHolder =
      f.FullNameLike("(.*\\.)?MemoryPressureMetrics\\.Catalog$") ||
      f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.Observers" ||
      f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.ObserversState" ||
-     f.FullName == "Squirix.Server.Node.MemoryPressure.ObjectCacheEntrySizeEstimator.NullPayloadShell" ||
-     f.FullName == "Squirix.Server.TestKit.MockOidcAuthority.PortPool" ||
-     f.FullName == "Squirix.Server.TestKit.Mtls.ClusterTls+InternalPortPool.Allocator"
+      f.FullName == "Squirix.Server.Node.MemoryPressure.ObjectCacheEntrySizeEstimator.NullPayloadShell"
 where fieldType != null &&
      !fieldType.IsThirdParty &&
      !fieldType.IsInterface &&
@@ -232,7 +214,7 @@ let infraNamespaceNames = new HashSet<string>() {
       "Helpers",  "Validators",  "Entities",  "Pages",
       "Client",
       "Rest", "Errors", "Endpoint", "Internal", "Cluster",
-      "Observability", "Support", "Networking", "Utils", "Memory",
+      "Observability", "Support", "Networking", "Memory",
       "Persistence", "Adapters", "Core", "Hosting", "ApiSnapshots",
       "Diagnostics", "Invocation"
 }
