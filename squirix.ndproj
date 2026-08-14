@@ -335,7 +335,7 @@ let infraNamespaceNames = new HashSet<string>() {
       "Helpers",  "Validators",  "Entities",  "Pages",
       "Client",
       "Rest", "Errors", "Endpoint", "Internal", "Cluster",
-      "Observability", "Support", "Networking", "Utils", "Memory",
+      "Observability", "Support", "Networking", "Memory",
       "Persistence", "Adapters", "Core", "Hosting", "ApiSnapshots",
       "Diagnostics", "Invocation"
 }
