@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
-using Squirix.Server.Logging;
 
 namespace Squirix.Server.LocalCache;
 
@@ -161,7 +160,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        LogManager.PhysicalCacheUpdateRetriesExhausted(_logger, maxAttempts, key.Namespace, key.Key);
+        Logging.LogManager.PhysicalCacheUpdateRetriesExhausted(_logger, maxAttempts, key.Namespace, key.Key);
         return ValueTask.FromResult(false);
 
         bool TryApplyUpdate(CacheKey updateKey, T? updateValue, out bool completed)

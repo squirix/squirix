@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -168,7 +167,7 @@ internal sealed class RetentionWorker
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
             if (context.Logger is not null)
-                LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+                Logging.LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
@@ -176,7 +175,7 @@ internal sealed class RetentionWorker
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
             if (context.Logger is not null)
-                LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+                Logging.LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
         private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)
