@@ -224,7 +224,18 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             written += key.Length;
             operation.AsSpan().CopyTo(destination[written..]);
             written += operation.Length;
-            HexFormat.WriteSha256HexUpper(destination[written..], digest);
+            WriteSha256HexUpper(destination[written..], digest);
+        }
+
+        private static void WriteSha256HexUpper(Span<char> destination, ReadOnlySpan<byte> digest)
+        {
+            if (digest.Length is not 32)
+                throw new ArgumentException("SHA-256 digest must be exactly 32 bytes.", nameof(digest));
+            if (destination.Length < 64)
+                throw new ArgumentException("Destination must be at least 64 characters.", nameof(destination));
+
+            if (!Convert.TryToHexString(digest, destination, out var written) || written is not 64)
+                throw new InvalidOperationException("Failed to format SHA-256 digest as uppercase hexadecimal.");
         }
     }
 
