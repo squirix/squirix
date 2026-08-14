@@ -10,8 +10,6 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Low-cardinality idempotency store metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
 internal static class IdempotencyMetrics
 {
-    private static readonly RegistrationCatalog Catalog = new();
-
     private static readonly Counter<long> EvictionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
         "squirix_idempotency_evictions_total",
         "{eviction}",
@@ -23,6 +21,8 @@ internal static class IdempotencyMetrics
         "squirix_idempotency_rejections_total",
         "{rejection}",
         "Idempotency store rejections when the in-flight record cap cannot be satisfied");
+
+    private static RegistrationCatalog Catalog { get; } = new();
 
     internal static void RecordEviction(string nodeId)
     {

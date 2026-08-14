@@ -16,10 +16,6 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <summary>In-process OIDC authority that serves discovery metadata and JWKS for JWT bearer tests.</summary>
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
-    private static readonly PortAllocator PortPool = new(
-        HostPortRegions.StartInclusive(HostPortRegion.MockOidcAuthority),
-        HostPortRegions.EndExclusive(HostPortRegion.MockOidcAuthority) - 1);
-
     private readonly WebApplication _app;
     private readonly string _keyId;
 
@@ -33,6 +29,10 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         _signingKey = signingKey;
         _keyId = keyId;
     }
+
+    private static PortAllocator PortPool { get; } = new(
+        HostPortRegions.StartInclusive(HostPortRegion.MockOidcAuthority),
+        HostPortRegions.EndExclusive(HostPortRegion.MockOidcAuthority) - 1);
 
     /// <summary>Gets the authority base endpoint (also used as the token issuer).</summary>
     private string AuthorityEndpoint { get; }
