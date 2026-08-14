@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.LocalCache;
 
