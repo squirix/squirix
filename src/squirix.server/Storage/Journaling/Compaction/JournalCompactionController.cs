@@ -34,9 +34,6 @@ internal sealed class JournalCompactionController : IDisposable
         _snapshotReader = snapshotReader;
         _journalWriter = journalWriter;
         _log = log;
-        _ = Squirix.Server.Logging.LogFilter.ShouldLog(Microsoft.Extensions.Logging.LogLevel.Information);
-        _ = Squirix.Server.Logging.LogFormatter.Format("journal");
-        _ = Squirix.Server.Logging.LogRouting.Route("journal");
     }
 
     public void Dispose()
