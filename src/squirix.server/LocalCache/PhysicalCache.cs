@@ -160,7 +160,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        Logging.LogManager.PhysicalCacheUpdateRetriesExhausted(_logger, maxAttempts, key.Namespace, key.Key);
+        LogManager.PhysicalCacheUpdateRetriesExhausted(_logger, maxAttempts, key.Namespace, key.Key);
         return ValueTask.FromResult(false);
 
         bool TryApplyUpdate(CacheKey updateKey, T? updateValue, out bool completed)

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace Squirix.Server.Logging;
+namespace Squirix.Server;
 
 /// <summary>Local in-memory cache diagnostics.</summary>
 internal static partial class LogManager

@@ -167,7 +167,7 @@ internal sealed class RetentionWorker
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
             if (context.Logger is not null)
-                Logging.LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+                LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
@@ -175,7 +175,7 @@ internal sealed class RetentionWorker
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
             if (context.Logger is not null)
-                Logging.LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+                LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
         private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)
