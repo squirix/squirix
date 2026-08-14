@@ -5,12 +5,12 @@ using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
 
-public sealed class ProtocolModelSurfaceTests
+public static class ProtocolModelSurfaceTests
 {
     private static readonly string[] SampleCounterexamplePaths = ["start", "elect"];
 
     [Fact]
-    public void ExploreProfileForCliBuildsSmallAndFull()
+    public static void ExploreProfileForCliBuildsSmallAndFull()
     {
         var small = ExploreProfile.ForCli("small", true);
         Assert.Equal("small", small.Name, StringComparer.Ordinal);
@@ -29,17 +29,17 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public void ExploreProfileForCliRejectsUnknownName() => Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForCli("tiny", true));
+    public static void ExploreProfileForCliRejectsUnknownName() => Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForCli("tiny", true));
 
     [Fact]
-    public void ExploreProfileForReplicaCountRejectsOutOfRange()
+    public static void ExploreProfileForReplicaCountRejectsOutOfRange()
     {
         _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
         _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
     }
 
     [Fact]
-    public void LogEntryEqualityMatchesTermAndIndex()
+    public static void LogEntryEqualityMatchesTermAndIndex()
     {
         var a = new LogEntry(1, 2);
         var b = new LogEntry(1, 2);
@@ -57,7 +57,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncFormatsCommitAndReadBrokenModesAsync()
+    public static async Task RunCliAsyncFormatsCommitAndReadBrokenModesAsync()
     {
         var outputCommit = CreateTempDir();
         var outputRead = CreateTempDir();
@@ -82,7 +82,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncWritesCounterexampleForBrokenVoteAsync()
+    public static async Task RunCliAsyncWritesCounterexampleForBrokenVoteAsync()
     {
         var output = CreateTempDir();
         try
@@ -102,7 +102,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public async Task RunCliAsyncWritesSummaryForSafeSmallProfileAsync()
+    public static async Task RunCliAsyncWritesSummaryForSafeSmallProfileAsync()
     {
         var output = CreateTempDir();
         try
@@ -122,7 +122,7 @@ public sealed class ProtocolModelSurfaceTests
     }
 
     [Fact]
-    public void SafetyCheckerFormatsCounterexampleJsonWithPath()
+    public static void SafetyCheckerFormatsCounterexampleJsonWithPath()
     {
         var state = ClusterState.CreateInitial(3);
         var violation = new SafetyViolation("ElectionSafety", "dual leaders", state.Fingerprint(false));
