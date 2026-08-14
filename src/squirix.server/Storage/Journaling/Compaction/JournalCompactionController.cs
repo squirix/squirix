@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -35,6 +34,9 @@ internal sealed class JournalCompactionController : IDisposable
         _snapshotReader = snapshotReader;
         _journalWriter = journalWriter;
         _log = log;
+        _ = Squirix.Server.Logging.LogFilter.ShouldLog(Microsoft.Extensions.Logging.LogLevel.Information);
+        _ = Squirix.Server.Logging.LogFormatter.Format("journal");
+        _ = Squirix.Server.Logging.LogRouting.Route("journal");
     }
 
     public void Dispose()
@@ -57,10 +59,10 @@ internal sealed class JournalCompactionController : IDisposable
         {
             var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var snapIdx = manifest.LastSnapshot?.Index ?? 0;
-            LogManager.ManualCompactionStart(_log, snapIdx);
+            Logging.LogManager.ManualCompactionStart(_log, snapIdx);
             await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _manifestStore, _snapshotReader, ct)), cancellationToken)
                                 .ConfigureAwait(false);
-            LogManager.ManualCompactionFinished(_log);
+            Logging.LogManager.ManualCompactionFinished(_log);
             return true;
         }
         finally

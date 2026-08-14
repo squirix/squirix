@@ -41,6 +41,9 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+        _ = LogFilter.ShouldLog(LogLevel.Information);
+        _ = LogFormatter.Format("recovery");
+        _ = LogRouting.Route("recovery");
         ArgumentNullException.ThrowIfNull(deps);
         _opt = deps.Persistence;
         _manifestStore = deps.Ledger;
