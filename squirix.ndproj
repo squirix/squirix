@@ -362,7 +362,7 @@ select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Q
       <Group Name="System.Reflection" Active="True" ShownInReport="False">
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2800$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2801$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
+        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
 // <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
 // ND2802 squirix override (disabled): .NET SDK emits multi-version facade references for Roslyn/xUnit
 // during analyzers-only restore (benign, not loaded at runtime). Rule disabled as false-positive.
