@@ -39,16 +39,16 @@ def main() -> int:
         (path / "dummy.ndar").write_bytes(b"NDAR")
 
     clean_xml = """<?xml version="1.0" encoding="utf-8"?>
-<RuleResult NbRules="1" NbErrors="0" NbWarns="0" NbWarnsCritical="0">
+<RuleResult NbRules="0" NbErrors="0" NbWarns="0" NbWarnsCritical="0">
   <Group Name="Architecture" FullName="Architecture">
-    <Query Status="Ok" Name="Enforcing Clean Architecture" RuleId="ND1412" FullName="Project Rules \\ Architecture \\ Enforcing Clean Architecture" NbNodeMatched="0" />
+
   </Group>
 </RuleResult>
 """
     dirty_xml = """<?xml version="1.0" encoding="utf-8"?>
-<RuleResult NbRules="2" NbErrors="0" NbWarns="1" NbWarnsCritical="0">
+<RuleResult NbRules="1" NbErrors="0" NbWarns="1" NbWarnsCritical="0">
   <Group Name="Architecture" FullName="Architecture">
-    <Query Status="Ok" Name="Enforcing Clean Architecture" RuleId="ND1412" FullName="Project Rules \\ Architecture \\ Enforcing Clean Architecture" NbNodeMatched="0" />
+
     <Query Status="RuleWarn" Name="Avoid namespaces dependency cycles" RuleId="ND1400" FullName="Project Rules \\ Architecture \\ Avoid namespaces dependency cycles" NbNodeMatched="2" />
   </Group>
   <Group Name="Design" FullName="Design">
@@ -107,9 +107,9 @@ def main() -> int:
         shutil.rmtree(improved)
     shutil.copytree(dirty, improved)
     improved_xml = """<?xml version="1.0" encoding="utf-8"?>
-<RuleResult NbRules="2" NbErrors="0" NbWarns="1" NbWarnsCritical="0">
+<RuleResult NbRules="1" NbErrors="0" NbWarns="1" NbWarnsCritical="0">
   <Group Name="Architecture" FullName="Architecture">
-    <Query Status="Ok" Name="Enforcing Clean Architecture" RuleId="ND1412" FullName="Project Rules \\ Architecture \\ Enforcing Clean Architecture" NbNodeMatched="0" />
+
     <Query Status="RuleWarn" Name="Avoid namespaces dependency cycles" RuleId="ND1400" FullName="Project Rules \\ Architecture \\ Avoid namespaces dependency cycles" NbNodeMatched="1" />
   </Group>
   <Group Name="Design" FullName="Design">

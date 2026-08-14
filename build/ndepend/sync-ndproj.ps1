@@ -143,7 +143,7 @@ if ($null -ne $ruleFiles) {
 }
 
 # Baseline noise: keep inactive so API rename churn vs prior analysis does not gate quality.
-# ND1412 is activated via squirix.ndrules CustomRuleOverrides (replication DAG gate).
+# Replication namespace DAG (forbidden dependency edges) is enforced by NsDepCop (config.nsdepcop), not NDepend.
 $deactivateTokens = @(
     'ND1500', 'ND1501', 'ND1502', 'ND1503', 'ND1504', 'ND1505', # API Breaking Changes vs prior analysis
     'ND2201' # Mark assemblies with CLSCompliant (deprecated)
