@@ -494,6 +494,10 @@ dotnet_diagnostic.MA0174.severity = none
 dotnet_diagnostic.MA0192.severity = none
 # MA0211: Require multi-line <summary> XML comments; single-line summaries are fine for short, obvious members.
 dotnet_diagnostic.MA0211.severity = none
+# MA0214: Use 'await' instead of returning the task - intentionally disabled; returning the task is a valid optimization.
+dotnet_diagnostic.MA0214.severity = none
+# MA0215: Return the task instead of awaiting it - opposite of MA0214; prefer returning the task to elide the async state machine.
+dotnet_diagnostic.MA0215.severity = warning
 
 [tools/**]
 # MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).
