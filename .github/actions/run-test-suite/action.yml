@@ -144,7 +144,6 @@ runs:
         retention-days: 1
         path: |
           coverage/**/coverage.cobertura.xml
-          coverage/**/coverage.opencover.xml
         if-no-files-found: error
 
     - name: Upload Test Results (TRX)
