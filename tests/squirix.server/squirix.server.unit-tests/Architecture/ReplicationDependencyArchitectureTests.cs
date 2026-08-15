@@ -79,6 +79,8 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var storageReplicationFromRegex = new Regex(pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         Assert.Matches(storageReplicationFromRegex, "Squirix.Server.Storage.Replication");
         Assert.Matches(storageReplicationFromRegex, "Squirix.Server.Storage.Replication.Subnamespace");
+        Assert.DoesNotMatch(storageReplicationFromRegex, "Squirix.Server.Storage.Journaling");
+        Assert.DoesNotMatch(storageReplicationFromRegex, "Squirix.Server.Storage.ReplicationX");
 
         // Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and cache.
         AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
