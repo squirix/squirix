@@ -68,8 +68,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public long AppendedBytes => Interlocked.Read(ref _bytes);
 
-    public long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
-
     public long AppendedOps => Interlocked.Read(ref _ops);
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
@@ -115,6 +113,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public MutableInt32 QueuedAppendsCounter { get; } = new();
 
     public JournalStartupGate StartupGate { get; }
+
+    internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
     public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
     {
