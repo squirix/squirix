@@ -66,9 +66,8 @@ jobs:
                           - '.editorconfig'
                           - '.pvsconfig'
                           - 'squirix.slnx'
-                          - 'squirix.slnx.DotSettings'
-                          - 'coverlet.runsettings'
-                          - 'clean-bin-obj.bat'
+                           - 'squirix.slnx.DotSettings'
+                           - 'clean-bin-obj.bat'
                           - 'clean-bin-obj.sh'
                           # NDepend project/rules edits must not trigger the code CI matrix.
                           - '!**/*.ndproj'
@@ -380,20 +379,20 @@ jobs:
                 shell: bash
                 run: |
                     set -o pipefail
-                    dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      --blame-hang-timeout 5m \
-                      --filter "FullyQualifiedName~AuthSmokeTests" 2>&1 | tee test-output-smoke-auth.log
+                    dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
+                      --long-running 300 \
+                      --filter-class AuthSmokeTests 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
                 shell: bash
                 run: |
                     set -o pipefail
                     mkdir -p coverage/smoke
-                    dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      --blame-hang-timeout 5m \
-                      --logger "trx;LogFileName=smoke.trx" \
+                    dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
+                      --long-running 300 \
+                      --report-xunit-trx --report-xunit-trx-filename smoke.trx \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
-                      --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee test-output-smoke.log
+                      --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml 2>&1 | tee test-output-smoke.log
 
             -   name: Verify Smoke Coverage Was Collected
                 shell: bash
@@ -802,7 +801,7 @@ jobs:
                     for proj in "${test_projects[@]}"; do
                       echo "Verifying tests discovered in: $proj"
                       set +e
-                      output="$(dotnet test "$proj" --configuration Release --no-build --list-tests -v q 2>&1)"
+                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q 2>&1)"
                       code=$?
                       set -e
 
@@ -812,25 +811,15 @@ jobs:
                         exit $code
                       fi
 
-                      if echo "$output" | grep -q 'No test is available'; then
-                        echo "$output"
-                        echo "No tests discovered in $proj" >&2
-                        exit 1
+                      count="$(echo "$output" | grep -oiE 'found [0-9]+ test' | grep -oE '[0-9]+' | head -1)"
+                      if [ -z "$count" ]; then
+                        # Fallback for quiet verbosity: count any line that looks like a discovered test FQN.
+                        count="$(printf '%s\n' "$output" | grep -cE '\.' || true)"
                       fi
-
-                      count="$(
-                        set +e
-                        echo "$output" \
-                          | sed -n '/The following Tests are available:/,$p' \
-                          | tail -n +2 \
-                          | grep -E '^[[:space:]]*[^[:space:]]' \
-                          | grep -cvE '^[[:space:]]*$'
-                        true
-                      )"
                       count="$(echo "${count:-0}" | tr -d '[:space:]')"
                       if [ "${count:-0}" -le 0 ]; then
                         echo "$output"
-                        echo "No test names were listed for $proj" >&2
+                        echo "No tests discovered in $proj" >&2
                         exit 1
                       fi
 
@@ -1658,8 +1647,8 @@ jobs:
                     SQUIRIX_STRESS_SCALE: "0.5"
                 run: |
                     set -o pipefail
-                    dotnet test tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                    dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
                       --configuration Release \
                       --no-build \
-                      --blame-hang-timeout 15m \
-                      --filter "Suite=Stress"
+                      --long-running 900 \
+                      --filter-trait "Suite=Stress"

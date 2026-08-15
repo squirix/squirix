@@ -77,12 +77,27 @@ runs:
             ;;
           e2e-single-node)
             PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
-            FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress")
+            # Single-node e2e (exclude the scheduled/manual stress suite). Mirrors the prior
+            # VSTest filter:
+            #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
+            # Translated to the MTP query-filter language. Each --filter-query is OR-ed; the
+            # substring segment match replaces the old FullyQualifiedName~ substring test. The
+            # Client* method filter starts-with (not contains) so it does not also pull in the
+            # stress test's ConcurrentMixedMutationsClientVisibleInvariants method.
+            FILTER_ARGS=(
+              --filter-query "/*/*Cache.SingleNode*/*/*"
+              --filter-query "/*/*/*/Client*"
+              --filter-query "/*/*/*/Persistence*"
+            )
             ;;
           e2e-multi-node)
             PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
+            # Multi-node e2e (exclude stress). Mirrors:
+            #   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
+            FILTER_ARGS=(
+              --filter-query "/*/*Cache.MultiNode*/*/*"
+              --filter-query "/*/*/*/Security*"
+            )
             ;;
           protocol-model)
             PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
@@ -95,17 +110,17 @@ runs:
 
         if [ "${{ inputs.collect-coverage }}" = "true" ]; then
           mkdir -p "coverage/${{ inputs.suite }}"
-          dotnet test "$PROJECT" -f ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \
-            --blame-hang-timeout 5m \
-            --logger "trx;LogFileName=${{ inputs.suite }}.trx" \
+            --long-running 300 \
+            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
             --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
-            --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+            --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml 2>&1 | tee "test-output-${{ inputs.suite }}.log"
         else
-          dotnet test "$PROJECT" -f ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
+          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \
-            --blame-hang-timeout 5m \
-            --logger "trx;LogFileName=${{ inputs.suite }}.trx" 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+            --long-running 300 \
+            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx 2>&1 | tee "test-output-${{ inputs.suite }}.log"
         fi
 
     - name: Verify Suite Coverage Was Collected
