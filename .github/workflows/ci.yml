@@ -379,7 +379,7 @@ jobs:
                 shell: bash
                 run: |
                     set -o pipefail
-                    dotnet test tests/squirix.server/squirix.server.smoke-tests/ --framework net10.0 --configuration Release --no-build --verbosity normal \
+                    dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
                       --long-running 300 \
                       --filter-query "/*/*/AuthSmokeTests/*" 2>&1 | tee test-output-smoke-auth.log
 
@@ -388,7 +388,7 @@ jobs:
                 run: |
                     set -o pipefail
                     mkdir -p coverage/smoke
-                    dotnet test tests/squirix.server/squirix.server.smoke-tests/ --framework net10.0 --configuration Release --no-build --verbosity normal \
+                    dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
                       --long-running 300 \
                       --report-xunit-trx --report-xunit-trx-filename smoke.trx \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
@@ -800,7 +800,7 @@ jobs:
                     for proj in "${test_projects[@]}"; do
                       echo "Verifying tests discovered in: $proj"
                       set +e
-                      output="$(dotnet test "$(dirname "$proj")" --configuration Release --no-build --list-tests -v q 2>&1)"
+                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q 2>&1)"
                       code=$?
                       set -e
 
@@ -810,7 +810,7 @@ jobs:
                         exit $code
                       fi
 
-                      count="$(echo "$output" | grep -oiE 'Discovered [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)"
+                      count="$(echo "$output" | grep -oiE 'Discovered [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)" || true
                       if [ -z "$count" ]; then
                         # Fallback: count lines that look like a discovered test FQN (assembly-qualified name with a dot).
                         count="$(printf '%s\n' "$output" | grep -cE '^[A-Za-z0-9_.]+\.[A-Za-z0-9_]+$' || true)"
@@ -1646,7 +1646,7 @@ jobs:
                     SQUIRIX_STRESS_SCALE: "0.5"
                 run: |
                     set -o pipefail
-                    dotnet test tests/squirix.e2e.tests/ \
+                    dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
                       --configuration Release \
                       --no-build \
                       --long-running 900 \
