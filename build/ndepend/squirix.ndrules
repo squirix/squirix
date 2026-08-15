@@ -168,7 +168,7 @@ where m.SimpleNameLike("^Try") &&
       m.ReturnType.FullName != "System.Boolean" &&
       !m.ReturnType.Name.Contains("Task")
 select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2802" Group=".NET Framework Usage"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2802" Group="System.Reflection"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
 // <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
 // ND2802 squirix override (disabled): .NET SDK emits multi-version facade references for Roslyn/xUnit
 // during analyzers-only restore (benign, not loaded at runtime). Rule disabled as false-positive.

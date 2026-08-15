@@ -114,7 +114,7 @@ if ($null -ne $customRuleOverridesNode) {
         }
 
         $placeholder = "`$${ruleToken}`$"
-        $overrideMarker = "// ${ruleToken} squirix override:"
+        $overrideMarker = "// ${ruleToken} squirix override"
         $targetQuery = $targetGroup.SelectNodes('Query') | Where-Object {
             $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*$overrideMarker*"
         } | Select-Object -First 1
