@@ -56,8 +56,8 @@ jobs:
                           - '.editorconfig'
                           - '.pvsconfig'
                           - 'squirix.slnx'
-                           - 'squirix.slnx.DotSettings'
-                           - 'clean-bin-obj.bat'
+                          - 'squirix.slnx.DotSettings'
+                          - 'clean-bin-obj.bat'
                           - 'clean-bin-obj.sh'
                           # NDepend project/rules edits must not trigger CodeQL analyze.
                           - '!**/*.ndproj'
