@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -15,6 +14,7 @@ internal static class BackpressureMetrics
     private static readonly Lock ObserverGate = new();
     private static readonly Dictionary<long, ObserverEntry> Observers = [];
     private static readonly ObserverState ObserversState = new();
+    private static ObserverEntry[] _snapshotBuffer = [];
     private static readonly Counter<long> QueueCancellationsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
     private static readonly Counter<long> QueueTimeoutsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
     private static readonly Histogram<double> QueueWaitHist = ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_backpressure_queue_wait_seconds");
@@ -102,36 +102,31 @@ internal static class BackpressureMetrics
             if (count is 0)
                 return 0;
 
-            var snapshot = ArrayPool<ObserverEntry>.Shared.Rent(count);
-            try
-            {
-                var copied = 0;
-                foreach (var entry in Observers.Values)
-                    snapshot[copied++] = entry;
+            if (_snapshotBuffer.Length < count)
+                _snapshotBuffer = new ObserverEntry[count];
 
-                var total = 0;
-                for (var i = 0; i < copied; i++)
+            var copied = 0;
+            foreach (var entry in Observers.Values)
+                _snapshotBuffer[copied++] = entry;
+
+            var total = 0;
+            for (var i = 0; i < copied; i++)
+            {
+                try
                 {
-                    try
-                    {
-                        total += selector(snapshot[i]);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    }
+                    total += selector(_snapshotBuffer[i]);
                 }
+                catch (ObjectDisposedException)
+                {
+                    // Keep metrics observation resilient if one observer source is torn down concurrently.
+                }
+                catch (InvalidOperationException)
+                {
+                    // Keep metrics observation resilient if one observer source is torn down concurrently.
+                }
+            }
 
-                return total;
-            }
-            finally
-            {
-                ArrayPool<ObserverEntry>.Shared.Return(snapshot, true);
-            }
+            return total;
         }
     }
 
