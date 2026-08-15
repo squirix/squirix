@@ -100,7 +100,10 @@ internal static class BackpressureMetrics
         {
             var count = Observers.Count;
             if (count is 0)
+            {
+                Array.Clear(_snapshotBuffer);
                 return 0;
+            }
 
             if (_snapshotBuffer.Length < count)
                 _snapshotBuffer = new ObserverEntry[count];
@@ -108,6 +111,7 @@ internal static class BackpressureMetrics
             var copied = 0;
             foreach (var entry in Observers.Values)
                 _snapshotBuffer[copied++] = entry;
+            Array.Clear(_snapshotBuffer, copied, _snapshotBuffer.Length - copied);
 
             var total = 0;
             for (var i = 0; i < copied; i++)
