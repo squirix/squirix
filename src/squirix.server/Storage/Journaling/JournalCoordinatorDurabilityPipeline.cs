@@ -6,14 +6,16 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Durability, maintenance, and failure handling for <see cref="JournalCoordinator" />.</summary>
+/// <summary>Durability, maintenance, and failure handling for a journal coordinator.</summary>
 internal sealed class JournalCoordinatorDurabilityPipeline
 {
-    private readonly JournalCoordinator _owner;
+    private readonly IJournalCoordinatorState _owner;
+    private readonly IJournalCoordinatorSnapshotState _snapshot;
 
-    internal JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
+    internal JournalCoordinatorDurabilityPipeline(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot)
     {
         _owner = owner;
+        _snapshot = snapshot;
     }
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
@@ -148,12 +150,12 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         while (true)
         {
-            await _owner.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
-            await _owner.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!_owner.HasPendingMemoryApply())
+            await _snapshot.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
+            await _snapshot.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!_snapshot.HasPendingMemoryApply())
                 return;
 
-            _ = _owner.MutationGate.Release();
+            _ = _snapshot.MutationGate.Release();
         }
     }
 
