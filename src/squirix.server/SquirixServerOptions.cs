@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Server.Cluster;
 
 namespace Squirix.Server;
 
@@ -45,7 +46,7 @@ public sealed class SquirixServerOptions
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
     /// <returns><see langword="true" /> when configuration is valid.</returns>
-    public bool TryValidate(out IReadOnlyList<string> errors) => SquirixServerOptionsValidator.TryValidate(this, out errors);
+    public bool TryValidate(out IReadOnlyList<string> errors) => TryValidateOptions(this, out errors);
 
     /// <summary>Enables journal/snapshot persistence for this node.</summary>
     /// <param name="dataDirectory">Optional data directory override.</param>
@@ -58,5 +59,56 @@ public sealed class SquirixServerOptions
 
     /// <summary>Validates the current configuration and throws when a value is invalid.</summary>
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
-    public void Validate() => SquirixServerOptionsValidator.Validate(this);
+    public void Validate() => Validate(this);
+
+    private static void Validate(SquirixServerOptions options)
+    {
+        if (!options.TryValidate(out var errors))
+            throw new ArgumentException(errors[0], nameof(options));
+    }
+
+    private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var peerOptions = options.Peers;
+        var uri = options.Uri;
+        if (peerOptions is null)
+            throw new ArgumentNullException(nameof(options), "Peers cannot be null.");
+
+        if (uri is null)
+            throw new ArgumentNullException(nameof(options), "Uri cannot be null.");
+
+        var peers = new ServerPeer[peerOptions.Count is 0 ? 1 : peerOptions.Count];
+        if (peerOptions.Count is 0)
+            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = uri };
+        else
+            for (var i = 0; i < peerOptions.Count; i++)
+            {
+                var peer = peerOptions[i];
+                peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
+            }
+
+        var topology = new TopologyOptions(peers)
+        {
+            ClusterId = options.ClusterId,
+            NodeId = options.NodeId,
+            Uri = uri,
+            VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ConfigurationGeneration = options.ConfigurationGeneration,
+        };
+
+        if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
+            return false;
+
+        // Public options path does not carry mTLS material; evaluate persistence then refuse RF>1 activation.
+        var activationFailures = new List<string>();
+        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null);
+        if (activationFailures.Count is 0)
+            return true;
+
+        errors = activationFailures;
+        return false;
+    }
 }

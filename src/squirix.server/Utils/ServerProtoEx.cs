@@ -14,10 +14,6 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
-    private const string ScalarEnvelopeKey = "\0squirix:scalar";
-    private const string NumberEnvelopeInt64Key = "\0squirix:int64";
-    private const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
-
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -116,13 +112,13 @@ internal static class ServerProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(ScalarEnvelopeKey, out var onlyWrapped))
+            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
             return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
-        if (s.Fields.Count is 1 && s.Fields.TryGetValue(ScalarEnvelopeKey, out var only))
+        if (s.Fields.Count is 1 && s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
         var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
@@ -271,7 +267,7 @@ internal static class ServerProtoEx
                 boxed = Value.ForNumber(wire.Int32Value);
                 break;
             case CacheValue.KindOneofCase.Int64Value:
-                boxed = CreateNumberEnvelope(NumberEnvelopeInt64Key, wire.Int64Value.ToString(CultureInfo.InvariantCulture));
+                boxed = ValueJson.CreateNumberEnvelope(ValueJson.NumberEnvelopeInt64Key, wire.Int64Value.ToString(CultureInfo.InvariantCulture));
                 break;
             case CacheValue.KindOneofCase.DoubleValue:
                 boxed = Value.ForNumber(wire.DoubleValue);
@@ -287,20 +283,17 @@ internal static class ServerProtoEx
         }
 
         var envelope = new Struct();
-        envelope.Fields.Add(ScalarEnvelopeKey, boxed);
+        envelope.Fields.Add(ValueJson.ScalarEnvelopeKey, boxed);
         return envelope;
-    }
-
-    private static Value CreateNumberEnvelope(string markerKey, string numberText)
-    {
-        var s = new Struct();
-        s.Fields.Add(markerKey, Value.ForString(numberText));
-        return Value.ForStruct(s);
     }
 
     /// <summary>JSON ↔ protobuf <see cref="Value" /> helpers owned by <see cref="ServerProtoEx" />.</summary>
     private static class ValueJson
     {
+        internal const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
+        internal const string NumberEnvelopeInt64Key = "\0squirix:int64";
+        internal const string ScalarEnvelopeKey = "\0squirix:scalar";
+
         /// <summary>Maps a CLR/cache value into the protobuf struct envelope used on the wire.</summary>
         /// <typeparam name="T">Logical cache value type.</typeparam>
         /// <param name="value">Value to encode.</param>
@@ -334,6 +327,13 @@ internal static class ServerProtoEx
 #pragma warning restore MA0045
 
             return buffer;
+        }
+
+        internal static Value CreateNumberEnvelope(string markerKey, string numberText)
+        {
+            var s = new Struct();
+            s.Fields.Add(markerKey, Value.ForString(numberText));
+            return Value.ForStruct(s);
         }
 
         private static Struct EncodeJsonElement(JsonElement element)

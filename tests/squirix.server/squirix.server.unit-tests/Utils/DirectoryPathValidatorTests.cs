@@ -15,9 +15,9 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     [Fact]
     public void IsDirectorySeparatorRecognizesBoth()
     {
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.DirectorySeparatorChar));
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
-        Assert.False(DirectoryPathValidator.IsDirectorySeparator('x'));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.DirectorySeparatorChar));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
+        Assert.False(DirectoryPathHelpers.IsDirectorySeparator('x'));
     }
 
     /// <summary>Resolves a relative path under a base directory.</summary>

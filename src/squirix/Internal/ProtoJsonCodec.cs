@@ -8,6 +8,9 @@ namespace Squirix.Internal;
 /// <summary>Maps JSON subtrees into protobuf well-known <see cref="Value" /> forms.</summary>
 internal static class ProtoJsonCodec
 {
+    internal const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
+    internal const string NumberEnvelopeInt64Key = "\0squirix:int64";
+
     internal static Value CreateNumberEnvelope(string markerKey, string numberText)
     {
         var s = new Struct();
@@ -31,7 +34,7 @@ internal static class ProtoJsonCodec
         if (s.Fields.Count is not 1)
             return false;
 
-        if (s.Fields.TryGetValue(ProtoStructCodec.NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
+        if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
                 longField.StringValue,
                 NumberStyles.Integer,
                 CultureInfo.InvariantCulture,
@@ -41,7 +44,7 @@ internal static class ProtoJsonCodec
             return true;
         }
 
-        if (!s.Fields.TryGetValue(ProtoStructCodec.NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue ||
+        if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue ||
             !decimal.TryParse(decimalField.StringValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var decimalValue))
             return false;
         writer.WriteNumberValue(decimalValue);
@@ -71,10 +74,10 @@ internal static class ProtoJsonCodec
             return Value.ForNumber(asDouble);
 
         if (element.TryGetInt64(out var int64))
-            return CreateNumberEnvelope(ProtoStructCodec.NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture));
+            return CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture));
 
         if (element.TryGetDecimal(out var dec))
-            return CreateNumberEnvelope(ProtoStructCodec.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture));
+            return CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture));
 
         return Value.ForNumber(asDouble);
     }

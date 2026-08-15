@@ -53,61 +53,63 @@ internal static class Correlation
                 _ => throw new ArgumentOutOfRangeException(nameof(index)),
             };
 
-        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() => new Enumerator(_activity, _nodeId, _method);
+        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() =>
+            new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
 
-        IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_activity, _nodeId, _method);
+        IEnumerator IEnumerable.GetEnumerator() => new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
 
         private static string FormatSpanId(Activity? activity) => activity is null ? string.Empty : activity.SpanId.ToString();
 
         private static string FormatTraceId(Activity? activity) => activity is null ? string.Empty : activity.TraceId.ToString();
+    }
 
-        /// <summary>Mutable enumerator state lives on a class so ND1903 does not require an immutable struct.</summary>
-        private sealed class Enumerator : IEnumerator<KeyValuePair<string, object?>>
+    private sealed class StandardScopeEnumerator : IEnumerator<KeyValuePair<string, object?>>
+    {
+        private readonly string? _method;
+        private readonly string _nodeId;
+        private readonly string _spanId;
+        private readonly string _traceId;
+        private int _index;
+
+        internal StandardScopeEnumerator(string traceId, string spanId, string nodeId, string? method)
         {
-            private readonly Activity? _activity;
-            private readonly string? _method;
-            private readonly string _nodeId;
-            private int _index;
-
-            internal Enumerator(Activity? activity, string nodeId, string? method)
-            {
-                _activity = activity;
-                _nodeId = nodeId;
-                _method = method;
-                _index = 0;
-                Current = default;
-            }
-
-            public KeyValuePair<string, object?> Current { get; private set; }
-
-            object IEnumerator.Current => Current;
-
-            public void Dispose()
-            {
-            }
-
-            public bool MoveNext()
-            {
-                switch (_index++)
-                {
-                    case 0:
-                        Current = new KeyValuePair<string, object?>("trace_id", FormatTraceId(_activity));
-                        return true;
-                    case 1:
-                        Current = new KeyValuePair<string, object?>("span_id", FormatSpanId(_activity));
-                        return true;
-                    case 2:
-                        Current = new KeyValuePair<string, object?>("node_id", _nodeId);
-                        return true;
-                    case 3 when _method is not null:
-                        Current = new KeyValuePair<string, object?>("rpc.method", _method);
-                        return true;
-                    default:
-                        return false;
-                }
-            }
-
-            public void Reset() => _index = 0;
+            _traceId = traceId;
+            _spanId = spanId;
+            _nodeId = nodeId;
+            _method = method;
+            _index = 0;
+            Current = default;
         }
+
+        public KeyValuePair<string, object?> Current { get; private set; }
+
+        object IEnumerator.Current => Current;
+
+        public void Dispose()
+        {
+        }
+
+        public bool MoveNext()
+        {
+            switch (_index++)
+            {
+                case 0:
+                    Current = new KeyValuePair<string, object?>("trace_id", _traceId);
+                    return true;
+                case 1:
+                    Current = new KeyValuePair<string, object?>("span_id", _spanId);
+                    return true;
+                case 2:
+                    Current = new KeyValuePair<string, object?>("node_id", _nodeId);
+                    return true;
+                case 3 when _method is not null:
+                    Current = new KeyValuePair<string, object?>("rpc.method", _method);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public void Reset() => _index = 0;
     }
 }

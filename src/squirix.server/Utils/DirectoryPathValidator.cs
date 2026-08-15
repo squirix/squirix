@@ -9,11 +9,6 @@ internal static class DirectoryPathValidator
     private static readonly StringComparison SubPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    /// <summary>Returns whether <paramref name="value" /> is a directory separator.</summary>
-    /// <param name="value">Character to test.</param>
-    /// <returns><see langword="true" /> when the character is a directory separator.</returns>
-    internal static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
-
     /// <summary>Validates <paramref name="path" />, optionally constrains it under <paramref name="baseDir" />, and returns the absolute path.</summary>
     /// <param name="path">Target directory path.</param>
     /// <param name="baseDir">Optional base directory; when set, the target must remain under it.</param>
@@ -46,18 +41,6 @@ internal static class DirectoryPathValidator
         return full;
     }
 
-    /// <summary>Removes trailing directory separators without allocating a separator <see cref="char" /> array.</summary>
-    /// <param name="path">Path that may end with separators.</param>
-    /// <returns>The original string when no trailing separators exist; otherwise a trimmed copy.</returns>
-    internal static string TrimTrailingSeparators(string path)
-    {
-        var length = path.Length;
-        while (length > 0 && IsDirectorySeparator(path[length - 1]))
-            length--;
-
-        return length == path.Length ? path : path[..length];
-    }
-
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
         if (candidateFull.Equals(baseFull, SubPathComparison))
@@ -72,7 +55,7 @@ internal static class DirectoryPathValidator
         if (!candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison))
             return false;
 
-        return IsDirectorySeparator(candidateFull[baseFull.Length]);
+        return DirectoryPathHelpers.IsDirectorySeparator(candidateFull[baseFull.Length]);
     }
 
     private static string? PrepareBaseDirectory(string? baseDir, bool forbidSymlinks)

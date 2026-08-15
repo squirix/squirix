@@ -102,14 +102,14 @@ public sealed class MixedMutationStressTests : LoadTestBase
 
     private static Task RunInsertContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
-        var runner = new InsertContentionRunner(caches, keys, token);
+        var runner = new InsertContentionRunner(caches, keys, WriterValuesV2, token);
         return RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
     }
 
     private static async Task<int[]> RunTryAddContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
         var addSuccesses = new int[keys.Length];
-        var runner = new TryAddContentionRunner(caches, keys, addSuccesses, token);
+        var runner = new TryAddContentionRunner(caches, keys, WriterValues, addSuccesses, token);
         await RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
 
         return addSuccesses;
@@ -159,11 +159,13 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private readonly ICache<object?>[] _caches;
         private readonly string[] _keys;
         private readonly CancellationToken _token;
+        private readonly string[] _writerValues;
 
-        internal InsertContentionRunner(ICache<object?>[] caches, string[] keys, CancellationToken token)
+        internal InsertContentionRunner(ICache<object?>[] caches, string[] keys, string[] writerValues, CancellationToken token)
         {
             _caches = caches;
             _keys = keys;
+            _writerValues = writerValues;
             _token = token;
             RunAsync = RunCoreAsync;
         }
@@ -173,7 +175,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private async Task RunCoreAsync(int writer)
         {
             var cache = _caches[writer];
-            var value = WriterValuesV2[writer];
+            var value = _writerValues[writer];
             for (var k = 0; k < _keys.Length; k++)
                 await cache.SetAsync(_keys[k], value, cancellationToken: _token);
         }
@@ -185,11 +187,13 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private readonly ICache<object?>[] _caches;
         private readonly string[] _keys;
         private readonly CancellationToken _token;
+        private readonly string[] _writerValues;
 
-        internal TryAddContentionRunner(ICache<object?>[] caches, string[] keys, int[] addSuccesses, CancellationToken token)
+        internal TryAddContentionRunner(ICache<object?>[] caches, string[] keys, string[] writerValues, int[] addSuccesses, CancellationToken token)
         {
             _caches = caches;
             _keys = keys;
+            _writerValues = writerValues;
             _addSuccesses = addSuccesses;
             _token = token;
             RunAsync = RunCoreAsync;
@@ -200,7 +204,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private async Task RunCoreAsync(int writer)
         {
             var cache = _caches[writer];
-            var value = WriterValues[writer];
+            var value = _writerValues[writer];
             for (var k = 0; k < _keys.Length; k++)
             {
                 if (await cache.TryAddAsync(_keys[k], value, cancellationToken: _token))

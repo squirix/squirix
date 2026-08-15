@@ -81,7 +81,7 @@ internal static class DirectorySymlinkGuard
     {
         var start = baseFull ?? Path.GetPathRoot(full)!;
         relative = full.AsSpan(start.Length);
-        while (relative.Length > 0 && DirectoryPathValidator.IsDirectorySeparator(relative[0]))
+        while (relative.Length > 0 && DirectoryPathHelpers.IsDirectorySeparator(relative[0]))
             relative = relative[1..];
 
         if (relative.IsEmpty)
@@ -92,7 +92,7 @@ internal static class DirectorySymlinkGuard
 
         // Trimming trailing separators can turn a root-only path into an empty string
         // (for example "/" on Unix). Preserve the original root as the seed when that happens.
-        var trimmedStart = DirectoryPathValidator.TrimTrailingSeparators(start);
+        var trimmedStart = DirectoryPathHelpers.TrimTrailingSeparators(start);
         cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
         return true;
     }
