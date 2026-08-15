@@ -119,12 +119,14 @@ runs:
             --long-running 300 \
             --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
             --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
-            --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+            --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
+            -- --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
         else
           dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \
             --long-running 300 \
-            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
+            -- --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
         fi
 
     - name: Verify Suite Coverage Was Collected

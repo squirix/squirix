@@ -381,7 +381,8 @@ jobs:
                     set -o pipefail
                     dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
                       --long-running 300 \
-                      --filter-query "/*/*/AuthSmokeTests/*" 2>&1 | tee test-output-smoke-auth.log
+                      --filter-query "/*/*/AuthSmokeTests/*" \
+                      -- --timeout 10m 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
                 shell: bash
@@ -392,7 +393,8 @@ jobs:
                       --long-running 300 \
                       --report-xunit-trx --report-xunit-trx-filename smoke.trx \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
-                      --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml 2>&1 | tee test-output-smoke.log
+                      --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
+                      -- --timeout 20m 2>&1 | tee test-output-smoke.log
 
             -   name: Verify Smoke Coverage Was Collected
                 shell: bash
@@ -800,7 +802,7 @@ jobs:
                     for proj in "${test_projects[@]}"; do
                       echo "Verifying tests discovered in: $proj"
                       set +e
-                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q 2>&1)"
+                      output="$(dotnet test --project "$proj" --configuration Release --no-build --list-tests -v q -- --timeout 5m 2>&1)"
                       code=$?
                       set -e
 
@@ -1650,4 +1652,5 @@ jobs:
                       --configuration Release \
                       --no-build \
                       --long-running 900 \
-                      --filter "Trait=Suite&Value=Stress"
+                      --filter "Trait=Suite&Value=Stress" \
+                      -- --timeout 30m
