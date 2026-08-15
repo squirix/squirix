@@ -20,7 +20,6 @@ internal static class BackpressureMetrics
     private static readonly Counter<long> RateLimitRejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
-    private static ObserverEntry[] _snapshotBuffer = [];
 
     internal static void AddBypass(string transport, string operation)
     {
@@ -98,27 +97,12 @@ internal static class BackpressureMetrics
     {
         lock (ObserverGate)
         {
-            var count = Observers.Count;
-            if (count is 0)
-            {
-                Array.Clear(_snapshotBuffer);
-                return 0;
-            }
-
-            if (_snapshotBuffer.Length < count)
-                _snapshotBuffer = new ObserverEntry[count];
-
-            var copied = 0;
-            foreach (var entry in Observers.Values)
-                _snapshotBuffer[copied++] = entry;
-            Array.Clear(_snapshotBuffer, copied, _snapshotBuffer.Length - copied);
-
             var total = 0;
-            for (var i = 0; i < copied; i++)
+            foreach (var entry in Observers.Values)
             {
                 try
                 {
-                    total += selector(_snapshotBuffer[i]);
+                    total += selector(entry);
                 }
                 catch (ObjectDisposedException)
                 {
