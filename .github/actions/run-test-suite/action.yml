@@ -77,26 +77,30 @@ runs:
             ;;
           e2e-single-node)
             PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Single-node e2e (exclude the scheduled/manual stress suite). Mirrors the prior
+            # Single-node e2e, excluding the scheduled/manual stress suite. Mirrors the prior
             # VSTest filter:
             #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
-            # Translated to the MTP query-filter language. Each --filter-query is OR-ed; the
+            # Translated to the MTP query-filter language: each --filter-query is OR-ed; the
             # substring segment match replaces the old FullyQualifiedName~ substring test. The
             # Client* method filter starts-with (not contains) so it does not also pull in the
             # stress test's ConcurrentMixedMutationsClientVisibleInvariants method.
+            # MTP cannot combine a name/query filter with a trait exclusion, so the Suite!=Stress
+            # exclusion is encoded via class-name negation (!*Stress*), keyed on the stress class
+            # naming convention (e.g. MixedMutationStressTests, which carries Trait("Suite","Stress")).
             FILTER_ARGS=(
-              --filter-query "/*/*Cache.SingleNode*/*/*"
-              --filter-query "/*/*/*/Client*"
-              --filter-query "/*/*/*/Persistence*"
+              --filter-query "/*/*Cache.SingleNode*/!*Stress*/*"
+              --filter-query "/*/*/!*Stress*/Client*"
+              --filter-query "/*/*/!*Stress*/Persistence*"
             )
             ;;
           e2e-multi-node)
             PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Multi-node e2e (exclude stress). Mirrors:
+            # Multi-node e2e, excluding stress. Mirrors:
             #   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
+            # Same MTP translation; class-name negation (!*Stress*) excludes the stress suite.
             FILTER_ARGS=(
-              --filter-query "/*/*Cache.MultiNode*/*/*"
-              --filter-query "/*/*/*/Security*"
+              --filter-query "/*/*Cache.MultiNode*/!*Stress*/*"
+              --filter-query "/*/*/!*Stress*/Security*"
             )
             ;;
           protocol-model)
