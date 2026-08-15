@@ -76,10 +76,10 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     public void ReadNextSegmentReadsSegments()
     {
         var path = "/a//b/".AsSpan();
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var first));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var first));
         Assert.True(first.SequenceEqual("a".AsSpan()));
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var second));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var second));
         Assert.True(second.SequenceEqual("b".AsSpan()));
-        Assert.False(DirectoryPathValidator.TryReadNextSegment(ref path, out _));
+        Assert.False(PathEx.TryReadNextSegment(ref path, out _));
     }
 }

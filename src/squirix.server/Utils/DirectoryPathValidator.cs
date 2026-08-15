@@ -58,34 +58,6 @@ internal static class DirectoryPathValidator
         return length == path.Length ? path : path[..length];
     }
 
-    /// <summary>Reads the next non-empty path segment from <paramref name="path" />.</summary>
-    /// <param name="path">Remaining path span; advanced past the consumed segment.</param>
-    /// <param name="segment">Consumed segment when this method returns <see langword="true" />.</param>
-    /// <returns><see langword="true" /> when a segment was read.</returns>
-    internal static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
-    {
-        while (path.Length > 0 && IsDirectorySeparator(path[0]))
-            path = path[1..];
-
-        if (path.IsEmpty)
-        {
-            segment = default;
-            return false;
-        }
-
-        var end = path.IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (end < 0)
-        {
-            segment = path;
-            path = default;
-            return !segment.IsEmpty;
-        }
-
-        segment = path[..end];
-        path = path[(end + 1)..];
-        return !segment.IsEmpty;
-    }
-
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
         if (candidateFull.Equals(baseFull, SubPathComparison))
@@ -139,7 +111,7 @@ internal static class DirectoryPathValidator
     {
         var root = Path.GetPathRoot(fullPath) ?? string.Empty;
         var rest = fullPath.AsSpan(root.Length);
-        while (TryReadNextSegment(ref rest, out var segment))
+        while (PathEx.TryReadNextSegment(ref rest, out var segment))
             PathValidation.ValidateSegment(segment, nameof(fullPath), false);
     }
 }

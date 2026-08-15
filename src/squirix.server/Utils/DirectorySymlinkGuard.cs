@@ -15,7 +15,7 @@ internal static class DirectorySymlinkGuard
         if (!TryPrepareChainWalk(full, baseFull, out var cur, out var relative))
             return;
 
-        while (DirectoryPathValidator.TryReadNextSegment(ref relative, out var segment))
+        while (PathEx.TryReadNextSegment(ref relative, out var segment))
         {
             if (!TryAdvancePastExistingSegment(segment, ref cur))
                 break;

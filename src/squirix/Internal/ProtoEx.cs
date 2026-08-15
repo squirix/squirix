@@ -17,7 +17,7 @@ internal static class ProtoEx
         ArgumentNullException.ThrowIfNull(serializer);
 
         if (typeof(T) == typeof(object))
-            return new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(ProtoScalarMapping.FromCacheValueAsObject(value, serializer)));
+            return new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer)));
 
         if (ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive))
             return new ValueTask<T?>(primitive);
@@ -77,4 +77,16 @@ internal static class ProtoEx
                 return root.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(root) : ProtoStructCodec.WrapAsStruct(ProtoStructCodec.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
         }
     }
+
+    private static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
+    {
+        CacheValue.KindOneofCase.StringValue => value.StringValue,
+        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
+        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => ProtoStructCodec.FromStruct<object?>(structValue, serializer),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+    };
 }
