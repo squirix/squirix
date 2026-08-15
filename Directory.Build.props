@@ -125,6 +125,11 @@
         <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
+    <!-- MTP native code coverage for every test executable. -->
+    <ItemGroup Label="MtpCodeCoverage" Condition="'$(IsSquirixTestProject)' == 'true' And $(MSBuildProjectName.Contains('Tests'))">
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"/>
+    </ItemGroup>
+
     <!-- BDN Roslyn rules ship inside BenchmarkDotNet.Annotations (BenchmarkDotNet excludes analyzer assets). -->
     <ItemGroup Label="BenchmarkAnalyzers" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
         <PackageReference Include="BenchmarkDotNet.Annotations" PrivateAssets="all"/>
