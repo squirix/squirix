@@ -14,13 +14,13 @@ internal static class BackpressureMetrics
     private static readonly Lock ObserverGate = new();
     private static readonly Dictionary<long, ObserverEntry> Observers = [];
     private static readonly ObserverState ObserversState = new();
-    private static ObserverEntry[] _snapshotBuffer = [];
     private static readonly Counter<long> QueueCancellationsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
     private static readonly Counter<long> QueueTimeoutsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
     private static readonly Histogram<double> QueueWaitHist = ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_backpressure_queue_wait_seconds");
     private static readonly Counter<long> RateLimitRejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
+    private static ObserverEntry[] _snapshotBuffer = [];
 
     internal static void AddBypass(string transport, string operation)
     {

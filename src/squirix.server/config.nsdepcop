@@ -59,7 +59,20 @@
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Observability.*" />
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Endpoint.*" />
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.LocalCache.*" />
-<Disallowed
+
+  <!-- Low-level helpers, including the relocated LogManager partials, must remain infrastructure-agnostic. -->
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
       From="/^Squirix\.Server\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
@@ -214,9 +227,9 @@
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Storage.Replication must not depend upward on Node, Hosting, Adapters, or Cluster. -->
-  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/" To="Squirix.Server.Node.*" />
+  <Disallowed From="/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/" To="Squirix.Server.Cluster.*" />
 
   <!-- Endpoint / mTLS surface must not own the protocol automaton. -->
   <Disallowed From="Squirix.Server.Adapters.Endpoint.*" To="Squirix.Server.Cluster.Replication.*" />

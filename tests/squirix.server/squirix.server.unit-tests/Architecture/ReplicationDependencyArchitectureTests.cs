@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
 using Squirix.Server.UnitTests.Support;
@@ -67,9 +68,17 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         Assert.Contains(@"Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$", config, StringComparison.Ordinal);
 
         // Storage.Replication must not depend upward on Node, Adapters, or Cluster.
-        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Node.*");
-        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Adapters.*");
-        AssertDisallowedEdge(policy, "Squirix.Server.Storage.Replication.*", "Squirix.Server.Cluster.*");
+        const string storageReplicationFrom = "/^Squirix\\.Server\\.Storage\\.Replication(?:\\..*)?$/";
+        AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Node.*");
+        AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Adapters.*");
+        AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
+
+        var edge = FindEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
+        Assert.NotNull(edge);
+        var pattern = edge.GetAttribute("From");
+        var storageReplicationFromRegex = new Regex(pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        Assert.Matches(storageReplicationFromRegex, "Squirix.Server.Storage.Replication");
+        Assert.Matches(storageReplicationFromRegex, "Squirix.Server.Storage.Replication.Subnamespace");
 
         // Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and cache.
         AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
