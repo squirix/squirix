@@ -381,7 +381,7 @@ jobs:
                     set -o pipefail
                     dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
                       --long-running 300 \
-                      --filter-query "/*/*/AuthSmokeTests/*" \
+                      --filter-query "/*/*/*AuthSmokeTests*/*" \
                       --timeout 10m 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
