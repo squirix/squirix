@@ -1,13 +1,14 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
 [Immutable]
 internal sealed class JournalStartupGate
 {
-    private readonly TaskCompletionSource _ready = CreateCompletionSource();
+    private readonly TaskCompletionSource _ready = TaskCompletionSourceFactory.Create();
 
     internal JournalStartupGate(bool isOpen = true)
     {
@@ -25,6 +26,4 @@ internal sealed class JournalStartupGate
         var ready = _ready.Task;
         return !cancellationToken.CanBeCanceled || ready.IsCompleted ? new ValueTask(ready) : new ValueTask(ready.WaitAsync(cancellationToken));
     }
-
-    private static TaskCompletionSource CreateCompletionSource() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
