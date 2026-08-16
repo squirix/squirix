@@ -82,7 +82,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
-    public double RecentAppendLatencyMs => _avgAppendLatencyMs;
+    public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
