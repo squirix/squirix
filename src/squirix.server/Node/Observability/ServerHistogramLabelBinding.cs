@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
+[Immutable]
 internal sealed record ServerHistogramLabelBinding(Histogram<double> Histogram, string Key1, string Value1, string Key2, string Value2)
 {
     internal void Observe(double value)

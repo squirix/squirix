@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
@@ -14,6 +15,7 @@ namespace Squirix.Server.LocalCache;
 
 /// <summary>In-memory cache store (KV + expiration).</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
+[Immutable]
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>, IAsyncDisposable
 {
     private readonly LocalEvictionIndex _evictionIndex;
@@ -270,9 +272,11 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return _store.TryUpdate(key, updated, stored);
     }
 
+    [Immutable]
     private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version);
 
     /// <summary>Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).</summary>
+    [Immutable]
     private sealed class LocalEvictionIndex
     {
         private readonly Lock _lock = new();

@@ -1,3 +1,5 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Watch subsection of health-ready diagnostics.</summary>
@@ -5,4 +7,5 @@ namespace Squirix.Server.Runtime.Diagnostics;
 /// <param name="ActiveWatches">Number of active watches.</param>
 /// <param name="BufferedEvents">Number of buffered watch events.</param>
 /// <param name="DroppedEvents">Number of dropped watch events.</param>
+[Immutable]
 internal readonly record struct HealthWatchSnapshot(bool Enabled, int ActiveWatches, int BufferedEvents, int DroppedEvents);

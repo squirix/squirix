@@ -1,9 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
 [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
+[Immutable]
 internal sealed class PrometheusEndpointOptionsValidator : IValidateOptions<PrometheusMetricsEndpointOptions>
 {
     public ValidateOptionsResult Validate(string? name, PrometheusMetricsEndpointOptions options) => options switch

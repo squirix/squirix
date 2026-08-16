@@ -2,11 +2,13 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+[Immutable]
 internal sealed class ServerMetricsSerializer : IServerSerializer
 {
     private readonly string _impl;

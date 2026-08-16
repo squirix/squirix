@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Client;
 using Xunit;
 
@@ -7,6 +8,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// <summary>
 /// Shared fixtures for single-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
+[Immutable]
 public abstract class TestBase : EndToEndTestBase, IClassFixture<SingleNodeFixture>
 {
     /// <summary>Short delay used by timing-sensitive single-node cache assertions (~60ms).</summary>

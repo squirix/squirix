@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
@@ -15,6 +16,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.
 /// </summary>
+[Immutable]
 public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 {
     private const string CacheName = "orders";
@@ -295,6 +297,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         return await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
+    [Immutable]
     private sealed class ConcurrentCacheOp
     {
         private readonly MemoryAdmissionCacheDecorator<string> _cache;
@@ -350,6 +353,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
+    [Immutable]
     private sealed class SynchronizedConcurrentRunner<T>
     {
         private readonly CancellationToken _cancellationToken;
@@ -371,6 +375,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
+    [Immutable]
     private sealed class SynchronizedConcurrentVoidRunner
     {
         private readonly CancellationToken _cancellationToken;

@@ -1,11 +1,13 @@
 using System.Collections.Frozen;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
 /// <summary>Bounded deterministic entry-size approximation for memory accounting (v0.7.x). Not an exact CLR heap measurement.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
     /// <summary>Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).</summary>

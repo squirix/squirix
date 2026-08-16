@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
@@ -15,6 +16,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// Maps transport-level <see cref="RpcException" /> failures from clustered remote calls where a stable normalization exists.
 /// </summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -95,14 +97,19 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         }
     }
 
+    [Immutable]
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct ReadKeyArgs(string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
 
+    [Immutable]
     private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
+    [Immutable]
     private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 
     /// <summary>

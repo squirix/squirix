@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Xunit;
 
@@ -7,6 +8,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Tests for <see cref="StateEvaluator" /> threshold boundaries.
 /// </summary>
+[Immutable]
 public sealed class PressureStateEvaluatorTests
 {
     /// <summary>
@@ -113,6 +115,7 @@ public sealed class PressureStateEvaluatorTests
 
     private static StateEvaluator CreateEvaluator(PressureOptions options) => new(new PressureOptionsBinding(options));
 
+    [Immutable]
     private sealed class PressureOptionsBinding : IOptions<PressureOptions>
     {
         /// <summary>

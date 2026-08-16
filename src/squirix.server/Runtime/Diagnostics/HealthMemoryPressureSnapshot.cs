@@ -1,3 +1,5 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Memory-pressure subsection of health-ready diagnostics.</summary>
@@ -7,6 +9,7 @@ namespace Squirix.Server.Runtime.Diagnostics;
 /// <param name="EntryCount">Estimated number of cache entries.</param>
 /// <param name="RejectedWriteCount">Number of writes rejected due to memory pressure.</param>
 /// <param name="WriteRejectionActive">Whether write rejection is currently active. v0.1 always reports <see langword="true" />; use <paramref name="State" /> for pressure triage.</param>
+[Immutable]
 internal readonly record struct HealthMemoryPressureSnapshot(
     string State,
     long MaxEstimatedCacheBytes,

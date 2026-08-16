@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.MemoryPressure;
@@ -8,6 +9,7 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// <summary>
 /// Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.
 /// </summary>
+[Immutable]
 internal sealed class PressureGate : IMemoryPressureGate
 {
     private readonly IMemoryUsageAccounting _accounting;

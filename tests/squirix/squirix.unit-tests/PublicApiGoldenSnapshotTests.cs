@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.TestKit;
 using Xunit;
 
@@ -13,6 +14,7 @@ namespace Squirix.UnitTests;
 /// v0.1: golden snapshot of exported public API identities for the main <c>Squirix</c> assembly.
 /// When the public surface changes intentionally, update <c>ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
 /// </summary>
+[Immutable]
 public sealed class PublicApiGoldenSnapshotTests
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>

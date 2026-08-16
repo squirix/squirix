@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cache.MultiNode;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>REQ-COMPAT-001: RF=1 preserves preview.7 behavior; RF&gt;1 is refused before activation.</summary>
+[Immutable]
 public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
 {
     /// <summary>RF=1 multi-node set/get through a non-owner matches preview.7 routing.</summary>

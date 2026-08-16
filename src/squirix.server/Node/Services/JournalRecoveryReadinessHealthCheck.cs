@@ -2,11 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness based on journal startup recovery completion.</summary>
+[Immutable]
 internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 {
     private readonly JournalStartupGate _journalStartupGate;

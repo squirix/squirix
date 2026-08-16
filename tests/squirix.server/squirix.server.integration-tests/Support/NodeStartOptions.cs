@@ -1,11 +1,13 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>Optional knobs for <see cref="NodeIntegrationTestBase" /> node startup.</summary>
+[Immutable]
 internal sealed class NodeStartOptions
 {
     internal bool CleanTestDir { get; init; } = true;

@@ -36,4 +36,8 @@
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\squirix.attributes\Squirix.Attributes.csproj" />
+    </ItemGroup>
 </Project>

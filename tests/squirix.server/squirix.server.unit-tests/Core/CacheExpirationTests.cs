@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
@@ -13,6 +14,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// Verifies both relative expiration (<see cref="NodeCacheEntry{T}.Expiration" />) and absolute
 /// expiration (<see cref="NodeCacheEntry{T}.ExpiresUtc" />).
 /// </summary>
+[Immutable]
 public sealed class CacheExpirationTests : ServerUnitTestBase
 {
     /// <summary>Ensures entries expire correctly when inserted with either relative expiration or absolute expiration.</summary>

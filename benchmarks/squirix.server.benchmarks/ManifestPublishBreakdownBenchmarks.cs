@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using BenchmarkDotNet.Attributes;
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -97,6 +98,7 @@ public class ManifestPublishBreakdownBenchmarks
     private int TakeNextFileIndex() => _nextFileIndex++;
 
     /// <summary>Hosts a warmed manifest store for roll-path breakdown benchmarks.</summary>
+    [Immutable]
     private sealed class Session : IDisposable
     {
         private const int EncodeBufferSize = 512;
@@ -207,6 +209,7 @@ public class ManifestPublishBreakdownBenchmarks
         }
 
         /// <summary>Non-owned warmup values for <see cref="Session" /> construction (avoids an 8+ parameter ctor).</summary>
+        [Immutable]
         private sealed class SessionWarmup
         {
             internal required byte[] EncodeBuffer { get; init; }

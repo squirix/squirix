@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Core;
 
 /// <summary>Covers cache key validation and display formatting.</summary>
+[Immutable]
 public sealed class CacheKeyValidatorTests : ServerUnitTestBase
 {
     /// <summary>CacheKey formats default and namespaced keys.</summary>

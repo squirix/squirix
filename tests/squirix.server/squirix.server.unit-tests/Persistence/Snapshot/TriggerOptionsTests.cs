@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 /// <summary>
 /// Unit tests for <see cref="TriggerOptions" /> scalar validation.
 /// </summary>
+[Immutable]
 public sealed class TriggerOptionsTests
 {
     /// <summary>Verifies invalid scalar values fail during JSON binding.</summary>

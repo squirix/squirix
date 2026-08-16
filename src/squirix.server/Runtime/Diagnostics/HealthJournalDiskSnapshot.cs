@@ -1,3 +1,5 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>On-disk journal capacity subsection of health-ready diagnostics.</summary>
@@ -6,4 +8,5 @@ namespace Squirix.Server.Runtime.Diagnostics;
 /// <param name="UsedBytes">Current on-disk journal total bytes.</param>
 /// <param name="HighWaterBytes">Soft high-water mark bytes (80% of <paramref name="MaxBytes" />).</param>
 /// <param name="WriteRejectionActive">Whether durable writes are rejected because usage is at the hard limit.</param>
+[Immutable]
 internal readonly record struct HealthJournalDiskSnapshot(string State, long MaxBytes, long UsedBytes, long HighWaterBytes, bool WriteRejectionActive);

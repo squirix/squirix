@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Grpc;
 
+[Immutable]
 internal sealed class CacheOperations<T> : IGrpcCacheOperations<T>
 {
     private readonly IInboundEndpointCacheOperations<T> _inbound;

@@ -1,6 +1,7 @@
 using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.Hosting;
@@ -8,6 +9,7 @@ using Squirix.Server.TestKit.Hosting;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Optional knobs for <see cref="SmokeTestBase" /> node startup.</summary>
+[Immutable]
 internal sealed class SmokeNodeStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }

@@ -1,12 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Connected two-node named caches for multi-node public API tests.</summary>
 /// <typeparam name="T">Cached value type.</typeparam>
+[Immutable]
 public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
 {
     private readonly HostedCluster _host;
@@ -79,6 +81,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         return new TwoNodeNamedCaches<T>(host, new Clients { ClientA = clientA, ClientB = clientB }, caches, ownsLifetime);
     }
 
+    [Immutable]
     private sealed class Caches
     {
         internal required ICache<T> CacheA { get; init; }
@@ -90,6 +93,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         internal required ICache<T> CustomerCacheB { get; init; }
     }
 
+    [Immutable]
     private sealed class Clients
     {
         internal required ISquirixClient ClientA { get; init; }

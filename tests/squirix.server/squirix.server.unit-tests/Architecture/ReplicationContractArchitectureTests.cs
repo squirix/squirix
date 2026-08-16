@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>Architecture rules for the closed server-only replication wire contract.</summary>
+[Immutable]
 public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures the replication wire exists only inside Squirix.Server and not in shared cache proto.</summary>

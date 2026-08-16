@@ -1,10 +1,12 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
 [StructLayout(LayoutKind.Auto)]
+[Immutable]
 internal readonly struct LogEntry : IEquatable<LogEntry>
 {
     internal LogEntry(int term, int index)

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -18,6 +19,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
+[Immutable]
 public sealed class JournalSegmentRollTests : ServerUnitTestBase
 {
     private const int FillPayloadSize = 8_192;

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 /// <summary>
 /// Safety tests for <see cref="Ledger.WriteAsync" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
 /// </summary>
+[Immutable]
 public sealed class StoreWriteSafetyTests : ServerUnitTestBase
 {
     /// <summary>

@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
@@ -172,6 +173,7 @@ internal static class CacheEntryCodec
         return true;
     }
 
+    [Immutable]
     private readonly record struct ReadEnvelope
     {
         internal ReadEnvelope(DateTime? expiresUtc, TimeSpan? expiration, long version, FrozenDictionary<string, string>? tags, object? value, int bytesRead)

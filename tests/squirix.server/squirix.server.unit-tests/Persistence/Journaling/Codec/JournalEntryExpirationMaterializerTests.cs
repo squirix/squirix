@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Unit tests for <see cref="JournalEntryExpirationMaterializer" />.</summary>
+[Immutable]
 public sealed class JournalEntryExpirationMaterializerTests
 {
     /// <summary>Verifies relative TTL is converted to absolute expiry before journal write.</summary>

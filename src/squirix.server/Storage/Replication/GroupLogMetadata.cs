@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -11,6 +12,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="LastLogIndex">The durable last log index.</param>
 /// <param name="CommitIndex">The durable commit index.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
+[Immutable]
 internal readonly record struct GroupLogMetadata(
     string GroupId,
     ReadOnlyMemory<byte> TopologyFingerprint,

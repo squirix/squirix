@@ -3,6 +3,7 @@ using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
@@ -12,6 +13,7 @@ using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.Hosting;
 
+[Immutable]
 internal sealed class NodeHostStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }

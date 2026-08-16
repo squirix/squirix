@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Internal;
 
 namespace Squirix.Client;
@@ -91,6 +92,7 @@ public sealed class SquirixClient : ISquirixClient
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
+    [Immutable]
     private sealed class InternalCache<T> : ICache<T>
     {
         private readonly Action _throwIfDisposed;

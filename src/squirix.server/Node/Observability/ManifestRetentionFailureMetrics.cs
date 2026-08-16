@@ -1,9 +1,11 @@
 using System.Diagnostics.Metrics;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Emits manifest retention cleanup failure metrics for storage retention paths.</summary>
+[Immutable]
 internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
 {
     internal static ManifestRetentionFailureMetrics Instance { get; } = new();
@@ -22,6 +24,7 @@ internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailur
         internal static void IncrementDeleteFailuresTotal(string artifactKind, string outcome, int increment = 1) =>
             DeleteFailuresTotal.WithLabels(artifactKind, outcome).Inc(increment);
 
+        [Immutable]
         private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
         {
             internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);

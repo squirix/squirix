@@ -1,10 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Provides a fixed bearer token without a capturing lambda.</summary>
+[Immutable]
 internal sealed class FixedBearerTokenProvider
 {
     private readonly string _token;

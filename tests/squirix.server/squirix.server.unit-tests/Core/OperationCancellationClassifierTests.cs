@@ -1,5 +1,6 @@
 using System.Threading;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -9,6 +10,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.
 /// </summary>
+[Immutable]
 public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>

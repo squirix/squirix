@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -8,6 +9,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.
 /// </summary>
+[Immutable]
 public sealed class BackpressureOptionsTests
 {
     /// <summary>Ensures the default configuration passes validation and exposes conservative defaults.</summary>

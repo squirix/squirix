@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Tests for ServerClientPool methods and metrics.</summary>
+[Immutable]
 public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";

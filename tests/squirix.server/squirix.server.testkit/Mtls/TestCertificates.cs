@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;
@@ -129,6 +130,7 @@ public static class TestCertificates
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
         X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
 
+    [Immutable]
     private sealed class PeerCertificateValidator
     {
         private readonly string _expectedPeerNodeId;

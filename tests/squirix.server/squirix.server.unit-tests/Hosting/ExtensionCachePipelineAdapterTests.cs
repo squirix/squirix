@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies extension cache pipeline adapter behavior.</summary>
+[Immutable]
 public sealed class ExtensionCachePipelineAdapterTests
 {
     /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>

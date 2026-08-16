@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -11,6 +12,7 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 /// <summary>
 /// Unit tests for <see cref="MtlsOptions" /> validation.
 /// </summary>
+[Immutable]
 public sealed class MtlsOptionsTests
 {
     /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>

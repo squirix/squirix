@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
@@ -99,6 +100,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         return traceparent[(firstDash + 1)..secondDash];
     }
 
+    [Immutable]
     private sealed class CaptureServicesConfigure
     {
         private readonly CapturingHeadersInterceptor _capture;

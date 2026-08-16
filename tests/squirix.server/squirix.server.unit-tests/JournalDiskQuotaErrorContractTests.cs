@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Contract tests for journal disk quota mapped through shared error helpers.</summary>
+[Immutable]
 public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies logical cache metrics/tracing classify journal quota as resource exhausted.</summary>

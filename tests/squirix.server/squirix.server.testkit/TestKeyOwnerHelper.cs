@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Key ownership helper mirroring server consistent-hash route behavior for multi-node tests.</summary>
+[Immutable]
 public sealed class TestKeyOwnerHelper
 {
     /// <summary>Shared ring for smoke tests that label peers <c>A</c> and <c>B</c>.</summary>

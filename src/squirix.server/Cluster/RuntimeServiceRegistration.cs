@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster;
 
@@ -50,6 +51,7 @@ internal static class RuntimeServiceRegistration
     /// <summary>
     /// Node locator backed by a <see cref="ConsistentHashRing" /> built from the cluster peer list at startup.
     /// </summary>
+    [Immutable]
     private sealed class ConsistentHashNodeLocator : INodeLocator
     {
         private readonly ConsistentHashRing _ring;
@@ -64,6 +66,7 @@ internal static class RuntimeServiceRegistration
         public string GetOwner(string cacheName, string key) => _ring.GetOwner(cacheName, key);
 
         /// <summary>Immutable consistent hashing ring with virtual nodes (vnodes).</summary>
+        [Immutable]
         private sealed class ConsistentHashRing : INodeLocator
         {
             private readonly IHash _hash;
@@ -125,6 +128,7 @@ internal static class RuntimeServiceRegistration
             /// SHA-256 with 64-bit truncation (first 8 bytes as little-endian).
             /// Very even distribution for CH rings; slower than FNV, but OK for ring build/lookups.
             /// </summary>
+            [Immutable]
             private sealed class Sha256Hasher : IHash
             {
                 /// <summary>
@@ -240,6 +244,7 @@ internal static class RuntimeServiceRegistration
     }
 
     /// <summary>Cluster-backed node ownership resolver for inbound endpoint routing checks.</summary>
+    [Immutable]
     private sealed class NodeOwnershipResolver : INodeOwnershipResolver
     {
         private readonly INodeLocator _locator;

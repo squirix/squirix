@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -11,6 +12,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Appends journal records for local-owner core mutations.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly DurableMutationExecutor _durableMutations;
@@ -205,23 +207,33 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 
+    [Immutable]
     private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);
 
+    [Immutable]
     private readonly record struct RemoveExpirationJournalArgs(CacheKey CacheKey);
 
+    [Immutable]
     private readonly record struct RemoveExpirationMemoryArgs(string OperationId, string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct RemoveJournalArgs(CacheKey CacheKey);
 
+    [Immutable]
     private readonly record struct RemoveMemoryArgs(string OperationId, string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct SetMemoryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
 
+    [Immutable]
     private readonly record struct TouchJournalArgs(CacheKey CacheKey, DateTime ExpiresUtc);
 
+    [Immutable]
     private readonly record struct TouchMemoryArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
+    [Immutable]
     private readonly record struct TryAddMutationArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry, ReadOnlyMemory<byte> Payload, CacheKey CacheKey);
 
+    [Immutable]
     private readonly record struct UpdateMemoryArgs(string OperationId, string CacheName, string Key, T? Value);
 }

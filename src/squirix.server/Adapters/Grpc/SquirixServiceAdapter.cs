@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
@@ -17,6 +18,7 @@ using Squirix.Transport.Grpc.Mappers;
 
 namespace Squirix.Server.Adapters.Grpc;
 
+[Immutable]
 internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCacheServiceBase
 {
     private readonly IGrpcCacheOperations<T> _cacheOperations;
@@ -229,6 +231,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         }
     }
 
+    [Immutable]
     private sealed class MutationHandlers
     {
         private readonly IGrpcCacheOperations<T> _cacheOperations;

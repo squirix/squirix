@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
+[Immutable]
 internal sealed class ExploreResult
 {
     internal ExploreResult(

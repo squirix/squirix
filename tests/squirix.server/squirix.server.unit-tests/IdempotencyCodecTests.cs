@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Google.Protobuf;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Round-trip tests for the v2 idempotency snapshot codec.</summary>
+[Immutable]
 public sealed class IdempotencyCodecTests : ServerUnitTestBase
 {
     private static readonly byte[] OneByteResponse = [1];

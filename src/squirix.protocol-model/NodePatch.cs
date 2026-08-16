@@ -1,8 +1,10 @@
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
 /// <summary>Optional overrides applied by protocol-model transition patch helpers.</summary>
+[Immutable]
 internal sealed class NodePatch
 {
     internal int? AppliedIndex { get; init; }

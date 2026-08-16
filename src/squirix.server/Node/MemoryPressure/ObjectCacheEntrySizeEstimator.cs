@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Journaling;
@@ -5,6 +6,7 @@ using Squirix.Server.Storage.Journaling;
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>Entry-size estimator for <c>object?</c> cache values that uses journal-encoded entry size for complex payloads.</summary>
+[Immutable]
 internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<object?>
 {
     private static readonly NodeCacheEntry<object?> NullPayloadShell = new() { Value = null };

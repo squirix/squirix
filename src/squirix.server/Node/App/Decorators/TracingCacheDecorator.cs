@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
@@ -12,6 +13,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Records bounded logical cache operation spans for the surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -211,14 +213,19 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
+    [Immutable]
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct ReadKeyArgs(string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
 
+    [Immutable]
     private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
+    [Immutable]
     private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 
     private static class SpanNames

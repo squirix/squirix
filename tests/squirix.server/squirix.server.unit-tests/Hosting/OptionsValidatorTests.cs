@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
@@ -14,6 +15,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Validation coverage for hosted option validators registered during node options composition.</summary>
+[Immutable]
 public sealed class OptionsValidatorTests : ServerUnitTestBase
 {
     /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 
@@ -9,6 +10,7 @@ namespace Squirix.Server.Node.Backpressure;
 /// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
 /// <c>runtime</c> bucket.
 /// </summary>
+[Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
 {
     internal const string MissingHttpContextClientId = "runtime";

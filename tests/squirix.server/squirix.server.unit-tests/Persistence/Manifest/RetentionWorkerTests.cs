@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Covers RetentionWorker schedule/rearm and invalid DataDir cleanup paths.</summary>
+[Immutable]
 public sealed class RetentionWorkerTests : ServerUnitTestBase
 {
     /// <summary>Invalid DataDir causes cleanup failure reporting without crashing the worker.</summary>
@@ -53,6 +55,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         }
     }
 
+    [Immutable]
     private sealed class RecordingReadiness : IRetentionCleanupReadinessStatus
     {
         public int ConsecutiveWriteFailures => Outcomes.Count;

@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Covers on-disk journal byte accounting for newly created segment headers.</summary>
+[Immutable]
 public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
 {
     private static readonly byte[] SamplePayload = [1, 2, 3];

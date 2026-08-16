@@ -1,5 +1,8 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Node.App;
 
+[Immutable]
 internal readonly record struct DurableMutationCondition<TResult>
 {
     private DurableMutationCondition(bool shouldApply, TResult? skipResult)

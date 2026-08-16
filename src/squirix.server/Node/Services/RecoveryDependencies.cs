@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -7,6 +8,7 @@ using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
 
+[Immutable]
 internal sealed class RecoveryDependencies<T>
 {
     internal RecoveryDependencies(

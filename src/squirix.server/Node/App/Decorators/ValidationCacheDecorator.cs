@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -11,6 +12,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Applies public/runtime cache operation validation before admission, metrics, journal, and mutation.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;

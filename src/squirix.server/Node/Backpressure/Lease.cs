@@ -1,7 +1,9 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 
+[Immutable]
 internal sealed record Lease : IDisposable
 {
     private readonly string? _clientId;

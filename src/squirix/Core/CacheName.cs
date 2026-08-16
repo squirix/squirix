@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Core;
 
 /// <summary>Canonical logical cache name for routing, journal namespaces, scan, watch, and tag invalidation after public validation.</summary>
+[Immutable]
 internal sealed record CacheName
 {
     private CacheName(string canonical)

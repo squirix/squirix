@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
@@ -16,6 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Coordinator and journal integration for durable idempotency.</summary>
+[Immutable]
 public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";

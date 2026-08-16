@@ -1,7 +1,10 @@
+using Squirix.Attributes;
+
 namespace Squirix;
 
 /// <summary>Outcome of a cache value lookup.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
 /// <param name="Value">The retrieved value, which may be <see langword="null" /> when <paramref name="Found" /> is <see langword="true" />.</param>
+[Immutable]
 public readonly record struct CacheValueResult<T>(bool Found, T? Value);

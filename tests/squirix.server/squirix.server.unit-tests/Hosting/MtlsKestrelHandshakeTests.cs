@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -19,6 +20,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies outbound cluster mTLS handlers complete TLS handshakes with Kestrel internal listeners.</summary>
+[Immutable]
 public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 {
     /// <summary>Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.</summary>
@@ -142,6 +144,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
             TestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
 
+        [Immutable]
         private sealed class KestrelListenConfigurer
         {
             private readonly MtlsInternalListenerHost _host;

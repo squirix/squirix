@@ -1,6 +1,9 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Health-ready diagnostics snapshot for `/health/ready/details`.</summary>
+[Immutable]
 internal sealed class HealthReadyDetailsSnapshot
 {
     internal required HealthClientPoolSnapshot ClientPool { get; init; }

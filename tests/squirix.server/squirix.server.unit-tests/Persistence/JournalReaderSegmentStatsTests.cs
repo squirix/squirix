@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Tests for the single-pass on-disk journal segment statistics used by the roll capacity check.</summary>
+[Immutable]
 public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
 {
     /// <summary>GetOnDiskSegmentStats counts journal segments and sums their byte lengths in one pass.</summary>

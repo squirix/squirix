@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Replay behavior when journal segment bytes end mid-frame or fail CRC / decode.</summary>
+[Immutable]
 public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
 {
     /// <summary>Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.</summary>

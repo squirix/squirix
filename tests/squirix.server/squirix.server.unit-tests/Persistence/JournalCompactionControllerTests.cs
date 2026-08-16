@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -18,6 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
+[Immutable]
 public sealed class JournalCompactionControllerTests : ServerUnitTestBase
 {
     /// <summary>Double dispose does not throw.</summary>

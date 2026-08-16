@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
@@ -8,6 +9,7 @@ namespace Squirix.Server.Node.Endpoint;
 
 /// <summary>Binds a cache namespace to the routed cache contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 {
     private readonly string _cacheName;

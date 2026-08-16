@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -9,6 +10,7 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>
 /// OpenTelemetry-backed <see cref="IJournalOperationTracer" /> implementation.
 /// </summary>
+[Immutable]
 internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTracer
 {
     /// <inheritdoc />
@@ -60,6 +62,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         _ => throw new ArgumentOutOfRangeException(nameof(kind), "Unsupported journal operation kind."),
     };
 
+    [Immutable]
     private sealed class OpenTelemetryJournalOperationTraceScope : IJournalOperationTraceScope
     {
         private readonly Activity _activity;

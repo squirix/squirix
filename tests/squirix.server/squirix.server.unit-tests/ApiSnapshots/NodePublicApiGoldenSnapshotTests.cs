@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Xunit;
@@ -13,6 +14,7 @@ namespace Squirix.Server.UnitTests.ApiSnapshots;
 /// <summary>
 /// Golden snapshot and method allowlist for the intentionally minimal <c>Squirix.Server</c> CLR API.
 /// </summary>
+[Immutable]
 public sealed class NodePublicApiGoldenSnapshotTests
 {
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>

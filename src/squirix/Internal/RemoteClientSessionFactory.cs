@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -153,6 +154,7 @@ internal static class RemoteClientSessionFactory
         }
 
         /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+        [Immutable]
         private sealed class MetricsDecoratedSerializer : ISquirixSerializer
         {
             private readonly string _impl;
@@ -350,6 +352,7 @@ internal static class RemoteClientSessionFactory
         }
     }
 
+    [Immutable]
     private sealed class RemoteClientSession : IRemoteClientSession
     {
         private readonly EndpointFailover _bootstrapFailover;

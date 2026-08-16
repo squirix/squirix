@@ -1,9 +1,11 @@
 using System;
 using System.Runtime.CompilerServices;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit.IO;
 
 /// <summary>RAII wrapper that creates a guarded temp directory and deletes it on dispose.</summary>
+[Immutable]
 public sealed class TempDirectory : IDisposable
 {
     /// <summary>

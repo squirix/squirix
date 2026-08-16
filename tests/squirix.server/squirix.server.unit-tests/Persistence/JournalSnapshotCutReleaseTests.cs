@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -14,6 +15,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Verifies journal snapshot cut error paths release the mutation gate.</summary>
+[Immutable]
 public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>

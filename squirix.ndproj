@@ -263,7 +263,17 @@ select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Se
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1907$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1908$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1909$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1910$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="True" IsCriticalRule="False" ContentTruncatedThreshold="2000"><![CDATA[// <Name>Immutable types should be tagged with [Immutable]</Name>
+// <Id>ND1910:ImmutableTypesShouldBeTaggedWithImmutable</Id>
+warnif count > 0
+from t in Application.Types
+let s = t.SourceDecls
+where t.IsImmutable &&
+      !t.HasAttribute("Squirix.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute") &&
+      !s.Any(d => d.SourceFile.FilePath.ToString().ToLowerInvariant().Contains("\\obj\\") || d.SourceFile.FilePath.ToString().ToLowerInvariant().Contains("\\bin\\"))
+select new { t, t.NbLinesOfCode }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1911$]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1912$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1913$]]></Query>

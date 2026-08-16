@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// Unit tests for cache eviction policies (LRU and FIFO).
 /// Verifies that items are evicted according to the configured capacity and policy.
 /// </summary>
+[Immutable]
 public sealed class EvictionTests : ServerUnitTestBase
 {
     /// <summary>

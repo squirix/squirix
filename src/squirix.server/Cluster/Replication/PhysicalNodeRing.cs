@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Ordinal-sorted physical node ring used to select the next RF−1 distinct followers for an original owner.</summary>
+[Immutable]
 internal sealed class PhysicalNodeRing
 {
     private readonly string[] _nodes;

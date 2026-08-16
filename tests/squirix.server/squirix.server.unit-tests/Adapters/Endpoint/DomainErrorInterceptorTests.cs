@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
 /// <summary>Covers gRPC mapping of journal capacity through the shared domain-error interceptor.</summary>
+[Immutable]
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
     /// <summary>Server-streaming handler maps journal capacity to ResourceExhausted.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Utils;
@@ -19,6 +20,7 @@ internal static class JournalReadPath
         new JournalReplaySequence(dataDir, fromSegment, cancellationToken).CreateEnumerator();
 
     /// <summary>Journal segment replay factory without <see cref="System.Collections.Generic.IEnumerable{T}" />.</summary>
+    [Immutable]
     private sealed class JournalReplaySequence
     {
         private readonly CancellationToken _cancellationToken;

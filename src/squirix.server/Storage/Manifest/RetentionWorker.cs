@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -297,6 +298,7 @@ internal sealed class RetentionWorker
             return true;
         }
 
+        [Immutable]
         private sealed record IndexedStorageFile(string Path, int Index);
     }
 }

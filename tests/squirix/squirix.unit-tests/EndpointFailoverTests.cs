@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
 using Xunit;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.UnitTests;
 
 /// <summary>Unit tests for bootstrap endpoint failover routing.</summary>
+[Immutable]
 public sealed class EndpointFailoverTests : UnitTestBase
 {
     private static readonly string[] BootstrapEndpoints = ["endpoint-0", "endpoint-1"];

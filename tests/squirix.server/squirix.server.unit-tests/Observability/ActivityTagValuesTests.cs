@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -5,6 +6,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Covers Activity tag string formatting helpers.</summary>
+[Immutable]
 public sealed class ActivityTagValuesTests : ServerUnitTestBase
 {
     /// <summary>Bool formatting uses stable literals.</summary>

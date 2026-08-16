@@ -2,10 +2,12 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit.IO;
 
 /// <summary>RAII wrapper that writes a temp settings JSON file and deletes it on dispose.</summary>
+[Immutable]
 public sealed class TempSettingsFile : IDisposable
 {
     private TempSettingsFile(string path)

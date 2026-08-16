@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.E2ETests.Fixtures.TypedValues;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Integration tests for typed custom values restored through durable restart recovery.</summary>
+[Immutable]
 public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
     /// <summary>Verifies RestartShouldNotRestoreExpiredCustomRecord.</summary>

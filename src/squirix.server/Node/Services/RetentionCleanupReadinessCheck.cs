@@ -3,11 +3,13 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness degradation when manifest retention cleanup fails persistently.</summary>
+[Immutable]
 internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
 {
     private static readonly Task<HealthCheckResult> ReadyResult = Task.FromResult(HealthCheckResult.Healthy("storage retention cleanup is ready."));

@@ -2,6 +2,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -14,6 +15,7 @@ internal static class GrpcCorrelationInterceptorRegistration
     }
 
     /// <summary>Registers the correlation server interceptor after adapter-owned gRPC interceptors are configured.</summary>
+    [Immutable]
     private sealed class GrpcCorrelationOptionsConfigurator : IConfigureOptions<GrpcServiceOptions>
     {
         public void Configure(GrpcServiceOptions options) => options.Interceptors.Add<ServerInterceptor>();

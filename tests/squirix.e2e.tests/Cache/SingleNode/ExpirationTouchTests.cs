@@ -1,11 +1,13 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node Touch expiration semantics.</summary>
+[Immutable]
 public sealed class ExpirationTouchTests : TestBase
 {
     /// <summary>Initializes a new instance of the <see cref="ExpirationTouchTests" /> class.</summary>

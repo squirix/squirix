@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Journal-only recovery must replay from the first on-disk segment, not manifest CurrentJournal.</summary>
+[Immutable]
 public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
 {
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>

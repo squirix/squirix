@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Tests for the fixed-size SQMC CURRENT pointer.</summary>
+[Immutable]
 public sealed class PointerTests
 {
     /// <summary>Verifies corrupted CRC bytes are rejected on read.</summary>

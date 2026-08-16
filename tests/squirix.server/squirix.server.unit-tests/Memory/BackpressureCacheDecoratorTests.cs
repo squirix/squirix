@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -13,6 +14,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Covers per-client isolation through <see cref="BackpressureCacheDecorator{T}" />.</summary>
+[Immutable]
 public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Two client ids keep independent PerClientMaxInFlight budgets.</summary>
@@ -124,6 +126,7 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 
+    [Immutable]
     private sealed class FixedClientIdResolver : IBackpressureClientIdResolver
     {
         private readonly string _clientId;

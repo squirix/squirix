@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -119,6 +120,7 @@ internal sealed class ClientInterceptor : Interceptor
 
     /// <summary>Owns logging scope, optional client Activity, and rented metadata for an outbound unary call.</summary>
     /// <typeparam name="TResponse">Outbound unary response type.</typeparam>
+    [Immutable]
     private sealed class OutboundUnaryCallLease<TResponse>
     {
         private readonly AsyncUnaryCall<TResponse> _inner;

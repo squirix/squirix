@@ -5,6 +5,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
@@ -13,6 +14,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Verifies gRPC detailed error exposure follows the host environment.</summary>
+[Immutable]
 public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
 {
     /// <summary>Ensures development hosts keep detailed gRPC diagnostics available intentionally.</summary>

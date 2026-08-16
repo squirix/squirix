@@ -1,10 +1,12 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Optional startup settings for two-node E2E clusters.</summary>
+[Immutable]
 internal sealed class TwoNodeStartOptions
 {
     /// <summary>Gets the inter-node mTLS profile for node A.</summary>

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Tests compact <see cref="CacheValue" /> gRPC scalar mapping.</summary>
+[Immutable]
 public sealed class CacheValueGrpcMappingTests
 {
     /// <summary>Complex object payloads round-trip through MapToProto / MapFromProto.</summary>
@@ -546,11 +548,13 @@ public sealed class CacheValueGrpcMappingTests
         Assert.Equal(BitConverter.DoubleToInt64Bits(-0.0), BitConverter.DoubleToInt64Bits(roundTrip));
     }
 
+    [Immutable]
     private sealed class ValuePayload
     {
         public string Value { get; init; } = string.Empty;
     }
 
+    [Immutable]
     private sealed class SamplePayload
     {
         public int Id { get; init; }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
 /// <summary>Restart recovery of the replica-group follower log applies only the committed prefix.</summary>
+[Immutable]
 public sealed class FollowerRecoveryTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-1";

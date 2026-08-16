@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -308,6 +309,7 @@ internal static class JournalCompactor
         return sequence + 1UL;
     }
 
+    [Immutable]
     private sealed class CompactedIdempotencyRecord
     {
         internal CompactedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs)

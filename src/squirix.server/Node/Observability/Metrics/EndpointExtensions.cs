@@ -9,6 +9,7 @@ using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
@@ -41,6 +42,7 @@ internal static class EndpointExtensions
             });
     }
 
+    [Immutable]
     private sealed class PrometheusMetricsScraper : IDisposable
     {
         internal static readonly PrometheusMetricsScraper Instance = new(false);

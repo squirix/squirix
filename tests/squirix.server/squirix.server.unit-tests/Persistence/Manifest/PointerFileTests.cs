@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Coverage for shared <c>man-current</c> pointer reads used after abrupt shutdown.</summary>
+[Immutable]
 public sealed class PointerFileTests : ServerUnitTestBase
 {
     /// <summary>Shared-mode pointer reads succeed while a writer-compatible handle remains open.</summary>

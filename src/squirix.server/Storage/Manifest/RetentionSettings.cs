@@ -1,5 +1,8 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Storage.Manifest;
 
+[Immutable]
 internal sealed record RetentionSettings
 {
     internal RetentionSettings(string dataDir, int manifestRetention, int snapshotRetention, string manifestFileGlob)

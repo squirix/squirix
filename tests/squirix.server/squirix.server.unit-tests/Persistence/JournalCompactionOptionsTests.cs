@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Unit tests for <see cref="JournalCompactionOptions" /> scalar validation.
 /// </summary>
+[Immutable]
 public sealed class JournalCompactionOptionsTests
 {
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>

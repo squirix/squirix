@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Node.Hosting;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -6,6 +7,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// Per-node security settings for in-process test hosts.
 /// When provided to <see cref="TestNodeHostFactory" />, replaces process environment variables for that startup.
 /// </summary>
+[Immutable]
 public sealed class TestNodeSecurityOptions
 {
     /// <summary>Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).</summary>

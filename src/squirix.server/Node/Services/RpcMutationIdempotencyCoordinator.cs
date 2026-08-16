@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -9,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Coordinates replay-or-execute semantics for mutating cache RPC handlers.</summary>
+[Immutable]
 internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotencyCoordinator
 {
     private readonly IJournalCoordinator? _journal;
@@ -60,6 +62,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     }
 
     /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
+    [Immutable]
     private sealed class RpcMutationIdempotencyExecutionScope : IDisposable
     {
         private readonly string _fingerprint;

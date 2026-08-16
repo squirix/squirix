@@ -1,12 +1,14 @@
 using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Unit tests for metrics endpoint loopback-or-authenticated access control.</summary>
+[Immutable]
 public sealed class MetricsAuthOrLoopbackFilterTests
 {
     /// <summary>Verifies loopback clients can scrape metrics without authentication.</summary>

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -23,6 +24,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Shutdown behavior for snapshot-triggered journal compaction.</summary>
+[Immutable]
 public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
 {
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
@@ -70,6 +72,7 @@ public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
         Assert.False(compaction.IsInFlight);
     }
 
+    [Immutable]
     private sealed class BlockingMaintenanceExecutor : IExclusiveMaintenanceExecutor
     {
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);

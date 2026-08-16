@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit.Hosting;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Activation-gate coverage for RF&gt;1 prerequisites and RF=1 planning registration.</summary>
+[Immutable]
 public sealed class ReplicationActivationTests : ServerUnitTestBase
 {
     /// <summary>RF=2 without both prerequisites reports ordered configuration failures.</summary>

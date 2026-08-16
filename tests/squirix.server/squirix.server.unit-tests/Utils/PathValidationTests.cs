@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers shared path character and Windows reserved-name validation.</summary>
 [UsedImplicitly]
+[Immutable]
 public sealed class PathValidationTests : ServerUnitTestBase
 {
     /// <summary>Non-reserved COM/LPT-like names are accepted under Windows rules.</summary>

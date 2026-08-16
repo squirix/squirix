@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -171,6 +172,7 @@ internal sealed class Ledger : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class NoOpManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
     {
         internal static NoOpManifestRetentionFailureMetrics Instance { get; } = new();
@@ -301,6 +303,7 @@ internal sealed class Ledger : IDisposable
             UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
         }
 
+        [Immutable]
         private sealed record PublishWork(string TargetPath, int EncodedLength, int ManifestIndex);
     }
 }

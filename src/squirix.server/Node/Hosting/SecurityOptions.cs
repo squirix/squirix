@@ -1,9 +1,12 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>
 /// Programmatic security configuration for in-process node hosts.
 /// When supplied as an override, values replace environment-variable lookup for that node startup.
 /// </summary>
+[Immutable]
 internal sealed record SecurityOptions
 {
     /// <summary>Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).</summary>
