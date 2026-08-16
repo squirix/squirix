@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.IO;
-using System.Threading;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -112,10 +111,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
     internal bool TryCompletePendingSegmentRoll()
     {
-        if (Volatile.Read(ref _roll.SegmentRollCompletionPendingField) is 0)
+        if (!_roll.TryConsumeSegmentRollCompletion())
             return false;
 
-        Volatile.Write(ref _roll.SegmentRollCompletionPendingField, 0);
         CompleteSegmentRollOnJournalThread();
         return true;
     }

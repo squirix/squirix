@@ -60,8 +60,6 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public BoundedJournalRing Ring { get; }
 
-    public ref int SegmentRollCompletionPendingField => ref _segmentRollCompletionPending;
-
     public bool SegmentRollInFlight { get; private set; }
 
     public IJournalSegmentWriter SegmentWriter { get; }
@@ -75,6 +73,17 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private JournalEventLoopDrainScheduler DrainScheduler { get; }
 
     private bool IsDurabilityFlushPending { get; set; }
+
+    public bool TryConsumeSegmentRollCompletion()
+    {
+        if (Volatile.Read(ref _segmentRollCompletionPending) is 0)
+            return false;
+
+        Volatile.Write(ref _segmentRollCompletionPending, 0);
+        return true;
+    }
+
+    public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
 
@@ -119,8 +128,6 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         SegmentRollInFlight = false;
         Volatile.Write(ref _segmentRollCompletionPending, 0);
     }
-
-    internal void MarkRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     internal void Run()
     {

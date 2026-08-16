@@ -18,8 +18,6 @@ internal interface IJournalCoordinatorState
 
     Thread JournalThread { get; }
 
-    ref Exception? JournalThreadFailureField { get; }
-
     Ledger Ledger { get; }
 
     PersistenceOptions Options { get; }
@@ -27,4 +25,8 @@ internal interface IJournalCoordinatorState
     BoundedJournalRing Ring { get; }
 
     JournalDurabilityGroupCommit? GroupCommit { get; }
+
+    Exception? GetJournalThreadFailure();
+
+    void SetJournalThreadFailure(Exception? value);
 }

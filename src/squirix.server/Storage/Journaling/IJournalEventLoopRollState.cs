@@ -11,9 +11,11 @@ internal interface IJournalEventLoopRollState
 
     int PendingRollTargetSegmentIndex { get; }
 
-    ref int SegmentRollCompletionPendingField { get; }
-
     bool SegmentRollInFlight { get; }
+
+    bool TryConsumeSegmentRollCompletion();
+
+    void MarkSegmentRollCompletionPending();
 
     void IncrementJournalSegmentCount();
 
