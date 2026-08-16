@@ -1,5 +1,5 @@
 using System.Threading;
-using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -8,7 +8,5 @@ internal interface IJournalCoordinatorSnapshotState
 {
     SemaphoreSlim MutationGate { get; }
 
-    bool HasPendingMemoryApply();
-
-    ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken);
+    IQuiescenceGate InFlightApplyGate { get; }
 }

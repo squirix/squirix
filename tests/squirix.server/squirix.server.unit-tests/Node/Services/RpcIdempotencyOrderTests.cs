@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -134,6 +135,8 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         public ulong NextSequence => _inner.NextSequence;
 
+        public IQuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
+
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
         public long UsedBytes => _inner.UsedBytes;
@@ -165,10 +168,6 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
             _trace.Record(OrderingStep.AwaitDurabilityCommit);
             return _inner.AwaitDurabilityCommitAsync(cancellationToken);
         }
-
-        public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
-
-        public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 

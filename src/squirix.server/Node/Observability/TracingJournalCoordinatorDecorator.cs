@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -39,6 +40,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     public long MaxBytes => _inner.MaxBytes;
 
     public ulong NextSequence => _inner.NextSequence;
+
+    public IQuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
@@ -94,10 +97,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
         await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
-
-    public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
-
-    public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
 
     public ValueTask DisposeAsync()
     {

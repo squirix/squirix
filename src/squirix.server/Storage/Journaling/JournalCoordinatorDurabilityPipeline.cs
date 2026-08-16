@@ -110,7 +110,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     internal void FailJournalPipeline(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        Volatile.Write(ref _owner.JournalThreadFailureField, reason);
+        _owner.SetJournalThreadFailure(reason);
         FailPendingDurabilityWaiters(reason);
         _owner.GroupCommit?.CancelPendingCore(reason);
     }
@@ -136,13 +136,13 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
     internal void OnManifestRollSucceeded()
     {
-        _owner.EventLoop.MarkRollCompletionPending();
+        _owner.EventLoop.MarkSegmentRollCompletionPending();
         _owner.Ring.NotifyWorkAvailable();
     }
 
     internal void ThrowIfJournalThreadFailed()
     {
-        if (Volatile.Read(ref _owner.JournalThreadFailureField) is { } failure)
+        if (_owner.GetJournalThreadFailure() is { } failure)
             throw new InvalidOperationException("journal I/O thread failed.", failure);
     }
 
@@ -150,9 +150,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         while (true)
         {
-            await _snapshot.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
+            await _snapshot.InFlightApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             await _snapshot.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!_snapshot.HasPendingMemoryApply())
+            if (!_snapshot.InFlightApplyGate.HasPending)
                 return;
 
             _ = _snapshot.MutationGate.Release();

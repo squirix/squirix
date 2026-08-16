@@ -8,6 +8,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -25,7 +26,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly RollPublisher _manifestRollPublisher;
-    private readonly Lock _pendingMemoryApplyLock = new();
 
     private readonly IJournalSegmentWriter _segmentWriter;
     private double _avgAppendLatencyMs;
@@ -34,8 +34,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private Exception? _journalThreadFailure;
     private ulong _nextSequence;
     private long _ops;
-    private int _pendingMemoryApplyCount;
-    private TaskCompletionSource? _pendingMemoryApplyDrained;
 
     internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, JournalStartupGate startupGate)
     {
@@ -72,7 +70,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
-    public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
+    public bool HasFlushLoopFailure => _journalThreadFailure is not null;
 
     public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
 
@@ -82,7 +80,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
-    public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
+    public double RecentAppendLatencyMs => _avgAppendLatencyMs;
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
@@ -98,8 +96,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public Thread JournalThread { get; }
 
-    public ref Exception? JournalThreadFailureField => ref _journalThreadFailure;
-
     public Ledger Ledger { get; }
 
     public SemaphoreSlim MutationGate { get; } = new(1, 1);
@@ -112,9 +108,15 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public MutableInt32 QueuedAppendsCounter { get; } = new();
 
+    public IQuiescenceGate InFlightApplyGate { get; } = new QuiescenceGate();
+
     public JournalStartupGate StartupGate { get; }
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
+
+    public Exception? GetJournalThreadFailure() => Volatile.Read(ref _journalThreadFailure);
+
+    public void SetJournalThreadFailure(Exception? value) => Volatile.Write(ref _journalThreadFailure, value);
 
     public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
     {
@@ -157,31 +159,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     {
         DurabilityPipeline.ThrowIfJournalThreadFailed();
         return GroupCommit?.AwaitCommitAsync(cancellationToken) ?? DurabilityPipeline.FlushAsync(cancellationToken);
-    }
-
-    public void BeginPendingMemoryApply()
-    {
-        lock (_pendingMemoryApplyLock)
-            _pendingMemoryApplyCount++;
-    }
-
-    public void CompletePendingMemoryApply()
-    {
-        TaskCompletionSource? drained = null;
-        lock (_pendingMemoryApplyLock)
-        {
-            if (_pendingMemoryApplyCount <= 0)
-                throw new InvalidOperationException("No pending journal memory apply is registered.");
-
-            _pendingMemoryApplyCount--;
-            if (_pendingMemoryApplyCount is 0)
-            {
-                drained = _pendingMemoryApplyDrained;
-                _pendingMemoryApplyDrained = null;
-            }
-        }
-
-        drained?.SetResult();
     }
 
     public async ValueTask DisposeAsync()
@@ -290,27 +267,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     }
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
-
-    public bool HasPendingMemoryApply()
-    {
-        lock (_pendingMemoryApplyLock)
-            return _pendingMemoryApplyCount > 0;
-    }
-
-    public ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken)
-    {
-        Task waitTask;
-        lock (_pendingMemoryApplyLock)
-        {
-            if (_pendingMemoryApplyCount is 0)
-                return ValueTask.CompletedTask;
-
-            _pendingMemoryApplyDrained ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            waitTask = _pendingMemoryApplyDrained.Task;
-        }
-
-        return new ValueTask(waitTask.WaitAsync(cancellationToken));
-    }
 
     ulong IJournalCoordinatorAppendState.AllocateSequence()
     {
