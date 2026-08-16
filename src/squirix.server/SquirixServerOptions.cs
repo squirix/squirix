@@ -86,6 +86,12 @@ public sealed class SquirixServerOptions
             for (var i = 0; i < peerOptions.Count; i++)
             {
                 var peer = peerOptions[i];
+                if (peer is null)
+                {
+                    errors = [$"Peers[{i}] cannot be null."];
+                    return false;
+                }
+
                 peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
             }
 
