@@ -1,0 +1,24 @@
+using System;
+using System.Threading;
+
+namespace Squirix.Server.Threading;
+
+/// <summary>Disposable handle returned by <see cref="AsyncLock.LockAsync"/>; releases the lock when disposed.</summary>
+internal sealed class AsyncLockHolder : IDisposable
+{
+    private readonly SemaphoreSlim _semaphore;
+    private int _released;
+
+    internal AsyncLockHolder(SemaphoreSlim semaphore)
+    {
+        _semaphore = semaphore;
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _released, 1) is 1)
+            return;
+
+        _ = _semaphore.Release();
+    }
+}

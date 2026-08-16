@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
@@ -15,7 +16,7 @@ internal sealed class Ledger : IDisposable
     private readonly IndexAllocator _allocator;
     private readonly Lock _cacheSync = new();
     private readonly string _currentPath;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly AsyncLock _gate = new();
     private readonly Index _index = new();
     private readonly Publisher _publisher;
     private readonly RetentionWorker _retentionWorker;
@@ -69,34 +70,20 @@ internal sealed class Ledger : IDisposable
 
     internal async Task<State> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (TryGetCachedCurrent(out var cached))
-                return cached;
+        using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (TryGetCachedCurrent(out var cached))
+            return cached;
 
-            return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
-            var nextIndex = _allocator.IncrementNextManifestIndex();
-            await _publisher.PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
-            _retentionWorker.ScheduleRetentionCleanup(manifest);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
+        var nextIndex = _allocator.IncrementNextManifestIndex();
+        await _publisher.PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
+        _retentionWorker.ScheduleRetentionCleanup(manifest);
     }
 
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
@@ -184,15 +171,9 @@ internal sealed class Ledger : IDisposable
         }
     }
 
-    private sealed class Publisher : IDisposable
+    private sealed class Publisher : IDisposable, IWorkPoolItem
     {
         private const int DefaultEncodeBufferCapacity = 256;
-
-        private static readonly Action<object?> WritePublishedManifestBlockingCallback = static state =>
-        {
-            if (state is Publisher publisher)
-                publisher.WritePublishedManifestBlocking();
-        };
 
         private readonly IndexAllocator _allocator;
         private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
@@ -221,6 +202,15 @@ internal sealed class Ledger : IDisposable
 
         public void Dispose() => _currentPointerWriter.Dispose();
 
+        void IWorkPoolItem.Execute()
+        {
+            if (_publishWork is not { } publishWork)
+                throw new InvalidOperationException("Publish work was not initialized.");
+
+            FileDurability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
+            UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
+        }
+
         internal async Task EnsureDataDirectoryExistsAsync(CancellationToken cancellationToken)
         {
             if (_dataDirEnsured)
@@ -242,8 +232,7 @@ internal sealed class Ledger : IDisposable
 
             _publishWork = new PublishWork(targetPath, encodedLength, nextIndex);
 
-            await Task.Factory.StartNew(WritePublishedManifestBlockingCallback, this, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
-                      .ConfigureAwait(false);
+            await WorkPool.RunAsync(this, cancellationToken).ConfigureAwait(false);
 
             _setCache(manifest, nextIndex);
         }
@@ -292,15 +281,6 @@ internal sealed class Ledger : IDisposable
         {
             Pointer.Write(_currentPointerBuffer, manifestIndex);
             FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
-        }
-
-        private void WritePublishedManifestBlocking()
-        {
-            if (_publishWork is not { } publishWork)
-                throw new InvalidOperationException("Publish work was not initialized.");
-
-            FileDurability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
-            UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
         }
 
         [Immutable]
