@@ -1,7 +1,9 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Internal.Cluster.Transport;
 
+[Immutable]
 internal sealed record BootstrapConnectOptions
 {
     internal static readonly TimeSpan DefaultOverallDeadline = TimeSpan.FromSeconds(30);

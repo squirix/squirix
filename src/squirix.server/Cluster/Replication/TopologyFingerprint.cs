@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -31,9 +32,6 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
     }
 
     /// <inheritdoc />
-    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && _digest.Equals(other._digest);
-
-    /// <inheritdoc />
     public override bool Equals([NotNullWhen(true)] object? obj) => obj is TopologyFingerprint other && Equals(other);
 
     /// <inheritdoc />
@@ -43,39 +41,8 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
     /// <returns>64-character uppercase hex string.</returns>
     public override string ToString() => Convert.ToHexString(Bytes);
 
-    /// <summary>Computes the canonical topology fingerprint for a cluster configuration.</summary>
-    /// <param name="topology">Cluster topology options.</param>
-    /// <param name="mtlsOptions">Inter-node mTLS options used to derive effective peer URIs.</param>
-    /// <returns>Canonical topology fingerprint.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> or <paramref name="mtlsOptions" /> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when required fingerprint input fields are empty.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
-    internal static TopologyFingerprint CreateFromTopology(TopologyOptions topology, MtlsOptions mtlsOptions)
-    {
-        ArgumentNullException.ThrowIfNull(topology);
-        ArgumentNullException.ThrowIfNull(mtlsOptions);
-
-        var peers = topology.Peers;
-        var fingerprintPeers = new FingerprintPeer[peers.Length];
-        var interNodeEnabled = MtlsTopology.RequiresInterNodeMtls(topology);
-        for (var i = 0; i < peers.Length; i++)
-        {
-            var peer = peers[i];
-            fingerprintPeers[i] = new FingerprintPeer(peer.NodeId, peer.Uri, ResolveInterNodeUri(peer, mtlsOptions, interNodeEnabled));
-        }
-
-        return Compute(
-            new FingerprintInputs
-            {
-                ClusterId = topology.ClusterId,
-                ConfigurationGeneration = topology.ConfigurationGeneration,
-                ReplicaCount = topology.ReplicaCount,
-                VirtualNodes = topology.VirtualNodes,
-                Peers = fingerprintPeers,
-                MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
-                QuorumAckMode = PolicyOptions.QuorumAckMode,
-            });
-    }
+    /// <inheritdoc />
+    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && _digest.Equals(other._digest);
 
     /// <summary>Computes a topology fingerprint from canonical inputs.</summary>
     /// <param name="inputs">Fingerprint inputs.</param>
@@ -130,6 +97,40 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
             throw new InvalidOperationException("Failed to compute topology fingerprint digest.");
 
         return new TopologyFingerprint(digestSpan);
+    }
+
+    /// <summary>Computes the canonical topology fingerprint for a cluster configuration.</summary>
+    /// <param name="topology">Cluster topology options.</param>
+    /// <param name="mtlsOptions">Inter-node mTLS options used to derive effective peer URIs.</param>
+    /// <returns>Canonical topology fingerprint.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> or <paramref name="mtlsOptions" /> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when required fingerprint input fields are empty.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
+    internal static TopologyFingerprint CreateFromTopology(TopologyOptions topology, MtlsOptions mtlsOptions)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        ArgumentNullException.ThrowIfNull(mtlsOptions);
+
+        var peers = topology.Peers;
+        var fingerprintPeers = new FingerprintPeer[peers.Length];
+        var interNodeEnabled = MtlsTopology.RequiresInterNodeMtls(topology);
+        for (var i = 0; i < peers.Length; i++)
+        {
+            var peer = peers[i];
+            fingerprintPeers[i] = new FingerprintPeer(peer.NodeId, peer.Uri, ResolveInterNodeUri(peer, mtlsOptions, interNodeEnabled));
+        }
+
+        return Compute(
+            new FingerprintInputs
+            {
+                ClusterId = topology.ClusterId,
+                ConfigurationGeneration = topology.ConfigurationGeneration,
+                ReplicaCount = topology.ReplicaCount,
+                VirtualNodes = topology.VirtualNodes,
+                Peers = fingerprintPeers,
+                MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+                QuorumAckMode = PolicyOptions.QuorumAckMode,
+            });
     }
 
     /// <summary>Derives a deterministic group id for an original owner under this fingerprint.</summary>
@@ -213,6 +214,20 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         hasher.AppendData(buffer);
     }
 
+    private static Uri ResolveInterNodeUri(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeEnabled)
+    {
+        if (!interNodeEnabled)
+            return peer.Uri;
+
+        if (peer.InterNodeUri is { } configured)
+            return configured;
+
+        if (mtlsOptions.InternalListenPort <= 0)
+            return peer.Uri;
+
+        return new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri;
+    }
+
     private static FingerprintPeer[] SortPeers(IReadOnlyList<FingerprintPeer> peers)
     {
         var copy = new FingerprintPeer[peers.Count];
@@ -233,22 +248,9 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         return copy;
     }
 
-    private static Uri ResolveInterNodeUri(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeEnabled)
-    {
-        if (!interNodeEnabled)
-            return peer.Uri;
-
-        if (peer.InterNodeUri is { } configured)
-            return configured;
-
-        if (mtlsOptions.InternalListenPort <= 0)
-            return peer.Uri;
-
-        return new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-    }
-
     /// <summary>Inline 32-byte SHA-256 digest storage (readonly for NDepend ND1914; avoids InlineArray CS9180/CS8340 conflict).</summary>
     [StructLayout(LayoutKind.Sequential, Size = 32)]
+    [Immutable]
     private readonly struct DigestBytes : IEquatable<DigestBytes>
     {
         private readonly ulong _w0;
@@ -265,13 +267,13 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         }
 
         /// <inheritdoc />
-        public bool Equals(DigestBytes other) => _w0 == other._w0 && _w1 == other._w1 && _w2 == other._w2 && _w3 == other._w3;
-
-        /// <inheritdoc />
         public override bool Equals([NotNullWhen(true)] object? obj) => obj is DigestBytes other && Equals(other);
 
         /// <inheritdoc />
         public override int GetHashCode() => HashCode.Combine(_w0, _w1, _w2, _w3);
+
+        /// <inheritdoc />
+        public bool Equals(DigestBytes other) => _w0 == other._w0 && _w1 == other._w1 && _w2 == other._w2 && _w3 == other._w3;
 
         internal static DigestBytes FromSpan(ReadOnlySpan<byte> digest)
         {

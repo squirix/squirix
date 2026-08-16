@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 /// twin (<see cref="FollowerLogRefusal" />). The transport adapter maps through the storage constants, so
 /// every value must stay identical in both directions.
 /// </summary>
+[Immutable]
 public sealed class RefusalMirrorTests : ServerUnitTestBase
 {
     /// <summary>Stale-term marker matches across both namespaces.</summary>

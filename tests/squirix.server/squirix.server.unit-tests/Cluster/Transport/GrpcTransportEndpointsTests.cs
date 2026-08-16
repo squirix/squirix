@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Net.Security;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for outbound cluster gRPC transport handler configuration.</summary>
+[Immutable]
 public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
 {
     /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>

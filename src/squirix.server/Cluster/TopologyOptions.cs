@@ -1,8 +1,10 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster;
 
+[Immutable]
 internal sealed class TopologyOptions
 {
     [SetsRequiredMembers]

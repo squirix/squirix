@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling;
@@ -12,6 +13,7 @@ namespace Squirix.Server.UnitTests;
 /// <summary>
 /// Unit tests for <see cref="EntryPayloadSizeGuard" />.
 /// </summary>
+[Immutable]
 public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
 {
     /// <summary>Direct length and span overloads reject oversized payloads.</summary>

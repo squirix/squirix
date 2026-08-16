@@ -1,11 +1,13 @@
 using System;
 using System.Buffers;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Pool-backed journal payload buffer returned by <see cref="JournalEntryPayload.Encode" />.</summary>
 /// <remarks>Dispose returns the underlying array to the shared <see cref="ArrayPool{T}" />; callers must not retain the buffer after disposal.</remarks>
+[Immutable]
 internal sealed class PooledJournalPayload : IDisposable
 {
     private readonly int _length;

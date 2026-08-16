@@ -2,11 +2,13 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Xml.XPath;
+using Squirix.Attributes;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>Indexed view of an MSBuild project document for architecture assertions.</summary>
+[Immutable]
 internal sealed class MsbuildProjectIndex
 {
     private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;

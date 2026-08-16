@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit;
 
@@ -25,6 +26,7 @@ namespace Squirix.Server.TestKit;
 /// // Run code that relies on SQUIRIX_JWT_AUDIENCE=squirix-test
 /// </code>
 /// </example>
+[Immutable]
 public sealed class TempEnvironmentVariable : IDisposable
 {
     private readonly string _key;

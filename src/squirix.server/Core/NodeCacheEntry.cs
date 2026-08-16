@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Core;
 
@@ -10,6 +11,7 @@ namespace Squirix.Server.Core;
 /// and optional extension-facing entry metadata (tags and monotonic version).
 /// </summary>
 /// <typeparam name="T">The value type stored in the entry. Can be a primitive or a POCO serialized by the configured serializer.</typeparam>
+[Immutable]
 public sealed class NodeCacheEntry<T>
 {
     /// <summary>

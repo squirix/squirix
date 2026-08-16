@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -18,6 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// request after its frame is enqueued must not corrupt the durability waiter pool or double-decrement
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
+[Immutable]
 public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBase
 {
     /// <summary>

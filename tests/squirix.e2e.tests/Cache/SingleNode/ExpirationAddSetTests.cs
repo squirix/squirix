@@ -1,10 +1,12 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node Add/Set/Get expiration semantics.</summary>
+[Immutable]
 public sealed class ExpirationAddSetTests : TestBase
 {
     /// <summary>Initializes a new instance of the <see cref="ExpirationAddSetTests" /> class.</summary>

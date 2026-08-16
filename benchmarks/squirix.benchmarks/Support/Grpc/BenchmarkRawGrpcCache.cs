@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
+using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
@@ -9,6 +10,7 @@ using Squirix.Transport.Grpc.Cache;
 namespace Squirix.Benchmarks.Support.Grpc;
 
 /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
+[Immutable]
 internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 {
     private static readonly ISquirixSerializer Serializer = new SystemTextJsonSerializer();

@@ -9,11 +9,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using Squirix.Attributes;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>In-process OIDC authority that serves discovery metadata and JWKS for JWT bearer tests.</summary>
+[Immutable]
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
     private readonly WebApplication _app;
@@ -133,6 +135,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         _ = app.MapGet("/.well-known/jwks", endpoint.Invoke);
     }
 
+    [Immutable]
     private sealed class JsonEndpoint<T>
     {
         private readonly T _payload;
@@ -145,6 +148,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         internal IResult Invoke() => Results.Json(_payload);
     }
 
+    [Immutable]
     private sealed class OidcDiscoveryDocument
     {
         [JsonPropertyName("issuer")]

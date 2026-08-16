@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers cached invariant digit formatting helpers.</summary>
+[Immutable]
 public sealed class InvariantDigitStringsTests : ServerUnitTestBase
 {
     /// <summary>D6 formatting uses the cache for indexes under 10000 and pads larger values.</summary>

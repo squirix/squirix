@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for <see cref="ObjectCacheEntrySizeEstimator" />.</summary>
+[Immutable]
 public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
 {
     private const string CacheName = "orders";

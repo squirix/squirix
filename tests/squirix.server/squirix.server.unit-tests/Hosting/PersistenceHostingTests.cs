@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers persistence opt-in hosting behavior.</summary>
+[Immutable]
 public sealed class PersistenceHostingTests : ServerUnitTestBase
 {
     /// <summary>Ensures the default host does not register persistence services.</summary>
@@ -55,6 +57,7 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
         Assert.Equal(dir.Path, persistence.DataDir);
     }
 
+    [Immutable]
     private sealed class PersistenceOptionsConfigurer
     {
         private readonly string _dataDirectory;

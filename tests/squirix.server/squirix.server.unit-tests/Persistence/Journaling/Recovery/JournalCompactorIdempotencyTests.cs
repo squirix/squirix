@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -18,6 +19,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Compaction must preserve durable idempotency journal frames.</summary>
+[Immutable]
 public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
 {
     private const string Fingerprint = "try-add-entry-async|default|compact-key|abc123";

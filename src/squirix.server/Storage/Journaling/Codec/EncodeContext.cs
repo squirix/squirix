@@ -1,10 +1,12 @@
 using System;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Journaling.Codec;
 
+[Immutable]
 internal sealed record EncodeContext
 {
     private EncodeContext(Utf8KeyLengths keyUtf8, int payloadUtf8Length)
@@ -40,6 +42,7 @@ internal sealed record EncodeContext
         _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
     };
 
+    [Immutable]
     private sealed record Utf8KeyLengths
     {
         private Utf8KeyLengths(int namespaceLength, int keyLength)

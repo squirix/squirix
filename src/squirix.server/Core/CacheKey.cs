@@ -1,7 +1,9 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Core;
 
+[Immutable]
 internal sealed record CacheKey(string Namespace, string Key)
 {
     public override string ToString()

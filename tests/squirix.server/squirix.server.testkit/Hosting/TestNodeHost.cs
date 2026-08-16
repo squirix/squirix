@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 
@@ -17,6 +18,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will dispose it via
 /// <see cref="DisposeAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
+[Immutable]
 public sealed class TestNodeHost : IAsyncDisposable
 {
     private readonly WebApplication _app;

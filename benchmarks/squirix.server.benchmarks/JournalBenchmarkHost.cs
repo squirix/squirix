@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -10,6 +11,7 @@ using Squirix.Server.TestKit.IO;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Hosts a journal coordinator for journal benchmarks.</summary>
+[Immutable]
 internal sealed class JournalBenchmarkHost : IAsyncDisposable
 {
     private readonly TempDirectory _dataDir;

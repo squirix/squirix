@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Core;
 
 /// <summary>Unit tests covering expiration operations: TouchAsync and RemoveExpirationAsync.</summary>
+[Immutable]
 public sealed class ExpirationOperationsTests : ServerUnitTestBase
 {
     /// <summary>Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.</summary>

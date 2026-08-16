@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -14,6 +15,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Contract tests for the pipelined journal coordinator.</summary>
+[Immutable]
 public sealed class JournalBackendContractTests
 {
     /// <summary>Append and replay round-trip for the pipelined journal backend.</summary>
@@ -100,6 +102,7 @@ public sealed class JournalBackendContractTests
         return last;
     }
 
+    [Immutable]
     private sealed class CoordinatorContext : IAsyncDisposable
     {
         private readonly TempDirectory _directory;

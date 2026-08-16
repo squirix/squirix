@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -19,6 +20,7 @@ internal static class Correlation
         return scope ?? NoopDisposable.Instance;
     }
 
+    [Immutable]
     private sealed class NoopDisposable : IDisposable
     {
         internal static readonly NoopDisposable Instance = new();
@@ -28,6 +30,7 @@ internal static class Correlation
         }
     }
 
+    [Immutable]
     private sealed class StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
     {
         private readonly Activity? _activity;

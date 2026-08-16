@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Utils;
 
@@ -138,6 +139,7 @@ internal static class SecurityServiceRegistration
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
     }
 
+    [Immutable]
     private readonly record struct ResolvedSecurityConfiguration(
         string JwtAuthority,
         string JwtAudience,

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -9,6 +10,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="PrevLogTerm">The term of the entry at <paramref name="PrevLogIndex" />.</param>
 /// <param name="LeaderCommitIndex">The leader's committed index.</param>
 /// <param name="Entries">The ordered batch of entries to append.</param>
+[Immutable]
 internal readonly record struct FollowerLogAppendRequest(
     string LeaderNodeId,
     ulong CurrentTerm,

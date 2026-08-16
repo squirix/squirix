@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Host;
 
@@ -197,6 +198,7 @@ internal static class Program
         /// <param name="DataDirectory">Optional data directory override from <c>--data-dir</c>.</param>
         /// <param name="Persist">Whether persistence was requested via <c>--persist</c>.</param>
         /// <param name="SettingsPath">Optional settings file path from <c>--settings</c>.</param>
+        [Immutable]
         private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, string? SettingsPath)
         {
             internal static SquirixServerCommand Parse(string[] args)

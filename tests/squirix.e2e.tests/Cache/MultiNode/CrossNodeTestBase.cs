@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Xunit;
 
@@ -8,6 +9,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// <summary>
 /// Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
+[Immutable]
 public abstract class CrossNodeTestBase : EndToEndTestBase, IClassFixture<TwoNodeFixture>
 {
     private readonly TwoNodeFixture _fixture;

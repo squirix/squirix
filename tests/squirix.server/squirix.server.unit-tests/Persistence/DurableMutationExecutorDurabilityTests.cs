@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
@@ -15,6 +16,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Regression tests for durable journal ordering: fsync before in-memory apply.</summary>
+[Immutable]
 public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
 {
     /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>

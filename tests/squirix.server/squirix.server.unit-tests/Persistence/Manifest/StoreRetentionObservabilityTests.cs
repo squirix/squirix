@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -15,6 +16,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
+[Immutable]
 public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 {
     private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = ManifestRetentionFailureMetrics.Instance;
@@ -193,6 +195,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             File.SetAttributes(path, FileAttributes.Normal);
     }
 
+    [Immutable]
     private sealed class CollectingLogger : ILogger<Ledger>
     {
         internal List<(LogLevel Level, string Message)> Entries { get; } = [];
@@ -205,6 +208,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             Entries.Add((logLevel, formatter(state, exception)));
     }
 
+    [Immutable]
     private sealed class DeleteFailingStorageFileOperations : IStorageFileOperations
     {
         private readonly FileOperations _inner = new();

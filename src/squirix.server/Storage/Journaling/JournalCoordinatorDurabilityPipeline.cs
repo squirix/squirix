@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Durability, maintenance, and failure handling for a journal coordinator.</summary>
+[Immutable]
 internal sealed class JournalCoordinatorDurabilityPipeline
 {
     private readonly IJournalCoordinatorState _owner;

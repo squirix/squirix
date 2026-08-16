@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Round-trip tests for <see cref="BinaryJournalCodec" /> encode paths.</summary>
+[Immutable]
 public sealed class BinaryJournalCodecRoundTripTests
 {
     private static readonly byte[] IdempotencyResponseFixture = [0x08, 0x01];

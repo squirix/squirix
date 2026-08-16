@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.TestKit;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Unit tests for <see cref="CacheEntryCodec" />.</summary>
+[Immutable]
 public sealed class CacheEntryCodecTests : ServerUnitTestBase
 {
     /// <summary>Primitive values round-trip through the codec.</summary>

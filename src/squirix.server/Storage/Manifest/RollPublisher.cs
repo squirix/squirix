@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Manifest;
 
@@ -83,6 +84,7 @@ internal sealed class RollPublisher : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class RollRequest
     {
         private readonly Action<Exception>? _captureFailure;

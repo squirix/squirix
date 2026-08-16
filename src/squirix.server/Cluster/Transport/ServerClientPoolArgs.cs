@@ -1,9 +1,11 @@
 using System;
 using System.Net.Http;
 using Grpc.Core.Interceptors;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
+[Immutable]
 internal sealed class ServerClientPoolArgs
 {
     internal bool InterNodeMtlsEnabled { get; init; }

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Errors;
 
 /// <summary>Covers public and gRPC projections for every <see cref="SquirixErrorCode" />.</summary>
+[Immutable]
 public sealed class SquirixErrorMapperTests : ServerUnitTestBase
 {
     /// <summary>Maps each known code to its stable public token and gRPC status.</summary>

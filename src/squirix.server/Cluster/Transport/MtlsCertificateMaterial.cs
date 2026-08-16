@@ -1,9 +1,11 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
+[Immutable]
 internal sealed class MtlsCertificateMaterial : IDisposable
 {
     private MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)

@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -13,6 +14,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Focused tests for shared journal frame parsing and classification.</summary>
+[Immutable]
 public sealed class JournalFrameReaderTests : ServerUnitTestBase
 {
     private static readonly byte[] EmptyFrameBytes = [];

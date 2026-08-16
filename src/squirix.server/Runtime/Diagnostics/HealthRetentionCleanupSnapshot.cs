@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Runtime.Diagnostics;
 
@@ -7,4 +8,5 @@ namespace Squirix.Server.Runtime.Diagnostics;
 /// <param name="ConsecutiveWriteFailures">Consecutive retention write failures.</param>
 /// <param name="RecentFailureCount">Failures observed in the recent evaluation window.</param>
 /// <param name="LastFailureUtc">UTC timestamp of the most recent failure, if any.</param>
+[Immutable]
 internal readonly record struct HealthRetentionCleanupSnapshot(bool Degraded, int ConsecutiveWriteFailures, int RecentFailureCount, DateTime? LastFailureUtc);

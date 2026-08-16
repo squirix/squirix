@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -6,4 +7,5 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="NodeId">Peer node identifier.</param>
 /// <param name="ClientUri">Canonical client-facing origin URI.</param>
 /// <param name="InterNodeUri">Effective inter-node origin URI (or internal-port derived URI).</param>
+[Immutable]
 internal readonly record struct FingerprintPeer(string NodeId, Uri ClientUri, Uri InterNodeUri);

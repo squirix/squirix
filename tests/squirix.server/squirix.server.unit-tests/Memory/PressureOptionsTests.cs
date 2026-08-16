@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Tests for <see cref="PressureOptions" /> defaults and validation.
 /// </summary>
+[Immutable]
 public sealed class PressureOptionsTests
 {
     /// <summary>Verifies invalid threshold combinations are rejected.</summary>

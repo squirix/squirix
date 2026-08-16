@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Adapters.Rest;
 
 /// <summary>Covers HTTP status projection for <see cref="SquirixException" />.</summary>
+[Immutable]
 public sealed class SquirixExceptionHttpExtensionsTests : ServerUnitTestBase
 {
     /// <summary>Gets theory rows for the explicit <see cref="SquirixExceptionHttpExtensions" /> switch arms.</summary>

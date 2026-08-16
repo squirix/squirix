@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Adapters.Rest;
 
+[Immutable]
 internal sealed class HealthMemoryPressureDetails
 {
     internal HealthMemoryPressureDetails(string state, long maxEstimatedCacheBytes, long estimatedCacheBytes, long entryCount, long rejectedWriteCount, bool writeRejectionActive)

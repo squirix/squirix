@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -76,6 +77,7 @@ internal static class RuntimeServiceRegistration
     }
 
     /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
+    [Immutable]
     private sealed class RemoteInvocationContextAccessor : IRemoteInvocationScopeFactory, IRemoteInvocationState
     {
         /// <inheritdoc />

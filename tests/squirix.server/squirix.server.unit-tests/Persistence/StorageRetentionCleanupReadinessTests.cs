@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Squirix.Attributes;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -11,6 +12,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Unit tests for <see cref="RetentionCleanupReadiness" /> degradation thresholds.
 /// </summary>
+[Immutable]
 public sealed class StorageRetentionCleanupReadinessTests
 {
     /// <summary>Ensures consecutive failed writes degrade readiness once the configured threshold is reached.</summary>

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -26,6 +27,7 @@ internal static class StoreFactory
         return new SnapshotWriter(options.DataDir, fileOps);
     }
 
+    [Immutable]
     private sealed class SnapshotReader : ISnapshotReader
     {
         private const int InitialRecordScratchSize = 4096;
@@ -68,8 +70,10 @@ internal static class StoreFactory
 
         private static bool IsExpired(NodeCacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;
 
+        [Immutable]
         private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry);
 
+        [Immutable]
         private sealed record IdempotencyRecord(PersistedIdempotencyRecord Record);
 
         private sealed class SnapshotRecordEnumerator : IEnumerator<object>

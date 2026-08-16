@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
@@ -22,6 +23,7 @@ internal static class RecoveryReplayTestRegistration
 
     /// <summary>Delays durable recovery replay until a test signal is released.</summary>
     /// <typeparam name="T">The stored value type.</typeparam>
+    [Immutable]
     private sealed class DelayedLocalCacheRecoveryDecorator<T> : ILocalCacheRecovery<T>
     {
         private readonly ILocalCacheRecovery<T> _inner;
@@ -58,6 +60,7 @@ internal static class RecoveryReplayTestRegistration
         }
     }
 
+    [Immutable]
     private sealed class DelayedReplayConfigure
     {
         private readonly RecoveryReplayDelaySignal _signal;

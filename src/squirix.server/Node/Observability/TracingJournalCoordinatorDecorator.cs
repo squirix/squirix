@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -9,6 +10,7 @@ using Squirix.Server.Threading;
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
+[Immutable]
 internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 {
     private readonly EventHandler _forwardOnAppended;

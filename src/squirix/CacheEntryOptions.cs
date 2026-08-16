@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix;
 
@@ -7,6 +8,7 @@ namespace Squirix;
 /// Set <see cref="Expiration" /> or <see cref="ExpiresAt" /> to attach a TTL. When both are unset, the entry is stored
 /// without expiration and does not expire by TTL.
 /// </remarks>
+[Immutable]
 public sealed class CacheEntryOptions
 {
     /// <summary>Gets the relative expiration to apply to the entry.</summary>

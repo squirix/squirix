@@ -1,5 +1,8 @@
+using Squirix.Attributes;
+
 namespace Squirix.ProtocolModel;
 
+[Immutable]
 internal sealed class SafetyViolation
 {
     internal SafetyViolation(string invariant, string detail, string stateFingerprint)

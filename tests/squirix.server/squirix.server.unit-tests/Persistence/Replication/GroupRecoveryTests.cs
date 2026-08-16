@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
 /// <summary>Lifecycle of the group recovery coordinator over the local composition.</summary>
+[Immutable]
 public sealed class GroupRecoveryTests : ServerUnitTestBase
 {
     /// <summary>RecoverAllAsync can be invoked more than once; prior logs are disposed before reopening.</summary>

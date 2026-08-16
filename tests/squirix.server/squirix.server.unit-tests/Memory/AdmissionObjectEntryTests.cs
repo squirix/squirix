@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Admission tests for object cache entries with complex payloads.</summary>
+[Immutable]
 public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
 {
     private const string CacheName = "orders";

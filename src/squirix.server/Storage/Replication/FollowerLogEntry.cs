@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -6,6 +7,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="LogIndex">The one-based log index of the entry.</param>
 /// <param name="Term">The term in which the leader created the entry.</param>
 /// <param name="Payload">The canonical entry bytes.</param>
+[Immutable]
 internal readonly record struct FollowerLogEntry(ulong LogIndex, ulong Term, ReadOnlyMemory<byte> Payload)
 {
     /// <summary>Gets the logical bytes of this entry as a span.</summary>

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Capacity and eviction tests for <see cref="RpcMutationIdempotencyStore" />.</summary>
+[Immutable]
 public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 {
     private static readonly byte[] ResponseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });

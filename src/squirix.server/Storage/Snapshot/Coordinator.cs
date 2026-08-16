@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -143,12 +144,14 @@ internal sealed class Coordinator
 
     private bool ShouldSuppressBackgroundSnapshot() => _backgroundSnapshotMemoryThrottle.ShouldSuppressBackgroundSnapshot();
 
+    [Immutable]
     private sealed record CapturedSnapshotBundle(
         List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items,
         int ReplayFromJournalSegmentAtFlush,
         ulong NextSequenceAtFlush,
         IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecordsAtFlush);
 
+    [Immutable]
     private sealed class CaptureScratch
     {
         internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [];

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix;
 
@@ -6,6 +7,7 @@ namespace Squirix;
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
 /// <param name="HasExpiration">Indicates whether the live entry has an expiration.</param>
 /// <param name="Expiration">The remaining expiration when the live entry has expiration.</param>
+[Immutable]
 public readonly record struct CacheExpirationResult(bool Found, bool HasExpiration, TimeSpan? Expiration) : IComparable<TimeSpan>, IComparable
 {
     /// <summary>Gets the remaining expiration when the live entry has expiration.</summary>

@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -13,6 +14,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>End-to-end coverage for inter-node mTLS cluster forwarding and failure modes.</summary>
+[Immutable]
 public sealed class InterNodeMtlsTests : EndToEndTestBase
 {
     /// <summary>Verifies a client connected to node A forwards owner mutations to node B over trusted inter-node mTLS.</summary>

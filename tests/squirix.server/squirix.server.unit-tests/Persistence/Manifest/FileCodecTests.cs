@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Covers manifest codec edge cases introduced with shared error literals.</summary>
+[Immutable]
 public sealed class FileCodecTests : ServerUnitTestBase
 {
     /// <summary>Rejects snapshot paths whose UTF-8 length exceeds the encoded ushort limit.</summary>

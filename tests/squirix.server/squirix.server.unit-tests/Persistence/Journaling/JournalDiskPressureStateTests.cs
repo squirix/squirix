@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.UnitTests.Support;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Tests for journal disk pressure state evaluation used by health-ready details.</summary>
+[Immutable]
 public sealed class JournalDiskPressureStateTests : ServerUnitTestBase
 {
     /// <summary>Verifies pressure labels for below high-water, high-water, and hard limit.</summary>

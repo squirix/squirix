@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers directory path resolution and segment parsing.</summary>
+[Immutable]
 public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 {
     /// <summary>IsDirectorySeparator recognizes both separators.</summary>

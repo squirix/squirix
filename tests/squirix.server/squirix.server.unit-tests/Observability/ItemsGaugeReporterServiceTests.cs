@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
@@ -13,6 +14,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Tests for <see cref="ItemsGaugeReporterService" /> observable gauge wiring.
 /// </summary>
+[Immutable]
 public sealed class ItemsGaugeReporterServiceTests
 {
     /// <summary>Verifies observable gauge measurements, empty-cache reporting, error propagation, and hosted lifecycle hooks.</summary>
@@ -65,11 +67,13 @@ public sealed class ItemsGaugeReporterServiceTests
         return listener;
     }
 
+    [Immutable]
     private sealed class FaultingStats : ILocalCacheStats
     {
         public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 
+    [Immutable]
     private sealed class ItemsGaugeSubscription
     {
         private readonly List<long> _values;
@@ -89,6 +93,7 @@ public sealed class ItemsGaugeReporterServiceTests
         }
     }
 
+    [Immutable]
     private sealed class NodeMeasurementSink : IDisposable
     {
         internal List<long> Values { get; } = [];
@@ -96,6 +101,7 @@ public sealed class ItemsGaugeReporterServiceTests
         public void Dispose() => Values.Clear();
     }
 
+    [Immutable]
     private sealed class StubStats : ILocalCacheStats
     {
         internal StubStats(int entryCount)

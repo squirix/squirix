@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.E2ETests.Fixtures.TypedValues;
 
+[Immutable]
 internal sealed class TypedCartItem
 {
     [JsonInclude]

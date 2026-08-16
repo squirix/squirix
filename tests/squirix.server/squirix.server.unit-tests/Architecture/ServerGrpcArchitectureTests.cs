@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>Architecture rules for shared gRPC compile includes, mappers, and Prometheus ownership.</summary>
+[Immutable]
 public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>

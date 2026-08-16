@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster;
 
@@ -225,6 +226,7 @@ internal static class TopologyValidator
     private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
                                                         !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
+    [Immutable]
     private sealed class TopologyValidationArgs
     {
         internal required string? ClusterId { get; init; }

@@ -1,9 +1,11 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Enforces Pipelined segment count and total byte caps.</summary>
+[Immutable]
 internal sealed class JournalSegmentPolicy
 {
     private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";

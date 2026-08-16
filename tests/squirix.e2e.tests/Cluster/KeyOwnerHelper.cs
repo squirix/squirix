@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Key ownership helper mirroring server consistent-hash route behavior.</summary>
+[Immutable]
 internal sealed class KeyOwnerHelper
 {
     /// <summary>Shared ring for the default two-node topology (<c>nodeA</c>, <c>nodeB</c>).</summary>

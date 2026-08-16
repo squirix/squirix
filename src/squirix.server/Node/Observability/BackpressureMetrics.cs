@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Squirix.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;
@@ -132,6 +133,7 @@ internal static class BackpressureMetrics
         return tags;
     }
 
+    [Immutable]
     private sealed class ObserverEntry
     {
         internal ObserverEntry(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
@@ -148,6 +150,7 @@ internal static class BackpressureMetrics
         internal Func<int> ObserveTrackedClients { get; }
     }
 
+    [Immutable]
     private sealed class ObserverRegistration : IDisposable
     {
         private readonly long _observerId;
@@ -168,6 +171,7 @@ internal static class BackpressureMetrics
         }
     }
 
+    [Immutable]
     private sealed class ObserverState
     {
         private readonly MutableInt64 _nextObserverId = new();

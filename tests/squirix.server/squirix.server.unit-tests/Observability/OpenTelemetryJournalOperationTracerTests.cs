@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Unit tests for <see cref="OpenTelemetryJournalOperationTracer" /> context tag mapping.
 /// </summary>
+[Immutable]
 public sealed class OpenTelemetryJournalOperationTracerTests
 {
     /// <summary>Ensures payload byte tags are applied when context carries payload size.</summary>

@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
 [StructLayout(LayoutKind.Auto)]
+[Immutable]
 internal readonly record struct NodeRuntime(int CommitIndex, int AppliedIndex, int VotesGranted, int ReadIndex, int ReadAcks, bool ReadReady, bool BadOldCommit)
 {
     internal static readonly NodeRuntime Initial = Create(0, 0, 0, 0, 0, false, false);

@@ -1,8 +1,10 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Adapters.Rest;
 
+[Immutable]
 internal sealed class HealthCompactionDetails
 {
     internal HealthCompactionDetails(string state, DateTime? lastRunUtc, bool inFlight)

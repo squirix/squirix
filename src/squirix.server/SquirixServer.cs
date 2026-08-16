@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 
 namespace Squirix.Server;
 
@@ -10,6 +11,7 @@ namespace Squirix.Server;
 /// Convenience entry point for starting and owning a Squirix server host in tests and samples.
 /// Production deployments typically use <see cref="AspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
 /// </summary>
+[Immutable]
 public sealed class SquirixServer : IAsyncDisposable
 {
     private const string ApplicationAssemblyName = "Squirix.Server";
@@ -73,6 +75,7 @@ public sealed class SquirixServer : IAsyncDisposable
         return new SquirixServer(handle);
     }
 
+    [Immutable]
     private sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;

@@ -1,5 +1,6 @@
 using System;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -8,6 +9,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// Transport-level retries and budgets remain governed by cluster call policy and RPC deadline context.
 /// When this option is unset, the decorator is a pass-through and does not introduce cancellation or timeouts.
 /// </remarks>
+[Immutable]
 internal sealed class CachePipelineDeadlineOptions
 {
     /// <summary>

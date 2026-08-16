@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Prepares and size-checks journal put payloads for local-owner writes before durable logging.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly JournalLoggingCacheDecorator<T> _journal;

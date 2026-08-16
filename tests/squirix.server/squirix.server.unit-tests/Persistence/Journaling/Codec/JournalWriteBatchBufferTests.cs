@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Tests for the lazily allocated, configurable journal write-coalescing buffer.</summary>
+[Immutable]
 public sealed class JournalWriteBatchBufferTests
 {
     private static readonly byte[] TwoTabFrame = [0x09, 0x09];

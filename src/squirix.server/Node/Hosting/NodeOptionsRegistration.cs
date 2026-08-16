@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
@@ -119,6 +120,7 @@ internal static class NodeOptionsRegistration
     }
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container via factory.")]
+    [Immutable]
     private sealed class StartupOptionsValidator<TOptions> : IHostedService
         where TOptions : class
     {
@@ -140,6 +142,7 @@ internal static class NodeOptionsRegistration
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
+    [Immutable]
     private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
         where TOptions : class
     {

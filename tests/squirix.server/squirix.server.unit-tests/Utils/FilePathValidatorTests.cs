@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers operator path validation used before file I/O.</summary>
+[Immutable]
 public sealed class FilePathValidatorTests : ServerUnitTestBase
 {
     /// <summary>Rejects parent-directory segments in operator paths.</summary>

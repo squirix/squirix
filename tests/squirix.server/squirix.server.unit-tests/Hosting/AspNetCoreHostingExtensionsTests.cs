@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -20,6 +21,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
+[Immutable]
 public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 {
     private static readonly Action<WebApplication> MapJournalQuotaEndpoint = static app => app.MapGet(
@@ -208,6 +210,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         return endpoints;
     }
 
+    [Immutable]
     private sealed record ExtensionMarker(string Name);
 
     private sealed class AuthorizationStateCapture
@@ -215,6 +218,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         internal bool? AuthEnabled { get; set; }
     }
 
+    [Immutable]
     private sealed class AuthorizationStateExtensionsConfigurer
     {
         private readonly AuthorizationStateCapture _state;
@@ -236,6 +240,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         }
     }
 
+    [Immutable]
     private sealed class DecoratePipelineExtensionsConfigurer
     {
         private readonly DecoratePipelineState _state;
@@ -263,6 +268,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         internal int CallbackCount { get; set; }
     }
 
+    [Immutable]
     private sealed class FixedUriOptionsConfigurer
     {
         private readonly Uri _uri;
@@ -278,6 +284,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         private void ApplyCore(SquirixServerOptions options) => options.Uri = _uri;
     }
 
+    [Immutable]
     private sealed class MarkerExtensionsConfigurer
     {
         private readonly ExtensionMarker _marker;
@@ -299,6 +306,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         private void ConfigureServices(IServiceCollection services) => services.AddSingleton(_marker);
     }
 
+    [Immutable]
     private sealed class PersistenceOptionsConfigurer
     {
         private readonly string _dataDirectory;
@@ -320,6 +328,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         }
     }
 
+    [Immutable]
     private sealed class UriOptionsConfigurer
     {
         private readonly int _port;

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Snapshot;
 
@@ -18,6 +19,7 @@ internal static class SnapshotWriterTestExtensions
 
     /// <summary>Zero-array <see cref="IReadOnlyList{T}" /> wrapper for a single test value.</summary>
     /// <typeparam name="T">Element type.</typeparam>
+    [Immutable]
     private sealed class SingleItemReadOnlyList<T> : IReadOnlyList<T>
     {
         private readonly T _item;

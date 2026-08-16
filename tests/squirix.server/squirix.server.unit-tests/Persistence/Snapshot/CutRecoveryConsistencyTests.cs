@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
@@ -21,6 +22,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for snapshot cut recovery metadata consistency (plan step 1).</summary>
+[Immutable]
 public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
 {
     private const int FillChunkChars = 8_192;

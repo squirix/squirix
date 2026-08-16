@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
@@ -14,6 +15,7 @@ using Xunit;
 namespace Squirix.UnitTests;
 
 /// <summary>Architecture rules for the client SDK assembly boundary.</summary>
+[Immutable]
 public sealed class ClientArchitectureTests
 {
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
@@ -155,6 +157,7 @@ public sealed class ClientArchitectureTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
+    [Immutable]
     private sealed class MsbuildProjectIndex
     {
         private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;

@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc.Cache;
@@ -17,6 +18,7 @@ using Squirix.Transport.Grpc.Cache;
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Holds gRPC clients per peer and an execution policy per peer.</summary>
+[Immutable]
 internal sealed class ServerClientPool : IServerClientPool
 {
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Transport.Grpc.Cache;
@@ -16,6 +17,7 @@ using Squirix.Transport.Grpc.Cache;
 namespace Squirix.Internal.Cluster.Transport;
 
 /// <summary>Holds gRPC clients per peer and an execution policy (timeout/retry/concurrency) per peer.</summary>
+[Immutable]
 internal sealed class ClientPool : IClientPool
 {
     private const int MaxReceiveMessageSizeBytes = 8 * 1024 * 1024;

@@ -1,9 +1,11 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>Suppresses background snapshots while estimated cache memory is in the critical pressure band.</summary>
+[Immutable]
 internal sealed class BackgroundSnapshotMemoryThrottle : IBackgroundSnapshotMemoryThrottle
 {
     private readonly IMemoryUsageAccounting _accounting;

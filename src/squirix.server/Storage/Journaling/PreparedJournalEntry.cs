@@ -1,9 +1,11 @@
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Journal put payload materialized once for sizing and encode.</summary>
+[Immutable]
 internal sealed record PreparedJournalEntry
 {
     private PreparedJournalEntry(NodeCacheEntry<object?> objectEntry, int encodedLength)

@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Default <see cref="IReplicaGroupLocator" /> backed by a <see cref="PhysicalNodeRing" />.</summary>
+[Immutable]
 internal sealed class ReplicaGroupLocator : IReplicaGroupLocator
 {
     private readonly PhysicalNodeRing _ring;

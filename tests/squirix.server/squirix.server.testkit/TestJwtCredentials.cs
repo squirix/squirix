@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Symmetric JWT credentials shared by a test node and its callers.</summary>
+[Immutable]
 public sealed class TestJwtCredentials
 {
     private readonly byte[] _signingKey;

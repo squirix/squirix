@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -19,6 +20,7 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 /// <summary>
 /// Unit tests for <see cref="SquirixReplicationServiceAdapter"/>.
 /// </summary>
+[Immutable]
 public sealed class SquirixReplicationServiceAdapterTests
 {
     /// <summary>Verifies that GetReplicaStatus returns the node's current topology fingerprint and configuration generation.</summary>
@@ -392,6 +394,7 @@ public sealed class SquirixReplicationServiceAdapterTests
 
     /// <summary>In-memory <see cref="IAsyncStreamReader{T}" /> backed by a fixed item sequence.</summary>
     /// <typeparam name="T">The streamed message type.</typeparam>
+    [Immutable]
     private sealed class TestAsyncStreamReader<T> : IAsyncStreamReader<T>
     {
         private readonly IEnumerator<T> _items;
@@ -410,6 +413,7 @@ public sealed class SquirixReplicationServiceAdapterTests
         public Task<bool> MoveNext(CancellationToken cancellationToken) => Task.FromResult(_items.MoveNext());
     }
 
+    [Immutable]
     private sealed class AdapterFixture : IDisposable
     {
         private readonly MtlsTestCertificateBundle _bundle;

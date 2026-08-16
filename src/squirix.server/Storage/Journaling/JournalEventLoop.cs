@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -148,6 +149,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     }
 
     /// <summary>Ring drain and journal-thread scheduling for the journal event loop.</summary>
+    [Immutable]
     private sealed class JournalEventLoopDrainScheduler
     {
         private readonly IJournalEventLoopDrainState _owner;

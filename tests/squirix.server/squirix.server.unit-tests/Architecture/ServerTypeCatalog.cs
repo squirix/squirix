@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -306,5 +307,6 @@ internal static class ServerTypeCatalog
     /// <param name="FullName">Namespace-qualified type name.</param>
     /// <param name="NamespaceName">Containing namespace.</param>
     /// <param name="IsInterface"><see langword="true" /> when the declaration is an interface.</param>
+    [Immutable]
     internal readonly record struct DeclaredType(string FullName, string NamespaceName, bool IsInterface);
 }

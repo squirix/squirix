@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
 /// <summary>Immutable Raft-equivalent cluster snapshot for exploration.</summary>
+[Immutable]
 internal sealed class ClusterState
 {
     private ClusterState(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, int nextMessageId, IReadOnlyList<int> matchIndexes)
@@ -115,32 +117,6 @@ internal sealed class ClusterState
             IReadOnlyList<int> matchIndexes,
             bool symmetryReduce) => symmetryReduce ? Canonical(nodes, messages, partitions, matchIndexes) : Raw(nodes, messages, partitions, matchIndexes);
 
-        private static string Canonical(
-            IReadOnlyList<NodeState> nodes,
-            IReadOnlyList<InFlightMessage> messages,
-            IReadOnlyList<int> partitions,
-            IReadOnlyList<int> matchIndexes)
-        {
-            var order = BuildSymmetryOrder(nodes);
-            var map = new int[nodes.Count];
-            for (var i = 0; i < order.Length; i++)
-                map[order[i]] = i;
-
-            return Raw(RemapNodes(nodes, order, map), RemapMessages(messages, map), RemapInts(order, partitions), RemapInts(order, matchIndexes));
-        }
-
-        private static string Raw(
-            IReadOnlyList<NodeState> nodes,
-            IReadOnlyList<InFlightMessage> messages,
-            IReadOnlyList<int> partitions,
-            IReadOnlyList<int> matchIndexes)
-        {
-            var sb = new StringBuilder(256);
-            AppendNodePartitions(sb, nodes, partitions, matchIndexes);
-            AppendOrderedMessages(sb, messages);
-            return sb.ToString();
-        }
-
         private static void AppendLog(StringBuilder sb, NodeState n)
         {
             for (var i = 0; i < n.LogEntries.Count; i++)
@@ -178,8 +154,8 @@ internal sealed class ClusterState
             for (var i = 0; i < nodes.Count; i++)
             {
                 AppendNode(sb, nodes[i]);
-                _ = sb.Append('|').Append(partitions[i].ToString(CultureInfo.InvariantCulture)).Append('|')
-                      .Append(matchIndexes[i].ToString(CultureInfo.InvariantCulture)).Append(';');
+                _ = sb.Append('|').Append(partitions[i].ToString(CultureInfo.InvariantCulture)).Append('|').Append(matchIndexes[i].ToString(CultureInfo.InvariantCulture))
+                      .Append(';');
             }
         }
 
@@ -230,6 +206,16 @@ internal sealed class ClusterState
 
             Array.Sort(order, new SignatureOrderComparer(signatures));
             return order;
+        }
+
+        private static string Canonical(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
+        {
+            var order = BuildSymmetryOrder(nodes);
+            var map = new int[nodes.Count];
+            for (var i = 0; i < order.Length; i++)
+                map[order[i]] = i;
+
+            return Raw(RemapNodes(nodes, order, map), RemapMessages(messages, map), RemapInts(order, partitions), RemapInts(order, matchIndexes));
         }
 
         private static int CompareMessages(InFlightMessage a, InFlightMessage b)
@@ -284,6 +270,14 @@ internal sealed class ClusterState
         {
             var sb = new StringBuilder(64);
             AppendNodeStructure(sb, n);
+            return sb.ToString();
+        }
+
+        private static string Raw(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
+        {
+            var sb = new StringBuilder(256);
+            AppendNodePartitions(sb, nodes, partitions, matchIndexes);
+            AppendOrderedMessages(sb, messages);
             return sb.ToString();
         }
 
@@ -345,6 +339,7 @@ internal sealed class ClusterState
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported enum value."),
         };
 
+        [Immutable]
         private readonly record struct SignatureOrderComparer : IComparer<int>
         {
             private readonly string[] _signatures;

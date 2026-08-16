@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
@@ -19,6 +20,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Idempotent durable mutations must append idempotency frames before the durability barrier.</summary>
+[Immutable]
 public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
@@ -102,6 +104,7 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
         Assert.True(sawIdempotency);
     }
 
+    [Immutable]
     private sealed class OrderingJournal : IJournalCoordinator
     {
         private readonly IJournalCoordinator _inner;

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -10,6 +11,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.Benchmarks.Support.Cluster;
 
 /// <summary>Owns one in-process Squirix node used as the remote server for client SDK benchmarks.</summary>
+[Immutable]
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
     private readonly TempDirectory? _dataDir;

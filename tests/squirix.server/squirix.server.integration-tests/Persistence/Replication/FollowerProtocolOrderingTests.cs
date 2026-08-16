@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Ordering rules of the replication append protocol over the durable follower log.</summary>
+[Immutable]
 public sealed class FollowerProtocolOrderingTests
 {
     private const string GroupId = "grp-1";

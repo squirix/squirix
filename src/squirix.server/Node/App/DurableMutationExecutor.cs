@@ -3,12 +3,14 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
 
+[Immutable]
 internal sealed class DurableMutationExecutor
 {
     private const string KeyAlreadyExistsMessage = "Key already exists.";
@@ -266,6 +268,7 @@ internal sealed class DurableMutationExecutor
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
     /// <typeparam name="TResult">Mutation result type.</typeparam>
+    [Immutable]
     private sealed record DurableMutationPlan<TResult>
     {
         private DurableMutationPlan(bool shouldApply, TResult? skipResult)
@@ -292,6 +295,7 @@ internal sealed class DurableMutationExecutor
         internal static DurableMutationPlan<TResult> Skip(TResult result) => new(false, result);
     }
 
+    [Immutable]
     private sealed record GroupCommitApplyWithState<TState, TResult>
     {
         internal GroupCommitApplyWithState(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
@@ -305,6 +309,7 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
+    [Immutable]
     private sealed record GroupCommitPrepareWithMutationState<TState, TResult>
     {
         internal GroupCommitPrepareWithMutationState(
@@ -336,6 +341,7 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
+    [Immutable]
     private sealed record GroupCommitPrepareWithPipelineState<TState, TResult>
     {
         internal GroupCommitPrepareWithPipelineState(
@@ -367,6 +373,7 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
+    [Immutable]
     private sealed record MonolithicWithMutationState<TState, TResult>
     {
         internal MonolithicWithMutationState(
@@ -394,6 +401,7 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
+    [Immutable]
     private sealed record MonolithicWithPipelineState<TState, TResult>
     {
         internal MonolithicWithPipelineState(

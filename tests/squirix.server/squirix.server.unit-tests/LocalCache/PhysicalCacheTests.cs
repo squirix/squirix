@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.LocalCache;
 
 /// <summary>Unit tests for <see cref="PhysicalCache{T}" /> update/expiration races.</summary>
+[Immutable]
 public sealed class PhysicalCacheTests : ServerUnitTestBase
 {
     /// <summary>Update on an expired key removes it and returns false.</summary>

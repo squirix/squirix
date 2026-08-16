@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Unit tests for <see cref="JournalEntryPayload" />.</summary>
+[Immutable]
 public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 {
     private interface IValueContract;
@@ -71,6 +73,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         Assert.Equal(4, roundTrip.Version);
     }
 
+    [Immutable]
     private sealed record DerivedValue : IValueContract
     {
         [UsedImplicitly]

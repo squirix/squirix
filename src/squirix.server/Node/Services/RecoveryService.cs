@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
@@ -349,6 +350,7 @@ internal sealed class RecoveryService<T> : IHostedService
         return new ReplayState(fromSegment, lastAppliedSeq);
     }
 
+    [Immutable]
     private sealed record ReplayContext(
         SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
@@ -357,5 +359,6 @@ internal sealed class RecoveryService<T> : IHostedService
         int FromSegment,
         ulong LastAppliedSequence);
 
+    [Immutable]
     private sealed record ReplayState(int FromSegment, ulong LastAppliedSequence);
 }

@@ -1,8 +1,10 @@
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Test locator that always returns a fixed owner node id.</summary>
+[Immutable]
 internal sealed class FixedOwnerLocator : INodeLocator
 {
     private readonly string _owner;

@@ -1,6 +1,9 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Core;
 
 /// <summary>Options controlling capacity-based eviction behavior of the in-memory cache.</summary>
+[Immutable]
 internal sealed class EvictionOptions
 {
     /// <summary>

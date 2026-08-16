@@ -1,8 +1,10 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
+[Immutable]
 internal sealed class JournalStartupGate
 {
     private readonly TaskCompletionSource _ready = CreateCompletionSource();

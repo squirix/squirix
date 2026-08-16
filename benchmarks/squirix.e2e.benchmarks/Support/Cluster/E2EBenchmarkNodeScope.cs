@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.Server.TestKit.Hosting;
@@ -11,6 +12,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
 /// <summary>Owns one in-process Squirix node used as the remote server for end-to-end benchmarks.</summary>
+[Immutable]
 internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
 {
     private readonly TempDirectory? _dataDir;

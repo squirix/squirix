@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>REQ-CFG-001 / REQ-CFG-002 coverage for ReplicaCount bounds and activation prerequisites.</summary>
+[Immutable]
 public sealed class ReplicaCountValidationTests : ServerUnitTestBase
 {
     /// <summary>Default ReplicaCount is one.</summary>

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster;
 
 /// <summary>Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.</summary>
+[Immutable]
 internal sealed record MtlsOptions
 {
     /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>

@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>Memory pressure settings loaded from configuration before RAM budget resolution.</summary>
+[Immutable]
 internal sealed record UnresolvedMemoryPressureOptions
 {
     /// <summary>

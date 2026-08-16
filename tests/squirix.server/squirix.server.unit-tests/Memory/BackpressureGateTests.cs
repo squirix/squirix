@@ -5,6 +5,7 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -13,6 +14,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for node-level backpressure admission control.</summary>
+[Immutable]
 public sealed class BackpressureGateTests : ServerUnitTestBase
 {
     private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
@@ -507,6 +509,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         Assert.True(task.IsCanceled);
     }
 
+    [Immutable]
     private sealed class BackpressureGaugeSubscription
     {
         private readonly FrozenDictionary<string, List<int>> _measurements;

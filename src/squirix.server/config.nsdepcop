@@ -35,6 +35,7 @@
   <Allowed From="*" To="System.*" />
   <Allowed From="*" To="Microsoft.*" />
   <Allowed From="*" To="JetBrains.*" />
+  <Allowed From="*" To="Squirix.Attributes" />
   <Allowed From="*" To="Grpc.*" />
   <Allowed From="*" To="Google.*" />
   <Allowed From="*" To="Squirix.Transport.*" />

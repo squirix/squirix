@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
 /// <summary>Construction and validation rules of the static group composition.</summary>
+[Immutable]
 public sealed class GroupCompositionTests : ServerUnitTestBase
 {
     /// <summary>A composition must not accept the same group twice.</summary>

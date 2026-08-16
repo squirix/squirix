@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.UnitTests.Internal;
 
 /// <summary>Covers ProtoEx object and typed primitive mapping arms.</summary>
+[Immutable]
 public sealed class ProtoExTests
 {
     /// <summary>Exact typed primitive wire forms decode without struct wrapping.</summary>

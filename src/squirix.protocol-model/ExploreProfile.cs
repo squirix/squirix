@@ -1,9 +1,11 @@
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
+[Immutable]
 internal sealed class ExploreProfile
 {
     private ExploreProfile(string name, ExploreBounds bounds, ExploreFlags flags)
@@ -80,8 +82,10 @@ internal sealed class ExploreProfile
         new ExploreFlags(false, false, symmetryReduce));
 
     [StructLayout(LayoutKind.Auto)]
+    [Immutable]
     private readonly record struct ExploreBounds(int ReplicaCount, int MaxTerm, int MaxLogEntries, int MaxInFlight, int MaxPendingReads, int MaxStates);
 
     [StructLayout(LayoutKind.Auto)]
+    [Immutable]
     private readonly record struct ExploreFlags(bool AllowCrash, bool AllowPartition, bool SymmetryReduce);
 }

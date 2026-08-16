@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>Property-style placement checks for the physical replica ring.</summary>
+[Immutable]
 public sealed class ReplicaPlacementPropertyTests
 {
     /// <summary>Vnode ownership remains a single original owner string.</summary>

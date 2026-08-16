@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -17,6 +18,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Covers local-owner journal logging paths introduced by the durable pipeline refactor.</summary>
+[Immutable]
 public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
@@ -122,6 +124,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         return new Harness(dir, manifestStore, journal, physical, inner, cache);
     }
 
+    [Immutable]
     private sealed class Harness : IAsyncDisposable
     {
         private readonly TempDirectory _dir;

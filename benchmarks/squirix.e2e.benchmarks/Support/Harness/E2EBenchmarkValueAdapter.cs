@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2EBenchmarks.Fixtures;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
@@ -30,6 +31,7 @@ internal static class E2EBenchmarkValueAdapter
         };
     }
 
+    [Immutable]
     private sealed class Adapter<T> : IE2EBenchmarkValueAdapter
     {
         private readonly ICache<T> _cache;

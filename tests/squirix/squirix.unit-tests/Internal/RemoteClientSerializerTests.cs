@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
 using Xunit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.UnitTests.Internal;
 
 /// <summary>Covers metrics-decorated serializer paths used by remote client sessions.</summary>
+[Immutable]
 public sealed class RemoteClientSerializerTests
 {
     /// <summary>Unhandled exception types bypass the metrics failure filter.</summary>
@@ -76,6 +78,7 @@ public sealed class RemoteClientSerializerTests
         Assert.Same(inner, serializer);
     }
 
+    [Immutable]
     private sealed class ThrowingSerializer : ISquirixSerializer
     {
         private readonly Exception _exception;
