@@ -40,7 +40,7 @@ internal sealed class CallPolicy : ICallPolicy
             timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
             baseBackoff ?? TimeSpan.FromMilliseconds(50),
             maxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new CallPolicyExecutor(this, settings, timeProvider ?? TimeProvider.System, _semaphore);
+        _executor = new CallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining);
     }
 
     public void BeginDrain() => _draining = true;
@@ -112,6 +112,8 @@ internal sealed class CallPolicy : ICallPolicy
             budgetCts.CancelAfter(budgetRemaining);
     }
 
+    private bool IsDraining() => _draining;
+
     private void DisposeSemaphoreUnderLockIfIdle()
     {
         if (!_disposed || _semaphoreDisposed || !_activeOperations.IsIdle())
@@ -164,17 +166,16 @@ internal sealed class CallPolicy : ICallPolicy
     private sealed class CallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
+        private readonly Func<bool> _isDraining;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
-        private readonly CallPolicy _owner;
         private readonly string _peer;
         private readonly SemaphoreSlim _semaphore;
         private readonly TimeProvider _timeProvider;
         private readonly TimeSpan _timeoutPerAttempt;
 
-        internal CallPolicyExecutor(CallPolicy owner, CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
+        internal CallPolicyExecutor(CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore, Func<bool> isDraining)
         {
-            _owner = owner;
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
             _timeoutPerAttempt = settings.TimeoutPerAttempt;
@@ -182,6 +183,7 @@ internal sealed class CallPolicy : ICallPolicy
             _maxBackoff = settings.MaxBackoff;
             _timeProvider = timeProvider;
             _semaphore = semaphore;
+            _isDraining = isDraining;
         }
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
@@ -369,7 +371,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private void ThrowIfDraining()
         {
-            if (!_owner._draining)
+            if (!_isDraining())
                 return;
 
             CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);

@@ -38,7 +38,7 @@ public sealed class SquirixServer : IAsyncDisposable
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
         Configurator.ApplyRuntimeDefaults(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
 
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions

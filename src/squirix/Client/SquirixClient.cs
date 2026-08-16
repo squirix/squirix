@@ -77,7 +77,7 @@ public sealed class SquirixClient : ISquirixClient
         ThrowIfDisposed();
 
         var cache = _remoteSession.GetCache<T>(cacheName);
-        return ValueTask.FromResult<ICache<T>>(new InternalCache<T>(this, cache));
+        return ValueTask.FromResult<ICache<T>>(new InternalCache<T>(ThrowIfDisposed, cache));
     }
 
     internal static async ValueTask<ISquirixClient> ConnectAsync(SquirixClientOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
@@ -93,30 +93,30 @@ public sealed class SquirixClient : ISquirixClient
 
     private sealed class InternalCache<T> : ICache<T>
     {
-        private readonly SquirixClient _client;
+        private readonly Action _throwIfDisposed;
         private readonly ICache<T> _inner;
 
-        internal InternalCache(SquirixClient client, ICache<T> inner)
+        internal InternalCache(Action throwIfDisposed, ICache<T> inner)
         {
-            _client = client ?? throw new ArgumentNullException(nameof(client));
+            _throwIfDisposed = throwIfDisposed ?? throw new ArgumentNullException(nameof(throwIfDisposed));
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         }
 
         public Task AddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.AddAsync(key, value, options, cancellationToken);
         }
 
         public Task<CacheEntryResult<T>> GetEntryAsync(string key, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.GetEntryAsync(key, cancellationToken);
         }
 
         public Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.GetExpirationAsync(key, cancellationToken);
         }
 
@@ -126,55 +126,55 @@ public sealed class SquirixClient : ISquirixClient
             CacheEntryOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.GetOrAddAsync(key, valueFactory, options, cancellationToken);
         }
 
         public Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.GetValueAsync(key, cancellationToken);
         }
 
         public Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.RemoveAsync(key, cancellationToken);
         }
 
         public Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.RemoveExpirationAsync(key, cancellationToken);
         }
 
         public Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.SetAsync(key, value, options, cancellationToken);
         }
 
         public Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.TouchAsync(key, expiration, cancellationToken);
         }
 
         public Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.TouchAsync(key, absoluteExpiration, cancellationToken);
         }
 
         public Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.TryAddAsync(key, value, options, cancellationToken);
         }
 
         public Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default)
         {
-            _client.ThrowIfDisposed();
+            _throwIfDisposed();
             return _inner.UpdateAsync(key, value, cancellationToken);
         }
     }

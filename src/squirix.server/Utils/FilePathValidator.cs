@@ -35,7 +35,7 @@ internal static class FilePathValidator
     {
         var root = Path.GetPathRoot(path) ?? string.Empty;
         var rest = path.AsSpan(root.Length);
-        while (DirectoryPathValidator.TryReadNextSegment(ref rest, out var segment))
+        while (PathEx.TryReadNextSegment(ref rest, out var segment))
             PathValidation.ValidateSegment(segment, paramName, true);
     }
 }

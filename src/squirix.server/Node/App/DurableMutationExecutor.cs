@@ -86,7 +86,7 @@ internal sealed class DurableMutationExecutor
         finally
         {
             if (state.PendingMemoryApply)
-                _journal.CompletePendingMemoryApply();
+                _journal.InFlightApplyGate.Exit();
         }
     }
 
@@ -206,7 +206,7 @@ internal sealed class DurableMutationExecutor
                 return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
             }
 
-            _journal.BeginPendingMemoryApply();
+            _journal.InFlightApplyGate.Enter();
             state.PendingMemoryApply = true;
             await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
@@ -240,7 +240,7 @@ internal sealed class DurableMutationExecutor
                 return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
             }
 
-            _journal.BeginPendingMemoryApply();
+            _journal.InFlightApplyGate.Enter();
             state.PendingMemoryApply = true;
             await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
@@ -255,7 +255,7 @@ internal sealed class DurableMutationExecutor
     private void RollbackGroupCommitBarrierState(CacheKey conflictKey, GroupCommitExecutionState state)
     {
         if (state.PendingMemoryApply)
-            _journal.CompletePendingMemoryApply();
+            _journal.InFlightApplyGate.Exit();
 
         if (!state.Admitted)
             return;

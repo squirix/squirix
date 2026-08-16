@@ -28,7 +28,7 @@ internal static class MacOsCompatibilitySymlink
     /// <returns><see langword="true" /> when a non-empty expected path was produced.</returns>
     internal static bool TryBuildExpectedPrivatePath(string root, string name, out string expectedFull)
     {
-        expectedFull = DirectoryPathValidator.TrimTrailingSeparators(Path.Join(root, "private", name));
+        expectedFull = DirectoryPathHelpers.TrimTrailingSeparators(Path.Join(root, "private", name));
         return expectedFull.Length > 0;
     }
 
@@ -95,8 +95,8 @@ internal static class MacOsCompatibilitySymlink
             return false;
 
         // Compare trimmed and raw root forms: Path.GetPathRoot may keep a trailing separator.
-        var rootTrimmed = DirectoryPathValidator.TrimTrailingSeparators(pathRoot);
-        var parentTrimmed = DirectoryPathValidator.TrimTrailingSeparators(parent.FullName);
+        var rootTrimmed = DirectoryPathHelpers.TrimTrailingSeparators(pathRoot);
+        var parentTrimmed = DirectoryPathHelpers.TrimTrailingSeparators(parent.FullName);
         if (!parentTrimmed.Equals(rootTrimmed, StringComparison.Ordinal) && !parent.FullName.Equals(pathRoot, StringComparison.Ordinal))
             return false;
 
@@ -138,7 +138,7 @@ internal static class MacOsCompatibilitySymlink
         if (target is null)
             return false;
 
-        targetFull = DirectoryPathValidator.TrimTrailingSeparators(target.FullName);
+        targetFull = DirectoryPathHelpers.TrimTrailingSeparators(target.FullName);
         return true;
     }
 }

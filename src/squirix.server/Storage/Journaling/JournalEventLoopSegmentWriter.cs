@@ -1,21 +1,22 @@
 using System;
 using System.Buffers;
 using System.IO;
-using System.Threading;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Segment rolls, batching, and frame writes for <see cref="JournalEventLoop" />.</summary>
+/// <summary>Segment rolls, batching, and frame writes for the journal event loop.</summary>
 internal sealed class JournalEventLoopSegmentWriter
 {
-    private readonly JournalEventLoop _owner;
+    private readonly IJournalEventLoopState _owner;
+    private readonly IJournalEventLoopRollState _roll;
 
-    internal JournalEventLoopSegmentWriter(JournalEventLoop owner)
+    internal JournalEventLoopSegmentWriter(IJournalEventLoopState owner, IJournalEventLoopRollState roll)
     {
         _owner = owner;
+        _roll = roll;
     }
 
     internal void FlushWriteBatch(bool notifyGroupCommit = false)
@@ -29,12 +30,12 @@ internal sealed class JournalEventLoopSegmentWriter
         CompleteWriteBatch(span.Length, offset, notifyGroupCommit);
     }
 
-    internal bool ProcessJournalWorkItem(JournalWorkItem item, JournalEventLoopDrainScheduler drainScheduler)
+    internal bool ProcessJournalWorkItem(JournalWorkItem item)
     {
         switch (item.Kind)
         {
             case JournalWorkKind.Append:
-                ProcessAppend(item, drainScheduler);
+                ProcessAppend(item);
                 return false;
 
             case JournalWorkKind.AppendWithDurability:
@@ -55,12 +56,12 @@ internal sealed class JournalEventLoopSegmentWriter
             case JournalWorkKind.MaintenanceBegin:
                 FlushWriteBatch();
                 _owner.FsyncOnJournalThread();
-                _owner.SetActiveSegmentPath(null);
+                _roll.SetActiveSegmentPath(null);
                 CompleteJournalWorkItem(item);
                 return false;
 
             case JournalWorkKind.MaintenanceEnd:
-                _owner.SetCurrentSegmentIndex(item.ResetSegmentIndex);
+                _roll.SetCurrentSegmentIndex(item.ResetSegmentIndex);
                 _owner.Host.SetNextSequence(item.ResetSequence);
                 _owner.SetActiveSegmentWrittenBytes(0);
                 _owner.SetDirty(false);
@@ -69,7 +70,7 @@ internal sealed class JournalEventLoopSegmentWriter
                 // (used by the hot roll path) from the new on-disk layout.
                 var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
                 _owner.SetJournalTotalBytes(totalBytes);
-                _owner.SetJournalSegmentCount(segmentCount);
+                _roll.SetJournalSegmentCount(segmentCount);
                 CompleteJournalWorkItem(item);
                 return false;
 
@@ -110,10 +111,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
     internal bool TryCompletePendingSegmentRoll()
     {
-        if (Volatile.Read(ref _owner.SegmentRollCompletionPendingField) is 0)
+        if (!_roll.TryConsumeSegmentRollCompletion())
             return false;
 
-        Volatile.Write(ref _owner.SegmentRollCompletionPendingField, 0);
         CompleteSegmentRollOnJournalThread();
         return true;
     }
@@ -122,7 +122,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void BeginSegmentRollOnJournalThread()
     {
-        if (_owner.SegmentRollInFlight)
+        if (_roll.SegmentRollInFlight)
             return;
 
         _owner.FsyncOnJournalThread();
@@ -130,26 +130,26 @@ internal sealed class JournalEventLoopSegmentWriter
         // Roll capacity uses in-memory counters maintained by the single journal-thread writer instead
         // of rescanning the directory (two EnumerateFiles passes plus a stat per segment) on the hot
         // roll path. The counters are seeded at startup and resynced after compaction (MaintenanceEnd).
-        _owner.Policy.EnsureRollCapacityOrThrow(_owner.JournalSegmentCount, _owner.JournalTotalBytes);
-        _owner.SetPendingRollTargetSegmentIndex(_owner.CurrentSegmentIndex + 1);
-        _owner.SetSegmentRollInFlight(true);
-        _owner.Host.PublishRoll(_owner.PendingRollTargetSegmentIndex);
+        _owner.Policy.EnsureRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
+        _roll.SetPendingRollTargetSegmentIndex(_roll.CurrentSegmentIndex + 1);
+        _roll.SetSegmentRollInFlight(true);
+        _owner.Host.PublishRoll(_roll.PendingRollTargetSegmentIndex);
     }
 
     private void CompleteSegmentRollOnJournalThread()
     {
-        _owner.SetCurrentSegmentIndex(_owner.PendingRollTargetSegmentIndex);
-        var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _owner.CurrentSegmentIndex);
-        _owner.SetActiveSegmentPath(segmentPath);
+        _roll.SetCurrentSegmentIndex(_roll.PendingRollTargetSegmentIndex);
+        var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _roll.CurrentSegmentIndex);
+        _roll.SetActiveSegmentPath(segmentPath);
         _owner.SegmentWriter.OpenSegment(segmentPath, false);
         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
         JournalFraming.WriteFileHeader(header);
         _owner.SegmentWriter.Write(header, 0);
         _owner.SetActiveSegmentWrittenBytes(JournalFraming.FileHeaderSize);
         _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
-        _owner.IncrementJournalSegmentCount();
+        _roll.IncrementJournalSegmentCount();
         _owner.SetDirty(false);
-        _owner.SetSegmentRollInFlight(false);
+        _roll.SetSegmentRollInFlight(false);
     }
 
     private void CompleteStagedAppend(JournalWorkItem item)
@@ -180,7 +180,7 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.WriteBatch.Clear();
 
         if (notifyGroupCommit && _owner.Options.IsJournalGroupCommitEnabled)
-            _owner.DrainScheduler.DrainDueGroupCommitBatches();
+            _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
     }
 
     private void WriteBatchSpan(ReadOnlySpan<byte> span, long offset)
@@ -203,14 +203,13 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void EnsureSegmentOpen()
     {
-        if (_owner.ActiveSegmentPath is not null)
-
-            // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
-            // advances it after every Write. No per-call stat/lseek of the writer length is needed.
+        // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
+        // advances it after every Write. No per-call stat/lseek of the writer length is needed.
+        if (_roll.ActiveSegmentPath is not null)
             return;
 
-        var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _owner.CurrentSegmentIndex);
-        _owner.SetActiveSegmentPath(segmentPath);
+        var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _roll.CurrentSegmentIndex);
+        _roll.SetActiveSegmentPath(segmentPath);
         var append = File.Exists(segmentPath);
         _owner.SegmentWriter.OpenSegment(segmentPath, append);
         if (_owner.SegmentWriter.Length == 0)
@@ -223,7 +222,7 @@ internal sealed class JournalEventLoopSegmentWriter
             // EnsureAppendCapacityOrThrow / UsedBytes see the same on-disk size as ActiveSegmentWrittenBytes.
             _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
             if (!append)
-                _owner.IncrementJournalSegmentCount();
+                _roll.IncrementJournalSegmentCount();
         }
 
         _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
@@ -240,7 +239,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private long GetEffectiveJournalTotalBytes() => _owner.JournalTotalBytes + _owner.WriteBatch.StagedByteLength;
 
-    private void ProcessAppend(JournalWorkItem item, JournalEventLoopDrainScheduler drainScheduler)
+    private void ProcessAppend(JournalWorkItem item)
     {
         try
         {
@@ -265,7 +264,7 @@ internal sealed class JournalEventLoopSegmentWriter
         ReleaseQueuedAppendResources(item);
 
         if (_owner.Options.IsJournalGroupCommitEnabled)
-            drainScheduler.DrainDueGroupCommitBatches();
+            _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
         CompleteJournalWorkItem(item);
     }

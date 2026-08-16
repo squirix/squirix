@@ -21,8 +21,6 @@ internal static class BackpressureMetrics
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
 
-    private static ObserverEntry[] _snapshotBuffer = [];
-
     internal static void AddBypass(string transport, string operation)
     {
         var tags = CreateTags(transport, operation);
@@ -99,27 +97,12 @@ internal static class BackpressureMetrics
     {
         lock (ObserverGate)
         {
-            var count = Observers.Count;
-            if (count is 0)
-                return 0;
-
-            var snapshot = _snapshotBuffer;
-            if (snapshot.Length < count)
-            {
-                snapshot = new ObserverEntry[count];
-                _snapshotBuffer = snapshot;
-            }
-
-            var copied = 0;
-            foreach (var entry in Observers.Values)
-                snapshot[copied++] = entry;
-
             var total = 0;
-            for (var i = 0; i < copied; i++)
+            foreach (var entry in Observers.Values)
             {
                 try
                 {
-                    total += selector(snapshot[i]);
+                    total += selector(entry);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -130,9 +113,6 @@ internal static class BackpressureMetrics
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
                 }
             }
-
-            if (copied < snapshot.Length)
-                Array.Clear(snapshot, copied, snapshot.Length - copied);
 
             return total;
         }

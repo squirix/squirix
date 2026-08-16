@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.CompilerServices;
 using Squirix.Transport.Grpc.Cache;
 
@@ -8,18 +7,6 @@ namespace Squirix.Internal;
 internal static class ProtoScalarMapping
 {
     internal static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    internal static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => value.StringValue,
-        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
-        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
-        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => ProtoStructCodec.FromStruct<object?>(structValue, serializer),
-        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
-    };
 
     internal static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) => kind is CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue
         or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue;

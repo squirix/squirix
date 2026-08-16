@@ -15,9 +15,9 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     [Fact]
     public void IsDirectorySeparatorRecognizesBoth()
     {
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.DirectorySeparatorChar));
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
-        Assert.False(DirectoryPathValidator.IsDirectorySeparator('x'));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.DirectorySeparatorChar));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
+        Assert.False(DirectoryPathHelpers.IsDirectorySeparator('x'));
     }
 
     /// <summary>Resolves a relative path under a base directory.</summary>
@@ -76,10 +76,10 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     public void ReadNextSegmentReadsSegments()
     {
         var path = "/a//b/".AsSpan();
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var first));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var first));
         Assert.True(first.SequenceEqual("a".AsSpan()));
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var second));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var second));
         Assert.True(second.SequenceEqual("b".AsSpan()));
-        Assert.False(DirectoryPathValidator.TryReadNextSegment(ref path, out _));
+        Assert.False(PathEx.TryReadNextSegment(ref path, out _));
     }
 }

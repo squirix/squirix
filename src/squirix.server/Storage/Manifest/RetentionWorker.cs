@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 

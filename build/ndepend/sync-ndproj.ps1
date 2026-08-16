@@ -103,18 +103,13 @@ if ($null -ne $customRuleOverridesNode) {
             throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
         }
 
-        $idTag = "// <Id>${ruleToken}:"
-        if ($overrideQuery.InnerText -notlike "*$idTag*") {
-            throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
-        }
-
         $targetGroup = $queriesNode.SelectSingleNode(".//Group[@Name='$groupName']")
         if ($null -eq $targetGroup) {
             throw "Unexpected squirix.ndproj shape: group '$groupName' not found for rule override '$ruleToken'."
         }
 
         $placeholder = "`$${ruleToken}`$"
-        $overrideMarker = "// ${ruleToken} squirix override:"
+        $overrideMarker = "// ${ruleToken} squirix override"
         $targetQuery = $targetGroup.SelectNodes('Query') | Where-Object {
             $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*$overrideMarker*"
         } | Select-Object -First 1
@@ -143,7 +138,7 @@ if ($null -ne $ruleFiles) {
 }
 
 # Baseline noise: keep inactive so API rename churn vs prior analysis does not gate quality.
-# ND1412 is activated via squirix.ndrules CustomRuleOverrides (replication DAG gate).
+# Replication namespace DAG (forbidden dependency edges) is enforced by NsDepCop (config.nsdepcop), not NDepend.
 $deactivateTokens = @(
     'ND1500', 'ND1501', 'ND1502', 'ND1503', 'ND1504', 'ND1505', # API Breaking Changes vs prior analysis
     'ND2201' # Mark assemblies with CLSCompliant (deprecated)

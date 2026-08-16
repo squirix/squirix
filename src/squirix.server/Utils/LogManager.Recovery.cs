@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace Squirix.Server.Logging;
+namespace Squirix.Server.Utils;
 
 /// <summary>Recovery and journal replay/logging diagnostics.</summary>
 internal static partial class LogManager

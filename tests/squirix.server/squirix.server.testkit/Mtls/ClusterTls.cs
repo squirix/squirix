@@ -261,7 +261,7 @@ public sealed class ClusterTls : IDisposable
 
     private static class InternalPortPool
     {
-        private static readonly PortAllocator Allocator = new(
+        private static PortAllocator Allocator { get; } = new(
             HostPortRegions.StartInclusive(HostPortRegion.MtlsInternal),
             HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1);
 
