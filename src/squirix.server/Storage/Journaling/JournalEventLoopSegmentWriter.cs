@@ -205,10 +205,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void EnsureSegmentOpen()
     {
+        // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
+        // advances it after every Write. No per-call stat/lseek of the writer length is needed.
         if (_roll.ActiveSegmentPath is not null)
-
-            // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
-            // advances it after every Write. No per-call stat/lseek of the writer length is needed.
             return;
 
         var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _roll.CurrentSegmentIndex);

@@ -16,7 +16,8 @@ internal static class DirectoryPathHelpers
     internal static string TrimTrailingSeparators(string path)
     {
         var length = path.Length;
-        while (length > 0 && IsDirectorySeparator(path[length - 1]))
+        var rootLength = Path.GetPathRoot(path)?.Length ?? 0;
+        while (length > rootLength && IsDirectorySeparator(path[length - 1]))
             length--;
 
         return length == path.Length ? path : path[..length];

@@ -61,12 +61,6 @@ public sealed class SquirixServerOptions
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
     public void Validate() => Validate(this);
 
-    private static void Validate(SquirixServerOptions options)
-    {
-        if (!options.TryValidate(out var errors))
-            throw new ArgumentException(errors[0], nameof(options));
-    }
-
     private static bool TryValidateOptions(SquirixServerOptions options, out IReadOnlyList<string> errors)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -81,19 +75,14 @@ public sealed class SquirixServerOptions
 
         var peers = new ServerPeer[peerOptions.Count is 0 ? 1 : peerOptions.Count];
         if (peerOptions.Count is 0)
+        {
             peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = uri };
+        }
         else
+        {
             for (var i = 0; i < peerOptions.Count; i++)
-            {
-                var peer = peerOptions[i];
-                if (peer is null)
-                {
-                    errors = [$"Peers[{i}] cannot be null."];
-                    return false;
-                }
-
-                peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
-            }
+                peers[i] = new ServerPeer { NodeId = peerOptions[i].NodeId, Uri = peerOptions[i].Uri };
+        }
 
         var topology = new TopologyOptions(peers)
         {
@@ -116,5 +105,11 @@ public sealed class SquirixServerOptions
 
         errors = activationFailures;
         return false;
+    }
+
+    private static void Validate(SquirixServerOptions options)
+    {
+        if (!options.TryValidate(out var errors))
+            throw new ArgumentException(errors[0], nameof(options));
     }
 }
