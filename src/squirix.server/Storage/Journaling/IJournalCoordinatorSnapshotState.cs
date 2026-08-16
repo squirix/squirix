@@ -8,5 +8,5 @@ internal interface IJournalCoordinatorSnapshotState
 {
     SemaphoreSlim MutationGate { get; }
 
-    IQuiescenceGate InFlightApplyGate { get; }
+    QuiescenceGate InFlightApplyGate { get; }
 }

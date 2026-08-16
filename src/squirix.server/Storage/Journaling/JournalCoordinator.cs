@@ -108,7 +108,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public MutableInt32 QueuedAppendsCounter { get; } = new();
 
-    public IQuiescenceGate InFlightApplyGate { get; } = new QuiescenceGate();
+    public QuiescenceGate InFlightApplyGate { get; } = new QuiescenceGate();
 
     public JournalStartupGate StartupGate { get; }
 

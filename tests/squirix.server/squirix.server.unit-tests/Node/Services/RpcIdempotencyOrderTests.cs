@@ -135,7 +135,7 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         public ulong NextSequence => _inner.NextSequence;
 
-        public IQuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
+        public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 

@@ -41,7 +41,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public ulong NextSequence => _inner.NextSequence;
 
-    public IQuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
+    public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 

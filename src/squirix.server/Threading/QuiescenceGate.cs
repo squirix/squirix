@@ -17,7 +17,7 @@ namespace Squirix.Server.Threading;
 /// <see href="https://devblogs.microsoft.com/dotnet/building-async-coordination-primitives-part-4-asyncbarrier/">Building Async Coordination Primitives (Stephen Toub)</see>;
 /// <see href="https://dotnet.github.io/dotNext/api/DotNext.Threading.AsyncCountdownEvent.html">.NEXT AsyncCountdownEvent</see>.
 /// </remarks>
-internal sealed class QuiescenceGate : IQuiescenceGate
+internal sealed class QuiescenceGate
 {
     private readonly Lock _lock = new();
 
@@ -25,7 +25,7 @@ internal sealed class QuiescenceGate : IQuiescenceGate
 
     private TaskCompletionSource? _drained;
 
-    public bool HasPending
+    internal bool HasPending
     {
         get
         {
@@ -34,13 +34,13 @@ internal sealed class QuiescenceGate : IQuiescenceGate
         }
     }
 
-    public void Enter()
+    internal void Enter()
     {
         lock (_lock)
             _count++;
     }
 
-    public void Exit()
+    internal void Exit()
     {
         TaskCompletionSource? drained = null;
         lock (_lock)
@@ -59,7 +59,7 @@ internal sealed class QuiescenceGate : IQuiescenceGate
         drained?.SetResult();
     }
 
-    public ValueTask WaitAsync(CancellationToken cancellationToken)
+    internal ValueTask WaitAsync(CancellationToken cancellationToken)
     {
         Task task;
         lock (_lock)
