@@ -136,7 +136,7 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             DefaultCancellationToken);
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        journal.BeginPendingMemoryApply();
+        journal.InFlightApplyGate.Enter();
         var snapshotTask = journal.ExecuteSnapshotCutAsync(
             snapshotStarted,
             static (started, _, _) =>
@@ -146,11 +146,15 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             },
             static (_, _, barrier, _) => new ValueTask<int>(barrier),
             DefaultCancellationToken).AsTask();
-
-        var first = await Task.WhenAny(snapshotStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken));
-        Assert.NotSame(snapshotStarted.Task, first);
-
-        journal.CompletePendingMemoryApply();
+        try
+        {
+            var first = await Task.WhenAny(snapshotStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken));
+            Assert.NotSame(snapshotStarted.Task, first);
+        }
+        finally
+        {
+            journal.InFlightApplyGate.Exit();
+        }
 
         Assert.Equal(1, await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken));
         Assert.True(snapshotStarted.Task.IsCompletedSuccessfully);

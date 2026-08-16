@@ -1,11 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -89,6 +89,32 @@ internal sealed class ClientInterceptor : Interceptor
         }
 
         metadata.Add(key, value);
+    }
+
+    private static class GrpcMetadataPool
+    {
+        private static readonly ConcurrentBag<Metadata> Pool = [];
+
+        /// <summary>Rents a cleared <see cref="Metadata" /> instance from the pool or allocates when empty.</summary>
+        /// <returns>A reusable metadata bag owned by the caller until <see cref="Return" />.</returns>
+        internal static Metadata Rent()
+        {
+            if (!Pool.TryTake(out var metadata))
+                return [];
+            metadata.Clear();
+            return metadata;
+        }
+
+        /// <summary>Clears and returns a rented <see cref="Metadata" /> instance to the pool.</summary>
+        /// <param name="metadata">Rented metadata, or <see langword="null" /> when nothing was rented.</param>
+        internal static void Return(Metadata? metadata)
+        {
+            if (metadata is null)
+                return;
+
+            metadata.Clear();
+            Pool.Add(metadata);
+        }
     }
 
     /// <summary>Owns logging scope, optional client Activity, and rented metadata for an outbound unary call.</summary>

@@ -35,7 +35,7 @@ public static class Configurator
 
         ApplyRuntimeDefaults(options);
         AlignLocalPeerWithNodeUrl(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
     }
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
@@ -100,7 +100,7 @@ public static class Configurator
 
         configure?.Invoke(options);
         ApplyRuntimeDefaults(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
         return options;
     }
 
@@ -239,7 +239,7 @@ public static class Configurator
             if (options.DataDirectory is not null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 
-            if (SquirixServerOptionsValidator.TryValidate(options, out var failures))
+            if (options.TryValidate(out var failures))
                 return (true, options, null);
 
             return (false, null, string.Join(Environment.NewLine, failures));
@@ -287,7 +287,7 @@ public static class Configurator
     /// <returns>Cluster configuration for the node host pipeline.</returns>
     internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)

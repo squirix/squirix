@@ -14,8 +14,9 @@ namespace Squirix.Server.Node.Observability;
 /// </summary>
 internal static class MemoryPressureMetrics
 {
-    private static readonly RegistrationCatalog Catalog = new();
     private static readonly Lock InitLock = new();
+
+    private static RegistrationCatalog Catalog { get; } = new();
 
     internal static void Register(MetricRegistration registration)
     {

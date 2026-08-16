@@ -2,10 +2,10 @@ using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
 
-public sealed class ProtocolSafetyModelTests
+public static class ProtocolSafetyModelTests
 {
     [Fact]
-    public void StaticMembershipElectsAtMostOneLeaderPerTerm()
+    public static void StaticMembershipElectsAtMostOneLeaderPerTerm()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
         Assert.True(result.FixedPointReached);
@@ -14,7 +14,7 @@ public sealed class ProtocolSafetyModelTests
     }
 
     [Fact]
-    public void CommittedEntrySurvivesFutureLeaderSelection()
+    public static void CommittedEntrySurvivesFutureLeaderSelection()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.None);
         Assert.True(result.FixedPointReached);
@@ -22,7 +22,7 @@ public sealed class ProtocolSafetyModelTests
     }
 
     [Fact]
-    public void OldTermEntryNeedsCurrentTermCommit()
+    public static void OldTermEntryNeedsCurrentTermCommit()
     {
         var safe = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.None);
         Assert.True(safe.FixedPointReached);
@@ -34,7 +34,7 @@ public sealed class ProtocolSafetyModelTests
     }
 
     [Fact]
-    public void QuorumReadRequiresCurrentTermMajority()
+    public static void QuorumReadRequiresCurrentTermMajority()
     {
         var safe = ExploreRunner.Run(ExploreProfile.SmallRead(), BrokenMode.None);
         Assert.True(safe.FixedPointReached);

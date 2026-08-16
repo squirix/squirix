@@ -44,7 +44,7 @@ internal sealed class ClusterState
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
 
-    internal string Fingerprint(bool symmetryReduce) => symmetryReduce ? FingerprintHelper.Canonical(this) : FingerprintHelper.Raw(this);
+    internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Create(Nodes, Messages, Partitions, MatchIndexes, symmetryReduce);
 
     internal ClusterState WithMatchIndexes(IReadOnlyList<int> matchIndexes) => With(matchIndexes: matchIndexes);
 
@@ -108,13 +108,36 @@ internal sealed class ClusterState
 
     private static class FingerprintHelper
     {
-        internal static string Canonical(ClusterState state) => Raw(RemapForSymmetry(state));
+        internal static string Create(
+            IReadOnlyList<NodeState> nodes,
+            IReadOnlyList<InFlightMessage> messages,
+            IReadOnlyList<int> partitions,
+            IReadOnlyList<int> matchIndexes,
+            bool symmetryReduce) => symmetryReduce ? Canonical(nodes, messages, partitions, matchIndexes) : Raw(nodes, messages, partitions, matchIndexes);
 
-        internal static string Raw(ClusterState state)
+        private static string Canonical(
+            IReadOnlyList<NodeState> nodes,
+            IReadOnlyList<InFlightMessage> messages,
+            IReadOnlyList<int> partitions,
+            IReadOnlyList<int> matchIndexes)
+        {
+            var order = BuildSymmetryOrder(nodes);
+            var map = new int[nodes.Count];
+            for (var i = 0; i < order.Length; i++)
+                map[order[i]] = i;
+
+            return Raw(RemapNodes(nodes, order, map), RemapMessages(messages, map), RemapInts(order, partitions), RemapInts(order, matchIndexes));
+        }
+
+        private static string Raw(
+            IReadOnlyList<NodeState> nodes,
+            IReadOnlyList<InFlightMessage> messages,
+            IReadOnlyList<int> partitions,
+            IReadOnlyList<int> matchIndexes)
         {
             var sb = new StringBuilder(256);
-            AppendNodePartitions(sb, state);
-            AppendOrderedMessages(sb, state);
+            AppendNodePartitions(sb, nodes, partitions, matchIndexes);
+            AppendOrderedMessages(sb, messages);
             return sb.ToString();
         }
 
@@ -150,13 +173,13 @@ internal sealed class ClusterState
             _ = sb.Append(']');
         }
 
-        private static void AppendNodePartitions(StringBuilder sb, ClusterState state)
+        private static void AppendNodePartitions(StringBuilder sb, IReadOnlyList<NodeState> nodes, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
         {
-            for (var i = 0; i < state.Nodes.Count; i++)
+            for (var i = 0; i < nodes.Count; i++)
             {
-                AppendNode(sb, state.Nodes[i]);
-                _ = sb.Append('|').Append(state.Partitions[i].ToString(CultureInfo.InvariantCulture)).Append('|')
-                      .Append(state.MatchIndexes[i].ToString(CultureInfo.InvariantCulture)).Append(';');
+                AppendNode(sb, nodes[i]);
+                _ = sb.Append('|').Append(partitions[i].ToString(CultureInfo.InvariantCulture)).Append('|')
+                      .Append(matchIndexes[i].ToString(CultureInfo.InvariantCulture)).Append(';');
             }
         }
 
@@ -180,11 +203,11 @@ internal sealed class ClusterState
             _ = sb.Append(']');
         }
 
-        private static void AppendOrderedMessages(StringBuilder sb, ClusterState state)
+        private static void AppendOrderedMessages(StringBuilder sb, IReadOnlyList<InFlightMessage> messages)
         {
-            var ordered = new List<InFlightMessage>(state.Messages.Count);
-            for (var i = 0; i < state.Messages.Count; i++)
-                ordered.Add(state.Messages[i]);
+            var ordered = new List<InFlightMessage>(messages.Count);
+            for (var i = 0; i < messages.Count; i++)
+                ordered.Add(messages[i]);
 
             ordered.Sort(static (a, b) => CompareMessages(a, b));
             for (var i = 0; i < ordered.Count; i++)
@@ -194,15 +217,15 @@ internal sealed class ClusterState
             }
         }
 
-        private static int[] BuildSymmetryOrder(ClusterState state)
+        private static int[] BuildSymmetryOrder(IReadOnlyList<NodeState> nodes)
         {
-            var count = state.Nodes.Count;
+            var count = nodes.Count;
             var order = new int[count];
             var signatures = new string[count];
             for (var i = 0; i < count; i++)
             {
                 order[i] = i;
-                signatures[i] = NodeSignature(state.Nodes[i]);
+                signatures[i] = NodeSignature(nodes[i]);
             }
 
             Array.Sort(order, new SignatureOrderComparer(signatures));
@@ -264,20 +287,6 @@ internal sealed class ClusterState
             return sb.ToString();
         }
 
-        private static ClusterState RemapForSymmetry(ClusterState state)
-        {
-            var order = BuildSymmetryOrder(state);
-            var map = new int[state.Nodes.Count];
-            for (var i = 0; i < order.Length; i++)
-                map[order[i]] = i;
-
-            var remapped = RemapNodes(state, order, map);
-            var parts = RemapInts(order, state.Partitions);
-            var matches = RemapInts(order, state.MatchIndexes);
-            var msgs = RemapMessages(state, map);
-            return state.With(remapped, msgs, parts, matchIndexes: matches);
-        }
-
         private static int[] RemapInts(int[] order, IReadOnlyList<int> source)
         {
             var result = new int[order.Length];
@@ -287,12 +296,12 @@ internal sealed class ClusterState
             return result;
         }
 
-        private static InFlightMessage[] RemapMessages(ClusterState state, int[] map)
+        private static InFlightMessage[] RemapMessages(IReadOnlyList<InFlightMessage> source, int[] map)
         {
-            var messages = new InFlightMessage[state.Messages.Count];
-            for (var i = 0; i < state.Messages.Count; i++)
+            var messages = new InFlightMessage[source.Count];
+            for (var i = 0; i < source.Count; i++)
             {
-                var m = state.Messages[i];
+                var m = source[i];
                 messages[i] = new InFlightMessage(
                     m.Id,
                     new MessagePayload(
@@ -303,12 +312,12 @@ internal sealed class ClusterState
             return messages;
         }
 
-        private static NodeState[] RemapNodes(ClusterState state, int[] order, int[] map)
+        private static NodeState[] RemapNodes(IReadOnlyList<NodeState> nodes, int[] order, int[] map)
         {
-            var remapped = new NodeState[state.Nodes.Count];
+            var remapped = new NodeState[nodes.Count];
             for (var i = 0; i < order.Length; i++)
             {
-                var src = state.Nodes[order[i]];
+                var src = nodes[order[i]];
                 remapped[i] = new NodeState(
                     i,
                     src.Role,

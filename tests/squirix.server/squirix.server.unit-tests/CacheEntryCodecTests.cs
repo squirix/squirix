@@ -91,7 +91,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>Numeric and JsonElement coercions used by typed journal reads succeed.</summary>
     [Fact]
-    public void TryMapEntryCoercesNumericAndJsonElementValues()
+    public void MapEntryCoercesNumericAndJsonElementValues()
     {
         Assert.True(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(42L), out var asInt));
         Assert.Equal(42, asInt!.Value);
@@ -116,7 +116,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>TryRead fails on truncated envelopes.</summary>
     [Fact]
-    public void TryReadReturnsFalseForTruncatedEnvelope()
+    public void ReadReturnsFalseForTruncatedEnvelope()
     {
         Assert.False(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead));
         Assert.Equal(0, bytesRead);

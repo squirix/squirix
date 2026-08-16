@@ -3,12 +3,12 @@ using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
 
-public sealed class ProtocolModelEngineTests
+public static class ProtocolModelEngineTests
 {
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
     [Fact]
-    public void ExplorerRejectsBrokenCurrentTermCommitRule()
+    public static void ExplorerRejectsBrokenCurrentTermCommitRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
         Assert.NotNull(result.Violation);
@@ -16,7 +16,7 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Fact]
-    public void ExplorerRejectsBrokenReadIndexRule()
+    public static void ExplorerRejectsBrokenReadIndexRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallRead(), BrokenMode.ReadIndex);
         Assert.NotNull(result.Violation);
@@ -24,7 +24,7 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Fact]
-    public void ExplorerRejectsBrokenVoteRule()
+    public static void ExplorerRejectsBrokenVoteRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.Vote);
         Assert.NotNull(result.Violation);
@@ -32,7 +32,7 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Fact]
-    public void ReducedAndUnreducedSearchAgree()
+    public static void ReducedAndUnreducedSearchAgree()
     {
         var reduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
         var unreduced = ExploreRunner.Run(ExploreProfile.SmallElection(false), BrokenMode.None);
@@ -51,7 +51,7 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Fact]
-    public void SymmetryFingerprintIsLabelInvariantForVoteMasks()
+    public static void SymmetryFingerprintIsLabelInvariantForVoteMasks()
     {
         var state = ClusterState.CreateInitial(3).WithNodes(
         [

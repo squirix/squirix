@@ -6,14 +6,16 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Durability, maintenance, and failure handling for <see cref="JournalCoordinator" />.</summary>
+/// <summary>Durability, maintenance, and failure handling for a journal coordinator.</summary>
 internal sealed class JournalCoordinatorDurabilityPipeline
 {
-    private readonly JournalCoordinator _owner;
+    private readonly IJournalCoordinatorState _owner;
+    private readonly IJournalCoordinatorSnapshotState _snapshot;
 
-    internal JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
+    internal JournalCoordinatorDurabilityPipeline(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot)
     {
         _owner = owner;
+        _snapshot = snapshot;
     }
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
@@ -108,7 +110,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     internal void FailJournalPipeline(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        Volatile.Write(ref _owner.JournalThreadFailureField, reason);
+        _owner.SetJournalThreadFailure(reason);
         FailPendingDurabilityWaiters(reason);
         _owner.GroupCommit?.CancelPendingCore(reason);
     }
@@ -134,13 +136,13 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
     internal void OnManifestRollSucceeded()
     {
-        _owner.EventLoop.MarkRollCompletionPending();
+        _owner.EventLoop.MarkSegmentRollCompletionPending();
         _owner.Ring.NotifyWorkAvailable();
     }
 
     internal void ThrowIfJournalThreadFailed()
     {
-        if (Volatile.Read(ref _owner.JournalThreadFailureField) is { } failure)
+        if (_owner.GetJournalThreadFailure() is { } failure)
             throw new InvalidOperationException("journal I/O thread failed.", failure);
     }
 
@@ -148,12 +150,12 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         while (true)
         {
-            await _owner.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
-            await _owner.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!_owner.HasPendingMemoryApply())
+            await _snapshot.InFlightApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _snapshot.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!_snapshot.InFlightApplyGate.HasPending)
                 return;
 
-            _ = _owner.MutationGate.Release();
+            _ = _snapshot.MutationGate.Release();
         }
     }
 

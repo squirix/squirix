@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.Logging;
 
-namespace Squirix.Server.Logging;
+namespace Squirix.Server.Utils;
 
 /// <summary>Compaction and journal storage lifecycle logs.</summary>
 internal static partial class LogManager
