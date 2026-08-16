@@ -11,7 +11,7 @@
           → LocalCache (in-memory owner cache)
           → Node.Backpressure / Node.MemoryPressure / Node.Observability / Serialization
             → Storage (journal, snapshot, manifest)
-              → Kernel: Errors, Logging, Utils, Core, Contracts, Runtime.Contracts
+              → Kernel: Errors, Utils, Core, Contracts, Runtime.Contracts
 
   Shared transport CLR: Squirix.Transport.Grpc.* (compiled from shared proto/mappers).
 
