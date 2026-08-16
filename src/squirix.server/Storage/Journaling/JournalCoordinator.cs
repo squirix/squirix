@@ -28,10 +28,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private readonly RollPublisher _manifestRollPublisher;
 
     private readonly IJournalSegmentWriter _segmentWriter;
-    private double _avgAppendLatencyMs;
+    private readonly VolatileDouble _appendLatency = new();
+    private readonly VolatileField<Exception> _flushLoopFailure = new();
     private long _bytes;
     private int _disposed;
-    private Exception? _journalThreadFailure;
     private ulong _nextSequence;
     private long _ops;
 
@@ -70,7 +70,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
-    public bool HasFlushLoopFailure => _journalThreadFailure is not null;
+    public bool HasFlushLoopFailure => _flushLoopFailure.Read() is not null;
 
     public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
 
@@ -80,7 +80,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
-    public double RecentAppendLatencyMs => _avgAppendLatencyMs;
+    public double RecentAppendLatencyMs => _appendLatency.Read();
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
@@ -114,9 +114,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
-    public Exception? GetJournalThreadFailure() => Volatile.Read(ref _journalThreadFailure);
+    public Exception? GetJournalThreadFailure() => _flushLoopFailure.Read();
 
-    public void SetJournalThreadFailure(Exception? value) => Volatile.Write(ref _journalThreadFailure, value);
+    public void SetJournalThreadFailure(Exception? value) => _flushLoopFailure.Write(value);
 
     public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
     {
@@ -282,8 +282,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     void IJournalCoordinatorAppendState.RecordAppendMetrics(int frameLength, long startedMs)
     {
         var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
-        var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
-        Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+        var currentLatency = _appendLatency.Read();
+        _appendLatency.Write(currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
         _ = Interlocked.Add(ref _bytes, frameLength);
         _ = Interlocked.Increment(ref _ops);
         NotifyAppended();
