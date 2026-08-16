@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
@@ -10,6 +11,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// Unit tests for <see cref="PersistenceOptions" /> verifying default values,
 /// record equality semantics, and behavior of <c>with</c>-expressions.
 /// </summary>
+[Immutable]
 public sealed class OptionsTests
 {
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>Covers TopologyFingerprint creation and inter-node URI resolution.</summary>
+[Immutable]
 public sealed class TopologyOptionsFingerprintTests
 {
     /// <summary>Single-node topology fingerprints without rewriting peer URIs.</summary>

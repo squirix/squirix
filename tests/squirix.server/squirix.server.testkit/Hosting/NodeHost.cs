@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
 
@@ -48,6 +49,7 @@ internal static class NodeHost
         return builder;
     }
 
+    [Immutable]
     private sealed class CompositionArgsConfigurer
     {
         private readonly NodeHostStartOptions _options;

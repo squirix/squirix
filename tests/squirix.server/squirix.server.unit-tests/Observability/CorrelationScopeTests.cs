@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Covers structured correlation scope state enumeration.</summary>
+[Immutable]
 public sealed class CorrelationScopeTests : ServerUnitTestBase
 {
     /// <summary>Scope with a method includes the rpc.method field.</summary>
@@ -92,6 +94,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         {
         }
 
+        [Immutable]
         private sealed class Noop : IDisposable
         {
             internal static readonly Noop Instance = new();

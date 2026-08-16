@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -11,6 +12,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
 [Trait(Category.TraitName, Category.TraitValue)]
+[Immutable]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
     private static readonly string[] WriterValues = CreateWriterValues(string.Empty);
@@ -154,6 +156,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         }
     }
 
+    [Immutable]
     private sealed class InsertContentionRunner
     {
         private readonly ICache<object?>[] _caches;
@@ -181,6 +184,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         }
     }
 
+    [Immutable]
     private sealed class TryAddContentionRunner
     {
         private readonly int[] _addSuccesses;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Covers metrics decorator paths around <see cref="ServerMetricsSerializer" />.</summary>
+[Immutable]
 public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
 {
     /// <summary>Json failures are recorded and rethrown.</summary>
@@ -74,6 +76,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
+    [Immutable]
     private sealed class ThrowingSerializer : IServerSerializer
     {
         private readonly Exception _exception;

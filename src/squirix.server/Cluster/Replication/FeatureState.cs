@@ -1,3 +1,5 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Internal activation gate for the replication network path.</summary>
@@ -5,6 +7,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="FoundationOnly">
 /// Whether the closed replication service is mapped for transport/identity tests without enabling RF&gt;1 mutations.
 /// </param>
+[Immutable]
 internal readonly record struct FeatureState(bool NetworkReplicationEnabled, bool FoundationOnly)
 {
     /// <summary>Gets the shared disabled state until M8-09 activates RF&gt;1 networking.</summary>

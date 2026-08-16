@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Unit tests for <see cref="JournalMetricsExporterOptions" /> scalar validation.
 /// </summary>
+[Immutable]
 public sealed class JournalMetricsExporterOptionsTests
 {
     /// <summary>Verifies the minimum positive interval remains accepted.</summary>

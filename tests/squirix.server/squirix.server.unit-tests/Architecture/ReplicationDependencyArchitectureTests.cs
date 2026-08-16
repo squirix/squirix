@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using Squirix.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -13,6 +14,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// Non-NsDepCop architecture scans for replication composition hygiene.
 /// Namespace DAG edges are enforced by <c>config.nsdepcop</c>, not duplicated here.
 /// </summary>
+[Immutable]
 public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Hosting composition owns FoundationOnly mapping of the closed replication adapter.</summary>
@@ -68,7 +70,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         Assert.Contains(@"Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$", config, StringComparison.Ordinal);
 
         // Storage.Replication must not depend upward on Node, Adapters, or Cluster.
-        const string storageReplicationFrom = "/^Squirix\\.Server\\.Storage\\.Replication(?:\\..*)?$/";
+        const string storageReplicationFrom = @"/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/";
         AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Node.*");
         AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Adapters.*");
         AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -8,6 +9,7 @@ namespace Squirix.Server.Node.Endpoint;
 
 /// <summary>Routes inbound endpoint calls to the logical cache surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheOperations<T>
 {
     private readonly NamespacedCacheAdapter<T> _adapter;

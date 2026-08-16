@@ -1,12 +1,14 @@
 using System;
 using System.Threading;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.Server.TestKit.IO;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Provides a common base for server unit tests.</summary>
+[Immutable]
 public abstract class ServerUnitTestBase : IDisposable
 {
     static ServerUnitTestBase()

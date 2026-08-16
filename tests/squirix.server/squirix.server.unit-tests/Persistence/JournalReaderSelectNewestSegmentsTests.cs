@@ -1,4 +1,5 @@
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Tests for bounded journal segment selection used by diagnostics.</summary>
+[Immutable]
 public sealed class JournalReaderSelectNewestSegmentsTests
 {
     /// <summary>EnumerateSegments returns empty for invalid operator paths without throwing.</summary>

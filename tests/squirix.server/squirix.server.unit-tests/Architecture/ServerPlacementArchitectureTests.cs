@@ -1,10 +1,12 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>Architecture rules for Metrics/Options/Service namespace placement.</summary>
+[Immutable]
 public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>

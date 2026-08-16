@@ -1,10 +1,12 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for topology-driven inter-node mTLS requirements.</summary>
+[Immutable]
 public sealed class MtlsTopologyTests
 {
     private static readonly Uri NodeAUrl = new("https://localhost:6001");

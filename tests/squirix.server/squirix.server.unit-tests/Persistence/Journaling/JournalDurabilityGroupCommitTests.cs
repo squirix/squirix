@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
@@ -19,6 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
 /// </summary>
+[Immutable]
 public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 {
     /// <summary>Ensures canceling pending group-commit waiters propagates journal pipeline failures.</summary>
@@ -359,6 +361,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         internal void Increment() => _ = Interlocked.Increment(ref _value);
     }
 
+    [Immutable]
     private sealed class FailingFlush
     {
         private readonly Exception _exception;
@@ -374,6 +377,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         private void Throw() => throw _exception;
     }
 
+    [Immutable]
     private sealed class InFlightFlushGate : IDisposable
     {
         private readonly CancellationToken _cancellationToken;

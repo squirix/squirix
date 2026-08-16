@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Frozen;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Unit tests for <see cref="EntryTagsGuard" />.</summary>
+[Immutable]
 public sealed class EntryTagsGuardTests : ServerUnitTestBase
 {
     /// <summary>Invalid tag shapes are rejected with deterministic contracts.</summary>

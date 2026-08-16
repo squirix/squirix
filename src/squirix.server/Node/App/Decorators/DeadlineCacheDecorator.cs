@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Applies an optional default operation deadline to logical cache calls.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private const string PipelineDeadlineExceededMessage = "Logical cache operation exceeded the configured pipeline deadline.";
@@ -125,13 +127,18 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
+    [Immutable]
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct ReadKeyArgs(string CacheName, string Key);
 
+    [Immutable]
     private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
 
+    [Immutable]
     private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
+    [Immutable]
     private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 }

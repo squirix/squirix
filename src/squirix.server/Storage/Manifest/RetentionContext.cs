@@ -1,10 +1,12 @@
 using System;
 using Microsoft.Extensions.Logging;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Inputs for shared manifest retention cleanup.</summary>
+[Immutable]
 internal sealed record RetentionContext
 {
     internal RetentionContext(

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -17,6 +18,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal coordinator sequence initialization scans only the active manifest journal range.</summary>
+[Immutable]
 public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>

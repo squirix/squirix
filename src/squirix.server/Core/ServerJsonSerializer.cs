@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Core;
 
@@ -14,6 +15,7 @@ namespace Squirix.Server.Core;
 /// Persistence and health/metrics HTTP DTOs use dedicated <see cref="JsonSerializerContext" /> types at call sites.
 /// </remarks>
 #pragma warning disable ZA1001 // Generic serializer boundary; reflection fallback is required for unknown T.
+[Immutable]
 internal sealed class ServerJsonSerializer : IServerSerializer
 {
     private readonly JsonSerializerOptions _options;

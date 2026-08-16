@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport.Grpc;
@@ -12,6 +13,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
 
+[Immutable]
 internal sealed class RemoteCache<T> : ICache<T>
 {
     private readonly string _cacheName;
@@ -248,6 +250,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
     }
 
+    [Immutable]
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
     /// <summary>Validates expiration arguments where a strictly positive duration is required (for example, touch operations).</summary>
@@ -274,6 +277,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
     }
 
+    [Immutable]
     private sealed class RemoteCacheRpc
     {
         private readonly string _cacheName;

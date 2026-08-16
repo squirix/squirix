@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -22,16 +23,19 @@ internal static class ServerCallPolicyMetrics
 
     internal static void ObserveQueueWaitSeconds(string peer, TimeSpan value) => QueueWaitSeconds.Observe(peer, value);
 
+    [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
     {
         internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "policy");
     }
 
+    [Immutable]
     private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
     {
         internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);
     }
 
+    [Immutable]
     private sealed record Histogram1Label(Histogram<double> Histogram, string Key1)
     {
         internal void Observe(string v1, TimeSpan value)

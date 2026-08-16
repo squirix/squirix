@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
 using Xunit;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.UnitTests.Cluster;
 
 /// <summary>Covers client <see cref="CallPolicy" /> Map* failure classification paths.</summary>
+[Immutable]
 public sealed class CallPolicyTests
 {
     /// <summary>Rejects new calls after BeginDrain.</summary>
@@ -145,6 +147,7 @@ public sealed class CallPolicyTests
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
     }
 
+    [Immutable]
     private sealed class EnterReleaseGate
     {
         internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)

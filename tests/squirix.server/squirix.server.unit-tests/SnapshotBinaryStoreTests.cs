@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
@@ -17,6 +18,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Binary snapshot writer/reader integration tests.</summary>
+[Immutable]
 public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 {
     private static readonly byte[] SampleBytes = [1, 2, 3];

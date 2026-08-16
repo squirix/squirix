@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -10,6 +11,7 @@ using Squirix.Server.Cluster.Transport;
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
 /// <summary>Closed replication gRPC adapter. Identity-checked; durable follow-up lands in later M8 tasks.</summary>
+[Immutable]
 internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
 {
     private readonly MtlsCertificateMaterial _mtlsMaterial;

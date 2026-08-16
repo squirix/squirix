@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>Holds per-node inputs for memory pressure observable gauges.</summary>
+[Immutable]
 internal sealed class MetricRegistration
 {
     internal MetricRegistration(string nodeId, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator)

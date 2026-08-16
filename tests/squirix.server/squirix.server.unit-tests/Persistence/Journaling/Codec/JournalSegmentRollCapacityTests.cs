@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Tests for Pipelined journal segment roll capacity enforcement.</summary>
+[Immutable]
 public sealed class JournalSegmentRollCapacityTests
 {
     private const int OneMegabyte = 1024 * 1024;

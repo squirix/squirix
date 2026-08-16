@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Squirix.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Covers JWT / connection / missing-context backpressure client id resolution.</summary>
+[Immutable]
 public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 {
     /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>ConfigurationGeneration defaults and fingerprint sensitivity (REQ-UPG-001 config portion).</summary>
+[Immutable]
 public sealed class ConfigurationGenerationTests : ServerUnitTestBase
 {
     /// <summary>Default ConfigurationGeneration is one.</summary>

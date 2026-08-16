@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Adapters.Rest;
 
+[Immutable]
 internal sealed class HealthJournalDiskDetails
 {
     internal HealthJournalDiskDetails(string state, long maxBytes, long usedBytes, long highWaterBytes, bool writeRejectionActive)

@@ -1,10 +1,12 @@
 using System;
+using Squirix.Attributes;
 using Xunit.Sdk;
 
 namespace Squirix.TestKit;
 
 /// <summary>Closure-free assertion for a synchronous exception.</summary>
 /// <typeparam name="TException">Expected exception type.</typeparam>
+[Immutable]
 public readonly record struct ExceptionExpectation<TException>
     where TException : Exception
 {

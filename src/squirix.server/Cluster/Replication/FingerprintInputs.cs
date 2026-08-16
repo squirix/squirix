@@ -1,8 +1,10 @@
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Inputs required to compute a canonical topology fingerprint.</summary>
+[Immutable]
 internal sealed class FingerprintInputs
 {
     /// <summary>Initializes a new instance of the <see cref="FingerprintInputs" /> class.</summary>

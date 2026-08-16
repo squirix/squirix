@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>Architecture rules for server project packaging, IVT, bootstrap, and dependency baselines.</summary>
+[Immutable]
 public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>

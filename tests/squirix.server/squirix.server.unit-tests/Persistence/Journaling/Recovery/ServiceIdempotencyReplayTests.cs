@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -19,6 +20,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Recovery replay of durable idempotency journal frames.</summary>
+[Immutable]
 public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
 {
     private const string Fingerprint = "try-add-entry-async|default|idempotency-key|abc123";

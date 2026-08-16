@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -14,6 +15,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Tests trace header propagation on outbound unary calls through <see cref="ClientInterceptor" />.
 /// </summary>
+[Immutable]
 public sealed class CorrelationClientInterceptorTests
 {
     /// <summary>

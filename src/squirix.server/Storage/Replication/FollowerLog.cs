@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
@@ -662,6 +663,7 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
+        [Immutable]
         private sealed class AppendDurableWork
         {
             private readonly byte[] _buffer;
@@ -697,6 +699,7 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         /// <summary>Background work that writes and atomically publishes metadata.</summary>
+        [Immutable]
         private sealed class MetaDurableWork
         {
             private readonly byte[] _buffer;
@@ -734,6 +737,7 @@ internal sealed class FollowerLog : IFollowerLog
         }
 
         /// <summary>Background work that durably truncates the log before a conflicting tail is rewritten.</summary>
+        [Immutable]
         private sealed class TruncateDurableWork
         {
             private readonly GroupLogDurability _durability;
@@ -993,9 +997,11 @@ internal sealed class FollowerLog : IFollowerLog
         /// <summary>Result of walking the log frames during startup recovery.</summary>
         /// <param name="LastValidEnd">The byte offset after the last valid frame.</param>
         /// <param name="Truncated">Determines whether a divergent tail was truncated.</param>
+        [Immutable]
         private readonly record struct WalkResult(long LastValidEnd, bool Truncated);
 
         /// <summary>Background work that durably truncates the log during startup recovery.</summary>
+        [Immutable]
         private sealed class RecoveryTruncateWork
         {
             private readonly long _length;
@@ -1019,6 +1025,7 @@ internal sealed class FollowerLog : IFollowerLog
     }
 
     /// <summary>No-op fault hooks used when none are supplied.</summary>
+    [Immutable]
     private sealed class NoOpFaultHooks : IFollowerLogFaultHooks
     {
         public void OnBeforeMemoryApply()

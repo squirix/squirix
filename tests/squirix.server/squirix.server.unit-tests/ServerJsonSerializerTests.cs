@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Tests for System.Text.Json source-generated metadata used by the default serializer.</summary>
+[Immutable]
 public sealed class ServerJsonSerializerTests : ServerUnitTestBase
 {
     /// <summary>Ensures reflection fallback remains available for application payload types.</summary>

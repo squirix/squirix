@@ -1,9 +1,11 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix;
 
 /// <summary>Represents a cache item stored in Squirix. Contains the typed value and optional expiration metadata.</summary>
 /// <typeparam name="T">The value type stored in the entry. Can be a primitive or a POCO serialized by the configured serializer.</typeparam>
+[Immutable]
 public sealed class CacheEntry<T>
 {
     /// <summary>

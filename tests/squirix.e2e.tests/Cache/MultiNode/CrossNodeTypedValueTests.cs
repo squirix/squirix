@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Fixtures.TypedValues;
 using Xunit;
 
@@ -7,6 +8,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for typed custom values routed through a two-node public cache API cluster.</summary>
 /// <param name="fixture">Shared two-node cluster fixture.</param>
+[Immutable]
 public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
 {
     /// <summary>Verifies GetOrAddStoreCustomRecordForRemoteOwnerTwoNodes.</summary>

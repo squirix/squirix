@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -11,6 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
 /// <summary>Ordered durable append and rejection rules of the replica-group follower log.</summary>
+[Immutable]
 public sealed class FollowerLogTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-1";

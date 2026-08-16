@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -9,6 +10,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Ensures owner-local physical mutations execute only on the owning node.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private const string OwnershipMismatchMessage = "Ownership mismatch for local physical cache operation.";

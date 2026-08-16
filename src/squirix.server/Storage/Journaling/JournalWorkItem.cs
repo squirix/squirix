@@ -1,5 +1,8 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Storage.Journaling;
 
+[Immutable]
 internal sealed record JournalWorkItem
 {
     internal JournalWorkItem(

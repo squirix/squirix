@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
@@ -8,6 +9,7 @@ namespace Squirix.Server.LocalCache;
 
 /// <summary>Adapts the process-local physical cache to the logical namespaced contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILocalCacheMutationOperations<T> _mutation;

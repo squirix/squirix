@@ -1,9 +1,11 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Runtime;
 
+[Immutable]
 internal sealed class CacheRuntime : ICacheRuntime
 {
     private readonly ILogicalNamespacedCache<object?> _defaultCache;

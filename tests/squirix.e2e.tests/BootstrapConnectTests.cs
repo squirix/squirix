@@ -1,11 +1,13 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Xunit;
 
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for multi-endpoint client bootstrap connect semantics.</summary>
+[Immutable]
 public sealed class BootstrapConnectTests : EndToEndTestBase
 {
     /// <summary>Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.</summary>

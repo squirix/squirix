@@ -1,5 +1,6 @@
 using System;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.TestKit;
 using Xunit;
@@ -8,6 +9,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Tests for centralized cache key validation.</summary>
 [UsedImplicitly]
+[Immutable]
 public sealed class KeyInputValidatorTests : UnitTestBase
 {
     /// <summary>Gets invalid keys and canonical messages.</summary>

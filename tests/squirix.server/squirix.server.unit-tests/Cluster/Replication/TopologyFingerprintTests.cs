@@ -1,10 +1,12 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>Canonical topology fingerprint stability checks.</summary>
+[Immutable]
 public sealed class TopologyFingerprintTests
 {
     /// <summary>Peers[] permutation produces the same fingerprint bytes.</summary>

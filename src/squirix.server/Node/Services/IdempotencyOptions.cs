@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Resolved runtime idempotency store limits for in-memory mutation replay records.</summary>
+[Immutable]
 internal sealed record IdempotencyOptions
 {
     /// <summary>Initializes a new instance of the <see cref="IdempotencyOptions" /> class.</summary>

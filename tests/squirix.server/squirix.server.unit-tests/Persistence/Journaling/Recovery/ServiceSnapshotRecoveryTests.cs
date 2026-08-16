@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -16,6 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Recovery with binary snapshots and missing snapshot path fallbacks.</summary>
+[Immutable]
 public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 {
     /// <summary>Loads a binary snapshot watermark and replays only journal records after it.</summary>

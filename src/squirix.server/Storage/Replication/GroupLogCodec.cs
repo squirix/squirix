@@ -2,29 +2,29 @@ using System;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Binary codec for replica-group metadata and log frames with CRC32C integrity.</summary>
 /// <remarks>
-/// <para>On-disk layout is little-endian throughout.</para>
-/// <para>Metadata file: <c>magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
-/// fixed-width term/commit fields followed by length-prefixed UTF-8 strings and the topology fingerprint.</para>
-/// <para>Log frame: <c>bodyLength(4) | body | crc32c(body)(4)</c> where body carries
-/// <c>logIndex(8) | term(8) | payloadLength(4) | payload</c>. Frames are append-only; a torn tail frame is
-/// detected by truncation or CRC mismatch.</para>
+///     <para>On-disk layout is little-endian throughout.</para>
+///     <para>
+///     Metadata file: <c>magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
+///     fixed-width term/commit fields followed by length-prefixed UTF-8 strings and the topology fingerprint.
+///     </para>
+///     <para>
+///     Log frame: <c>bodyLength(4) | body | crc32c(body)(4)</c> where body carries
+///     <c>logIndex(8) | term(8) | payloadLength(4) | payload</c>. Frames are append-only; a torn tail frame is
+///     detected by truncation or CRC mismatch.
+///     </para>
 /// </remarks>
 internal static class GroupLogCodec
 {
-    /// <summary>Metadata file magic bytes, <c>"SQRM"</c>.</summary>
-    private const uint MetaMagic = 0x4D525153u;
+    private const int FrameFixedByteCount = 8 + 8 + 4;
 
-    /// <summary>Metadata format version.</summary>
-    private const byte MetaVersion = 1;
-
-    /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
-    private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
+    private const int FrameHeaderByteCount = 4 + 1;
 
     /// <summary>Log frame magic bytes, <c>"SQRL"</c>.</summary>
     private const uint FrameMagic = 0x4C525153u;
@@ -32,8 +32,14 @@ internal static class GroupLogCodec
     /// <summary>Log format version.</summary>
     private const byte FrameVersion = 1;
 
-    private const int FrameHeaderByteCount = 4 + 1;
-    private const int FrameFixedByteCount = 8 + 8 + 4;
+    /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
+    private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
+
+    /// <summary>Metadata file magic bytes, <c>"SQRM"</c>.</summary>
+    private const uint MetaMagic = 0x4D525153u;
+
+    /// <summary>Metadata format version.</summary>
+    private const byte MetaVersion = 1;
 
     /// <summary>Gets the file header bytes written at the start of a replica-group log file.</summary>
     internal static ReadOnlySpan<byte> LogFileHeader =>
@@ -41,6 +47,11 @@ internal static class GroupLogCodec
         0x53, 0x51, 0x52, 0x4C, // "SQRL"
         0x01, // version 1
     ];
+
+    /// <summary>Computes the exact encoded length of a log frame.</summary>
+    /// <param name="payloadLength">The entry payload length in bytes.</param>
+    /// <returns>The encoded frame length in bytes.</returns>
+    internal static int ComputeFrameEncodedLength(int payloadLength) => FrameHeaderByteCount + 4 + FrameFixedByteCount + payloadLength + 4;
 
     /// <summary>Computes the encoded length of a metadata payload.</summary>
     /// <param name="meta">The metadata to encode.</param>
@@ -51,6 +62,32 @@ internal static class GroupLogCodec
         var groupBytes = Encoding.UTF8.GetByteCount(meta.GroupId);
         var votedBytes = Encoding.UTF8.GetByteCount(meta.VotedFor);
         return MetaFixedByteCount + 4 + groupBytes + 4 + meta.TopologyFingerprint.Length + 4 + votedBytes + 4;
+    }
+
+    /// <summary>Encodes a single log frame (header + body + CRC) into a caller-provided buffer.</summary>
+    /// <param name="buffer">The destination buffer of at least <see cref="ComputeFrameEncodedLength" /> bytes.</param>
+    /// <param name="entry">The entry to encode.</param>
+    internal static void EncodeFrame(Span<byte> buffer, FollowerLogEntry entry)
+    {
+        var payload = entry.PayloadSpan;
+        var bodyLength = FrameFixedByteCount + payload.Length;
+        var offset = 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], FrameMagic);
+        offset += 4;
+        buffer[offset] = FrameVersion;
+        offset++;
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], bodyLength);
+        offset += 4;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], entry.LogIndex);
+        offset += 8;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], entry.Term);
+        offset += 8;
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], payload.Length);
+        offset += 4;
+        payload.CopyTo(buffer[offset..]);
+        offset += payload.Length;
+
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], Crc32C.Compute(buffer[4..offset]));
     }
 
     /// <summary>Encodes metadata into a caller-provided buffer of at least <see cref="ComputeMetaEncodedLength" /> bytes.</summary>
@@ -115,37 +152,6 @@ internal static class GroupLogCodec
         return TryReadMetaFields(buffer, out meta);
     }
 
-    /// <summary>Computes the exact encoded length of a log frame.</summary>
-    /// <param name="payloadLength">The entry payload length in bytes.</param>
-    /// <returns>The encoded frame length in bytes.</returns>
-    internal static int ComputeFrameEncodedLength(int payloadLength) => FrameHeaderByteCount + 4 + FrameFixedByteCount + payloadLength + 4;
-
-    /// <summary>Encodes a single log frame (header + body + CRC) into a caller-provided buffer.</summary>
-    /// <param name="buffer">The destination buffer of at least <see cref="ComputeFrameEncodedLength" /> bytes.</param>
-    /// <param name="entry">The entry to encode.</param>
-    internal static void EncodeFrame(Span<byte> buffer, FollowerLogEntry entry)
-    {
-        var payload = entry.PayloadSpan;
-        var bodyLength = FrameFixedByteCount + payload.Length;
-        var offset = 0;
-        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], FrameMagic);
-        offset += 4;
-        buffer[offset] = FrameVersion;
-        offset++;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], bodyLength);
-        offset += 4;
-        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], entry.LogIndex);
-        offset += 8;
-        BinaryPrimitives.WriteUInt64LittleEndian(buffer[offset..], entry.Term);
-        offset += 8;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], payload.Length);
-        offset += 4;
-        payload.CopyTo(buffer[offset..]);
-        offset += payload.Length;
-
-        BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], Crc32C.Compute(buffer[4..offset]));
-    }
-
     /// <summary>Reads a single log frame from a buffer starting at a frame boundary.</summary>
     /// <param name="buffer">The buffer containing the frame.</param>
     /// <param name="entry">The decoded entry when the frame is valid.</param>
@@ -193,6 +199,43 @@ internal static class GroupLogCodec
             return false;
 
         frameLength = FrameHeaderByteCount + 4 + bodyLength + 4;
+        return true;
+    }
+
+    private static bool TryReadBytes(ReadOnlySpan<byte> buffer, ref int offset, out ReadOnlyMemory<byte> value)
+    {
+        value = default;
+        if (buffer.Length - offset < 4)
+            return false;
+
+        var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
+        offset += 4;
+        if (length < 0 || length > buffer.Length - offset)
+            return false;
+
+        value = OwnedBufferKit.CopyToOwned(buffer.Slice(offset, length));
+        offset += length;
+        return true;
+    }
+
+    private static bool TryReadFixedFields(ReadOnlySpan<byte> buffer, ref int offset, out MetaFixedFields fields)
+    {
+        fields = default;
+        if (buffer.Length - offset < 8 * 5)
+            return false;
+
+        var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var lastLogIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        var lastAppliedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+
+        fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
         return true;
     }
 
@@ -251,21 +294,33 @@ internal static class GroupLogCodec
         return true;
     }
 
-    private static void WriteString(Span<byte> buffer, string value, ref int offset)
+    /// <summary>Reads the term/commit fixed fields and the trailing variable fields into a metadata value.</summary>
+    /// <param name="buffer">The CRC-validated encoded metadata payload.</param>
+    /// <param name="meta">The decoded metadata when every field is structurally valid.</param>
+    /// <returns><see langword="true" /> when all fields decode; otherwise <see langword="false" />.</returns>
+    private static bool TryReadMetaFields(ReadOnlySpan<byte> buffer, out GroupLogMetadata meta)
     {
-        var byteCount = Encoding.UTF8.GetByteCount(value);
-        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], byteCount);
-        offset += 4;
-        _ = Encoding.UTF8.GetBytes(value, buffer[offset..]);
-        offset += byteCount;
-    }
+        meta = default;
+        var offset = 5;
+        if (!TryReadFixedFields(buffer, ref offset, out var fields))
+            return false;
+        if (!TryReadString(buffer, ref offset, out var groupId))
+            return false;
+        if (!TryReadBytes(buffer, ref offset, out var fingerprint))
+            return false;
+        if (!TryReadString(buffer, ref offset, out var votedFor))
+            return false;
 
-    private static void WriteBytes(Span<byte> buffer, ReadOnlySpan<byte> value, ref int offset)
-    {
-        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], value.Length);
-        offset += 4;
-        value.CopyTo(buffer[offset..]);
-        offset += value.Length;
+        meta = new GroupLogMetadata(
+            groupId,
+            fingerprint,
+            fields.ConfigurationGeneration,
+            fields.CurrentTerm,
+            votedFor,
+            fields.LastLogIndex,
+            fields.CommitIndex,
+            fields.LastAppliedIndex);
+        return true;
     }
 
     private static bool TryReadString(ReadOnlySpan<byte> buffer, ref int offset, out string value)
@@ -284,62 +339,21 @@ internal static class GroupLogCodec
         return true;
     }
 
-    private static bool TryReadBytes(ReadOnlySpan<byte> buffer, ref int offset, out ReadOnlyMemory<byte> value)
+    private static void WriteBytes(Span<byte> buffer, ReadOnlySpan<byte> value, ref int offset)
     {
-        value = default;
-        if (buffer.Length - offset < 4)
-            return false;
-
-        var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], value.Length);
         offset += 4;
-        if (length < 0 || length > buffer.Length - offset)
-            return false;
-
-        value = OwnedBufferKit.CopyToOwned(buffer.Slice(offset, length));
-        offset += length;
-        return true;
+        value.CopyTo(buffer[offset..]);
+        offset += value.Length;
     }
 
-    private static bool TryReadFixedFields(ReadOnlySpan<byte> buffer, ref int offset, out MetaFixedFields fields)
+    private static void WriteString(Span<byte> buffer, string value, ref int offset)
     {
-        fields = default;
-        if (buffer.Length - offset < 8 * 5)
-            return false;
-
-        var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var lastLogIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        var lastAppliedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-
-        fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
-        return true;
-    }
-
-    /// <summary>Reads the term/commit fixed fields and the trailing variable fields into a metadata value.</summary>
-    /// <param name="buffer">The CRC-validated encoded metadata payload.</param>
-    /// <param name="meta">The decoded metadata when every field is structurally valid.</param>
-    /// <returns><see langword="true" /> when all fields decode; otherwise <see langword="false" />.</returns>
-    private static bool TryReadMetaFields(ReadOnlySpan<byte> buffer, out GroupLogMetadata meta)
-    {
-        meta = default;
-        var offset = 5;
-        if (!TryReadFixedFields(buffer, ref offset, out var fields))
-            return false;
-        if (!TryReadString(buffer, ref offset, out var groupId))
-            return false;
-        if (!TryReadBytes(buffer, ref offset, out var fingerprint))
-            return false;
-        if (!TryReadString(buffer, ref offset, out var votedFor))
-            return false;
-
-        meta = new GroupLogMetadata(groupId, fingerprint, fields.ConfigurationGeneration, fields.CurrentTerm, votedFor, fields.LastLogIndex, fields.CommitIndex, fields.LastAppliedIndex);
-        return true;
+        var byteCount = Encoding.UTF8.GetByteCount(value);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[offset..], byteCount);
+        offset += 4;
+        _ = Encoding.UTF8.GetBytes(value, buffer[offset..]);
+        offset += byteCount;
     }
 
     /// <summary>The five fixed-width fields that open a metadata payload.</summary>
@@ -349,12 +363,8 @@ internal static class GroupLogCodec
     /// <param name="CommitIndex">The durable commit index.</param>
     /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
     [StructLayout(LayoutKind.Auto)]
-    private readonly record struct MetaFixedFields(
-        ulong ConfigurationGeneration,
-        ulong CurrentTerm,
-        ulong LastLogIndex,
-        ulong CommitIndex,
-        ulong LastAppliedIndex);
+    [Immutable]
+    private readonly record struct MetaFixedFields(ulong ConfigurationGeneration, ulong CurrentTerm, ulong LastLogIndex, ulong CommitIndex, ulong LastAppliedIndex);
 
     /// <summary>Exact-size owned byte buffer helpers for replica-group encoding.</summary>
     private static class OwnedBufferKit

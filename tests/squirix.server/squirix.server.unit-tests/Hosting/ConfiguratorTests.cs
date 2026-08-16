@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers the public server configuration loader.</summary>
+[Immutable]
 public sealed class ConfiguratorTests : ServerUnitTestBase
 {
     /// <summary>Canonicalizes a safe data directory override to an absolute path.</summary>

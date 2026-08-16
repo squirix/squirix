@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
@@ -178,6 +179,7 @@ internal static class ExploreRunner
     }
 
     [StructLayout(LayoutKind.Auto)]
+    [Immutable]
     private readonly record struct SummaryContent(string ProfileName, BrokenMode Broken, int States, int Transitions, SafetyViolation? Violation, bool FixedPointReached);
 
     private static class ModelTransitions
@@ -1008,6 +1010,7 @@ internal static class ExploreRunner
             return null;
         }
 
+        [Immutable]
         private sealed class SearchWork
         {
             internal SearchWork(ExploreProfile profile, BrokenMode broken)

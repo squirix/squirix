@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Snapshot;
@@ -10,6 +11,7 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>Bridges owner-cache enumeration into snapshot-ready object entries.</summary>
 /// <typeparam name="T">The stored cache value type.</typeparam>
+[Immutable]
 internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 {
     private readonly ILocalCacheSnapshotReader<T> _reader;

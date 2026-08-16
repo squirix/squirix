@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Covers journal-quota catch paths on metrics and tracing cache decorators.</summary>
+[Immutable]
 public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Metrics decorator rethrows journal capacity from void and result operations.</summary>
@@ -40,6 +42,7 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
 
     private static NodeCacheEntry<string> CreateEntry() => new() { Value = "v", Version = 1 };
 
+    [Immutable]
     private sealed class ThrowingLogicalCache : ILogicalNamespacedCache<string>
     {
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

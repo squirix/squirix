@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -5,6 +6,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Errors;
 
 /// <summary>Covers FailedPrecondition detail classification helpers.</summary>
+[Immutable]
 public sealed class ServerOpContractClassifierTests : ServerUnitTestBase
 {
     /// <summary>Recognizes operation-id reuse mismatch details.</summary>

@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
+[Immutable]
 internal sealed class JournalCompactionOptionsValidator : IValidateOptions<JournalCompactionOptions>
 {
     public ValidateOptionsResult Validate(string? name, JournalCompactionOptions options)

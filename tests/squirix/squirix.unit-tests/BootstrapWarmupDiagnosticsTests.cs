@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.TestKit;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.UnitTests;
 
 /// <summary>Tests bootstrap warm-up skip observability.</summary>
+[Immutable]
 public sealed class BootstrapWarmupDiagnosticsTests
 {
     private const string BootstrapWarmupSkippedInstrumentName = "squirix_client_pool_bootstrap_warmup_skipped_total";

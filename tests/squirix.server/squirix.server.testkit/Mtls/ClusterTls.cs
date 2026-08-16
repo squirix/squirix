@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
@@ -294,6 +295,7 @@ public sealed class ClusterTls : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class HandlerFactory
     {
         private readonly X509CertificateCollection _clientCertificates;
@@ -308,6 +310,7 @@ public sealed class ClusterTls : IDisposable
         internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId);
     }
 
+    [Immutable]
     private sealed class NoClientCertificateHandlerFactory
     {
         private readonly X509Certificate2 _trustAnchor;
@@ -321,6 +324,7 @@ public sealed class ClusterTls : IDisposable
     }
 
     /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>
+    [Immutable]
     private sealed class TestBundle : IDisposable
     {
         private readonly X509Certificate2 _ca;

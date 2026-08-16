@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -9,6 +10,7 @@ namespace Squirix.Server.Storage.Replication;
 /// A group directory is created only for a group present in this composition. This is the static local
 /// membership check performed before any group storage is materialized on disk.
 /// </remarks>
+[Immutable]
 internal sealed class GroupComposition
 {
     private readonly FrozenSet<string> _groups;

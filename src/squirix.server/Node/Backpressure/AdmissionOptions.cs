@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 
 /// <summary>Configures node-level admission control for inbound gRPC cache requests.</summary>
+[Immutable]
 internal sealed record AdmissionOptions
 {
     internal bool Enabled { get; init; } = true;

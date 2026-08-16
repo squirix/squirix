@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Squirix.Attributes;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
@@ -179,6 +180,7 @@ internal static class ServerHostingComposition
         return (mtlsOptions, mtlsMaterial);
     }
 
+    [Immutable]
     private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
 
     /// <summary>

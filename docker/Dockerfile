@@ -22,6 +22,7 @@ COPY src/squirix/ src/squirix/
 COPY src/shared/ src/shared/
 COPY src/squirix.server/ src/squirix.server/
 COPY src/squirix.server.host/ src/squirix.server.host/
+COPY src/squirix.attributes/ src/squirix.attributes/
 
 RUN dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj \
     -c Release \

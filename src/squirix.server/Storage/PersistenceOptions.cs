@@ -2,9 +2,11 @@ using System;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage;
 
+[Immutable]
 internal sealed record PersistenceOptions
 {
     [JsonInclude]

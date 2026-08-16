@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -16,6 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
 /// <summary>Golden snapshot for the gRPC service surface exposed by <c>MapSquirixServer</c>.</summary>
+[Immutable]
 public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production gRPC service surface.</summary>

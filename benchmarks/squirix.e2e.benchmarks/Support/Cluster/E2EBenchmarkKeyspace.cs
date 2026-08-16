@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Attributes;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
 /// <summary>Precomputed benchmark keyspace for hits, misses, unique writes, and owner-aware routing.</summary>
+[Immutable]
 internal sealed class E2EBenchmarkKeyspace
 {
     private const int HotKeyCount = 16;
@@ -111,6 +113,7 @@ internal sealed class E2EBenchmarkKeyspace
     }
 
     /// <summary>Mirrors the Squirix consistent-hash owner selection for benchmark setup.</summary>
+    [Immutable]
     private sealed class KeyOwner
     {
         internal static readonly KeyOwner TwoNode = new(["nodeA", "nodeB"]);

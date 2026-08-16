@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
@@ -17,6 +18,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
 /// </summary>
+[Immutable]
 public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
@@ -81,6 +83,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
     /// <summary>
     /// Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.
     /// </summary>
+    [Immutable]
     private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
     {
         internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
@@ -93,6 +96,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
             return new RecordingScope();
         }
 
+        [Immutable]
         private sealed class RecordingScope : IJournalOperationTraceScope
         {
             public void Dispose()

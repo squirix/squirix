@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -16,6 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Ensures failed snapshot writes do not leave stale temporary files.</summary>
+[Immutable]
 public sealed class WriterCleanupTests : ServerUnitTestBase
 {
     /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
@@ -93,6 +95,7 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
         return keys;
     }
 
+    [Immutable]
     private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>
     {
         public int Count => 2;
@@ -113,6 +116,7 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
+    [Immutable]
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations
     {
         private readonly FileOperations _inner = new();

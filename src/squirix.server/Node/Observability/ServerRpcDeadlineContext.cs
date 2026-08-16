@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -39,6 +40,7 @@ internal static class ServerRpcDeadlineContext
         return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
     }
 
+    [Immutable]
     private sealed class Scope : IDisposable
     {
         private readonly DateTime? _previous;

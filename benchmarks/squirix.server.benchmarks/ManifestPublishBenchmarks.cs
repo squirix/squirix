@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Benchmarks;
@@ -55,6 +56,7 @@ public class ManifestPublishBenchmarks
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>
+    [Immutable]
     private sealed class Host : IAsyncDisposable
     {
         private readonly TempDirectory _dataDir;

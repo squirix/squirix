@@ -1,7 +1,9 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Manifest;
 
+[Immutable]
 internal sealed record SnapshotRef
 {
     internal DateTime CreatedUtc { get; init; }

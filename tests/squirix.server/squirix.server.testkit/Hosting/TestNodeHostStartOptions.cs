@@ -1,3 +1,4 @@
+using Squirix.Attributes;
 using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -5,6 +6,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <summary>
 /// Optional settings for <see cref="TestNodeHostFactory" /> node startup.
 /// </summary>
+[Immutable]
 public sealed class TestNodeHostStartOptions
 {
     /// <summary>Gets the stopped-topology configuration generation.</summary>

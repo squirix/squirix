@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -108,7 +109,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public MutableInt32 QueuedAppendsCounter { get; } = new();
 
-    public QuiescenceGate InFlightApplyGate { get; } = new QuiescenceGate();
+    public QuiescenceGate InFlightApplyGate { get; } = new();
 
     public JournalStartupGate StartupGate { get; }
 
@@ -295,6 +296,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     /// Forwards <see cref="IJournalEventLoopHost" /> callbacks from <see cref="JournalEventLoop" />
     /// to <see cref="JournalCoordinator" /> without the coordinator implementing the interface directly.
     /// </summary>
+    [Immutable]
     private sealed class JournalEventLoopBridge : IJournalEventLoopHost
     {
         private readonly JournalCoordinator _coordinator;
@@ -325,6 +327,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>
+    [Immutable]
     private sealed class JournalCoordinatorAppendPipeline
     {
         private readonly IJournalCoordinatorAppendState _owner;

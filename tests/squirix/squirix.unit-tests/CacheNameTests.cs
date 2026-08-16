@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.TestKit;
 using Xunit;
@@ -8,6 +9,7 @@ namespace Squirix.UnitTests;
 /// <summary>
 /// Tests for <see cref="CacheName" /> validation and equality semantics.
 /// </summary>
+[Immutable]
 public sealed class CacheNameTests : UnitTestBase
 {
     /// <summary>Verifies equality and hash codes follow ordinal canonical strings.</summary>

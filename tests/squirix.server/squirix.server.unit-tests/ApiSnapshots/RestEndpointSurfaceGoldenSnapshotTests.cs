@@ -8,6 +8,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -19,6 +20,7 @@ namespace Squirix.Server.UnitTests.ApiSnapshots;
 /// <summary>
 /// Golden snapshot for the REST endpoint surface exposed by <c>MapSquirixServer</c>.
 /// </summary>
+[Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production REST route surface.</summary>

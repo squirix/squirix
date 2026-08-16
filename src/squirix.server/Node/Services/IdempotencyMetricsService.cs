@@ -1,12 +1,14 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Registers this node's idempotency store metrics with the shared meter and removes registration on shutdown.</summary>
+[Immutable]
 internal sealed class IdempotencyMetricsService : IHostedService
 {
     private readonly IdempotencyMetricRegistration _registration;

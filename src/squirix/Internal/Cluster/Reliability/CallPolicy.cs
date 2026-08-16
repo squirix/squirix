@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 
 namespace Squirix.Internal.Cluster.Reliability;
@@ -163,6 +164,7 @@ internal sealed class CallPolicy : ICallPolicy
         internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
     }
 
+    [Immutable]
     private sealed class CallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
@@ -406,6 +408,7 @@ internal sealed class CallPolicy : ICallPolicy
             return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
         }
 
+        [Immutable]
         private sealed record AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }

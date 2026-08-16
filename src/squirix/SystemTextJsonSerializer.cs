@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Squirix.Attributes;
 
 namespace Squirix;
 
@@ -14,6 +15,7 @@ namespace Squirix;
 /// Known squirix DTOs should use dedicated <see cref="JsonSerializerContext" /> types at call sites instead of this class.
 /// </remarks>
 #pragma warning disable ZA1001 // ISquirixSerializer must support arbitrary T; reflection fallback is the public contract.
+[Immutable]
 internal sealed class SystemTextJsonSerializer : ISquirixSerializer
 {
     private readonly JsonSerializerOptions _options = CreateDefaultOptions();

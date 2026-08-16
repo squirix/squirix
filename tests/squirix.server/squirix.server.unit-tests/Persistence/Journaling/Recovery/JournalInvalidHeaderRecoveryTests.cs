@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -19,6 +20,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>journal segment header validation during recovery and coordinator repair.</summary>
+[Immutable]
 public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
 {
     private static readonly byte[] InvalidJournalHeaderBad = [0x42, 0x41, 0x44, 0x21, 0x21];

@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage.Snapshot;
 
+[Immutable]
 internal sealed class CoordinatorDependencies
 {
     internal CoordinatorDependencies(
@@ -37,6 +39,7 @@ internal sealed class CoordinatorDependencies
 
     internal ISnapshotTelemetry Telemetry { get; }
 
+    [Immutable]
     private sealed class NoOpSnapshotTelemetry : ISnapshotTelemetry
     {
         /// <inheritdoc />

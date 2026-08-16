@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Storage.Snapshot;
 
 /// <summary>Durable idempotency outcome captured in node snapshots.</summary>
+[Immutable]
 internal sealed class PersistedIdempotencyRecord
 {
     internal PersistedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, DateTime createdUtc)

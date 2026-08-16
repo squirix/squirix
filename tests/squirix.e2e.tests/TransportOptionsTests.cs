@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
@@ -13,6 +14,7 @@ namespace Squirix.E2ETests;
 /// <summary>
 /// End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.
 /// </summary>
+[Immutable]
 public sealed class TransportOptionsTests : EndToEndTestBase
 {
     /// <summary>

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.TestKit;
 
@@ -11,6 +12,7 @@ namespace Squirix.Server.TestKit;
 /// A simple metrics sink based on <see cref="MeterListener" /> that captures
 /// measurements from a specified meter for assertions in tests.
 /// </summary>
+[Immutable]
 public sealed class NodeMeasurementSink : IDisposable
 {
     private readonly ConcurrentQueue<CapturedMeasurement> _events = new();
@@ -162,6 +164,7 @@ public sealed class NodeMeasurementSink : IDisposable
             listener.EnableMeasurementEvents(instrument, _events);
     }
 
+    [Immutable]
     private readonly struct CapturedMeasurement : IEquatable<CapturedMeasurement>
     {
         internal readonly string InstrumentName;
@@ -235,6 +238,7 @@ public sealed class NodeMeasurementSink : IDisposable
             _inlineTags.GetTag(index, out key, out value);
         }
 
+        [Immutable]
         private readonly struct InlineTags : IEquatable<InlineTags>
         {
             private readonly string? _key0;

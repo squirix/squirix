@@ -2,6 +2,7 @@ using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
@@ -12,6 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for cluster mTLS certificate loading.</summary>
+[Immutable]
 public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 {
     /// <summary>Ensures PEM loading works for trusted test certificates.</summary>

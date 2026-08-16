@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 
@@ -148,6 +149,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
     }
 
+    [Immutable]
     private sealed record ServerCallPolicySettings(string Peer, int MaxAttempts, TimeSpan TimeoutPerAttempt, TimeSpan BaseBackoff, TimeSpan MaxBackoff);
 
     /// <summary>Thread-safe in-flight operation counter for call-policy dispose gating.</summary>
@@ -164,6 +166,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
     }
 
+    [Immutable]
     private sealed class ServerCallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
@@ -421,6 +424,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
         }
 
+        [Immutable]
         private sealed record AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -13,6 +14,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="LogIndex">Log index when applicable.</param>
 /// <param name="CommitIndex">Commit index when applicable.</param>
 /// <param name="PayloadChecksum">CRC32C over canonical payload bytes.</param>
+[Immutable]
 internal sealed record Envelope(
     uint SchemaVersion,
     string GroupId,

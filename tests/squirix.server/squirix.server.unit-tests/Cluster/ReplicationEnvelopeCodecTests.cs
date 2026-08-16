@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Round-trip coverage for the closed replication envelope codec.</summary>
+[Immutable]
 public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
 {
     /// <summary>Encode/decode preserves the mandatory envelope fields.</summary>

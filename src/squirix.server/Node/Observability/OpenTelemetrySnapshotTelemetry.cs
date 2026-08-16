@@ -1,10 +1,12 @@
 using System;
 using System.Diagnostics;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>OpenTelemetry-backed <see cref="ISnapshotTelemetry" /> implementation.</summary>
+[Immutable]
 internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
 {
     /// <inheritdoc />
@@ -26,6 +28,7 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
             "result");
     }
 
+    [Immutable]
     private sealed class Scope : ISnapshotTraceScope
     {
         private readonly Activity _activity;

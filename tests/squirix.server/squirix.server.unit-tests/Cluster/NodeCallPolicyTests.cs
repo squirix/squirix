@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
@@ -15,6 +16,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// <summary>
 /// Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.
 /// </summary>
+[Immutable]
 public sealed class NodeCallPolicyTests : ServerUnitTestBase
 {
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
@@ -369,6 +371,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
 
+    [Immutable]
     private sealed class CancellationProbeState
     {
         internal CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
@@ -382,6 +385,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         internal TaskCompletionSource Entered { get; }
     }
 
+    [Immutable]
     private sealed class ConcurrencySyncState
     {
         internal ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
@@ -400,6 +404,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         internal RunningCounter Running { get; } = new();
     }
 
+    [Immutable]
     private sealed class EnterReleaseGate
     {
         internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)

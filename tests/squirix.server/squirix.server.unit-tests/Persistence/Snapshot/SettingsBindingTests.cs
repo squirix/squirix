@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Tests JSON merge and configuration binding for snapshot trigger settings.</summary>
+[Immutable]
 public sealed class SettingsBindingTests : ServerUnitTestBase
 {
     /// <summary>Verifies strict settings validation includes a valid <c>Snapshot</c> section.</summary>

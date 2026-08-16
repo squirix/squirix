@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.IO;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Verifies Prometheus metrics settings deserialization and merge via <see cref="PrometheusMetricsBootstrap" />.</summary>
+[Immutable]
 public sealed class PrometheusMetricsSettingsTests
 {
     /// <summary>

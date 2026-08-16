@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
@@ -47,6 +48,7 @@ internal static class NodeEndpointServiceRegistration
     }
 
     /// <summary>Builds health-ready diagnostics when persistence is disabled.</summary>
+    [Immutable]
     private sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;
@@ -107,6 +109,7 @@ internal static class NodeEndpointServiceRegistration
         }
     }
 
+    [Immutable]
     private sealed class HealthReadyDependencies
     {
         internal HealthReadyDependencies(
@@ -143,6 +146,7 @@ internal static class NodeEndpointServiceRegistration
     }
 
     /// <summary>Builds health-ready diagnostics for `/health/ready/details`.</summary>
+    [Immutable]
     private sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;

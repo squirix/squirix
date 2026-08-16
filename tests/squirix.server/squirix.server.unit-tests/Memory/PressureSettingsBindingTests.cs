@@ -1,5 +1,6 @@
 using System.Text;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.IO;
@@ -9,6 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Tests JSON merge and configuration binding for memory pressure settings.</summary>
+[Immutable]
 public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 {
     /// <summary>

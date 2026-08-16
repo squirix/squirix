@@ -1,10 +1,12 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node Remove and RemoveExpiration semantics.</summary>
+[Immutable]
 public sealed class ExpirationRemoveTests : TestBase
 {
     /// <summary>Initializes a new instance of the <see cref="ExpirationRemoveTests" /> class.</summary>

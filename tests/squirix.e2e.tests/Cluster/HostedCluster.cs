@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -12,6 +13,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Lifecycle wrapper for a started Squirix test cluster (single- or multi-node).</summary>
+[Immutable]
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
@@ -160,6 +162,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     }
 
     /// <summary>Represents a started test node.</summary>
+    [Immutable]
     private sealed class TestNode : IAsyncDisposable
     {
         private readonly TestNodeHost _host;

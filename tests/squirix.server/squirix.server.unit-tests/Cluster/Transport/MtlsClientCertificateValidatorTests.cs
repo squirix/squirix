@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for inbound cluster mTLS client certificate validation.</summary>
+[Immutable]
 public sealed class MtlsClientCertificateValidatorTests : ServerUnitTestBase
 {
     /// <summary>Ensures inbound validation accepts configured remote peer identities only.</summary>

@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Adapters.Rest;
 
+[Immutable]
 internal sealed class HealthReadyDetailsResponse
 {
     internal HealthReadyDetailsResponse(ulong journalBacklogOps, double? snapshotAgeSeconds, bool snapshotInFlight, HealthReadyDetailSections sections)

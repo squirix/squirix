@@ -1,5 +1,6 @@
 using System.Text.Json;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -7,6 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Core;
 
 /// <summary>Tests for value normalization on <see cref="NodeCacheEntry{T}" />.</summary>
+[Immutable]
 public sealed class NodeCacheEntryTests : ServerUnitTestBase
 {
     private interface IValueContract;
@@ -47,6 +49,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         Assert.Equal("survives", field.GetString());
     }
 
+    [Immutable]
     private sealed record DerivedValue : IValueContract
     {
         [UsedImplicitly]

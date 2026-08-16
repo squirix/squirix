@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.IO;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -8,6 +9,7 @@ using Squirix.Server.Storage.Journaling.Read;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Segment rolls, batching, and frame writes for the journal event loop.</summary>
+[Immutable]
 internal sealed class JournalEventLoopSegmentWriter
 {
     private readonly IJournalEventLoopState _owner;

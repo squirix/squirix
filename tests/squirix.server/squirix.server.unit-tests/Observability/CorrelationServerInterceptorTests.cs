@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -11,6 +12,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.
 /// </summary>
+[Immutable]
 public sealed class CorrelationServerInterceptorTests
 {
     /// <summary>Verifies the server interceptor creates an activity when no incoming correlation headers exist.</summary>
@@ -103,6 +105,7 @@ public sealed class CorrelationServerInterceptorTests
 
     private static ServerInterceptor CreateInterceptor() => new(NullLogger<ServerInterceptor>.Instance, "n1");
 
+    [Immutable]
     private sealed record CorrelationObservation(string TraceId, string? TraceStateString);
 
     private sealed class ActivityCapture

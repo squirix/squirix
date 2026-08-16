@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix;
 
@@ -6,6 +7,7 @@ namespace Squirix;
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
 /// <param name="Entry">The cache entry when found.</param>
+[Immutable]
 public readonly record struct CacheEntryResult<T>(bool Found, CacheEntry<T>? Entry)
 {
     /// <summary>Gets the absolute expiration time when found.</summary>

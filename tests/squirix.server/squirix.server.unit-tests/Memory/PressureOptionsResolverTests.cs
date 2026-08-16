@@ -1,4 +1,5 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -9,6 +10,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Tests for <see cref="OptionsResolver" />.
 /// </summary>
+[Immutable]
 public sealed class PressureOptionsResolverTests
 {
     /// <summary>Verifies unset max bytes defaults to 80% of available memory.</summary>

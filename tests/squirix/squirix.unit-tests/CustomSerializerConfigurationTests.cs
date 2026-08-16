@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Xunit;
 
@@ -12,6 +13,7 @@ namespace Squirix.UnitTests;
 /// Verifies that <see cref="SquirixClientOptions" /> configure-delegate properties remain settable (not init-only)
 /// and that client serializer scopes do not mutate the default serializer host.
 /// </summary>
+[Immutable]
 public sealed class CustomSerializerConfigurationTests
 {
     /// <summary>
@@ -42,6 +44,7 @@ public sealed class CustomSerializerConfigurationTests
         Assert.Same(custom, options.Serializer);
     }
 
+    [Immutable]
     private sealed class MarkerSerializer : ISquirixSerializer
     {
         public T Deserialize<T>(string payload) => throw CreateNotUsed();

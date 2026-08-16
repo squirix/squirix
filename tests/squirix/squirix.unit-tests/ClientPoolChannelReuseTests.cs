@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Xunit;
@@ -9,6 +10,7 @@ namespace Squirix.UnitTests;
 /// <summary>
 /// Regression coverage for <see cref="ClientPool" /> gRPC channel reuse (issue #1).
 /// </summary>
+[Immutable]
 public sealed class ClientPoolChannelReuseTests
 {
     private const int LoopIterationCount = 256;

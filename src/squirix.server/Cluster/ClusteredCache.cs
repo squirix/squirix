@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;
@@ -11,6 +12,7 @@ namespace Squirix.Server.Cluster;
 
 /// <summary>Routes cache operations to the static owner using gRPC on remote peers.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _local;
@@ -85,6 +87,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
     private string OwnerFor(string cacheName, string key) => _locator.GetOwner(cacheName, key);
 
     /// <summary>Forwards cache operations to the key owner over inter-node gRPC.</summary>
+    [Immutable]
     private sealed class OwnerPeerCacheClient
     {
         private readonly IServerClientPool _clients;

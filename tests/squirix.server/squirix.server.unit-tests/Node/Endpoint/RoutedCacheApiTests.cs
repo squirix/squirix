@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Endpoint;
 
 /// <summary>Constructor contract coverage for the routed cache API adapter.</summary>
+[Immutable]
 public sealed class RoutedCacheApiTests
 {
     /// <summary>Verifies that the routed cache API requires a namespaced cache.</summary>
@@ -36,6 +38,7 @@ public sealed class RoutedCacheApiTests
             static (ns, name) => _ = new RoutedCacheApi<string>(ns, name!));
     }
 
+    [Immutable]
     private sealed class NotSupportedLogicalCache : ILogicalNamespacedCache<string>
     {
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -16,6 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for idempotency export timing during snapshot cut (plan step 2).</summary>
+[Immutable]
 public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
 {
     private const string AfterFlushOperationId = "after-flush";

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
 
+[Immutable]
 internal sealed class NodeState
 {
     internal NodeState(int id, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, NodeRuntime runtime)

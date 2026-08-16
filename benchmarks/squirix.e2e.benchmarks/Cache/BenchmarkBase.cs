@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
+using Squirix.Attributes;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.E2EBenchmarks.Support.Harness;
@@ -90,6 +91,7 @@ public abstract class BenchmarkBase
     /// <returns>A task that completes when additional setup is finished.</returns>
     protected virtual Task SeedAdditionalStateAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    [Immutable]
     private sealed class UninitializedBenchmarkValueAdapter : IE2EBenchmarkValueAdapter
     {
         internal static readonly UninitializedBenchmarkValueAdapter Instance = new();

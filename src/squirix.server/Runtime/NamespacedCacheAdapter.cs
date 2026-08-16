@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
@@ -8,6 +9,7 @@ namespace Squirix.Server.Runtime;
 
 /// <summary>Delegates logical namespaced cache operations through the runtime contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class NamespacedCacheAdapter<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;

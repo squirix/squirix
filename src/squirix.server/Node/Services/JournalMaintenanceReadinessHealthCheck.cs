@@ -2,12 +2,14 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness based on fatal journal maintenance failures.</summary>
+[Immutable]
 internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 {
     private readonly IJournalCompactionStatus _compaction;

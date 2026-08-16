@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Squirix.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
 
@@ -9,6 +10,7 @@ namespace Squirix.Server.IntegrationTests;
 /// Integration tests verifying <see cref="PrometheusMetricsEndpointOptions" /> properties
 /// remain mutable through the DI <c>Configure</c>/<c>PostConfigure</c> pipeline.
 /// </summary>
+[Immutable]
 public sealed class PrometheusMetricsEndpointOptionsTests
 {
     /// <summary>

@@ -1,9 +1,11 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>Resolved runtime memory pressure configuration.</summary>
+[Immutable]
 internal sealed record PressureOptions
 {
     /// <summary>

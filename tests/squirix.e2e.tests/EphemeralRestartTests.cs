@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit.Hosting;
@@ -10,6 +11,7 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Verifies ephemeral nodes do not restore cache state across restart.</summary>
+[Immutable]
 public sealed class EphemeralRestartTests : EndToEndTestBase
 {
     /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>

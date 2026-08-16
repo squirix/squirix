@@ -1,10 +1,12 @@
 using System;
+using Squirix.Attributes;
 using Squirix.Server.Node.App.Decorators;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Core;
 
 /// <summary>Ensures the tracing decorator does not publish a logical pipeline disposal surface.</summary>
+[Immutable]
 public sealed class TracingCacheDecoratorLifetimeTests
 {
     /// <summary>
