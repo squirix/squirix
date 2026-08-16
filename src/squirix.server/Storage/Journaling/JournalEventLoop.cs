@@ -227,7 +227,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             }
 
             _segmentWriter.FlushWriteBatch();
-            _ = _segmentWriter.ProcessJournalWorkItem(item, DrainDueGroupCommitBatches);
+            _ = _segmentWriter.ProcessJournalWorkItem(item);
         }
 
         private bool TryProcessAppendFromRing(JournalWorkItem item, ref JournalWorkItem? rollDeferredAppend)
@@ -242,7 +242,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             }
 
             _segmentWriter.FlushWriteBatch();
-            _ = _segmentWriter.ProcessJournalWorkItem(item, DrainDueGroupCommitBatches);
+            _ = _segmentWriter.ProcessJournalWorkItem(item);
             return false;
         }
 
@@ -250,7 +250,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         {
             shutdownRequested = false;
             _segmentWriter.FlushWriteBatch();
-            if (!_segmentWriter.ProcessJournalWorkItem(item, DrainDueGroupCommitBatches))
+            if (!_segmentWriter.ProcessJournalWorkItem(item))
                 return false;
 
             _segmentWriter.FlushWriteBatch();

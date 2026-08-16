@@ -31,12 +31,12 @@ internal sealed class JournalEventLoopSegmentWriter
         CompleteWriteBatch(span.Length, offset, notifyGroupCommit);
     }
 
-    internal bool ProcessJournalWorkItem(JournalWorkItem item, Action drainDueGroupCommitBatches)
+    internal bool ProcessJournalWorkItem(JournalWorkItem item)
     {
         switch (item.Kind)
         {
             case JournalWorkKind.Append:
-                ProcessAppend(item, drainDueGroupCommitBatches);
+                ProcessAppend(item);
                 return false;
 
             case JournalWorkKind.AppendWithDurability:
@@ -242,7 +242,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private long GetEffectiveJournalTotalBytes() => _owner.JournalTotalBytes + _owner.WriteBatch.StagedByteLength;
 
-    private void ProcessAppend(JournalWorkItem item, Action drainDueGroupCommitBatches)
+    private void ProcessAppend(JournalWorkItem item)
     {
         try
         {
@@ -267,7 +267,7 @@ internal sealed class JournalEventLoopSegmentWriter
         ReleaseQueuedAppendResources(item);
 
         if (_owner.Options.IsJournalGroupCommitEnabled)
-            drainDueGroupCommitBatches();
+            _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
         CompleteJournalWorkItem(item);
     }
