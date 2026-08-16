@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -38,11 +39,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         try
         {
-            if (!await Task.Factory.StartNew(
-                    () => _owner.JournalThread.Join(TimeSpan.FromSeconds(30)),
-                    _owner.BackgroundCancellation.Token,
-                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-                    TaskScheduler.Default).ConfigureAwait(false))
+            var work = new JoinJournalThreadWork(this);
+            await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
+            if (!work.Joined)
                 failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
@@ -195,5 +194,19 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             return;
 
         _ = waiter.TrySetCanceled(cancellationToken);
+    }
+
+    private sealed class JoinJournalThreadWork : IWorkPoolItem
+    {
+        private readonly JournalCoordinatorDurabilityPipeline _pipeline;
+
+        internal JoinJournalThreadWork(JournalCoordinatorDurabilityPipeline pipeline)
+        {
+            _pipeline = pipeline;
+        }
+
+        internal bool Joined { get; private set; }
+
+        void IWorkPoolItem.Execute() => Joined = _pipeline._owner.JournalThread.Join(TimeSpan.FromSeconds(30));
     }
 }

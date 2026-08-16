@@ -6,19 +6,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Background fire-and-forget worker that schedules and runs manifest retention cleanup.</summary>
-internal sealed class RetentionWorker
+internal sealed class RetentionWorker : IWorkPoolItem
 {
-    private static readonly Action<object?> RunRetentionWorkerLoopCallback = static state =>
-    {
-        if (state is RetentionWorker worker)
-            worker.RunRetentionWorkerLoop();
-    };
-
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private volatile State? _pendingRetentionManifest;
@@ -30,16 +25,7 @@ internal sealed class RetentionWorker
         _retentionReadiness = retentionReadiness;
     }
 
-    internal void ScheduleRetentionCleanup(State manifest)
-    {
-        _pendingRetentionManifest = manifest;
-        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
-            return;
-
-        StartRetentionWorkerLoop();
-    }
-
-    private void RunRetentionWorkerLoop()
+    void IWorkPoolItem.Execute()
     {
         try
         {
@@ -62,12 +48,16 @@ internal sealed class RetentionWorker
         }
     }
 
-    private void StartRetentionWorkerLoop() => _ = Task.Factory.StartNew(
-        RunRetentionWorkerLoopCallback,
-        this,
-        CancellationToken.None,
-        TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-        TaskScheduler.Default);
+    internal void ScheduleRetentionCleanup(State manifest)
+    {
+        _pendingRetentionManifest = manifest;
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
+            return;
+
+        StartRetentionWorkerLoop();
+    }
+
+    private void StartRetentionWorkerLoop() => _ = WorkPool.RunAsync(this, TaskCreationOptions.LongRunning, CancellationToken.None);
 
     /// <summary>Restarts the retention loop when pending work remains after the previous loop released its schedule flag.</summary>
     /// <returns><see langword="true" /> when a new retention loop was scheduled; otherwise <see langword="false" />.</returns>
