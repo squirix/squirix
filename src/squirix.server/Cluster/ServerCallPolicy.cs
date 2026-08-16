@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster;
 
@@ -14,12 +15,12 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private readonly ServerActiveOperationCounter _activeOperations = new();
     private readonly Lock _disposeGate = new();
     private readonly ServerCallPolicyExecutor _executor;
+    private readonly VolatileBool _draining = new();
     private readonly string _peer;
     private readonly SemaphoreSlim _semaphore;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
     private bool _disposed;
-    private volatile bool _draining;
     private bool _semaphoreDisposed;
 
     internal ServerCallPolicy(
@@ -34,19 +35,16 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
         _semaphore = new SemaphoreSlim(cap, cap);
-        _executor = new ServerCallPolicyExecutor(
-            new ServerCallPolicySettings(
-                _peer,
-                Math.Max(1, maxAttempts),
-                timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
-                baseBackoff ?? TimeSpan.FromMilliseconds(50),
-                maxBackoff ?? TimeSpan.FromMilliseconds(500)),
-            timeProvider ?? TimeProvider.System,
-            _semaphore,
-            IsDraining);
+        var settings = new ServerCallPolicySettings(
+            _peer,
+            Math.Max(1, maxAttempts),
+            timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
+            baseBackoff ?? TimeSpan.FromMilliseconds(50),
+            maxBackoff ?? TimeSpan.FromMilliseconds(500));
+        _executor = new ServerCallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining);
     }
 
-    public void BeginDrain() => _draining = true;
+    public void BeginDrain() => _draining.Write(true);
 
     public ValueTask DisposeAsync()
     {
@@ -55,7 +53,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (_disposeTask is not null)
                 return new ValueTask(_disposeTask);
 
-            _draining = true;
+            _draining.Write(true);
             _disposed = true;
             if (_activeOperations.CheckIfIdle())
             {
@@ -112,7 +110,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             budgetCts.CancelAfter(budgetRemaining);
     }
 
-    private bool IsDraining() => _draining;
+    private bool IsDraining() => _draining.Read();
 
     private void DisposeSemaphoreUnderLockIfIdle()
     {
@@ -143,7 +141,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     private void ThrowIfDraining()
     {
-        if (!_draining)
+        if (!_draining.Read())
             return;
 
         ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);

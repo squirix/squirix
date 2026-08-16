@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -29,11 +30,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly Coordinator _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
+    private readonly VolatileField<TaskCompletionSource> _wake = new();
     private int _consecutiveFailures;
     private int _inFlight;
     private SnapshotRef? _pendingSnapshotHint;
     private int _snapshotSubscriptionState;
-    private TaskCompletionSource? _wake;
 
     internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
     {
@@ -140,7 +141,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         // Queue onto the hosted loop instead of fire-and-forget so StopAsync awaits in-flight work
         // and CI thread-pool delay cannot strand the snapshot-triggered attempt.
         Volatile.Write(ref _pendingSnapshotHint, e.SnapshotRef);
-        var wake = Volatile.Read(ref _wake);
+        var wake = _wake.Read();
         if (wake is not null)
             _ = wake.TrySetResult();
     }
@@ -252,7 +253,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)
     {
         var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Volatile.Write(ref _wake, wake);
+        _wake.Write(wake);
         try
         {
             // Snapshot completion may have queued work before the wake signal was published.
@@ -271,7 +272,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         finally
         {
-            Volatile.Write(ref _wake, null);
+            _wake.Write(null);
         }
     }
 }
