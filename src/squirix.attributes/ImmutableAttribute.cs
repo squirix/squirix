@@ -2,6 +2,6 @@ using System;
 
 namespace Squirix.Attributes;
 
-/// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
+/// <summary>Marks a type as immutable, indicating it should not be modified after construction.</summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface | AttributeTargets.Enum, Inherited = false)]
 public sealed class ImmutableAttribute : Attribute;

@@ -1,9 +1,6 @@
-using Squirix.Attributes;
-
 namespace Squirix.Server.Utils;
 
 /// <summary>Mutable int holder so owning fields can stay readonly while Interlocked mutates the cell.</summary>
-[Immutable]
 internal sealed class MutableInt32
 {
     private int _value;
