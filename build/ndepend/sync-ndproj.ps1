@@ -103,11 +103,6 @@ if ($null -ne $customRuleOverridesNode) {
             throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
         }
 
-        $idTag = "// <Id>${ruleToken}:"
-        if ($overrideQuery.InnerText -notlike "*$idTag*") {
-            throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
-        }
-
         $targetGroup = $queriesNode.SelectSingleNode(".//Group[@Name='$groupName']")
         if ($null -eq $targetGroup) {
             throw "Unexpected squirix.ndproj shape: group '$groupName' not found for rule override '$ruleToken'."
