@@ -8,6 +8,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;
 
+[Mutable]
 internal static class BackpressureMetrics
 {
     private static readonly Counter<long> BypassTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_bypass_total");

@@ -1,6 +1,9 @@
+using Squirix.Attributes;
+
 namespace Squirix.Server.Utils;
 
 /// <summary>Mutable long holder so owning fields can stay readonly while Interlocked mutates the cell.</summary>
+[Mutable]
 internal sealed class MutableInt64
 {
     private long _value;

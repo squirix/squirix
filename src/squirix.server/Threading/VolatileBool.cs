@@ -1,4 +1,5 @@
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -7,6 +8,7 @@ namespace Squirix.Server.Threading;
 /// The value is stored as an integer so that the memory barriers are explicit and
 /// the wrapper can be used without volatile access in callers.
 /// </remarks>
+[ThreadSafe]
 internal sealed class VolatileBool
 {
     private int _value;

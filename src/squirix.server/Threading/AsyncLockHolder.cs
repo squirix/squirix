@@ -1,9 +1,11 @@
 using System;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Threading;
 
 /// <summary>Disposable handle returned by <see cref="AsyncLock.LockAsync"/>; releases the lock when disposed.</summary>
+[Mutable]
 internal sealed class AsyncLockHolder : IDisposable
 {
     private readonly SemaphoreSlim _semaphore;

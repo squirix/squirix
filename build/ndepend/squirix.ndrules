@@ -167,7 +167,40 @@ where m.SimpleNameLike("^Try") &&
       m.ReturnType != null &&
       m.ReturnType.FullName != "System.Boolean" &&
       !m.ReturnType.Name.Contains("Task")
-select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2505" Group="System.Threading"><![CDATA[// <Name>Methods that read mutable state without synchronization</Name>
+// <Id>ND2505:MethodNonSynchronizedThatReadMutableStates</Id>
+// ND2505 squirix override: ignore explicitly thread-safe holder types, enum backing
+// values, literals, compiler-generated fields, and analyzer details. Test and benchmark
+// assemblies are already excluded from JustMyCode by the queries above.
+warnif count > 0
+from m in JustMyCode.Methods
+where (m.ReadsMutableObjectState || m.ReadsMutableTypeState) &&
+      m.ParentType != null &&
+      m.ParentType.ParentAssembly.Name != "Squirix.Analyzers" &&
+      !m.ParentType.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.IsGeneratedByCompiler &&
+      !m.IsUsing("System.Threading.Monitor".AllowNoMatch()) &&
+      !m.IsUsing("System.Threading.ReaderWriterLock".AllowNoMatch())
+let mutableFieldsUsed = m.FieldsUsed.Where(f =>
+      !f.IsImmutable &&
+      !f.IsEnumValue &&
+      !f.IsGeneratedByCompiler &&
+      !f.IsLiteral)
+where mutableFieldsUsed.Any()
+select new { m, mutableFieldsUsed, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1910" Group="Immutability"><![CDATA[// <Name>Immutable types should be tagged with [Immutable]</Name>
+// <Id>ND1910:ImmutableTypesShouldBeTaggedWithImmutable</Id>
+// ND1910 squirix override: report immutable types unless they are explicitly marked mutable.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsImmutable &&
+      !t.HasAttribute("Squirix.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select new { t, t.NbLinesOfCode, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
       <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2802" Group="System.Reflection"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
 // <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
 // ND2802 squirix override (disabled): .NET SDK emits multi-version facade references for Roslyn/xUnit

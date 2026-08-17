@@ -4,10 +4,12 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Low-cardinality idempotency store metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
+[ThreadSafe]
 internal static class IdempotencyMetrics
 {
     private static readonly Counter<long> EvictionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(

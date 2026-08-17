@@ -10,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
 
+[Mutable]
 internal sealed class DurableMutationExecutor
 {
     private const string KeyAlreadyExistsMessage = "Key already exists.";
@@ -267,6 +268,7 @@ internal sealed class DurableMutationExecutor
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
     /// <typeparam name="TResult">Mutation result type.</typeparam>
+    [Immutable]
     private sealed record DurableMutationPlan<TResult>
     {
         private DurableMutationPlan(bool shouldApply, TResult? skipResult)
