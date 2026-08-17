@@ -8,7 +8,7 @@ using Squirix.Attributes;
 namespace Squirix;
 
 /// <summary>
-/// <see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.
+/// <see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.
 /// </summary>
 /// <remarks>
 /// Intentional reflection fallback for arbitrary user cache value types (<c>Deserialize&lt;T&gt;</c> / <c>Serialize&lt;T&gt;</c>).

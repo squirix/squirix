@@ -3,7 +3,7 @@ using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Utils;
+namespace Squirix.Server.UnitTests;
 
 /// <summary>Covers SHA-256 uppercase hex formatting.</summary>
 public sealed class HexFormatTests : ServerUnitTestBase

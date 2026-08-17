@@ -10,7 +10,7 @@ internal sealed class TopologyOptions
     [SetsRequiredMembers]
     internal TopologyOptions(ServerPeer[] peers)
     {
-        Peers = [peer];
+        Peers = peers;
     }
 
     [SetsRequiredMembers]

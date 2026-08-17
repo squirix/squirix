@@ -48,9 +48,6 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         var unexpected = CollectSetDifference(actual, expected);
         var missing = CollectSetDifference(expected, actual);
 
-        var unexpected = CollectSetDifference(actual, expected);
-        var missing = CollectSetDifference(expected, actual);
-
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
         for (var i = 0; i < unexpected.Count; i++)

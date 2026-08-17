@@ -74,21 +74,6 @@ public sealed class TestNodeHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
-    /// </summary>
-    public Uri Uri { get; }
-
-    /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
-    public async ValueTask AbruptShutdownAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
-            return;
-
-        await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-        _scope?.Dispose();
-    }
-
-    /// <summary>
     /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
     /// </summary>
     public async ValueTask DisposeAsync()
