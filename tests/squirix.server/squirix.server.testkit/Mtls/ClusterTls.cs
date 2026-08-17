@@ -15,6 +15,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.Server.TestKit.Mtls;
 
 /// <summary>Shared cluster CA and per-node mTLS material for multi-node test hosts in one test case.</summary>
+[Mutable]
 public sealed class ClusterTls : IDisposable
 {
     private readonly Dictionary<string, int> _internalPortsByNodeId = new(StringComparer.Ordinal);

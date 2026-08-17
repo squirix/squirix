@@ -1447,6 +1447,9 @@ jobs:
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
+            -   name: Synchronize NDepend project
+                run: python3 build/ndepend/sync_ndproj.py
+
             -   name: Run NDepend Analysis
                 uses: ndepend/ndepend-action@a4a1f2a6a4194d4964bf06cebd14ad12c11c6bf9 # v2
                 with:

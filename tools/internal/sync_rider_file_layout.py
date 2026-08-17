@@ -15,6 +15,7 @@ ENTRY_RE = re.compile(
     rf'<s:String x:Key="{re.escape(KEY)}">.*?</s:String>',
     re.S,
 )
+RIDER_VERSION_RE = re.compile(r"^Rider(?P<version>\d+(?:\.\d+)*)$", re.IGNORECASE)
 EMPTY_DICTIONARY = (
     '<wpf:ResourceDictionary xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" '
     'xmlns:s="clr-namespace:System;assembly=mscorlib" '
@@ -52,12 +53,19 @@ def find_global_dotsettings() -> Path | None:
         except OSError:
             continue
         if resolved.is_relative_to(root):
+            if RIDER_VERSION_RE.match(resolved.parts[-3]) is None:
+                continue
             matches.append(resolved)
 
     if not matches:
         return None
 
-    matches.sort(key=lambda p: p.as_posix(), reverse=True)
+    def version_key(path: Path) -> tuple[tuple[int, ...], str]:
+        match = RIDER_VERSION_RE.match(path.parts[-3])
+        version = tuple(int(part) for part in match.group("version").split(".")) if match else (-1,)
+        return version, path.as_posix().casefold()
+
+    matches.sort(key=version_key, reverse=True)
     return matches[0]
 
 
@@ -66,8 +74,19 @@ def _assert_allowed_write_target(path: Path) -> Path:
     resolved = path.resolve(strict=False)
     allowed = {SOLUTION_DOTSETTINGS.resolve(strict=False)}
     jetbrains = _jetbrains_roaming_root()
-    if jetbrains is not None and resolved.is_relative_to(jetbrains):
-        return resolved
+    if jetbrains is not None:
+        try:
+            relative = resolved.relative_to(jetbrains)
+        except ValueError:
+            relative = None
+        if (
+            relative is not None
+            and len(relative.parts) == 3
+            and RIDER_VERSION_RE.match(relative.parts[0])
+            and relative.parts[1].casefold() == "resharper-host"
+            and relative.parts[2].casefold() == "globalsettingsstorage.dotsettings"
+        ):
+            return resolved
     if resolved in allowed:
         return resolved
     raise ValueError(f"refusing to write unexpected DotSettings path: {resolved}")
@@ -75,12 +94,16 @@ def _assert_allowed_write_target(path: Path) -> Path:
 
 def upsert_dotsettings(path: Path, entry: str) -> None:
     target = _assert_allowed_write_target(path)
-    text = target.read_text(encoding="utf-8") if target.exists() else EMPTY_DICTIONARY
+    raw = target.read_bytes() if target.exists() else b""
+    has_bom = raw.startswith(b"\xef\xbb\xbf")
+    text = raw[3:].decode("utf-8") if has_bom else raw.decode("utf-8")
+    if not text:
+        text = EMPTY_DICTIONARY
     if ENTRY_RE.search(text):
         text = ENTRY_RE.sub(entry, text, count=1)
     else:
         text = text.replace("</wpf:ResourceDictionary>", f"\t{entry}\n</wpf:ResourceDictionary>")
-    target.write_text(text, encoding="utf-8")
+    target.write_bytes((b"\xef\xbb\xbf" if has_bom else b"") + text.encode("utf-8"))
     print(f"updated {target}")
 
 

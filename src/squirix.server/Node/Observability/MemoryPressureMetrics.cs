@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Squirix.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.Node.Observability;
@@ -12,6 +13,7 @@ namespace Squirix.Server.Node.Observability;
 /// Low-cardinality memory pressure metrics on the shared <see cref="ServerMeterRegistry.Meter" />.
 /// Observable gauges aggregate active node registrations so multiple hosts in one process do not duplicate instruments.
 /// </summary>
+[ThreadSafe]
 internal static class MemoryPressureMetrics
 {
     private static readonly Lock InitLock = new();
