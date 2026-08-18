@@ -56,7 +56,7 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <exception cref="ArgumentException">Thrown when <paramref name="obj" /> is not a <see cref="TimeSpan" />.</exception>
     public int CompareTo(object? obj)
     {
-        if (obj is null)
+        if (obj == null)
             return 1;
         if (obj is TimeSpan span)
             return CompareTo(span);

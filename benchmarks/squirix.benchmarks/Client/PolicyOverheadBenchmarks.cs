@@ -91,7 +91,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_policy is not null)
+        if (_policy != null)
         {
             await _policy.DisposeAsync().ConfigureAwait(false);
             _policy = null;

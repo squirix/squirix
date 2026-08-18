@@ -14,5 +14,5 @@ public readonly record struct CacheEntryResult<T>(bool Found, CacheEntry<T>? Ent
     public DateTime? ExpiresUtc => Entry?.ExpiresUtc;
 
     /// <summary>Gets the entry value when found.</summary>
-    public T? Value => Entry is null ? default : Entry.Value;
+    public T? Value => Entry == null ? default : Entry.Value;
 }

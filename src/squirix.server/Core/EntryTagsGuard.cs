@@ -12,7 +12,7 @@ internal static class EntryTagsGuard
     /// <exception cref="SquirixException">Thrown when tag count or UTF-8 sizes exceed limits.</exception>
     internal static void EnsureWithinLimits(FrozenDictionary<string, string>? tags)
     {
-        if (tags is null || tags.Count is 0)
+        if (tags == null || tags.Count == 0)
             return;
 
         if (tags.Count > EntryLimits.MaxEntryTagCount)

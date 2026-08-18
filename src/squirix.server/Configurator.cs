@@ -26,11 +26,11 @@ public static class Configurator
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (uri is not null)
+        if (uri != null)
             options.Uri = uri;
         if (persist)
             options.UsePersistence();
-        if (dataDirectory is not null)
+        if (dataDirectory != null)
             options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
         ApplyRuntimeDefaults(options);
@@ -44,7 +44,7 @@ public static class Configurator
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (options.DataDirectory is not null)
+        if (options.DataDirectory != null)
             options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
     }
 
@@ -91,7 +91,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path is not null ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -165,10 +165,10 @@ public static class Configurator
     public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
-        if (path is not null)
+        if (path != null)
         {
             var (success, options, _) = await TryLoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
-            if (success && options is not null)
+            if (success && options != null)
                 return options;
         }
 
@@ -183,7 +183,7 @@ public static class Configurator
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
-    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath is null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
         : ResolveValidatedFilePath(explicitPath);
 
     /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
@@ -236,7 +236,7 @@ public static class Configurator
 
             var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
                           throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
-            if (options.DataDirectory is not null)
+            if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 
             if (options.TryValidate(out var failures))
@@ -279,7 +279,7 @@ public static class Configurator
         var failures = new List<string>();
         await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
 
-        return failures.Count is 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
+        return failures.Count == 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
     }
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
@@ -289,8 +289,8 @@ public static class Configurator
     {
         options.Validate();
 
-        var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
-        if (options.Peers.Count is 0)
+        var peers = new ServerPeer[options.Peers.Count == 0 ? 1 : options.Peers.Count];
+        if (options.Peers.Count == 0)
             peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
         else
             for (var i = 0; i < options.Peers.Count; i++)

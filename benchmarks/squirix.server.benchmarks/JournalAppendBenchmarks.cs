@@ -59,7 +59,7 @@ public class JournalAppendBenchmarks
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_host is not null)
+        if (_host != null)
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
     }

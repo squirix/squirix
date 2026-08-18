@@ -14,7 +14,7 @@ var runs = new[]
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -66,7 +66,7 @@ while (argIndex < argv.Length)
 
 var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
     return await FailAsync("dotnet executable path is unavailable.").ConfigureAwait(false);
 
 for (var iteration = 1; iteration <= iterations; iteration++)
@@ -90,7 +90,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
             list.Add("--no-build");
 
         var code = await RunDotnetAsync(dotnetPath, repoRoot, list, CancellationToken.None).ConfigureAwait(false);
-        if (code is not 0)
+        if (code != 0)
         {
             return await FailAsync(
                 $"Failed: {run.Label} on iteration {iteration.ToString(CultureInfo.InvariantCulture)}.",
@@ -108,7 +108,7 @@ static string ResolveRepoRoot()
     var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
     var current = new DirectoryInfo(startDir);
 
-    while (current is not null)
+    while (current != null)
     {
         var hasSolution = File.Exists(Path.Join(current.FullName, "squirix.slnx"));
         var hasCoreProject = File.Exists(Path.Join(current.FullName, "src", "squirix", "Squirix.csproj"));
@@ -167,7 +167,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadO
         processStartInfo.ArgumentList.Add(arg);
 
     using var proc = Process.Start(processStartInfo);
-    if (proc is not null)
+    if (proc != null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;

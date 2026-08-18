@@ -25,6 +25,39 @@ public sealed class CallPolicyTests
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
     }
 
+    /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
+    [Fact]
+    public async Task ExecuteAsyncQueuedCallRejectedOnDrainAsync()
+    {
+        var timeout = TimeSpan.FromSeconds(5);
+        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
+
+        var first = policy.ExecuteAsync(
+            static async (g, ct) =>
+            {
+                g.Entered.SetResult();
+                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                return 1;
+            },
+            gate,
+            CancellationToken.None);
+
+        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
+
+        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, CancellationToken.None);
+
+        policy.BeginDrain();
+        releaseFirst.SetResult();
+
+        Assert.Equal(1, await first);
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
+        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+    }
+
     /// <summary>Retries DeadlineExceeded RpcException.</summary>
     [Fact]
     public async Task ExecuteAsyncRetriesDeadlineExceededRpcAsync()
@@ -36,7 +69,7 @@ public sealed class CallPolicyTests
             {
                 _ = cancellationToken;
                 var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
+                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
             },
             box,
             CancellationToken.None);
@@ -56,32 +89,12 @@ public sealed class CallPolicyTests
             {
                 _ = cancellationToken;
                 var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
+                return n == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
             },
             box,
             CancellationToken.None);
 
         Assert.Equal(3, value);
-        Assert.Equal(2, box.Count);
-    }
-
-    /// <summary>Retries Unavailable RpcException.</summary>
-    [Fact]
-    public async Task ExecuteRetriesUnavailableRpcAsync()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
-            },
-            box,
-            CancellationToken.None);
-
-        Assert.Equal(8, value);
         Assert.Equal(2, box.Count);
     }
 
@@ -114,37 +127,24 @@ public sealed class CallPolicyTests
         Assert.Equal(1, box.Count);
     }
 
-    /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
+    /// <summary>Retries Unavailable RpcException.</summary>
     [Fact]
-    public async Task ExecuteAsyncQueuedCallRejectedOnDrainAsync()
+    public async Task ExecuteRetriesUnavailableRpcAsync()
     {
-        var timeout = TimeSpan.FromSeconds(5);
-        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
-        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
-
-        var first = policy.ExecuteAsync(
-            static async (g, ct) =>
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
+        var box = new IntBox();
+        var value = await policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
             {
-                g.Entered.SetResult();
-                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
-                return 1;
+                _ = cancellationToken;
+                var n = counter.Increment();
+                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
             },
-            gate,
+            box,
             CancellationToken.None);
 
-        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
-
-        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, CancellationToken.None);
-
-        policy.BeginDrain();
-        releaseFirst.SetResult();
-
-        Assert.Equal(1, await first);
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+        Assert.Equal(8, value);
+        Assert.Equal(2, box.Count);
     }
 
     [Immutable]

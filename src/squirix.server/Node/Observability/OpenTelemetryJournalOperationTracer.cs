@@ -17,7 +17,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
     {
         var activity = ActivitySourceHolder.StartInternal(GetSpanName(kind));
-        if (activity is null)
+        if (activity == null)
             return null;
 
         ApplyContextTags(activity, in context);
@@ -29,10 +29,10 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         if (!activity.IsAllDataRequested)
             return;
 
-        if (context is null)
+        if (context == null)
             return;
 
-        if (context.Key is not null)
+        if (context.Key != null)
             _ = activity.SetTag("journal.key", context.Key);
         if (!string.IsNullOrEmpty(context.Namespace))
             _ = activity.SetTag("journal.namespace", context.Namespace);

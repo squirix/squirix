@@ -62,7 +62,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
     public async ValueTask AbruptShutdownAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
@@ -78,7 +78,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
@@ -100,6 +100,12 @@ public sealed class TestNodeHost : IAsyncDisposable
         }
     }
 
+    private async ValueTask StopAppAsync()
+    {
+        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+    }
+
     private async ValueTask WaitForPersistenceReleaseBestEffortAsync()
     {
         if (!PersistenceEnabled || string.IsNullOrWhiteSpace(DataDir))
@@ -113,11 +119,5 @@ public sealed class TestNodeHost : IAsyncDisposable
         {
             // Best-effort: another teardown path may already have removed or released the files.
         }
-    }
-
-    private async ValueTask StopAppAsync()
-    {
-        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
     }
 }

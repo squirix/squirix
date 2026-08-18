@@ -30,7 +30,7 @@ public static class TestNodeHostFactory
         nodeId,
         uri,
         [(nodeId, uri)],
-        dataDir is null ? null : new TestNodeHostStartOptions { DataDir = dataDir },
+        dataDir == null ? null : new TestNodeHostStartOptions { DataDir = dataDir },
         null,
         cancellationToken);
 
@@ -113,7 +113,7 @@ public static class TestNodeHostFactory
     {
         PersistenceOptions? persistenceOptions = null;
         var dataDir = options?.DataDir;
-        if (dataDir is not null)
+        if (dataDir != null)
         {
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
@@ -134,7 +134,7 @@ public static class TestNodeHostFactory
 
         var primaryUri = clusterConfig.Uri;
         var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
-        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls is null ? (null, null, null)
+        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls == null ? (null, null, null)
             : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await NodeHost.StartAsync(
@@ -158,6 +158,6 @@ public static class TestNodeHostFactory
             },
             cancellationToken).ConfigureAwait(false);
 
-        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions is not null);
+        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null);
     }
 }

@@ -43,7 +43,7 @@ internal static class RpcMutationContracts
 
     private static bool IsLowercaseHexOperationId(string operationId)
     {
-        if (operationId.Length is not OperationIdLength)
+        if (operationId.Length != OperationIdLength)
             return false;
 
         foreach (var c in operationId)

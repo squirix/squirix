@@ -29,7 +29,7 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return ValueTask.CompletedTask;
 
         _channel.Dispose();

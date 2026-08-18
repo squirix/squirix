@@ -31,7 +31,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
 
     private void EnsureOpen()
     {
-        if (_handle?.IsInvalid is false)
+        if (_handle?.IsInvalid == false)
             return;
 
         // An invalid-but-non-null handle must be fully released before reopening, otherwise the stale

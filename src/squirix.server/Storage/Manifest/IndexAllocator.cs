@@ -59,7 +59,7 @@ internal sealed class IndexAllocator
                 return;
 
             var fromCache = _readCurrentIndexForInit();
-            if (fromCache is not null)
+            if (fromCache != null)
             {
                 _nextManifestIndex.Set(fromCache.Value);
                 _nextIndexInitialized = true;

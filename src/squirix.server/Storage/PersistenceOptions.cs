@@ -106,10 +106,10 @@ internal sealed record PersistenceOptions
             if (reader.TokenType is JsonTokenType.Number && reader.TryGetInt64(out var milliseconds))
                 return TimeSpan.FromMilliseconds(milliseconds);
 
-            if (reader.TokenType is not JsonTokenType.String)
+            if (reader.TokenType != JsonTokenType.String)
                 throw new JsonException("Expected a millisecond count or TimeSpan string.");
             var text = reader.GetString();
-            if (text is not null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed))
+            if (text != null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed))
                 return parsed;
 
             throw new JsonException("Expected a millisecond count or TimeSpan string.");

@@ -31,7 +31,7 @@ internal static class ProtoJsonCodec
 
     internal static bool TryWriteNumberEnvelope(Utf8JsonWriter writer, Struct s)
     {
-        if (s.Fields.Count is not 1)
+        if (s.Fields.Count != 1)
             return false;
 
         if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
@@ -44,8 +44,11 @@ internal static class ProtoJsonCodec
             return true;
         }
 
-        if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue ||
-            !decimal.TryParse(decimalField.StringValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var decimalValue))
+        if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase != Value.KindOneofCase.StringValue || !decimal.TryParse(
+                decimalField.StringValue,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var decimalValue))
             return false;
         writer.WriteNumberValue(decimalValue);
         return true;
@@ -70,7 +73,7 @@ internal static class ProtoJsonCodec
     private static Value ConvertNumberToProtoValue(JsonElement element)
     {
         var asDouble = element.GetDouble();
-        if (asDouble is 0.0 && BitConverter.DoubleToInt64Bits(asDouble) != 0)
+        if (Math.Abs(asDouble) <= double.Epsilon && BitConverter.DoubleToInt64Bits(asDouble) != 0)
             return Value.ForNumber(asDouble);
 
         if (element.TryGetInt64(out var int64))

@@ -37,7 +37,7 @@ internal sealed class DurableMutationExecutor
 
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
-        return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
+        return _journal.IsJournalGroupCommitEnabled && conflictKey != null
             ? await ExecuteGroupCommitAsync(conflictKey, precondition, pipeline, cancellationToken).ConfigureAwait(false)
             : await ExecuteMonolithicAsync(precondition, pipeline, cancellationToken).ConfigureAwait(false);
     }
@@ -56,7 +56,7 @@ internal sealed class DurableMutationExecutor
 
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
-        return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
+        return _journal.IsJournalGroupCommitEnabled && conflictKey != null
             ? await ExecuteGroupCommitAsync(conflictKey, state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
             : await ExecuteMonolithicAsync(state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }

@@ -67,7 +67,7 @@ internal static class TopologyValidator
         };
         ValidateTopology(failures, args, static peer => (peer.NodeId, peer.Uri), options.Peers);
 
-        if (failures.Count is 0)
+        if (failures.Count == 0)
         {
             errors = NoValidationErrors;
             return true;
@@ -76,6 +76,36 @@ internal static class TopologyValidator
         errors = failures;
         return false;
     }
+
+    private static void CollectHttpsUriFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
+    {
+        if (value.OriginalString.Length > MaxUrlLength)
+            failures.Add(tooLongMessage);
+        if (string.IsNullOrWhiteSpace(value.Host))
+            failures.Add(hostRequiredMessage);
+        if (HasNonOriginParts(value))
+            failures.Add(originRequiredMessage);
+    }
+
+    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+        where TPeer : notnull
+    {
+        // Empty peer list is single-node mode (matches PhysicalNodeRing input synthesized elsewhere).
+        if (peers.Length == 0)
+            return 1;
+
+        var nodeIds = new string[peers.Length];
+        for (var i = 0; i < peers.Length; i++)
+            nodeIds[i] = readPeer(peers[i]).NodeId ?? string.Empty;
+
+        // Same distinct count PhysicalNodeRing / ReplicaGroupLocator use for RF bounds.
+        return DistinctNodeIds.InInsertionOrder(nodeIds).Length;
+    }
+
+    private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
+                                                        !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
+
+    private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateIdentifier(List<string> failures, string? value, string requiredMessage, string tooLongMessage)
     {
@@ -90,12 +120,12 @@ internal static class TopologyValidator
         var (peerNodeId, uri) = peer;
         ValidateIdentifier(failures, peerNodeId, PeersNodeIdRequired, PeersNodeIdTooLong);
         ValidateUri(failures, uri, PeersUriHttpsRequired, PeersUriTooLong, PeersUriHostRequired, PeersUriOriginRequired);
-        if (peerNodeId is not null && !peerIds.Add(peerNodeId))
+        if (peerNodeId != null && !peerIds.Add(peerNodeId))
             failures.Add(PeersDuplicateNodeId);
         if (uri is { IsAbsoluteUri: true } && !peerUris.Add(uri.AbsoluteUri))
             failures.Add(PeersUriDuplicate);
 
-        if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
+        if (peerNodeId == null || nodeId == null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
             return false;
 
         // The self peer entry must advertise the same origin Uri as the local listener configuration.
@@ -112,12 +142,45 @@ internal static class TopologyValidator
         var peerUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Empty peer list means single-node mode; otherwise the local node id must appear in Peers.
-        var localNodePresent = peers.Length is 0;
+        var localNodePresent = peers.Length == 0;
         for (var i = 0; i < peers.Length; i++)
             localNodePresent |= ValidatePeerEntry(failures, nodeId, nodeUri, readPeer(peers[i]), peerIds, peerUris);
 
         if (!localNodePresent)
             failures.Add(PeersMustIncludeLocalNodeId);
+    }
+
+    private static void ValidatePersistenceSettings(List<string> failures, TopologyValidationArgs args)
+    {
+        if (args is { PersistenceEnabled: false, DataDirectory: not null })
+            failures.Add(DataDirectoryRequiresPersistence);
+
+        // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
+        if (!args.PersistenceEnabled)
+            return;
+
+        if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
+            failures.Add(DataDirectoryTooLong);
+        if (args.DataDirectory != null && string.IsNullOrWhiteSpace(args.DataDirectory))
+            failures.Add(DataDirectoryEmpty);
+    }
+
+    private static void ValidateReplicaSettings(List<string> failures, int replicaCount, ulong configurationGeneration, int peerCount)
+    {
+        if (configurationGeneration == 0)
+            failures.Add(ConfigurationGenerationMustBePositive);
+
+        if (replicaCount <= 0)
+        {
+            failures.Add(ReplicaCountMustBePositive);
+            return;
+        }
+
+        if (replicaCount > TopologyConstraints.MaxReplicaCount)
+            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).");
+
+        if (replicaCount > peerCount)
+            failures.Add(ReplicaCountAbovePeerCount);
     }
 
     private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
@@ -136,19 +199,15 @@ internal static class TopologyValidator
         ValidateReplicaSettings(failures, args.ReplicaCount, args.ConfigurationGeneration, CountDistinctPeerNodes(readPeer, peers));
     }
 
-    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
-        where TPeer : notnull
+    private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
-        // Empty peer list is single-node mode (matches PhysicalNodeRing input synthesized elsewhere).
-        if (peers.Length is 0)
-            return 1;
+        if (value == null || !IsAbsoluteHttpsUri(value))
+        {
+            failures.Add(httpsRequiredMessage);
+            return;
+        }
 
-        var nodeIds = new string[peers.Length];
-        for (var i = 0; i < peers.Length; i++)
-            nodeIds[i] = readPeer(peers[i]).NodeId ?? string.Empty;
-
-        // Same distinct count PhysicalNodeRing / ReplicaGroupLocator use for RF bounds.
-        return DistinctNodeIds.InInsertionOrder(nodeIds).Length;
+        CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
     }
 
     private static void ValidateVirtualNodes(List<string> failures, int virtualNodes)
@@ -166,65 +225,6 @@ internal static class TopologyValidator
                 return;
         }
     }
-
-    private static void ValidatePersistenceSettings(List<string> failures, TopologyValidationArgs args)
-    {
-        if (args is { PersistenceEnabled: false, DataDirectory: not null })
-            failures.Add(DataDirectoryRequiresPersistence);
-
-        // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
-        if (!args.PersistenceEnabled)
-            return;
-
-        if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
-            failures.Add(DataDirectoryTooLong);
-        if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
-            failures.Add(DataDirectoryEmpty);
-    }
-
-    private static void ValidateReplicaSettings(List<string> failures, int replicaCount, ulong configurationGeneration, int peerCount)
-    {
-        if (configurationGeneration is 0)
-            failures.Add(ConfigurationGenerationMustBePositive);
-
-        if (replicaCount <= 0)
-        {
-            failures.Add(ReplicaCountMustBePositive);
-            return;
-        }
-
-        if (replicaCount > TopologyConstraints.MaxReplicaCount)
-            failures.Add($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).");
-
-        if (replicaCount > peerCount)
-            failures.Add(ReplicaCountAbovePeerCount);
-    }
-
-    private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
-    {
-        if (value is null || !IsAbsoluteHttpsUri(value))
-        {
-            failures.Add(httpsRequiredMessage);
-            return;
-        }
-
-        CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
-    }
-
-    private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
-
-    private static void CollectHttpsUriFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
-    {
-        if (value.OriginalString.Length > MaxUrlLength)
-            failures.Add(tooLongMessage);
-        if (string.IsNullOrWhiteSpace(value.Host))
-            failures.Add(hostRequiredMessage);
-        if (HasNonOriginParts(value))
-            failures.Add(originRequiredMessage);
-    }
-
-    private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
-                                                        !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
     [Immutable]
     private sealed class TopologyValidationArgs

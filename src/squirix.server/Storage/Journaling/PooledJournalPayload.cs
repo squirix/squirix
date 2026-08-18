@@ -10,8 +10,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class PooledJournalPayload : IDisposable
 {
-    private readonly int _length;
     private readonly byte[] _buffer;
+    private readonly int _length;
     private int _disposed;
 
     internal PooledJournalPayload(byte[] buffer, int length)
@@ -26,7 +26,7 @@ internal sealed class PooledJournalPayload : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is not 0)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         ArrayPool<byte>.Shared.Return(_buffer);
     }

@@ -41,7 +41,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
-        if (_journal is not null)
+        if (_journal != null)
         {
             using var scope = RpcMutationIdempotencyExecutionScope.Begin(_store, operationId, fingerprint, _journal);
             var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);

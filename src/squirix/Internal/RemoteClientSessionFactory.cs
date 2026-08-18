@@ -53,7 +53,7 @@ internal static class RemoteClientSessionFactory
         }
         finally
         {
-            if (pool is not null)
+            if (pool != null)
                 await pool.DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -67,7 +67,7 @@ internal static class RemoteClientSessionFactory
 
     private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
-        if (bearerTokenProvider is null)
+        if (bearerTokenProvider == null)
             return null;
 
         return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
@@ -103,20 +103,9 @@ internal static class RemoteClientSessionFactory
         return TrimEndpoints(buffer, count);
     }
 
-    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
-    {
-        var validated = RequireAbsoluteEndpoint(endpoint, paramName);
-        GrpcTransportEndpoints.RequireHttps(validated);
-        if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
-            return false;
-
-        buffer[count++] = validated;
-        return true;
-    }
-
     private static Uri RequireAbsoluteEndpoint(Uri? endpoint, string paramName)
     {
-        if (endpoint is null)
+        if (endpoint == null)
             throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName);
 
         if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
@@ -127,7 +116,7 @@ internal static class RemoteClientSessionFactory
 
     private static Uri[] TrimEndpoints(Uri[] buffer, int count)
     {
-        if (count is 0)
+        if (count == 0)
             throw new InvalidOperationException("At least one Squirix server endpoint must be configured.");
 
         if (count == buffer.Length)
@@ -136,6 +125,17 @@ internal static class RemoteClientSessionFactory
         var trimmed = new Uri[count];
         buffer.AsSpan(0, count).CopyTo(trimmed);
         return trimmed;
+    }
+
+    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
+    {
+        var validated = RequireAbsoluteEndpoint(endpoint, paramName);
+        GrpcTransportEndpoints.RequireHttps(validated);
+        if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
+            return false;
+
+        buffer[count++] = validated;
+        return true;
     }
 
     private static class SerializationProvider
@@ -334,7 +334,7 @@ internal static class RemoteClientSessionFactory
         {
             var cachedToken = _cachedToken;
             var cachedHeader = _cachedAuthorizationHeader;
-            if (cachedToken is not null && cachedHeader is not null && string.Equals(cachedToken, token, StringComparison.Ordinal))
+            if (cachedToken != null && cachedHeader != null && string.Equals(cachedToken, token, StringComparison.Ordinal))
                 return cachedHeader;
 
             var header = string.Create(

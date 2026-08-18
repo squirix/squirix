@@ -37,6 +37,22 @@ public static class NodeExportedApiMetadata
         _ = identities.Add(FormatFieldLine(typeIdentity, field.Name));
     }
 
+    private static void AddIndexerIdentities(string typeIdentity, IPropertySymbol property, HashSet<string> identities)
+    {
+        var indexParameters = property.Parameters;
+        var indexParts = new string[indexParameters.Length];
+        for (var i = 0; i < indexParameters.Length; i++)
+            indexParts[i] = FormatTypeName(indexParameters[i].Type);
+
+        var indexSignature = string.Join(',', indexParts);
+        var propertyType = FormatTypeName(property.Type);
+        if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
+            _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.get");
+
+        if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
+            _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.set");
+    }
+
     private static void AddMemberIdentities(INamedTypeSymbol type, string typeIdentity, HashSet<string> identities)
     {
         var members = type.GetMembers();
@@ -67,25 +83,9 @@ public static class NodeExportedApiMetadata
             _ = identities.Add($"P:{typeIdentity}::{property.Name}:{typeName}.set");
     }
 
-    private static void AddIndexerIdentities(string typeIdentity, IPropertySymbol property, HashSet<string> identities)
-    {
-        var indexParameters = property.Parameters;
-        var indexParts = new string[indexParameters.Length];
-        for (var i = 0; i < indexParameters.Length; i++)
-            indexParts[i] = FormatTypeName(indexParameters[i].Type);
-
-        var indexSignature = string.Join(',', indexParts);
-        var propertyType = FormatTypeName(property.Type);
-        if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
-            _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.get");
-
-        if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
-            _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.set");
-    }
-
     private static void AddPublicMemberIdentity(ISymbol member, string typeIdentity, bool isEnum, HashSet<string> identities)
     {
-        if (member.DeclaredAccessibility is not Accessibility.Public)
+        if (member.DeclaredAccessibility != Accessibility.Public)
             return;
 
         if (member is IMethodSymbol method)
@@ -201,7 +201,7 @@ public static class NodeExportedApiMetadata
         {
             ITypeParameterSymbol typeParameter => FormatTypeParameterName(typeParameter),
             IPointerTypeSymbol pointer => $"{FormatTypeName(pointer.PointedAtType)}*",
-            IArrayTypeSymbol array => array.Rank is 1 ? $"{FormatTypeName(array.ElementType)}[]" : $"{FormatTypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]",
+            IArrayTypeSymbol array => array.Rank == 1 ? $"{FormatTypeName(array.ElementType)}[]" : $"{FormatTypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]",
             _ => type is INamedTypeSymbol { IsGenericType: true } namedType ? FormatGenericTypeName(namedType) : GetTypeMetadataName(type),
         };
     }
@@ -261,7 +261,7 @@ public static class NodeExportedApiMetadata
 
     private static bool IsExportedPublicType(INamedTypeSymbol type)
     {
-        if (type.DeclaredAccessibility is not Accessibility.Public)
+        if (type.DeclaredAccessibility != Accessibility.Public)
             return false;
 
         if (type.Name.Contains('<', StringComparison.Ordinal))

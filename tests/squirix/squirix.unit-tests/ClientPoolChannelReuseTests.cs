@@ -52,7 +52,7 @@ public sealed class ClientPoolChannelReuseTests
         var anchor = pool.ForNode("node-a");
 
         for (var i = 0; i < LoopIterationCount; i++)
-            _ = pool.ForNode(i % 2 is 0 ? "node-a" : "node-b");
+            _ = pool.ForNode(i % 2 == 0 ? "node-a" : "node-b");
 
         Assert.Same(anchor, pool.ForNode("node-a"));
     }

@@ -26,9 +26,9 @@ internal sealed class JournalWriteBatchBuffer
         _capacityBytes = capacityBytes;
     }
 
-    internal ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
+    internal ReadOnlySpan<byte> ActiveSpan => _buffer == null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
 
-    internal bool IsEmpty => StagedByteLength is 0;
+    internal bool IsEmpty => StagedByteLength == 0;
 
     internal IReadOnlyList<JournalWorkItem> PendingAppends => _pending;
 

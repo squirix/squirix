@@ -16,7 +16,7 @@ internal static class ConnectionSecurity
     internal static bool IsRequestAuthorized(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated is true;
+        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated == true;
     }
 
     /// <summary>
@@ -29,7 +29,7 @@ internal static class ConnectionSecurity
         ArgumentNullException.ThrowIfNull(httpContext);
 
         var remote = httpContext.Connection.RemoteIpAddress;
-        if (remote is null)
+        if (remote == null)
             return false;
 
         if (remote.IsIPv4MappedToIPv6)

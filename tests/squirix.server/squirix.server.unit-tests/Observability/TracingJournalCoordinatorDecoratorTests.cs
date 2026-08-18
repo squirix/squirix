@@ -90,7 +90,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
 
         IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
         {
-            if (context is null)
+            if (context == null)
                 return null;
             BeginCalls.Add((kind, context));
             return new RecordingScope();

@@ -130,7 +130,7 @@ public sealed class NodeMeasurementSink : IDisposable
 
     private static bool MeasurementHasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
-        if (measurement.OverflowTags is not null)
+        if (measurement.OverflowTags != null)
         {
             foreach (var tag in measurement.OverflowTags)
             {
@@ -172,11 +172,7 @@ public sealed class NodeMeasurementSink : IDisposable
         internal readonly int TagCount;
         private readonly InlineTags _inlineTags;
 
-        private CapturedMeasurement(
-            string instrumentName,
-            int tagCount,
-            InlineTags inlineTags,
-            KeyValuePair<string, object?>[]? overflowTags)
+        private CapturedMeasurement(string instrumentName, int tagCount, InlineTags inlineTags, KeyValuePair<string, object?>[]? overflowTags)
         {
             InstrumentName = instrumentName;
             TagCount = tagCount;
@@ -194,31 +190,23 @@ public sealed class NodeMeasurementSink : IDisposable
             return !left.Equals(right);
         }
 
-        public bool Equals(CapturedMeasurement other)
-        {
-            return string.Equals(InstrumentName, other.InstrumentName, StringComparison.Ordinal) &&
-                TagCount == other.TagCount &&
-                _inlineTags.Equals(other._inlineTags) &&
-                Equals(OverflowTags, other.OverflowTags);
-        }
-
         public override bool Equals([NotNullWhen(true)] object? obj) => obj is CapturedMeasurement other && Equals(other);
 
         public override int GetHashCode() => HashCode.Combine(InstrumentName, TagCount, _inlineTags, OverflowTags);
 
+        public bool Equals(CapturedMeasurement other)
+        {
+            return string.Equals(InstrumentName, other.InstrumentName, StringComparison.Ordinal) && TagCount == other.TagCount && _inlineTags.Equals(other._inlineTags) &&
+                   Equals(OverflowTags, other.OverflowTags);
+        }
+
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
-            if (tags.Length is 0)
+            if (tags.Length == 0)
                 return new CapturedMeasurement(instrumentName, 0, default, null);
 
             if (tags.Length <= 3)
-            {
-                return new CapturedMeasurement(
-                    instrumentName,
-                    tags.Length,
-                    new InlineTags(tags),
-                    null);
-            }
+                return new CapturedMeasurement(instrumentName, tags.Length, new InlineTags(tags), null);
 
             var overflow = new KeyValuePair<string, object?>[tags.Length];
             tags.CopyTo(overflow);
@@ -227,7 +215,7 @@ public sealed class NodeMeasurementSink : IDisposable
 
         internal void GetTag(int index, out string key, out object? value)
         {
-            if (OverflowTags is not null)
+            if (OverflowTags != null)
             {
                 var tag = OverflowTags[index];
                 key = tag.Key;
@@ -258,19 +246,16 @@ public sealed class NodeMeasurementSink : IDisposable
                 _value2 = tags.Length > 2 ? tags[2].Value : null;
             }
 
-            public bool Equals(InlineTags other)
-            {
-                return string.Equals(_key0, other._key0, StringComparison.Ordinal) &&
-                    string.Equals(_key1, other._key1, StringComparison.Ordinal) &&
-                    string.Equals(_key2, other._key2, StringComparison.Ordinal) &&
-                    Equals(_value0, other._value0) &&
-                    Equals(_value1, other._value1) &&
-                    Equals(_value2, other._value2);
-            }
-
             public override bool Equals([NotNullWhen(true)] object? obj) => obj is InlineTags other && Equals(other);
 
             public override int GetHashCode() => HashCode.Combine(_key0, _key1, _key2, _value0, _value1, _value2);
+
+            public bool Equals(InlineTags other)
+            {
+                return string.Equals(_key0, other._key0, StringComparison.Ordinal) && string.Equals(_key1, other._key1, StringComparison.Ordinal) &&
+                       string.Equals(_key2, other._key2, StringComparison.Ordinal) && Equals(_value0, other._value0) && Equals(_value1, other._value1) &&
+                       Equals(_value2, other._value2);
+            }
 
             internal void GetTag(int index, out string key, out object? value)
             {

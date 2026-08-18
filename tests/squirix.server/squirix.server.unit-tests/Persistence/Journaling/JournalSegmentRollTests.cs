@@ -92,7 +92,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
         await StoreTestSupport.WaitUntilAsync(
             manifestStore,
-            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal is 2,
+            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2,
             TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
@@ -147,7 +147,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
 
-        for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex is 1; i++)
+        for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex == 1; i++)
         {
             if (journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes)
                 break;

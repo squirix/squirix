@@ -66,8 +66,8 @@ public static class ProtocolModelSurfaceTests
             // small profile may not hit these invariants; accept either found (0) or missing (3).
             var commitCode = await ExploreRunner.RunCliAsync("small", outputCommit, BrokenMode.CurrentTermCommit);
             var readCode = await ExploreRunner.RunCliAsync("small", outputRead, BrokenMode.ReadIndex);
-            Assert.True(commitCode is 0 or 3);
-            Assert.True(readCode is 0 or 3);
+            Assert.True(commitCode == 0 || commitCode == 3);
+            Assert.True(readCode == 0 || readCode == 3);
 
             var commitSummary = await File.ReadAllTextAsync(Path.Join(outputCommit, "summary.json"), TestContext.Current.CancellationToken);
             var readSummary = await File.ReadAllTextAsync(Path.Join(outputRead, "summary.json"), TestContext.Current.CancellationToken);

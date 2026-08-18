@@ -42,7 +42,7 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
         while (records.MoveNext())
         {
             var record = records.Current;
-            if (record.Operation is not JournalOperationKind.IdempotencyOutcome)
+            if (record.Operation != JournalOperationKind.IdempotencyOutcome)
                 continue;
 
             Assert.Equal(OperationId, record.IdempotencyOperationId);

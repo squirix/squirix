@@ -20,7 +20,7 @@ public sealed class JournalEntryExpirationMaterializerTests
         var after = DateTime.UtcNow.Add(TimeSpan.FromMilliseconds(100));
 
         Assert.Null(expiration);
-        Assert.True(expiresUtc is not null);
+        _ = Assert.NotNull(expiresUtc);
         Assert.InRange(expiresUtc.Value, before, after);
     }
 

@@ -48,7 +48,7 @@ internal static class PressureBootstrap
                     return (false, baseline);
 
                 var section = SerializerProvider.Instance.Deserialize<PressureSettings>(memoryPressure.GetRawText());
-                var merged = section is null ? baseline : section.MergeInto(baseline);
+                var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },
             cancellationToken).ConfigureAwait(false);
@@ -59,15 +59,15 @@ internal static class PressureBootstrap
         var result = options;
 
         var maxBytes = EnvVariables.ReadInt64("SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES");
-        if (maxBytes is not null)
+        if (maxBytes != null)
             result = result with { MaxEstimatedCacheBytes = maxBytes.Value };
 
         var high = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT");
-        if (high is not null)
+        if (high != null)
             result = result with { HighPressureThresholdPercent = high.Value };
 
         var critical = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT");
-        if (critical is not null)
+        if (critical != null)
             result = result with { CriticalPressureThresholdPercent = critical.Value };
 
         return result;
@@ -87,7 +87,7 @@ internal static class PressureBootstrap
         CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path is null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     [Immutable]

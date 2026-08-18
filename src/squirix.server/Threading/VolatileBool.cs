@@ -13,7 +13,7 @@ internal sealed class VolatileBool
 {
     private int _value;
 
-    internal bool Read() => Volatile.Read(ref _value) is not 0;
+    internal bool Read() => Volatile.Read(ref _value) != 0;
 
     internal void Write(bool value) => Volatile.Write(ref _value, value ? 1 : 0);
 }

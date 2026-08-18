@@ -10,11 +10,6 @@ namespace Squirix.Server.TestKit.Replication;
 /// <summary>Shared helpers for replica-group follower-log tests.</summary>
 public static class FollowerLogTestKit
 {
-    /// <summary>Returns the length in bytes of the replica-group log file at <paramref name="logPath" />.</summary>
-    /// <param name="logPath">The group log file path.</param>
-    /// <returns>The log length in bytes.</returns>
-    public static long GetLogLength(string logPath) => new FileInfo(logPath).Length;
-
     /// <summary>Flips every bit of the byte at <paramref name="offset" />, or of the last byte when out of range.</summary>
     /// <param name="path">The file to corrupt.</param>
     /// <param name="offset">The byte offset to flip; clamped to the last byte when the file is shorter.</param>
@@ -24,7 +19,7 @@ public static class FollowerLogTestKit
     public static async Task CorruptByteAsync(string path, int offset, CancellationToken cancellationToken)
     {
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        if (bytes.Length is 0)
+        if (bytes.Length == 0)
             throw new InvalidDataException($"Cannot corrupt an empty file at '{path}'.");
 
         var index = offset < bytes.Length ? offset : bytes.Length - 1;
@@ -40,12 +35,17 @@ public static class FollowerLogTestKit
     public static async Task CorruptTailAsync(string path, CancellationToken cancellationToken)
     {
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        if (bytes.Length is 0)
+        if (bytes.Length == 0)
             throw new InvalidDataException($"Cannot corrupt an empty file at '{path}'.");
 
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Returns the length in bytes of the replica-group log file at <paramref name="logPath" />.</summary>
+    /// <param name="logPath">The group log file path.</param>
+    /// <returns>The log length in bytes.</returns>
+    public static long GetLogLength(string logPath) => new FileInfo(logPath).Length;
 
     /// <summary>Concatenates the UTF-8 payload of every entry in order.</summary>
     /// <param name="entries">The entries whose payloads are concatenated.</param>

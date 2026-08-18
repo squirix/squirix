@@ -46,10 +46,10 @@ public class ComparisonBenchmarks
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
     {
-        if (_cacheSession is not null)
+        if (_cacheSession != null)
             await _cacheSession.DisposeAsync().ConfigureAwait(false);
         _cacheSession = null;
-        if (_node is not null)
+        if (_node != null)
             await _node.DisposeAsync().ConfigureAwait(false);
         _node = null;
     }

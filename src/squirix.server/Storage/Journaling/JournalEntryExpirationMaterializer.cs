@@ -8,7 +8,7 @@ internal static class JournalEntryExpirationMaterializer
 {
     internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
     {
-        if (expiresUtc is not null || expiration is null)
+        if (expiresUtc != null || expiration == null)
             return (expiresUtc, expiration);
 
         return (DateTime.UtcNow.Add(expiration.Value), null);
@@ -16,7 +16,7 @@ internal static class JournalEntryExpirationMaterializer
 
     internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
     {
-        if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
+        if (entry.ExpiresUtc != null || entry.Expiration == null || writtenUnixMs <= 0)
             return entry;
 
         var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;

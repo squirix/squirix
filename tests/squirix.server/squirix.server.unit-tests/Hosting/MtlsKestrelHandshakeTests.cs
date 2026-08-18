@@ -37,7 +37,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         await host.AuthenticateClientAsync(sslStream, DefaultCancellationToken);
 
         Assert.True(sslStream.IsAuthenticated);
-        Assert.True(sslStream.RemoteCertificate is not null);
+        Assert.NotNull(sslStream.RemoteCertificate);
     }
 
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
@@ -74,7 +74,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
         public async ValueTask DisposeAsync()
         {
-            if (_application is not null)
+            if (_application != null)
             {
                 await _application.DisposeAsync();
                 _application = null;

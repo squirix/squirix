@@ -47,7 +47,7 @@ internal static class ServerProtoEx
     {
         var value = FromStruct<T>(e.Value);
         DateTime? expires = null;
-        if (e.ExpiresUtc is not null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos is not 0))
+        if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
 
         if (typeof(T) == typeof(object))
@@ -65,8 +65,8 @@ internal static class ServerProtoEx
     internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
     {
         Value = ToStruct(e.Value),
-        ExpiresUtc = e.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
+        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
+        Expiration = e.Expiration == null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
@@ -96,7 +96,7 @@ internal static class ServerProtoEx
 
         if (kind is CacheValue.KindOneofCase.StructValue)
         {
-            if (wire.StructValue is null)
+            if (wire.StructValue == null)
                 throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
 
             return new ValueTask<T?>(FromStruct<T>(wire.StructValue));
@@ -112,13 +112,13 @@ internal static class ServerProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count is not 1 || !s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var onlyWrapped))
+            if (s.Fields.Count != 1 || !s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
             return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
-        if (s.Fields.Count is 1 && s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var only))
+        if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
         var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
@@ -185,7 +185,7 @@ internal static class ServerProtoEx
 
         if (destination == typeof(string))
         {
-            if (wire.KindCase is not CacheValue.KindOneofCase.StringValue)
+            if (wire.KindCase != CacheValue.KindOneofCase.StringValue)
                 return false;
 
             decoded = CastReference<T, string>(wire.StringValue);
@@ -194,7 +194,7 @@ internal static class ServerProtoEx
 
         if (destination == typeof(bool))
         {
-            if (wire.KindCase is not CacheValue.KindOneofCase.BoolValue)
+            if (wire.KindCase != CacheValue.KindOneofCase.BoolValue)
                 return false;
 
             decoded = CastScalar<T, bool>(wire.BoolValue);
@@ -203,7 +203,7 @@ internal static class ServerProtoEx
 
         if (destination == typeof(int))
         {
-            if (wire.KindCase is not CacheValue.KindOneofCase.Int32Value)
+            if (wire.KindCase != CacheValue.KindOneofCase.Int32Value)
                 return false;
 
             decoded = CastScalar<T, int>(int.CreateChecked(wire.Int32Value));
@@ -212,7 +212,7 @@ internal static class ServerProtoEx
 
         if (destination == typeof(long))
         {
-            if (wire.KindCase is not CacheValue.KindOneofCase.Int64Value)
+            if (wire.KindCase != CacheValue.KindOneofCase.Int64Value)
                 return false;
 
             decoded = CastScalar<T, long>(wire.Int64Value);
@@ -221,7 +221,7 @@ internal static class ServerProtoEx
 
         if (destination != typeof(double))
             return false;
-        if (wire.KindCase is not CacheValue.KindOneofCase.DoubleValue)
+        if (wire.KindCase != CacheValue.KindOneofCase.DoubleValue)
             return false;
 
         decoded = CastScalar<T, double>(wire.DoubleValue);
@@ -294,12 +294,21 @@ internal static class ServerProtoEx
         internal const string NumberEnvelopeInt64Key = "\0squirix:int64";
         internal const string ScalarEnvelopeKey = "\0squirix:scalar";
 
+        internal static Value CreateNumberEnvelope(string markerKey, string numberText)
+        {
+            var s = new Struct();
+            s.Fields.Add(markerKey, Value.ForString(numberText));
+            return Value.ForStruct(s);
+        }
+
         /// <summary>Maps a CLR/cache value into the protobuf struct envelope used on the wire.</summary>
         /// <typeparam name="T">Logical cache value type.</typeparam>
         /// <param name="value">Value to encode.</param>
         /// <returns>Protobuf struct payload.</returns>
         internal static Struct EncodeToStruct<T>(T? value)
         {
+            // 'value is null' detects actual null presence for unconstrained T. Comparing against
+            // default(T) would also drop valid payloads such as 0, false, 0.0, or default-valued structs.
             if (value is null)
                 return CreateSingleFieldStruct(Value.ForNull());
 
@@ -327,44 +336,6 @@ internal static class ServerProtoEx
 #pragma warning restore MA0045
 
             return buffer;
-        }
-
-        internal static Value CreateNumberEnvelope(string markerKey, string numberText)
-        {
-            var s = new Struct();
-            s.Fields.Add(markerKey, Value.ForString(numberText));
-            return Value.ForStruct(s);
-        }
-
-        private static Struct EncodeJsonElement(JsonElement element)
-        {
-            return element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
-                : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
-        }
-
-        private static Struct EncodeBoxedScalar<T>(T value)
-        {
-            if (value is string text)
-                return CreateSingleFieldStruct(Value.ForString(text));
-
-            if (value is int int32)
-                return CreateSingleFieldStruct(Value.ForNumber(int32));
-
-            if (value is long int64)
-                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture)));
-
-            if (value is double floating)
-                return CreateSingleFieldStruct(Value.ForNumber(floating));
-
-            if (value is bool flag)
-                return CreateSingleFieldStruct(Value.ForBool(flag));
-
-            if (value is decimal dec)
-                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
-
-            // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-            var root = SerializerProvider.Instance.SerializeToElement(value);
-            return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
         }
 
         private static ListValue BuildListValueFromJsonArray(JsonElement arrayElement)
@@ -406,7 +377,7 @@ internal static class ServerProtoEx
         private static Value ConvertJsonNumber(JsonElement element)
         {
             var asDouble = element.GetDouble();
-            if (asDouble is 0.0 && BitConverter.DoubleToInt64Bits(asDouble) != 0)
+            if (Math.Abs(asDouble) <= double.Epsilon && BitConverter.DoubleToInt64Bits(asDouble) != 0)
                 return Value.ForNumber(asDouble);
 
             if (element.TryGetInt64(out var asInt64))
@@ -425,9 +396,37 @@ internal static class ServerProtoEx
             return envelope;
         }
 
+        private static Struct EncodeBoxedScalar<T>(T value)
+        {
+            if (value is string text)
+                return CreateSingleFieldStruct(Value.ForString(text));
+
+            if (value is int int32)
+                return CreateSingleFieldStruct(Value.ForNumber(int32));
+
+            if (value is long int64)
+                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture)));
+
+            if (value is double floating)
+                return CreateSingleFieldStruct(Value.ForNumber(floating));
+
+            if (value is bool flag)
+                return CreateSingleFieldStruct(Value.ForBool(flag));
+
+            if (value is decimal dec)
+                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
+
+            // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
+            var root = SerializerProvider.Instance.SerializeToElement(value);
+            return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
+        }
+
+        private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
+            : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
+
         private static bool TryWriteNumberEnvelope(Utf8JsonWriter writer, Struct s)
         {
-            if (s.Fields.Count is not 1)
+            if (s.Fields.Count != 1)
                 return false;
 
             if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
@@ -440,7 +439,7 @@ internal static class ServerProtoEx
                 return true;
             }
 
-            if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase is not Value.KindOneofCase.StringValue || !decimal.TryParse(
+            if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase != Value.KindOneofCase.StringValue || !decimal.TryParse(
                     decimalField.StringValue,
                     NumberStyles.Number,
                     CultureInfo.InvariantCulture,

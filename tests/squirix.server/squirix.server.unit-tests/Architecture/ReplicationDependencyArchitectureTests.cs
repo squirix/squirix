@@ -176,27 +176,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertSourcesDoNotContainAsync(string[] forbidden, Func<string, bool>? includePath = null)
-    {
-        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Cluster", "Replication");
-        var paths = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly));
-        paths.Sort(StringComparer.Ordinal);
-
-        for (var i = 0; i < paths.Count; i++)
-        {
-            var path = paths[i];
-            if (includePath is not null && !includePath(path))
-                continue;
-
-            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            for (var markerIndex = 0; markerIndex < forbidden.Length; markerIndex++)
-            {
-                var marker = forbidden[markerIndex];
-                Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{path} contains '{marker}'");
-            }
-        }
-    }
-
     private static void AssertDisallowedEdge(XmlDocument policy, string from, string to)
     {
         var edge = FindEdge(policy, from, to);
@@ -236,6 +215,27 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         }
 
         Assert.Fail($"The registration '{registration}' is not inside any guarded branch.");
+    }
+
+    private static async Task AssertSourcesDoNotContainAsync(string[] forbidden, Func<string, bool>? includePath = null)
+    {
+        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Cluster", "Replication");
+        var paths = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly));
+        paths.Sort(StringComparer.Ordinal);
+
+        for (var i = 0; i < paths.Count; i++)
+        {
+            var path = paths[i];
+            if (includePath != null && !includePath(path))
+                continue;
+
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            for (var markerIndex = 0; markerIndex < forbidden.Length; markerIndex++)
+            {
+                var marker = forbidden[markerIndex];
+                Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{path} contains '{marker}'");
+            }
+        }
     }
 
     private static XmlElement? FindEdge(XmlDocument policy, string from, string to)

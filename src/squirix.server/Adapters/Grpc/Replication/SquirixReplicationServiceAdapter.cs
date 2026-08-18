@@ -14,11 +14,11 @@ namespace Squirix.Server.Adapters.Grpc.Replication;
 [Immutable]
 internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
 {
+    private readonly ulong _configurationGeneration;
     private readonly MtlsCertificateMaterial _mtlsMaterial;
     private readonly MtlsOptions _mtlsOptions;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
-    private readonly ulong _configurationGeneration;
 
     internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
@@ -94,7 +94,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
         {
             var currentHeader = requestStream.Current.Header;
-            if (currentHeader is null)
+            if (currentHeader == null)
                 continue;
 
             if (!string.Equals(currentHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
@@ -114,7 +114,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
     private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {
-        if (header is null || string.IsNullOrWhiteSpace(header.SenderNodeId))
+        if (header == null || string.IsNullOrWhiteSpace(header.SenderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with sender_node_id is required."));
 
         if (requireLeader && string.IsNullOrWhiteSpace(header.LeaderNodeId))
@@ -122,7 +122,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
-        if (header.SchemaVersion is not EnvelopeCodec.SchemaVersion)
+        if (header.SchemaVersion != EnvelopeCodec.SchemaVersion)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Unsupported replication envelope schema version."));
 
         return header;
@@ -159,15 +159,15 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
             ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
 
-            if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor is null)
+            if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor == null)
                 throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
 
             var httpContext = context.GetHttpContext();
             if (httpContext.Connection.LocalPort != mtlsOptions.InternalListenPort)
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
 
-            var certificate = httpContext.Connection.ClientCertificate
-                              ?? throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate."));
+            var certificate = httpContext.Connection.ClientCertificate ??
+                              throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate."));
 
             if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
@@ -178,7 +178,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             if (!string.Equals(certificateNodeId, claimedSenderNodeId, StringComparison.Ordinal))
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication sender_node_id does not match the peer certificate NodeId."));
 
-            if (claimedLeaderNodeId is not null && !string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal))
+            if (claimedLeaderNodeId != null && !string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal))
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication leader_node_id does not match the peer certificate NodeId."));
 
             return certificateNodeId;

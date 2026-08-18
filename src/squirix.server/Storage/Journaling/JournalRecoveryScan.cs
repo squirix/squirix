@@ -23,7 +23,7 @@ internal static class JournalRecoveryScan
         var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
         ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
-        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
+        var scanStartSegment = firstAvailableSegment == 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
         using var records = JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None);
         while (records.MoveNext())
         {
@@ -75,7 +75,7 @@ internal static class JournalRecoveryScan
                 return validLength;
 
             validLength = read.NextFrameOffset;
-            if (rentedBuffer is not null)
+            if (rentedBuffer != null)
                 ArrayPool<byte>.Shared.Return(rentedBuffer);
         }
     }
@@ -88,7 +88,7 @@ internal static class JournalRecoveryScan
         var lastAvailableSegment = 0;
         foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
         {
-            if (firstAvailableSegment is 0)
+            if (firstAvailableSegment == 0)
                 firstAvailableSegment = segment.Index;
 
             lastAvailableSegment = segment.Index;
@@ -135,7 +135,7 @@ internal static class JournalRecoveryScan
 
     private static ulong ResolveBaselineNextSequence(State manifest)
     {
-        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
+        var next = manifest.NextSequence == 0UL ? 1UL : manifest.NextSequence;
         if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
             next = lastApplied + 1UL;
 
@@ -144,9 +144,9 @@ internal static class JournalRecoveryScan
 
     private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
     {
-        if (firstAvailableSegment is 0)
+        if (firstAvailableSegment == 0)
         {
-            if (manifestCurrentJournal is not 1)
+            if (manifestCurrentJournal != 1)
                 throw CreateJournalTopologyDisjointForSequenceInit();
 
             return;

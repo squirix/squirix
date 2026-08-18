@@ -70,7 +70,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_replayTask is null)
+        if (_replayTask == null)
             return;
 
         try
@@ -95,7 +95,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private static int DetermineJournalOnlyReplayStart(State manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
-        var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
+        var missingInitialSegment = firstAvailableSegment == 0 && manifestCurrentJournal != 1;
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
         if (!missingInitialSegment && !journalGapDetected)
             return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
@@ -177,7 +177,7 @@ internal sealed class RecoveryService<T> : IHostedService
         var lastAvailableSegment = 0;
         foreach (var segment in JournalReadPath.EnumerateSegments(_opt.DataDir, 1))
         {
-            if (firstAvailableSegment is 0)
+            if (firstAvailableSegment == 0)
                 firstAvailableSegment = segment.Index;
 
             lastAvailableSegment = segment.Index;
@@ -202,14 +202,14 @@ internal sealed class RecoveryService<T> : IHostedService
         var (firstAvailableSegment, lastAvailableSegment) = GetJournalSegmentRange();
         var firstJournalSegmentOrDefault = firstAvailableSegment > 0 ? firstAvailableSegment : 1;
         var lastAppliedSeq = snapRef?.LastAppliedSequence ?? 0UL;
-        var fromSegment = snapRef is null ? DetermineJournalOnlyReplayStart(manifest, firstAvailableSegment, lastAvailableSegment) : firstJournalSegmentOrDefault;
+        var fromSegment = snapRef == null ? DetermineJournalOnlyReplayStart(manifest, firstAvailableSegment, lastAvailableSegment) : firstJournalSegmentOrDefault;
 
         return new ReplayContext(snapRef, manifestCurrentJournal, firstAvailableSegment, firstJournalSegmentOrDefault, fromSegment, lastAppliedSeq);
     }
 
     private void LogReplayBoundary(ReplayContext context, int fromSegment) => LogManager.RecoveryReplayBoundary(
         _log,
-        context.SnapshotReference is not null,
+        context.SnapshotReference != null,
         context.ManifestCurrentJournal,
         context.FirstAvailableSegment,
         fromSegment);
@@ -330,7 +330,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
             }
 
-            if (snapshot is null)
+            if (snapshot == null)
                 return new ReplayState(fromSegment, lastAppliedSeq);
 
             await ApplySnapshotEntriesAsync(snapshot, cancellationToken).ConfigureAwait(false);

@@ -157,7 +157,7 @@ public sealed class BinaryJournalCodecRoundTripTests
         if (operation is JournalOperationKind.TouchExpiration)
             Assert.Equal(record.TouchExpirationUtc, decoded.TouchExpirationUtc);
 
-        if (operation is not JournalOperationKind.IdempotencyOutcome)
+        if (operation != JournalOperationKind.IdempotencyOutcome)
             return;
         Assert.Equal(record.IdempotencyOperationId, decoded.IdempotencyOperationId);
         Assert.Equal(record.IdempotencyFingerprint, decoded.IdempotencyFingerprint);

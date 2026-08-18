@@ -164,7 +164,7 @@ internal static class BackpressureMetrics
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) is not 0)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
             lock (ObserverGate)
@@ -181,6 +181,6 @@ internal static class BackpressureMetrics
 
         internal long AllocateObserverId() => Interlocked.Increment(ref _nextObserverId.Value);
 
-        internal bool TryRegisterObservers() => Interlocked.Exchange(ref _registered.Value, 1) is 0;
+        internal bool TryRegisterObservers() => Interlocked.Exchange(ref _registered.Value, 1) == 0;
     }
 }

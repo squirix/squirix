@@ -67,14 +67,14 @@ public sealed class SquirixServerOptions
 
         var peerOptions = options.Peers;
         var uri = options.Uri;
-        if (peerOptions is null)
+        if (peerOptions == null)
             throw new ArgumentNullException(nameof(options), "Peers cannot be null.");
 
-        if (uri is null)
+        if (uri == null)
             throw new ArgumentNullException(nameof(options), "Uri cannot be null.");
 
-        var peers = new ServerPeer[peerOptions.Count is 0 ? 1 : peerOptions.Count];
-        if (peerOptions.Count is 0)
+        var peers = new ServerPeer[peerOptions.Count == 0 ? 1 : peerOptions.Count];
+        if (peerOptions.Count == 0)
         {
             peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = uri };
         }
@@ -100,7 +100,7 @@ public sealed class SquirixServerOptions
         // Public options path does not carry mTLS material; evaluate persistence then refuse RF>1 activation.
         var activationFailures = new List<string>();
         ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null);
-        if (activationFailures.Count is 0)
+        if (activationFailures.Count == 0)
             return true;
 
         errors = activationFailures;

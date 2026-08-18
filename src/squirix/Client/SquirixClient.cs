@@ -58,7 +58,7 @@ public sealed class SquirixClient : ISquirixClient
     /// <returns>A <see cref="ValueTask" /> that completes when disposal finishes.</returns>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) is not 0)
+        if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) != 0)
             return;
 
         _disposed = true;
@@ -95,8 +95,8 @@ public sealed class SquirixClient : ISquirixClient
     [Immutable]
     private sealed class InternalCache<T> : ICache<T>
     {
-        private readonly Action _throwIfDisposed;
         private readonly ICache<T> _inner;
+        private readonly Action _throwIfDisposed;
 
         internal InternalCache(Action throwIfDisposed, ICache<T> inner)
         {

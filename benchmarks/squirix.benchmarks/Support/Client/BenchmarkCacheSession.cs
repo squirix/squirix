@@ -22,12 +22,12 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         var clientLease = _clientLease;
         _clientLease = null;
-        if (clientLease is not null)
+        if (clientLease != null)
             await clientLease.DisposeAsync().ConfigureAwait(false);
     }
 

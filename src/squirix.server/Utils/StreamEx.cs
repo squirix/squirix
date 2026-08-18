@@ -10,7 +10,7 @@ internal static class StreamEx
         while (!buffer.IsEmpty)
         {
             var read = stream.Read(buffer);
-            if (read is 0)
+            if (read == 0)
                 return false;
 
             buffer = buffer[read..];

@@ -29,7 +29,7 @@ internal static class FileCodec
         if (pathByteCount > ushort.MaxValue)
             throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
-        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
+        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot == null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
@@ -38,7 +38,7 @@ internal static class FileCodec
         if (snapshotPathUtf8Length > ushort.MaxValue)
             throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
-        var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
+        var bodyLength = snapshot == null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
@@ -56,7 +56,7 @@ internal static class FileCodec
         offset += 4;
         var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
         offset += 8;
-        var hasSnapshot = body[offset++] is not 0;
+        var hasSnapshot = body[offset++] != 0;
         var lastSnapshot = hasSnapshot ? DecodeSnapshotRef(body, ref offset) : null;
 
         return new State
@@ -94,7 +94,7 @@ internal static class FileCodec
         offset += 8;
 
         // Snapshot section is optional; absence is encoded as a single zero flag byte.
-        if (manifest.LastSnapshot is null)
+        if (manifest.LastSnapshot == null)
         {
             destination[offset++] = 0;
         }
@@ -162,7 +162,7 @@ internal static class FileCodec
         offset += 8;
 
         // Journal rolls copy the prior snapshot reference verbatim when one exists.
-        if (snapshot is null)
+        if (snapshot == null)
         {
             destination[offset++] = 0;
         }

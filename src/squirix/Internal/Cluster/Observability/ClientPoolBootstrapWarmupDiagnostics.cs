@@ -20,7 +20,7 @@ internal static class ClientPoolBootstrapWarmupDiagnostics
         ClientPoolMetrics.AddBootstrapWarmupSkipped(nodeId, reason);
 
         using var activity = ActivitySource.StartActivity("client.bootstrap.warmup.peer_skipped", ActivityKind.Client, default(ActivityContext));
-        if (activity is null)
+        if (activity == null)
             return;
 
         _ = activity.SetTag("squirix.bootstrap.node_id", nodeId);

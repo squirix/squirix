@@ -73,7 +73,7 @@ public static class DirectoryKit
         var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
         var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : NodePathKit.Combine(baseFull ?? Environment.CurrentDirectory, path));
 
-        if (baseFull is not null && !IsSubPathOf(full, baseFull))
+        if (baseFull != null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
 
         PathValidationKit.ValidateSegments(full);
@@ -193,7 +193,7 @@ public static class DirectoryKit
         try
         {
             var attrs = File.GetAttributes(file);
-            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
+            if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)
@@ -326,7 +326,7 @@ public static class DirectoryKit
         try
         {
             // .NET 6+ cross-platform symlink test
-            if (fsi.LinkTarget is not null)
+            if (fsi.LinkTarget != null)
                 return true;
         }
         catch (IOException)
@@ -344,7 +344,7 @@ public static class DirectoryKit
 
         try
         {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
+            return (fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.None;
         }
         catch (IOException)
         {

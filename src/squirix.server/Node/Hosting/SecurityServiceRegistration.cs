@@ -47,7 +47,7 @@ internal static class SecurityServiceRegistration
         if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
             parameters.ValidAudience = configuration.JwtAudience;
 
-        if (configuration.SigningKeyBytes is not null)
+        if (configuration.SigningKeyBytes != null)
             parameters.IssuerSigningKey = new SymmetricSecurityKey(configuration.SigningKeyBytes);
 
         return parameters;
@@ -101,14 +101,14 @@ internal static class SecurityServiceRegistration
         var jwtSigningKey = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_SIGNING_KEY");
         var jwtAllowHttpMetadata = EnvVariables.ReadBool("SQUIRIX_JWT_ALLOW_HTTP_METADATA");
         var signingKeyBytes = DecodeSymmetricKey(jwtSigningKey);
-        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
+        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes != null;
 
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
     private static ResolvedSecurityConfiguration ResolveSecurityConfiguration(SecurityOptions? securityOptionsOverride)
     {
-        if (securityOptionsOverride is null)
+        if (securityOptionsOverride == null)
             return ResolveFromEnvironment();
 
         var jwtAuthority = securityOptionsOverride.JwtAuthority ?? string.Empty;
@@ -116,14 +116,14 @@ internal static class SecurityServiceRegistration
         var jwtIssuer = securityOptionsOverride.JwtIssuer ?? string.Empty;
         var jwtSigningKey = securityOptionsOverride.JwtSigningKey ?? string.Empty;
         var signingKeyBytes = DecodeSymmetricKey(jwtSigningKey);
-        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
+        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes != null;
 
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
     private static void ValidateSecurityConfiguration(ResolvedSecurityConfiguration configuration)
     {
-        if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes is null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
+        if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes == null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
 
         if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtAudience))
@@ -132,7 +132,7 @@ internal static class SecurityServiceRegistration
         if (!configuration.JwtEnabled)
             return;
 
-        if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && configuration.SigningKeyBytes is null)
+        if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && configuration.SigningKeyBytes == null)
             throw new InvalidOperationException("JWT authentication requires SQUIRIX_JWT_AUTHORITY or SQUIRIX_JWT_SIGNING_KEY.");
 
         if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtIssuer))

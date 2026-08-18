@@ -22,8 +22,8 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
     private static readonly LocalizableString MessageFormat = "The parameter '{0}' has the same default value";
 
     private static readonly LocalizableString Title = "Avoid redundant default argument values";
-
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", DiagnosticSeverity.Warning, true, Description);
+
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -31,7 +31,7 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -41,44 +41,11 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeImplicitObjectCreation, SyntaxKind.ImplicitObjectCreationExpression);
     }
 
-    private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
-    {
-        if (context.Node is not InvocationExpressionSyntax invocation)
-            return;
-
-        if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is not IMethodSymbol method)
-            return;
-
-        AnalyzeArgumentList(context, invocation.ArgumentList, method, static (node, list) => ((InvocationExpressionSyntax)node).WithArgumentList(list));
-    }
-
-    private static void AnalyzeObjectCreation(SyntaxNodeAnalysisContext context)
-    {
-        if (context.Node is not ObjectCreationExpressionSyntax creation || creation.ArgumentList is null)
-            return;
-
-        if (context.SemanticModel.GetSymbolInfo(creation, context.CancellationToken).Symbol is not IMethodSymbol method)
-            return;
-
-        AnalyzeArgumentList(context, creation.ArgumentList, method, static (node, list) => ((ObjectCreationExpressionSyntax)node).WithArgumentList(list));
-    }
-
-    private static void AnalyzeImplicitObjectCreation(SyntaxNodeAnalysisContext context)
-    {
-        if (context.Node is not ImplicitObjectCreationExpressionSyntax creation)
-            return;
-
-        if (context.SemanticModel.GetSymbolInfo(creation, context.CancellationToken).Symbol is not IMethodSymbol method)
-            return;
-
-        AnalyzeArgumentList(context, creation.ArgumentList, method, static (node, list) => ((ImplicitObjectCreationExpressionSyntax)node).WithArgumentList(list));
-    }
-
     private static void AnalyzeArgumentList(SyntaxNodeAnalysisContext context, ArgumentListSyntax argumentList, IMethodSymbol method,
         Func<SyntaxNode, ArgumentListSyntax, ExpressionSyntax> withArgumentList)
     {
         var parameters = method.Parameters;
-        if (parameters.Length is 0 || argumentList.Arguments.Count is 0)
+        if (parameters.Length == 0 || argumentList.Arguments.Count == 0)
             return;
 
         // Map each argument index to a parameter index (positional + named).
@@ -87,7 +54,7 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         for (var i = 0; i < argumentList.Arguments.Count; i++)
         {
             var argument = argumentList.Arguments[i];
-            if (argument.NameColon is null)
+            if (argument.NameColon == null)
             {
                 if (nextPositional >= parameters.Length)
                     return;
@@ -130,7 +97,7 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
 
             // Named args can always be dropped. Positional args only when every later
             // argument is also a redundant optional default (otherwise binding shifts).
-            if (argument.NameColon is null && !TrailingDefaultsCanBeOmitted(argumentList, argumentToParameter, parameters, i, context))
+            if (argument.NameColon == null && !TrailingDefaultsCanBeOmitted(argumentList, argumentToParameter, parameters, i, context))
                 continue;
 
             if (!RemainsBoundAfterRemoving(context, argumentList, i, withArgumentList, method))
@@ -140,35 +107,37 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static bool TrailingDefaultsCanBeOmitted(ArgumentListSyntax argumentList, int[] argumentToParameter, ImmutableArray<IParameterSymbol> parameters, int startIndex,
-        SyntaxNodeAnalysisContext context)
+    private static void AnalyzeImplicitObjectCreation(SyntaxNodeAnalysisContext context)
     {
-        for (var i = startIndex; i < argumentList.Arguments.Count; i++)
-        {
-            if (argumentList.Arguments[i].NameColon is not null)
-                return false;
+        if (context.Node is not ImplicitObjectCreationExpressionSyntax creation)
+            return;
 
-            var parameter = parameters[argumentToParameter[i]];
-            if (parameter.IsParams || !parameter.IsOptional || !TryGetParameterDefault(parameter, out var defaultValue))
-                return false;
+        if (context.SemanticModel.GetSymbolInfo(creation, context.CancellationToken).Symbol is not IMethodSymbol method)
+            return;
 
-            if (!ArgumentEqualsDefault(context, argumentList.Arguments[i].Expression, defaultValue))
-                return false;
-        }
-
-        return true;
+        AnalyzeArgumentList(context, creation.ArgumentList, method, static (node, list) => ((ImplicitObjectCreationExpressionSyntax)node).WithArgumentList(list));
     }
 
-    private static bool RemainsBoundAfterRemoving(SyntaxNodeAnalysisContext context, ArgumentListSyntax argumentList, int argumentIndex,
-        Func<SyntaxNode, ArgumentListSyntax, ExpressionSyntax> withArgumentList, IMethodSymbol method)
+    private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     {
-        var rewrittenArgs = argumentList.Arguments.RemoveAt(argumentIndex);
-        var rewrittenList = argumentList.WithArguments(rewrittenArgs);
-        var rewrittenCall = withArgumentList(context.Node, rewrittenList);
+        if (context.Node is not InvocationExpressionSyntax invocation)
+            return;
 
-        var speculative = context.SemanticModel.GetSpeculativeSymbolInfo(context.Node.SpanStart, rewrittenCall, SpeculativeBindingOption.BindAsExpression);
+        if (context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken).Symbol is not IMethodSymbol method)
+            return;
 
-        return speculative.Symbol is IMethodSymbol speculativeMethod && SymbolEqualityComparer.Default.Equals(speculativeMethod.OriginalDefinition, method.OriginalDefinition);
+        AnalyzeArgumentList(context, invocation.ArgumentList, method, static (node, list) => ((InvocationExpressionSyntax)node).WithArgumentList(list));
+    }
+
+    private static void AnalyzeObjectCreation(SyntaxNodeAnalysisContext context)
+    {
+        if (context.Node is not ObjectCreationExpressionSyntax creation || creation.ArgumentList == null)
+            return;
+
+        if (context.SemanticModel.GetSymbolInfo(creation, context.CancellationToken).Symbol is not IMethodSymbol method)
+            return;
+
+        AnalyzeArgumentList(context, creation.ArgumentList, method, static (node, list) => ((ObjectCreationExpressionSyntax)node).WithArgumentList(list));
     }
 
     private static bool ArgumentEqualsDefault(SyntaxNodeAnalysisContext context, ExpressionSyntax expression, object? defaultValue)
@@ -184,35 +153,34 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         return EqualsNormalized(constant.Value, defaultValue);
     }
 
-    private static bool TryGetParameterDefault(IParameterSymbol parameter, out object? defaultValue)
+    private static bool EqualsNormalized(object? left, object? right)
     {
-        if (parameter.HasExplicitDefaultValue)
-        {
-            defaultValue = parameter.ExplicitDefaultValue;
+        if (Equals(left, right))
             return true;
+
+        // Roslyn may box enum defaults as the underlying integral type.
+        if (left is Enum leftEnum && right != null)
+        {
+            return Equals(Convert.ChangeType(leftEnum, Enum.GetUnderlyingType(leftEnum.GetType()), CultureInfo.InvariantCulture), right);
         }
 
-        // [Optional] without C# default uses the type's default value.
-        if (HasOptionalAttribute(parameter))
+        if (right is Enum rightEnum && left != null)
         {
-            defaultValue = parameter.Type.IsReferenceType || parameter.Type is IPointerTypeSymbol ? null : GetValueTypeDefault(parameter.Type);
-            return true;
+            return Equals(left, Convert.ChangeType(rightEnum, Enum.GetUnderlyingType(rightEnum.GetType()), CultureInfo.InvariantCulture));
         }
 
-        defaultValue = null;
         return false;
     }
 
-    private static object? GetValueTypeDefault(ITypeSymbol type)
+    private static int FindParameterIndex(ImmutableArray<IParameterSymbol> parameters, string name)
     {
-        if (type.TypeKind is not TypeKind.Enum || type is not INamedTypeSymbol enumType)
-            return GetNumericZero(type.SpecialType);
-        // Enum default is 0 converted to the underlying type's zero value.
-        var underlying = enumType.EnumUnderlyingType;
-        if (underlying is null)
-            return 0;
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            if (string.Equals(parameters[i].Name, name, StringComparison.Ordinal))
+                return i;
+        }
 
-        return GetNumericZero(underlying.SpecialType);
+        return -1;
     }
 
     private static object? GetNumericZero(SpecialType specialType)
@@ -238,6 +206,18 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         };
     }
 
+    private static object? GetValueTypeDefault(ITypeSymbol type)
+    {
+        if (type.TypeKind is not TypeKind.Enum || type is not INamedTypeSymbol enumType)
+            return GetNumericZero(type.SpecialType);
+        // Enum default is 0 converted to the underlying type's zero value.
+        var underlying = enumType.EnumUnderlyingType;
+        if (underlying == null)
+            return 0;
+
+        return GetNumericZero(underlying.SpecialType);
+    }
+
     private static bool HasOptionalAttribute(IParameterSymbol parameter)
     {
         var attributes = parameter.GetAttributes();
@@ -253,33 +233,53 @@ public sealed class RedundantDefaultArgumentAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static bool EqualsNormalized(object? left, object? right)
+    private static bool RemainsBoundAfterRemoving(SyntaxNodeAnalysisContext context, ArgumentListSyntax argumentList, int argumentIndex,
+        Func<SyntaxNode, ArgumentListSyntax, ExpressionSyntax> withArgumentList, IMethodSymbol method)
     {
-        if (Equals(left, right))
-            return true;
+        var rewrittenArgs = argumentList.Arguments.RemoveAt(argumentIndex);
+        var rewrittenList = argumentList.WithArguments(rewrittenArgs);
+        var rewrittenCall = withArgumentList(context.Node, rewrittenList);
 
-        // Roslyn may box enum defaults as the underlying integral type.
-        if (left is Enum leftEnum && right is not null)
-        {
-            return Equals(Convert.ChangeType(leftEnum, Enum.GetUnderlyingType(leftEnum.GetType()), CultureInfo.InvariantCulture), right);
-        }
+        var speculative = context.SemanticModel.GetSpeculativeSymbolInfo(context.Node.SpanStart, rewrittenCall, SpeculativeBindingOption.BindAsExpression);
 
-        if (right is Enum rightEnum && left is not null)
-        {
-            return Equals(left, Convert.ChangeType(rightEnum, Enum.GetUnderlyingType(rightEnum.GetType()), CultureInfo.InvariantCulture));
-        }
-
-        return false;
+        return speculative.Symbol is IMethodSymbol speculativeMethod && SymbolEqualityComparer.Default.Equals(speculativeMethod.OriginalDefinition, method.OriginalDefinition);
     }
 
-    private static int FindParameterIndex(ImmutableArray<IParameterSymbol> parameters, string name)
+    private static bool TrailingDefaultsCanBeOmitted(ArgumentListSyntax argumentList, int[] argumentToParameter, ImmutableArray<IParameterSymbol> parameters, int startIndex,
+        SyntaxNodeAnalysisContext context)
     {
-        for (var i = 0; i < parameters.Length; i++)
+        for (var i = startIndex; i < argumentList.Arguments.Count; i++)
         {
-            if (string.Equals(parameters[i].Name, name, StringComparison.Ordinal))
-                return i;
+            if (argumentList.Arguments[i].NameColon != null)
+                return false;
+
+            var parameter = parameters[argumentToParameter[i]];
+            if (parameter.IsParams || !parameter.IsOptional || !TryGetParameterDefault(parameter, out var defaultValue))
+                return false;
+
+            if (!ArgumentEqualsDefault(context, argumentList.Arguments[i].Expression, defaultValue))
+                return false;
         }
 
-        return -1;
+        return true;
+    }
+
+    private static bool TryGetParameterDefault(IParameterSymbol parameter, out object? defaultValue)
+    {
+        if (parameter.HasExplicitDefaultValue)
+        {
+            defaultValue = parameter.ExplicitDefaultValue;
+            return true;
+        }
+
+        // [Optional] without C# default uses the type's default value.
+        if (HasOptionalAttribute(parameter))
+        {
+            defaultValue = parameter.Type.IsReferenceType || parameter.Type is IPointerTypeSymbol ? null : GetValueTypeDefault(parameter.Type);
+            return true;
+        }
+
+        defaultValue = null;
+        return false;
     }
 }

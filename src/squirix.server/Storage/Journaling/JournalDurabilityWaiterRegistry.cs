@@ -28,7 +28,7 @@ internal sealed class JournalDurabilityWaiterRegistry
     {
         lock (_sync)
         {
-            if (_waiters.Count is 0)
+            if (_waiters.Count == 0)
                 return EmptyWaiters;
 
             return SwapOutWaiters();
@@ -39,7 +39,7 @@ internal sealed class JournalDurabilityWaiterRegistry
     {
         lock (_sync)
         {
-            if (_waiters.Count is 0)
+            if (_waiters.Count == 0)
             {
                 waiters = EmptyWaiters;
                 return false;

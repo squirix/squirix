@@ -7,7 +7,7 @@ var skippedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
 var scopedTopLevelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "src", "tests", "benchmarks", "samples" };
 
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -64,7 +64,7 @@ string ResolveDefaultRepoRoot()
     var internalDir = Directory.GetParent(entryDir);
     var toolsDir = internalDir?.Parent;
     var repoDir = toolsDir?.Parent;
-    if (repoDir is not null)
+    if (repoDir != null)
         return repoDir.FullName;
     return Environment.CurrentDirectory;
 }
@@ -84,7 +84,7 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
 
         var relative = Path.GetRelativePath(repoRoot, file);
         var parts = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.None);
-        if (parts.Length is 0 || !scopedTopLevelDirectories.Contains(parts[0]))
+        if (parts.Length == 0 || !scopedTopLevelDirectories.Contains(parts[0]))
             continue;
 
         var skip = false;
@@ -152,7 +152,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         foreach (var framework in element.InnerText.Split(';'))
         {
             var value = framework.Trim();
-            if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
+            if (value.Length == 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
                 continue;
 
             outFailures.Add(

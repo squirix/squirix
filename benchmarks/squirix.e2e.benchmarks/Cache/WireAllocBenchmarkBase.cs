@@ -59,10 +59,10 @@ public abstract class WireAllocBenchmarkBase<T>
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_client is not null)
+        if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node is not null)
+        if (_node != null)
             await _node.DisposeAsync().ConfigureAwait(false);
     }
 

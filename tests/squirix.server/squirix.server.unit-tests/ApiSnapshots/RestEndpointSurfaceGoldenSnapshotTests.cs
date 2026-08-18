@@ -36,7 +36,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);
@@ -87,7 +87,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         private static void AppendHttpMethods(RouteEndpoint route, string pattern, List<string> routes)
         {
             var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
-            if (methods is null || methods.HttpMethods.Count is 0)
+            if (methods == null || methods.HttpMethods.Count == 0)
             {
                 // Health probes often omit explicit HttpMethodMetadata; treat them as GET for the golden.
                 if (pattern.StartsWith("/health", StringComparison.Ordinal))
@@ -108,7 +108,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 return;
 
             // gRPC endpoints are covered by a separate contract surface and must not dilute REST goldens.
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() is not null)
+            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() != null)
                 return;
 
             var pattern = route.RoutePattern.RawText ?? "/";

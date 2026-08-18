@@ -30,7 +30,7 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
     public string Resolve()
     {
         var context = _httpContextAccessor.HttpContext;
-        if (context is null)
+        if (context == null)
             return MissingHttpContextClientId;
 
         if (context.Items.TryGetValue(CachedClientIdItemKey, out var cached) && cached is string clientId)
@@ -50,22 +50,9 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
             state.value.AsSpan().CopyTo(span[state.prefix.Length..]);
         });
 
-    private static string ResolveCore(HttpContext context)
-    {
-        var principalId = GetAuthenticatedPrincipalId(context.User);
-        if (principalId is not null)
-            return CreatePrefixed(JwtPrefix, principalId);
-
-        var connectionId = context.Connection.Id;
-        if (!string.IsNullOrWhiteSpace(connectionId))
-            return CreatePrefixed(ConnPrefix, connectionId);
-
-        return MissingHttpContextClientId;
-    }
-
     private static string? GetAuthenticatedPrincipalId(ClaimsPrincipal? user)
     {
-        if (user?.Identity?.IsAuthenticated is not true)
+        if (user?.Identity?.IsAuthenticated != true)
             return null;
 
         // JwtBearer maps inbound "sub" to NameIdentifier when MapInboundClaims is enabled (default).
@@ -74,5 +61,18 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
             subject = user.FindFirstValue("sub");
 
         return string.IsNullOrWhiteSpace(subject) ? null : subject;
+    }
+
+    private static string ResolveCore(HttpContext context)
+    {
+        var principalId = GetAuthenticatedPrincipalId(context.User);
+        if (principalId != null)
+            return CreatePrefixed(JwtPrefix, principalId);
+
+        var connectionId = context.Connection.Id;
+        if (!string.IsNullOrWhiteSpace(connectionId))
+            return CreatePrefixed(ConnPrefix, connectionId);
+
+        return MissingHttpContextClientId;
     }
 }

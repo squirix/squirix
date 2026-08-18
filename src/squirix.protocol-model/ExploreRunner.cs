@@ -26,7 +26,7 @@ internal static class ExploreRunner
         await WriteSummaryAsync(outputDir, new SummaryContent(profileName, broken, totalStates, totalTransitions, firstViolation, allFixedPoint), CancellationToken.None)
            .ConfigureAwait(false);
 
-        if (firstViolation is null || firstState is null)
+        if (firstViolation == null || firstState == null)
         {
             var staleCounterexample = Path.Join(outputDir, "counterexample.json");
             if (File.Exists(staleCounterexample))
@@ -59,10 +59,10 @@ internal static class ExploreRunner
         {
             totalStates += results[i].Result.StatesVisited;
             totalTransitions += results[i].Result.TransitionsApplied;
-            if (!results[i].Result.FixedPointReached && results[i].Result.Violation is null)
+            if (!results[i].Result.FixedPointReached && results[i].Result.Violation == null)
                 allFixedPoint = false;
 
-            if (firstViolation is not null || results[i].Result.Violation is null)
+            if (firstViolation != null || results[i].Result.Violation == null)
                 continue;
             firstViolation = results[i].Result.Violation;
             firstState = results[i].Result.ViolatingState;
@@ -113,9 +113,9 @@ internal static class ExploreRunner
 
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
     {
-        if (broken is not BrokenMode.None)
-            return firstViolation is not null ? 0 : 3;
-        if (firstViolation is not null)
+        if (broken != BrokenMode.None)
+            return firstViolation != null ? 0 : 3;
+        if (firstViolation != null)
             return 2;
 
         // 0 = exhausted without violation; 4 = hit documented MaxStates (residual risk, not a counterexample).
@@ -127,7 +127,7 @@ internal static class ExploreRunner
         for (var i = 0; i < results.Count; i++)
         {
             var result = results[i].Result;
-            if (result.Violation is not null && string.Equals(result.Violation.Invariant, violation.Invariant, StringComparison.Ordinal) && string.Equals(
+            if (result.Violation != null && string.Equals(result.Violation.Invariant, violation.Invariant, StringComparison.Ordinal) && string.Equals(
                     result.Violation.StateFingerprint,
                     violation.StateFingerprint,
                     StringComparison.Ordinal))
@@ -161,7 +161,7 @@ internal static class ExploreRunner
         _ = sb.Append(",\"statesVisited\":").Append(content.States.ToString(CultureInfo.InvariantCulture)).Append(",\"transitionsApplied\":")
               .Append(content.Transitions.ToString(CultureInfo.InvariantCulture)).Append(",\"fixedPointReached\":").Append(content.FixedPointReached ? "true" : "false")
               .Append(",\"violation\":");
-        if (content.Violation is null)
+        if (content.Violation == null)
         {
             _ = sb.Append("null");
         }
@@ -225,7 +225,7 @@ internal static class ExploreRunner
             for (var i = 0; i < state.Nodes.Count; i++)
             {
                 var leader = state.Nodes[i];
-                if (leader.Role is not NodeRole.Leader || !TryFindOldestOldTermEntry(leader, out var old))
+                if (leader.Role != NodeRole.Leader || !TryFindOldestOldTermEntry(leader, out var old))
                     continue;
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
@@ -294,7 +294,7 @@ internal static class ExploreRunner
 
         private static void CollectDuplicates(ClusterState state, ExploreProfile profile, List<ClusterState> output)
         {
-            if (state.Messages.Count is 0 || state.Messages.Count >= profile.MaxInFlight)
+            if (state.Messages.Count == 0 || state.Messages.Count >= profile.MaxInFlight)
                 return;
 
             for (var i = 0; i < state.Messages.Count; i++)
@@ -388,7 +388,7 @@ internal static class ExploreRunner
         {
             after = state;
             var leader = state.Nodes[leaderId];
-            if (leader.Role is not NodeRole.Leader)
+            if (leader.Role != NodeRole.Leader)
                 return false;
 
             if (leader.LogEntries.Count >= profile.MaxLogEntries)
@@ -452,7 +452,7 @@ internal static class ExploreRunner
         {
             next = state;
             var leader = state.Nodes[leaderId];
-            if (leader.Role is not NodeRole.Leader || leader.ReadIndex > 0)
+            if (leader.Role != NodeRole.Leader || leader.ReadIndex > 0)
                 return false;
 
             if (state.Messages.Count + (state.Nodes.Count - 1) > profile.MaxInFlight)
@@ -504,7 +504,7 @@ internal static class ExploreRunner
                 if (msg.LastLogIndex <= receiver.CommitIndex)
                 {
                     var existing = ModelTransitionUtil.FindEntry(receiver.LogEntries, msg.LastLogIndex);
-                    if (existing is not null && existing.Value.Term == msg.LastLogTerm)
+                    if (existing != null && existing.Value.Term == msg.LastLogTerm)
                         return new AppendOutcome(true, msg.LastLogIndex);
 
                     return new AppendOutcome(false, receiver.LastLogIndex);
@@ -562,7 +562,7 @@ internal static class ExploreRunner
             internal static ClusterState MaybeAdvanceCommit(ClusterState state, int leaderId, ExploreProfile profile, BrokenMode broken)
             {
                 var leader = state.Nodes[leaderId];
-                if (leader.Role is not NodeRole.Leader)
+                if (leader.Role != NodeRole.Leader)
                     return state;
 
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
@@ -599,7 +599,7 @@ internal static class ExploreRunner
                     return new AppendOutcome(false, receiver.LastLogIndex);
 
                 var prefix = ModelTransitionUtil.FindEntry(receiver.LogEntries, truncateTo);
-                var prefixOk = msg.LastLogIndex is 1 || prefix is not null;
+                var prefixOk = msg.LastLogIndex == 1 || prefix != null;
                 if (!prefixOk)
                     return new AppendOutcome(false, receiver.LastLogIndex);
 
@@ -615,7 +615,7 @@ internal static class ExploreRunner
                     return false;
 
                 var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
-                return stored is not null && stored.Value.Term == leaderEntry.Term;
+                return stored != null && stored.Value.Term == leaderEntry.Term;
             }
 
             private static bool HasCurrentTermEntryThrough(NodeState leader, int index)
@@ -634,7 +634,7 @@ internal static class ExploreRunner
                 // MatchIndex is cluster-shared; a stale leader must not count another leader's
                 // replication progress. Only replicas that store the leader's entry at index count.
                 var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
-                if (leaderEntry is null)
+                if (leaderEntry == null)
                     return false;
 
                 var replicas = 0;
@@ -669,7 +669,7 @@ internal static class ExploreRunner
             private static void PropagateFollowerCommits(NodeState[] nodes, int[] match, int leaderId, int newCommit)
             {
                 var leaderEntry = ModelTransitionUtil.FindEntry(nodes[leaderId].LogEntries, newCommit);
-                if (leaderEntry is null)
+                if (leaderEntry == null)
                     return;
 
                 for (var i = 0; i < nodes.Length; i++)
@@ -684,7 +684,7 @@ internal static class ExploreRunner
             private static bool StoresMatchingTerm(NodeState node, int index, int term)
             {
                 var stored = ModelTransitionUtil.FindEntry(node.LogEntries, index);
-                return stored is not null && stored.Value.Term == term;
+                return stored != null && stored.Value.Term == term;
             }
 
             private static bool TryClassifyCommitCandidate(
@@ -701,13 +701,13 @@ internal static class ExploreRunner
                     return false;
 
                 var entry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
-                if (entry is null)
+                if (entry == null)
                     return false;
 
                 if (HasCurrentTermEntryThrough(leader, index))
                     return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
 
-                if (broken is not BrokenMode.CurrentTermCommit)
+                if (broken != BrokenMode.CurrentTermCommit)
                     return false;
 
                 badOld = true;
@@ -813,7 +813,7 @@ internal static class ExploreRunner
                 BrokenMode broken)
             {
                 var leader = nodes[msg.To];
-                if (leader.Role is not NodeRole.Leader)
+                if (leader.Role != NodeRole.Leader)
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 if (msg.Term > leader.CurrentTerm)
@@ -920,7 +920,7 @@ internal static class ExploreRunner
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
                 }
 
-                if (candidate.Role is not NodeRole.Candidate || msg.Term != candidate.CurrentTerm || !msg.Success)
+                if (candidate.Role != NodeRole.Candidate || msg.Term != candidate.CurrentTerm || !msg.Success)
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
 
                 var votes = candidate.VotesGranted | (1 << msg.From);
@@ -931,7 +931,7 @@ internal static class ExploreRunner
                 return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
             }
 
-            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role is not NodeRole.Leader || leader.ReadIndex is 0 ||
+            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
                                                                                               msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
         }
     }
@@ -948,7 +948,7 @@ internal static class ExploreRunner
             work.Queue.Enqueue(initial);
 
             var initialViolation = SafetyChecker.Check(initial, broken);
-            if (initialViolation is not null)
+            if (initialViolation != null)
                 return new ExploreResult(1, 0, initialViolation, initial, true, ReconstructPath(work.Parents, startFp));
 
             return Search(work);
@@ -958,7 +958,7 @@ internal static class ExploreRunner
         {
             var stack = new Stack<string>();
             var current = endFingerprint;
-            while (current is not null)
+            while (current != null)
             {
                 stack.Push(current);
                 if (!parents.TryGetValue(current, out current))
@@ -984,12 +984,12 @@ internal static class ExploreRunner
                 {
                     transitions++;
                     var outcome = VisitSuccessor(work, currentFp, work.Successors[i], transitions);
-                    if (outcome is not null)
+                    if (outcome != null)
                         return outcome;
                 }
             }
 
-            return new ExploreResult(work.Seen.Count, transitions, null, null, work.Queue.Count is 0, null);
+            return new ExploreResult(work.Seen.Count, transitions, null, null, work.Queue.Count == 0, null);
         }
 
         private static ExploreResult? VisitSuccessor(SearchWork work, string currentFp, ClusterState next, int transitions)
@@ -1000,7 +1000,7 @@ internal static class ExploreRunner
 
             work.Parents[fp] = currentFp;
             var violation = SafetyChecker.Check(next, work.Broken);
-            if (violation is not null)
+            if (violation != null)
                 return new ExploreResult(work.Seen.Count, transitions, violation, next, false, ReconstructPath(work.Parents, fp));
 
             if (work.Seen.Count >= work.Profile.MaxStates)

@@ -246,7 +246,7 @@ internal sealed class Ledger : IDisposable
             }
 
             var (previous, snapshotPathUtf8) = _readRollBaselineLocked();
-            var format = previous.Format is 0 ? 1 : previous.Format;
+            var format = previous.Format == 0 ? 1 : previous.Format;
             var snapshot = previous.LastSnapshot;
 
             var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);

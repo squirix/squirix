@@ -31,10 +31,10 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        if (_client is not null)
+        if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
         foreach (var node in _nodes.Values)

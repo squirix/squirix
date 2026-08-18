@@ -36,7 +36,7 @@ public sealed class PublicApiGoldenSnapshotTests
 
     private static void AppendDiffSection(StringBuilder sb, string heading, string marker, List<string> items)
     {
-        if (items.Count is 0)
+        if (items.Count == 0)
             return;
 
         _ = sb.AppendLine(heading);
@@ -77,7 +77,7 @@ public sealed class PublicApiGoldenSnapshotTests
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);

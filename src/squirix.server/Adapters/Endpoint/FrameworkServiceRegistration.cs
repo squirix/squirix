@@ -116,7 +116,7 @@ internal static class FrameworkServiceRegistration
 
             private static bool IsTrustedClusterPeer(HttpContext httpContext, TopologyOptions cluster, MtlsCertificateMaterial mtlsMaterial)
             {
-                if (!mtlsMaterial.Enabled || mtlsMaterial.TrustAnchor is null)
+                if (!mtlsMaterial.Enabled || mtlsMaterial.TrustAnchor == null)
                     return false;
 
                 var certificate = httpContext.Connection.ClientCertificate;

@@ -102,10 +102,10 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 
     private static bool TagsEqual(FrozenDictionary<string, string>? left, FrozenDictionary<string, string>? right)
     {
-        if (left is null && right is null)
+        if (left == null && right == null)
             return true;
 
-        if (left is null || right is null || left.Count != right.Count)
+        if (left == null || right == null || left.Count != right.Count)
             return false;
 
         foreach (var pair in left)
@@ -128,7 +128,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 
     private static bool ValueEquals(object? left, object? right) => left switch
     {
-        null => right is null,
+        null => right == null,
         byte[] leftBytes when right is byte[] rightBytes => leftBytes.AsSpan().SequenceEqual(rightBytes),
         int i when right is long l => i == l,
         long l when right is int i => l == i,

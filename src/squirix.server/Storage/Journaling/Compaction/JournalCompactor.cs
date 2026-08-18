@@ -172,9 +172,9 @@ internal static class JournalCompactor
 
         var newManifest = new State
         {
-            Format = oldManifest.Format is 0 ? 1 : oldManifest.Format,
+            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,
-            NextSequence = lastSeq is 0UL ? 1UL : lastSeq + 1UL,
+            NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(newManifest, cancellationToken).ConfigureAwait(false);
@@ -190,7 +190,7 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static int GetNextJournalSegmentIndex(JournalSegment[] segments) => segments.Length is 0 ? 1 : segments[^1].Index + 1;
+    private static int GetNextJournalSegmentIndex(JournalSegment[] segments) => segments.Length == 0 ? 1 : segments[^1].Index + 1;
 
     private static bool IsExpired(NodeCacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
@@ -241,12 +241,12 @@ internal static class JournalCompactor
         {
             await WriteCompactedJournalHeaderAsync(fs, cancellationToken).ConfigureAwait(false);
 
-            var seq = lastSeq is 0UL ? 1UL : lastSeq + 1UL;
+            var seq = lastSeq == 0UL ? 1UL : lastSeq + 1UL;
             var wroteAny = false;
             var i = 0;
             foreach (var (k, e) in state)
             {
-                if ((i++ & 0x3FF) is 0)
+                if ((i++ & 0x3FF) == 0)
                     cancellationToken.ThrowIfCancellationRequested();
 
                 if (IsExpired(e))

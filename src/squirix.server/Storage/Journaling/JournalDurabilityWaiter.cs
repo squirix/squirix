@@ -31,7 +31,7 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
     {
         while (Pool.TryTake(out var waiter))
         {
-            if (Interlocked.CompareExchange(ref waiter._leased, 1, 0) is 0)
+            if (Interlocked.CompareExchange(ref waiter._leased, 1, 0) == 0)
                 return waiter;
         }
 
@@ -45,13 +45,13 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
         return cancellationToken.CanBeCanceled ? AwaitWithCancellationAsync(pending, cancellationToken) : pending;
     }
 
-    internal bool IsAbandonedByCaller() => Volatile.Read(ref _abandonedByCaller) is not 0;
+    internal bool IsAbandonedByCaller() => Volatile.Read(ref _abandonedByCaller) != 0;
 
     internal void MarkAbandonedByCaller() => Volatile.Write(ref _abandonedByCaller, 1);
 
     internal void ReturnToPool()
     {
-        if (Interlocked.CompareExchange(ref _leased, 0, 1) is not 1)
+        if (Interlocked.CompareExchange(ref _leased, 0, 1) != 1)
             return;
 
         Volatile.Write(ref _abandonedByCaller, 0);

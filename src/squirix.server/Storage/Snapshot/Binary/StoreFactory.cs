@@ -54,7 +54,7 @@ internal static class StoreFactory
                     if (skipExpired && IsExpired(entry.Entry))
                         return;
 
-                    if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped is null)
+                    if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped == null)
                         throw new InvalidDataException("Binary snapshot entry payload could not be read.");
 
                     entries.Add((entry.Key, mapped));
@@ -134,7 +134,7 @@ internal static class StoreFactory
                     if (!TryReadNextRecord(out var record))
                         return false;
 
-                    if (record is null)
+                    if (record == null)
                         continue;
 
                     _current = record;
@@ -149,7 +149,7 @@ internal static class StoreFactory
                 switch (kind)
                 {
                     case RecordKind.Entry:
-                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry is not null)
+                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry != null)
                             return new EntryRecord(key, entry);
                         if (_strict)
                             throw new InvalidDataException("Binary snapshot entry body could not be read.");
@@ -157,7 +157,7 @@ internal static class StoreFactory
                         return null;
 
                     case RecordKind.Idempotency:
-                        return TryReadIdempotency(body, out var idempotencyRecord) && idempotencyRecord is not null ? new IdempotencyRecord(idempotencyRecord) : null;
+                        return TryReadIdempotency(body, out var idempotencyRecord) && idempotencyRecord != null ? new IdempotencyRecord(idempotencyRecord) : null;
 
                     default:
                         if (_strict)

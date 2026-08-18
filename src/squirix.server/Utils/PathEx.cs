@@ -122,10 +122,10 @@ internal static class PathEx
 
     private static bool IsFilesystemRoot(ReadOnlySpan<char> root)
     {
-        if (root.Length is 1 && IsDirectorySeparator(root[0]))
+        if (root.Length == 1 && IsDirectorySeparator(root[0]))
             return true;
 
-        return OperatingSystem.IsWindows() && root.Length is 2 && root[1] is ':';
+        return OperatingSystem.IsWindows() && root.Length == 2 && root[1] == ':';
     }
 
     private static bool IsPathUnderRoot(string fullPath, string rootFullPath)

@@ -26,7 +26,7 @@ public sealed class TooManyFieldsAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -59,7 +59,7 @@ public sealed class TooManyFieldsAnalyzer : DiagnosticAnalyzer
             return;
 
         var location = AnalyzerHelpers.GetBestLocation(type);
-        if (location is null)
+        if (location == null)
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, fieldCount, AnalyzerLimits.MaxFieldsPerType));

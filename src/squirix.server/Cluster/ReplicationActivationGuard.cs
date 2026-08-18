@@ -37,7 +37,7 @@ internal static class ReplicationActivationGuard
             return;
         }
 
-        if (mtlsConfigured is false)
+        if (mtlsConfigured == false)
         {
             failures.Add(MtlsRequired);
             return;
@@ -64,7 +64,7 @@ internal static class ReplicationActivationGuard
     /// <returns><see langword="true" /> when CA, credentials, and internal port are present.</returns>
     private static bool IsMtlsConfigured(MtlsOptions? options)
     {
-        if (options is null)
+        if (options == null)
             return false;
 
         if (string.IsNullOrWhiteSpace(options.CaPath) || options.InternalListenPort <= 0)

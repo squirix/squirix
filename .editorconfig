@@ -87,7 +87,7 @@ dotnet_diagnostic.IDE0019.severity = warning
 csharp_style_pattern_matching_over_is_with_cast_check = true:warning
 dotnet_diagnostic.IDE0020.severity = warning
 csharp_style_prefer_pattern_matching = true:warning
-dotnet_diagnostic.IDE0078.severity = warning
+dotnet_diagnostic.IDE0078.severity = none
 csharp_style_prefer_not_pattern = true:warning
 dotnet_diagnostic.IDE0083.severity = warning
 dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
@@ -148,6 +148,11 @@ dotnet_diagnostic.SQR009.severity = warning
 dotnet_diagnostic.SQR010.severity = error
 # Argument equals parameter default (Rider RedundantArgumentDefaultValue).
 dotnet_diagnostic.SQR011.severity = warning
+# Squirix.Analyzers: prefer '=='/'!=' operators over 'is'/'is not' patterns for null checks
+# and constant-value comparisons (reverses Meziantou MA0142/MA0148/MA0149).
+dotnet_diagnostic.SQR012.severity = error
+dotnet_diagnostic.SQR013.severity = error
+dotnet_diagnostic.SQR014.severity = error
 # Prefix with this - disabled
 dotnet_diagnostic.SA1101.severity = none
 # Allow leading underscore fields
@@ -498,6 +503,14 @@ dotnet_diagnostic.MA0211.severity = none
 dotnet_diagnostic.MA0214.severity = none
 # MA0215: Return the task instead of awaiting it - opposite of MA0214; prefer returning the task to elide the async state machine.
 dotnet_diagnostic.MA0215.severity = warning
+# MA0141: Use 'is not' instead of '!=' for null checks - reversed by SQR012; plain '!=' is preferred.
+dotnet_diagnostic.MA0141.severity = none
+# MA0142: Use 'is null' instead of '== null' - reversed by SQR012; plain '==' is preferred.
+dotnet_diagnostic.MA0142.severity = none
+# MA0148: Use 'is' patterns instead of '==' for constant values - reversed by SQR013.
+dotnet_diagnostic.MA0148.severity = none
+# MA0149: Use 'is not' patterns instead of '!=' for constant values - reversed by SQR014.
+dotnet_diagnostic.MA0149.severity = none
 
 [tools/**]
 # MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).

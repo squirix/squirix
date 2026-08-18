@@ -35,10 +35,10 @@ public class PublicSdkOperationsBenchmarks
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_client is not null)
+        if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node is not null)
+        if (_node != null)
             await _node.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -83,7 +83,7 @@ public class PublicSdkOperationsBenchmarks
         var writes = 0;
         for (var i = 0; i < MixedBatch; i++)
         {
-            if (i % 10 is 0)
+            if (i % 10 == 0)
             {
                 await cache.SetAsync(
                     NodeInvariantIndexStrings.FormatPrefixedPadded("mixed-write", writeOffset + writes, "D10", 10),

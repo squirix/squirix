@@ -24,7 +24,7 @@ var packageProjects = new[]
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     await output.WriteLineAsync("sqr-release-validate — validate release readiness and package artifacts.").ConfigureAwait(false);
@@ -42,7 +42,7 @@ if (!options.IsValid)
 
 var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
 {
     await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
     return 1;
@@ -139,7 +139,7 @@ try
                     options.Configuration,
                     "-NoBuild",
                 ]).ConfigureAwait(false);
-            if (code is not 0)
+            if (code != 0)
                 throw new InvalidOperationException($"Selected resiliency stress checks failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
@@ -181,7 +181,7 @@ try
         dotnetPath,
         Path.Join(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
-    if (smokeRunCode is not 0)
+    if (smokeRunCode != 0)
         throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");
 
     if (options.IncludeBenchmarks)
@@ -291,7 +291,7 @@ string ResolveRepoRoot()
     if (string.IsNullOrWhiteSpace(entryDir))
         return Environment.CurrentDirectory;
     var dir = new DirectoryInfo(entryDir);
-    while (dir is not null)
+    while (dir != null)
     {
         if (File.Exists(Path.Join(dir.FullName, "squirix.slnx")))
             return dir.FullName;
@@ -310,7 +310,7 @@ static Task StepAsync(string name)
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
     var code = await RunDotnetAsync(dotnetPath, workingDirectory, args).ConfigureAwait(false);
-    if (code is not 0)
+    if (code != 0)
         throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
 }
 
@@ -360,7 +360,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory
         processStartInfo.ArgumentList.Add(arg);
 
     using var proc = Process.Start(processStartInfo);
-    if (proc is not null)
+    if (proc != null)
         await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
@@ -445,7 +445,7 @@ static async Task ValidateMetadataXmlAsync(XmlReader reader, string packagePath,
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (reader.NodeType is not XmlNodeType.Element)
+        if (reader.NodeType != XmlNodeType.Element)
             continue;
 
         if (rootDepth < 0)
@@ -491,7 +491,7 @@ static async Task ValidateMetadataElementAsync(XmlReader reader, string packageP
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (subtree.NodeType is not XmlNodeType.Element || subtree.Depth is not 1)
+            if (subtree.NodeType != XmlNodeType.Element || subtree.Depth != 1)
                 continue;
 
             switch (subtree.LocalName)

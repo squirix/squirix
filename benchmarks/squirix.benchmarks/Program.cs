@@ -15,7 +15,7 @@ public static class Program
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        if (args.Length is 0)
+        if (args.Length == 0)
             args = ["--help"];
 
         var artifacts = Environment.GetEnvironmentVariable("BDN_ARTIFACTS");

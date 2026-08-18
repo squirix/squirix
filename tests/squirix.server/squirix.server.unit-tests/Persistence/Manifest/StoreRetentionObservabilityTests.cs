@@ -41,7 +41,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures is 1, TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures == 1, TimeSpan.FromSeconds(5), DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 

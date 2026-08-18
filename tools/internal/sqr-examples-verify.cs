@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     await output.WriteLineAsync("sqr-examples-verify — compile and smoke-run file-based examples.").ConfigureAwait(false);
@@ -16,7 +16,7 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
 }
 
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
 {
     await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
     return 1;
@@ -45,7 +45,7 @@ foreach (var file in Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.
 
 files.Sort(StringComparer.OrdinalIgnoreCase);
 
-if (files.Count is 0)
+if (files.Count == 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.").ConfigureAwait(false);
     return 1;
@@ -57,14 +57,14 @@ foreach (var file in files)
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
     await output.WriteLineAsync($"---- {relativePath} --help ----").ConfigureAwait(false);
-    if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", "--help"], CancellationToken.None).ConfigureAwait(false) is not 0)
+    if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", "--help"], CancellationToken.None).ConfigureAwait(false) != 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
         var smokeCommand = FormatSmokeCommand(smokeArgs);
         await output.WriteLineAsync($"---- {relativePath} {smokeCommand} ----").ConfigureAwait(false);
-        if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) is not 0)
+        if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) != 0)
             return 1;
     }
 }
@@ -83,10 +83,10 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
 
 static string FormatSmokeCommand(string[] args)
 {
-    if (args.Length is 0)
+    if (args.Length == 0)
         return string.Empty;
 
-    if (args.Length is 1)
+    if (args.Length == 1)
         return args[0];
 
     var builder = new System.Text.StringBuilder();
@@ -120,7 +120,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory
             UseShellExecute = false,
         });
 
-    if (proc is not null)
+    if (proc != null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;

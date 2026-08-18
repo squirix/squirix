@@ -150,7 +150,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         var fillFrameLen = PutFrameLength(fillPayload, FillKey);
         const long maxSegmentBytes = 1024L * 1024L;
 
-        while (journal.CurrentSegmentIndex is 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
+        while (journal.CurrentSegmentIndex == 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
                journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxSegmentBytes)
         {
             await journal.AppendPutAsync(FillKey, fillPayload, cancellationToken);

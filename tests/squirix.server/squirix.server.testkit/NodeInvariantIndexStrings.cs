@@ -80,7 +80,7 @@ public static class NodeInvariantIndexStrings
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(absolutePath);
-        if (absolutePath.Length is 0 || absolutePath[0] is not '/')
+        if (absolutePath.Length == 0 || absolutePath[0] != '/')
             throw new ArgumentException("Absolute path must begin with '/'.", nameof(absolutePath));
 
         var digitLength = CountDigits(port);
@@ -103,6 +103,35 @@ public static class NodeInvariantIndexStrings
     /// <param name="port">TCP port.</param>
     /// <returns>An absolute HTTPS origin string.</returns>
     public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
+
+    /// <summary>Builds <c>/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
+    /// <param name="linkPath">Junction link path.</param>
+    /// <param name="targetPath">Junction target path.</param>
+    /// <returns>cmd.exe arguments for <c>mklink /J</c>.</returns>
+    public static string FormatMklinkJunctionArguments(string linkPath, string targetPath)
+    {
+        ArgumentNullException.ThrowIfNull(linkPath);
+        ArgumentNullException.ThrowIfNull(targetPath);
+
+        const string head = "/c mklink /J \"";
+        const string mid = "\" \"";
+        const string tail = "\"";
+        return string.Create(
+            head.Length + linkPath.Length + mid.Length + targetPath.Length + tail.Length,
+            (linkPath, targetPath),
+            static (span, state) =>
+            {
+                head.AsSpan().CopyTo(span);
+                var at = head.Length;
+                state.linkPath.AsSpan().CopyTo(span[at..]);
+                at += state.linkPath.Length;
+                mid.AsSpan().CopyTo(span[at..]);
+                at += mid.Length;
+                state.targetPath.AsSpan().CopyTo(span[at..]);
+                at += state.targetPath.Length;
+                tail.AsSpan().CopyTo(span[at..]);
+            });
+    }
 
     /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
     /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
@@ -127,6 +156,26 @@ public static class NodeInvariantIndexStrings
                 state.host.AsSpan().CopyTo(span[(state.scheme.Length + 3)..]);
                 span[state.scheme.Length + 3 + state.host.Length] = ':';
                 _ = state.port.TryFormat(span[(state.scheme.Length + 4 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
+            });
+    }
+
+    /// <summary>Builds <c>{prefix}:{index}</c> in a single allocation.</summary>
+    /// <param name="prefix">Key prefix.</param>
+    /// <param name="index">Numeric suffix.</param>
+    /// <returns>The composed key.</returns>
+    public static string FormatPrefixed(string prefix, int index)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+
+        var digitLength = CountDigits(index);
+        return string.Create(
+            prefix.Length + 1 + digitLength,
+            (prefix, index),
+            static (span, state) =>
+            {
+                state.prefix.AsSpan().CopyTo(span);
+                span[state.prefix.Length] = ':';
+                _ = state.index.TryFormat(span[(state.prefix.Length + 1)..], out _, provider: CultureInfo.InvariantCulture);
             });
     }
 
@@ -170,55 +219,6 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
-    /// <param name="linkPath">Junction link path.</param>
-    /// <param name="targetPath">Junction target path.</param>
-    /// <returns>cmd.exe arguments for <c>mklink /J</c>.</returns>
-    public static string FormatMklinkJunctionArguments(string linkPath, string targetPath)
-    {
-        ArgumentNullException.ThrowIfNull(linkPath);
-        ArgumentNullException.ThrowIfNull(targetPath);
-
-        const string head = "/c mklink /J \"";
-        const string mid = "\" \"";
-        const string tail = "\"";
-        return string.Create(
-            head.Length + linkPath.Length + mid.Length + targetPath.Length + tail.Length,
-            (linkPath, targetPath),
-            static (span, state) =>
-            {
-                head.AsSpan().CopyTo(span);
-                var at = head.Length;
-                state.linkPath.AsSpan().CopyTo(span[at..]);
-                at += state.linkPath.Length;
-                mid.AsSpan().CopyTo(span[at..]);
-                at += mid.Length;
-                state.targetPath.AsSpan().CopyTo(span[at..]);
-                at += state.targetPath.Length;
-                tail.AsSpan().CopyTo(span[at..]);
-            });
-    }
-
-    /// <summary>Builds <c>{prefix}:{index}</c> in a single allocation.</summary>
-    /// <param name="prefix">Key prefix.</param>
-    /// <param name="index">Numeric suffix.</param>
-    /// <returns>The composed key.</returns>
-    public static string FormatPrefixed(string prefix, int index)
-    {
-        ArgumentNullException.ThrowIfNull(prefix);
-
-        var digitLength = CountDigits(index);
-        return string.Create(
-            prefix.Length + 1 + digitLength,
-            (prefix, index),
-            static (span, state) =>
-            {
-                state.prefix.AsSpan().CopyTo(span);
-                span[state.prefix.Length] = ':';
-                _ = state.index.TryFormat(span[(state.prefix.Length + 1)..], out _, provider: CultureInfo.InvariantCulture);
-            });
-    }
-
     /// <summary>Builds <c>{prefix}:{index}</c> with a fixed pad format in a single allocation.</summary>
     /// <param name="prefix">Key prefix.</param>
     /// <param name="index">Numeric suffix.</param>
@@ -244,7 +244,7 @@ public static class NodeInvariantIndexStrings
 
     private static int CountDigits(int value)
     {
-        if (value is 0)
+        if (value == 0)
             return 1;
 
         if (value < 0)

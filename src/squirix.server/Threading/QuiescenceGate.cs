@@ -49,7 +49,7 @@ internal sealed class QuiescenceGate
                 throw new InvalidOperationException("No pending operation is tracked.");
 
             _count--;
-            if (_count is 0)
+            if (_count == 0)
             {
                 drained = _drained;
                 _drained = null;
@@ -64,7 +64,7 @@ internal sealed class QuiescenceGate
         Task task;
         lock (_lock)
         {
-            if (_count is 0)
+            if (_count == 0)
                 return ValueTask.CompletedTask;
 
             _drained ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

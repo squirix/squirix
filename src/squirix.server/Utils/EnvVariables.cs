@@ -14,7 +14,7 @@ internal static class EnvVariables
     internal static bool ReadBool(string variableName)
     {
         var rawValue = ReadString(variableName);
-        return rawValue is not null && (rawValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValue.Equals("1", StringComparison.OrdinalIgnoreCase));
+        return rawValue != null && (rawValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValue.Equals("1", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Reads a signed 32-bit integer from the environment.</summary>

@@ -35,5 +35,5 @@ internal static class E2EBenchmarkDataFactory
         new BenchmarkAddress("Seattle", "Pine Street", NodeInvariantIndexStrings.Format(98000 + (index % 100))),
         ["reader", "writer"],
         BaseInstant.AddMinutes(index),
-        index % 17 is 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);
+        index % 17 == 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);
 }

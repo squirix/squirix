@@ -42,7 +42,7 @@ internal static class PrometheusMetricsBootstrap
                     return (false, baseline);
 
                 var section = SerializerProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
-                var merged = section is null ? baseline : section.MergeInto(baseline);
+                var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },
             cancellationToken).ConfigureAwait(false);
@@ -64,7 +64,7 @@ internal static class PrometheusMetricsBootstrap
         CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path is null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     [Immutable]

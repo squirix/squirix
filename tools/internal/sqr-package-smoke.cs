@@ -7,7 +7,7 @@ using System.Text.Json;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -26,7 +26,7 @@ if (argv.Length > 0)
 
 var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
 {
     await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
     return 1;
@@ -48,11 +48,11 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 var coreProject = Path.Join(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Join(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
 var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (corePackCode is not 0)
+if (corePackCode != 0)
     return corePackCode;
 
 var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (serverPackCode is not 0)
+if (serverPackCode != 0)
     return serverPackCode;
 
 if (!HasClientPackage(packageDir))
@@ -83,7 +83,7 @@ try
         await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
 
         var exitCode = await RunDotnetAsync(dotnetPath, sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
-        if (exitCode is 0 || attempt == maxAttempts)
+        if (exitCode == 0 || attempt == maxAttempts)
             return exitCode;
     }
 
@@ -91,7 +91,7 @@ try
 }
 finally
 {
-    if (settingsBackup is not null)
+    if (settingsBackup != null)
         await File.WriteAllBytesAsync(settingsPath, settingsBackup, CancellationToken.None).ConfigureAwait(false);
     else if (File.Exists(settingsPath))
         File.Delete(settingsPath);
@@ -141,7 +141,7 @@ static string ResolveRepoRoot()
     var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
     var current = new DirectoryInfo(startDir);
 
-    while (current is not null)
+    while (current != null)
     {
         var hasSolution = File.Exists(Path.Join(current.FullName, "squirix.slnx"));
         var hasCoreProject = File.Exists(Path.Join(current.FullName, "src", "squirix", "Squirix.csproj"));
@@ -220,7 +220,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory
         startInfo.ArgumentList.Add(arg);
 
     using var proc = Process.Start(startInfo);
-    if (proc is null)
+    if (proc == null)
     {
         await Console.Error.WriteLineAsync($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}").ConfigureAwait(false);
         await Console.Error.WriteLineAsync($"Working directory: {startInfo.WorkingDirectory}").ConfigureAwait(false);

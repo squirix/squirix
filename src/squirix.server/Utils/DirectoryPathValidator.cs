@@ -27,7 +27,7 @@ internal static class DirectoryPathValidator
         var baseFull = PrepareBaseDirectory(baseDir, forbidSymlinks);
         var full = ResolveFullPath(path, baseFull);
 
-        if (baseFull is not null && !IsSubPathOf(full, baseFull))
+        if (baseFull != null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException("Target path escapes base directory.");
 
         ValidateSegments(full);

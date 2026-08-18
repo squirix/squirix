@@ -17,7 +17,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_coordinator is null)
+        if (_coordinator == null)
             return;
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
@@ -26,7 +26,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
     internal async Task InitializeAsync(PersistenceOptions persistence, State manifest, Ledger manifestStore, JournalStartupGate gate, CancellationToken cancellationToken)
     {
-        if (_coordinator is not null)
+        if (_coordinator != null)
             return;
 
         _coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);

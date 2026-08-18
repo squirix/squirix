@@ -232,7 +232,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
             static async (counter, token) =>
             {
                 var attempt = counter.Increment();
-                if (attempt is not 1)
+                if (attempt != 1)
                     return 42;
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
                 return 0;
@@ -261,7 +261,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
             static (counter, _) =>
             {
                 var attempt = counter.Increment();
-                return attempt is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
+                return attempt == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
             },
             DefaultCancellationToken);
 
@@ -322,7 +322,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
             static (counter, _) =>
             {
                 var attempt = counter.Increment();
-                return attempt is 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(42);
+                return attempt == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(42);
             },
             DefaultCancellationToken);
 

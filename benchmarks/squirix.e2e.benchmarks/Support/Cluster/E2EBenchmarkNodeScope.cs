@@ -30,7 +30,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await _host.DisposeAsync().ConfigureAwait(false);

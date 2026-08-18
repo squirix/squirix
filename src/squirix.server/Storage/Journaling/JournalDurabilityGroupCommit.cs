@@ -48,7 +48,7 @@ internal sealed class JournalDurabilityGroupCommit
             var signalJournal = false;
             lock (_sync)
             {
-                if (_waiters.Count is 0)
+                if (_waiters.Count == 0)
                 {
                     _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
                     signalJournal = true;
@@ -115,7 +115,7 @@ internal sealed class JournalDurabilityGroupCommit
     {
         lock (_sync)
         {
-            if (_waiters.Count is 0 || !_batchDeadline.IsArmed)
+            if (_waiters.Count == 0 || !_batchDeadline.IsArmed)
                 return Timeout.Infinite;
 
             var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
@@ -171,7 +171,7 @@ internal sealed class JournalDurabilityGroupCommit
         lock (_sync)
         {
             removed = _waiters.Remove(waiter);
-            if (removed && _waiters.Count is 0)
+            if (removed && _waiters.Count == 0)
                 _batchDeadline.Clear();
         }
 
@@ -204,7 +204,7 @@ internal sealed class JournalDurabilityGroupCommit
     {
         lock (_sync)
         {
-            if (_waiters.Count is 0)
+            if (_waiters.Count == 0)
             {
                 batch = _waiters;
                 return false;
@@ -229,7 +229,7 @@ internal sealed class JournalDurabilityGroupCommit
     /// <summary>Mutable group-commit batch deadline; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.</summary>
     private sealed class BatchDeadline
     {
-        internal bool IsArmed => Ticks is not 0;
+        internal bool IsArmed => Ticks != 0;
 
         internal long Ticks { get; private set; }
 

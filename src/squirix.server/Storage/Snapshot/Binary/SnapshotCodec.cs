@@ -96,7 +96,7 @@ internal static class SnapshotCodec
         if (!source[..Magic.Length].SequenceEqual(Magic))
             throw new InvalidDataException("Binary snapshot magic is invalid.");
 
-        if (source[Magic.Length] is not Version)
+        if (source[Magic.Length] != Version)
             throw new InvalidDataException($"Unsupported binary snapshot version: {source[Magic.Length]}.");
     }
 

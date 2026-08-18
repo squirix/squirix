@@ -143,7 +143,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
         PersistenceOptions? persistenceOptionsOverride = null;
         var dataDir = string.Empty;
-        if (options.UsePersistence || options.PersistenceOptions is not null)
+        if (options.UsePersistence || options.PersistenceOptions != null)
         {
             persistenceOptionsOverride = await GetPersistenceOptionsAsync(
                 options.PersistenceOptions,
@@ -179,7 +179,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             },
             DefaultCancellationToken);
 
-        return new TestNodeHost(application, canonicalUri, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(application, canonicalUri, dataDir, persistenceOptionsOverride != null);
     }
 
     /// <summary>Allocates a dedicated port reserved for the lifetime of the test process.</summary>
@@ -305,7 +305,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir) ? NodePathKit.Combine(true, path, selfNodeId) : persistenceOptions.DataDir;
         DirectoryKit.CreateDirectory(effectiveDataDir);
 
-        if (persistenceOptions is null)
+        if (persistenceOptions == null)
             return new PersistenceOptions
             {
                 DataDir = effectiveDataDir,

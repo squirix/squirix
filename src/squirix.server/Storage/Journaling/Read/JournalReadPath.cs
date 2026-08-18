@@ -85,7 +85,7 @@ internal static class JournalReadPath
             bool IJournalRecordEnumerator.MoveNext()
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                if (!_valid || _stream is null)
+                if (!_valid || _stream == null)
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
@@ -103,9 +103,9 @@ internal static class JournalReadPath
                 if (read.Status is JournalFrameReadStatus.EndOfFile)
                     return false;
 
-                if (read.Status is not JournalFrameReadStatus.Success)
+                if (read.Status != JournalFrameReadStatus.Success)
                 {
-                    if (buffer is not null)
+                    if (buffer != null)
                         ArrayPool<byte>.Shared.Return(buffer);
 
                     if (ShouldThrowOnReadFailure(read.Status))
@@ -122,7 +122,7 @@ internal static class JournalReadPath
 
             private void ReturnRentedFrameBuffer()
             {
-                if (_rentedFrameBuffer is null)
+                if (_rentedFrameBuffer == null)
                     return;
 
                 ArrayPool<byte>.Shared.Return(_rentedFrameBuffer);
@@ -222,7 +222,7 @@ internal static class JournalReadPath
 
             private bool TryMoveCurrentSegment()
             {
-                if (_segmentEnumerator is null)
+                if (_segmentEnumerator == null)
                     return false;
 
                 bool segmentHasNext;

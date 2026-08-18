@@ -43,10 +43,10 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     {
         _ = operationId;
         var cacheKey = Key(cacheName, key);
-        if (entry.ExpiresUtc is null && entry.Expiration is null)
+        if (entry.ExpiresUtc == null && entry.Expiration == null)
         {
             var existing = await _read.GetEntryAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-            if (existing is not null)
+            if (existing != null)
                 entry = PreserveExpirationWhenNotSpecified(entry, existing);
         }
 
@@ -75,7 +75,7 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 
     private static NodeCacheEntry<T> PreserveExpirationWhenNotSpecified(NodeCacheEntry<T> replacement, NodeCacheEntry<T> existing)
     {
-        if (replacement.ExpiresUtc is not null || replacement.Expiration is not null)
+        if (replacement.ExpiresUtc != null || replacement.Expiration != null)
             return replacement;
         return new NodeCacheEntry<T>(replacement.Value, replacement.Version, existing.ExpiresUtc, null, replacement.Tags ?? existing.Tags);
     }

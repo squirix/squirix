@@ -29,7 +29,7 @@ public class ManifestSegmentRollBenchmarks
     {
         _overflowPayload = null;
 
-        if (_host is not null)
+        if (_host != null)
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
     }

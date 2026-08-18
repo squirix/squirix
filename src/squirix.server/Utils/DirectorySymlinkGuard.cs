@@ -47,7 +47,7 @@ internal static class DirectorySymlinkGuard
         try
         {
             // .NET 6+ cross-platform symlink test
-            if (fsi.LinkTarget is not null)
+            if (fsi.LinkTarget != null)
                 return true;
         }
         catch (IOException)
@@ -65,7 +65,7 @@ internal static class DirectorySymlinkGuard
 
         try
         {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
+            return (fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.None;
         }
         catch (IOException)
         {
@@ -75,26 +75,6 @@ internal static class DirectorySymlinkGuard
         {
             return false;
         }
-    }
-
-    private static bool TryPrepareChainWalk(string full, string? baseFull, out string cur, out ReadOnlySpan<char> relative)
-    {
-        var start = baseFull ?? Path.GetPathRoot(full)!;
-        relative = full.AsSpan(start.Length);
-        while (relative.Length > 0 && DirectoryPathHelpers.IsDirectorySeparator(relative[0]))
-            relative = relative[1..];
-
-        if (relative.IsEmpty)
-        {
-            cur = string.Empty;
-            return false;
-        }
-
-        // Trimming trailing separators can turn a root-only path into an empty string
-        // (for example "/" on Unix). Preserve the original root as the seed when that happens.
-        var trimmedStart = DirectoryPathHelpers.TrimTrailingSeparators(start);
-        cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
-        return true;
     }
 
     private static bool TryAdvancePastExistingSegment(ReadOnlySpan<char> segment, ref string cur)
@@ -113,6 +93,26 @@ internal static class DirectorySymlinkGuard
             throw new IOException("Symlink/junction detected in path.");
 
         cur = resolved;
+        return true;
+    }
+
+    private static bool TryPrepareChainWalk(string full, string? baseFull, out string cur, out ReadOnlySpan<char> relative)
+    {
+        var start = baseFull ?? Path.GetPathRoot(full)!;
+        relative = full.AsSpan(start.Length);
+        while (relative.Length > 0 && DirectoryPathHelpers.IsDirectorySeparator(relative[0]))
+            relative = relative[1..];
+
+        if (relative.IsEmpty)
+        {
+            cur = string.Empty;
+            return false;
+        }
+
+        // Trimming trailing separators can turn a root-only path into an empty string
+        // (for example "/" on Unix). Preserve the original root as the seed when that happens.
+        var trimmedStart = DirectoryPathHelpers.TrimTrailingSeparators(start);
+        cur = trimmedStart.Length == 0 && start.Length > 0 ? start : trimmedStart;
         return true;
     }
 }

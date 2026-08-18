@@ -60,8 +60,8 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var entry = new NodeCacheEntry<string>
         {
             Value = "v",
-            Expiration = expirationMs is not null ? TimeSpan.FromMilliseconds(expirationMs.Value) : null,
-            ExpiresUtc = expiresMs is not null ? timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expiresMs.Value) : null,
+            Expiration = expirationMs != null ? TimeSpan.FromMilliseconds(expirationMs.Value) : null,
+            ExpiresUtc = expiresMs != null ? timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expiresMs.Value) : null,
         };
 
         await cache.SetAsync(CacheKey.Default("k"), entry, DefaultCancellationToken);

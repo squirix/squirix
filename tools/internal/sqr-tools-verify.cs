@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.").ConfigureAwait(false);
@@ -29,14 +29,14 @@ foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption
 
 files.Sort(StringComparer.OrdinalIgnoreCase);
 
-if (files.Count is 0)
+if (files.Count == 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
     return 1;
 }
 
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
 {
     await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
     return 1;
@@ -64,10 +64,10 @@ foreach (var file in files)
     };
     using var proc = Process.Start(processStartInfo);
 
-    if (proc is not null)
+    if (proc != null)
         await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
-    if (proc?.ExitCode is not 0)
+    if (proc?.ExitCode != 0)
         return proc?.ExitCode ?? 1;
 }
 

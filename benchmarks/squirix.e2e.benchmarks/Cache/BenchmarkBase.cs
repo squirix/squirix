@@ -49,7 +49,7 @@ public abstract class BenchmarkBase
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
     {
-        if (Cluster is not null)
+        if (Cluster != null)
             await Cluster.DisposeAsync().ConfigureAwait(false);
     }
 

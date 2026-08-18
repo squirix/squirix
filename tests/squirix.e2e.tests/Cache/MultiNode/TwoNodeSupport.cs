@@ -38,7 +38,7 @@ internal static class TwoNodeSupport
 
     internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => KeyOwnerHelper.TwoNode.FindKeyOwnedBy(cacheName, ownerId, prefix);
 
-    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
+    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration == null ? null : new CacheEntryOptions { Expiration = expiration };
 
     internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>(CancellationToken cancellationToken, [CallerMemberName] string testName = "")
     {

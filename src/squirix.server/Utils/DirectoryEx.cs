@@ -118,7 +118,7 @@ internal static class DirectoryEx
         try
         {
             var attrs = File.GetAttributes(file);
-            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
+            if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)

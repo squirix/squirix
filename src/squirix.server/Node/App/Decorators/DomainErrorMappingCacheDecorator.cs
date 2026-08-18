@@ -173,7 +173,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 
         private static void ThrowIfFailedPreconditionContract(RpcException ex)
         {
-            if (ex.StatusCode is not StatusCode.FailedPrecondition)
+            if (ex.StatusCode != StatusCode.FailedPrecondition)
                 return;
 
             if (ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
@@ -185,7 +185,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 
         private static void ThrowIfInvalidArgumentContract(RpcException ex)
         {
-            if (ex.StatusCode is not StatusCode.InvalidArgument)
+            if (ex.StatusCode != StatusCode.InvalidArgument)
                 return;
 
             if (ServerOpContract.IsOperationIdRequiredMessage(ex.Status.Detail))
@@ -202,7 +202,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 
         private static void ThrowIfPayloadTooLargeContract(RpcException ex)
         {
-            if (ex.StatusCode is not StatusCode.ResourceExhausted)
+            if (ex.StatusCode != StatusCode.ResourceExhausted)
                 return;
 
             var detail = ex.Status.Detail;

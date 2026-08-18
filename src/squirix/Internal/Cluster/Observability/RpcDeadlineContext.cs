@@ -12,6 +12,6 @@ internal static class RpcDeadlineContext
     internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
     {
         var deadline = CurrentDeadlineUtc;
-        return deadline is null ? null : deadline.Value - nowUtc;
+        return deadline == null ? null : deadline.Value - nowUtc;
     }
 }

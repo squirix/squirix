@@ -66,7 +66,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
             return await _journal.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
         var existing = await _journal.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return false;
 
         var replacement = CreateUpdateReplacement(existing, value);

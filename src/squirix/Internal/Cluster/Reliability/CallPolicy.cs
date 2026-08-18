@@ -50,7 +50,7 @@ internal sealed class CallPolicy : ICallPolicy
     {
         lock (_disposeGate)
         {
-            if (_disposeTask is not null)
+            if (_disposeTask != null)
                 return new ValueTask(_disposeTask);
 
             _draining = true;
@@ -82,7 +82,7 @@ internal sealed class CallPolicy : ICallPolicy
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
             var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            if (budgetRemaining is null)
+            if (budgetRemaining == null)
                 return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.CanBeCanceled)
@@ -113,8 +113,6 @@ internal sealed class CallPolicy : ICallPolicy
             budgetCts.CancelAfter(budgetRemaining);
     }
 
-    private bool IsDraining() => _draining;
-
     private void DisposeSemaphoreUnderLockIfIdle()
     {
         if (!_disposed || _semaphoreDisposed || !_activeOperations.IsIdle())
@@ -124,6 +122,8 @@ internal sealed class CallPolicy : ICallPolicy
         _semaphoreDisposed = true;
         _ = _disposeTcs?.TrySetResult(true);
     }
+
+    private bool IsDraining() => _draining;
 
     private void ReleaseActiveOperation()
     {
@@ -157,11 +157,11 @@ internal sealed class CallPolicy : ICallPolicy
 
         internal void Enter() => _ = Interlocked.Increment(ref _count);
 
-        internal bool IsIdle() => Volatile.Read(ref _count) is 0;
+        internal bool IsIdle() => Volatile.Read(ref _count) == 0;
 
         /// <summary>Decrements the counter.</summary>
         /// <returns><see langword="true" /> when the count reaches zero; otherwise <see langword="false" />.</returns>
-        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
+        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) == 0;
     }
 
     [Immutable]
@@ -209,7 +209,7 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
-        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining is not null && perAttempt >= budgetRemaining.Value;
+        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
 
         private Task BackoffAsync(TimeSpan span, CancellationToken cancellationToken)
         {
@@ -276,7 +276,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
         {
-            if (remaining is null)
+            if (remaining == null)
                 return _timeoutPerAttempt;
 
             if (remaining <= TimeSpan.Zero)
@@ -302,7 +302,7 @@ internal sealed class CallPolicy : ICallPolicy
             CancellationToken attemptToken)
         {
             var cancelKind = OperationCancellationClassifier.ClassifyPeerCallAttemptCancellation(cancellationToken, effectiveToken, attemptToken);
-            if (cancelKind is not CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
+            if (cancelKind != CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
             RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
@@ -395,14 +395,14 @@ internal sealed class CallPolicy : ICallPolicy
             if (effectiveToken.CanBeCanceled)
             {
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
+                if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
                     attemptCts.CancelAfter(perAttempt);
 
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
             }
 
             using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
+            if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
                 standaloneAttemptCts.CancelAfter(perAttempt);
 
             return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);

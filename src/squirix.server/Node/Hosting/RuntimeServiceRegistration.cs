@@ -68,7 +68,7 @@ internal static class RuntimeServiceRegistration
         {
             var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
             var journal = sp.GetService<IJournalCoordinator>();
-            return journal is not null ? new RpcMutationIdempotencyCoordinator(store, journal) : new RpcMutationIdempotencyCoordinator(store);
+            return journal != null ? new RpcMutationIdempotencyCoordinator(store, journal) : new RpcMutationIdempotencyCoordinator(store);
         });
         _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp => sp.GetRequiredService<RpcMutationIdempotencyCoordinator>());
         _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));

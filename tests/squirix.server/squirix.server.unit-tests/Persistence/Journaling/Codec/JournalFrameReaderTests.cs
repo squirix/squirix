@@ -52,7 +52,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
         finally
         {
-            if (firstBuffer is not null)
+            if (firstBuffer != null)
                 ArrayPool<byte>.Shared.Return(firstBuffer);
         }
 
@@ -65,7 +65,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
         finally
         {
-            if (secondBuffer is not null)
+            if (secondBuffer != null)
                 ArrayPool<byte>.Shared.Return(secondBuffer);
         }
     }
@@ -128,7 +128,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
         finally
         {
-            if (rentedBuffer is not null)
+            if (rentedBuffer != null)
                 ArrayPool<byte>.Shared.Return(rentedBuffer);
         }
     }
