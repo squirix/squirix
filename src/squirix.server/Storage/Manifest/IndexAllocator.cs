@@ -87,8 +87,14 @@ internal sealed class IndexAllocator
 
     internal void SeedNextManifestIndex(int publishedIndex)
     {
+        if (_nextIndexInitialized)
+            return;
+
         lock (_nextIndexInitLock)
         {
+            if (_nextIndexInitialized)
+                return;
+
             _nextManifestIndex.Set(publishedIndex);
             _nextIndexInitialized = true;
         }
