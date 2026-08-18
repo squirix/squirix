@@ -99,7 +99,7 @@ internal sealed class Ledger : IDisposable
         var manifest = FileCodec.Decode(bytes);
         SetCache(manifest, index);
         _allocator.SeedNextManifestIndex(index);
-        return manifest;
+        return TryGetCachedCurrent(out var current) ? current : manifest;
     }
 
     private int? ReadCurrentIndexForInit()
@@ -122,7 +122,12 @@ internal sealed class Ledger : IDisposable
     private void SetCache(State manifest, int index)
     {
         lock (_cacheSync)
+        {
+            if (_index.IsInitialized && index <= _index.CurrentIndex)
+                return;
+
             _index.Set(manifest, index);
+        }
     }
 
     private bool TryGetCachedCurrent(out State manifest)
