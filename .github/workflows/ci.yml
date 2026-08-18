@@ -1451,7 +1451,7 @@ jobs:
                 run: python3 build/ndepend/sync_ndproj.py
 
             -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@a4a1f2a6a4194d4964bf06cebd14ad12c11c6bf9 # v2
+                uses: squirix/ndepend-action@b8b78786a82172b334ebed596a9ceb5d25e543c4 # node24 runtime
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}
