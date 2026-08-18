@@ -19,9 +19,6 @@ internal static class WorkPool
             work.Execute();
     };
 
-    internal static Task RunAsync(IWorkPoolItem work, CancellationToken cancellationToken = default) =>
-        Task.Factory.StartNew(Callback, work, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
-
     internal static Task RunAsync(IWorkPoolItem work, TaskCreationOptions options, CancellationToken cancellationToken = default) =>
         Task.Factory.StartNew(Callback, work, cancellationToken, options | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
 }

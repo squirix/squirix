@@ -41,12 +41,12 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures == 1, TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
         await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
-        await StoreTestSupport.WaitUntilAsync(readiness, static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(readiness, static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
         Assert.True(readiness.IsDegraded);
         Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
@@ -87,7 +87,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         await StoreTestSupport.WaitUntilAsync(
             logger,
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase)),
-            TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         Assert.True(File.Exists(currentJournalPath));
@@ -121,7 +120,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         await StoreTestSupport.WaitUntilAsync(
             logger,
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase)),
-            TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         var latest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000003);
@@ -174,7 +172,6 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         await StoreTestSupport.WaitUntilAsync(
             logger,
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase)),
-            TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         Assert.True(File.Exists(currentSnapshot));

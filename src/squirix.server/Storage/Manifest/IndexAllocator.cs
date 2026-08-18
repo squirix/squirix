@@ -79,12 +79,6 @@ internal sealed class IndexAllocator
         }
     }
 
-    internal int IncrementNextManifestIndex()
-    {
-        lock (_nextIndexInitLock)
-            return _nextManifestIndex.Increment();
-    }
-
     internal void SeedNextManifestIndex(int publishedIndex)
     {
         if (_nextIndexInitialized)
@@ -121,6 +115,12 @@ internal sealed class IndexAllocator
     {
         var baseline = fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
         return baseline + 1;
+    }
+
+    private int IncrementNextManifestIndex()
+    {
+        lock (_nextIndexInitLock)
+            return _nextManifestIndex.Increment();
     }
 
     private int ResolveNextIndexFromDisk(CancellationToken cancellationToken)

@@ -34,10 +34,10 @@ public class SnapshotWriteBreakdownBenchmarks
 
     /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
     [GlobalSetup]
-    public void GlobalSetup()
+    public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = SnapshotBenchmarkSupport.ResolveOperationsPerInvoke(2);
-        _session = Session.Create(SnapshotBenchmarkSupport.ResolveEntryCount());
+        _session = await Session.CreateAsync(SnapshotBenchmarkSupport.ResolveEntryCount()).ConfigureAwait(false);
     }
 
     /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
@@ -99,7 +99,7 @@ public class SnapshotWriteBreakdownBenchmarks
         /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
         /// <param name="entryCount">Number of synthetic entries.</param>
         /// <returns>A session ready for breakdown benchmarks.</returns>
-        internal static Session Create(int entryCount)
+        internal static async Task<Session> CreateAsync(int entryCount)
         {
             var dataDir = new TempDirectory("snapshot-breakdown");
             var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
@@ -117,14 +117,16 @@ public class SnapshotWriteBreakdownBenchmarks
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
             var writer = new SnapshotWriter(dataDir);
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
-            var manifestStore = new Ledger(
-                new PersistenceOptions
-                {
-                    DataDir = dataDir.Path,
-                    ManifestRetentionCount = retention,
-                    SnapshotRetentionCount = retention,
-                });
-            manifestStore.PublishRollBlocking(1, 1);
+            var options = new PersistenceOptions
+            {
+                DataDir = dataDir.Path,
+                ManifestRetentionCount = retention,
+                SnapshotRetentionCount = retention,
+            };
+            var manifestStore = new Ledger(options);
+            var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
+            await warmup.Task.ConfigureAwait(false);
             return new Session(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
         }
 

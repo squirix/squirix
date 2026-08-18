@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using Google.Protobuf;
+using Squirix.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Snapshot;
@@ -11,6 +12,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Unified in-memory and durable idempotency store for mutating cache RPC outcomes.</summary>
+[Mutable]
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 {
     private readonly Lock _capacityGate = new();
