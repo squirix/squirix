@@ -49,7 +49,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             yield return (pair.Key, ToEntry(stored));
             produced++;
-            if (produced % yieldEvery is 0)
+            if (produced % yieldEvery == 0)
                 await Task.Yield();
         }
     }
@@ -91,7 +91,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryGetLive(key, out var stored) || stored.ExpiresUtc is null)
+        if (!TryGetLive(key, out var stored) || stored.ExpiresUtc == null)
             return ValueTask.FromResult(false);
 
         _store[key] = stored with { ExpiresUtc = null };
@@ -215,7 +215,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         var version = entry.Version > 0 ? entry.Version : 1;
         var expires = entry.ExpiresUtc;
-        if (expires is null && entry.Expiration is { } expiration)
+        if (expires == null && entry.Expiration is { } expiration)
             expires = UtcNow.Add(expiration);
 
         return new NodeCacheEntry<T>
@@ -294,7 +294,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         internal void TouchExisting(CacheKey key)
         {
-            if (_options.Capacity is null)
+            if (_options.Capacity == null)
                 return;
 
             lock (_lock)
@@ -308,7 +308,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         internal void TrackNew(CacheKey key)
         {
-            if (_options.Capacity is null)
+            if (_options.Capacity == null)
                 return;
 
             lock (_lock)
@@ -324,12 +324,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal bool TryPopEvictionVictim([NotNullWhen(true)] out CacheKey? victim)
         {
             victim = null;
-            if (_options.Capacity is null)
+            if (_options.Capacity == null)
                 return false;
 
             lock (_lock)
             {
-                if (_meta.Count is 0)
+                if (_meta.Count == 0)
                     return false;
 
                 var candidate = _options.Policy switch
@@ -340,7 +340,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                     _ => throw new InvalidOperationException("Unsupported eviction policy."),
                 };
 
-                if (candidate is null)
+                if (candidate == null)
                     return false;
 
                 victim = candidate;
@@ -356,7 +356,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         internal void Untrack(CacheKey key)
         {
-            if (_options.Capacity is null)
+            if (_options.Capacity == null)
                 return;
 
             lock (_lock)

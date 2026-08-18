@@ -14,25 +14,6 @@ namespace Squirix.Server.UnitTests.Utils;
 [Immutable]
 public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 {
-    /// <summary>Allowlisted root link names are recognized.</summary>
-    /// <param name="name">Candidate name.</param>
-    /// <param name="expected">Expected allowlist result.</param>
-    [Theory]
-    [InlineData("var", true)]
-    [InlineData("tmp", true)]
-    [InlineData("etc", true)]
-    [InlineData("usr", false)]
-    [InlineData("VAR", false)]
-    public static void IsAllowlistedRootLinkNameMatches(string name, bool expected) => Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
-
-    /// <summary>Private-target comparison is case-insensitive.</summary>
-    [Fact]
-    public static void IsExpectedPrivateTargetIgnoresCase()
-    {
-        Assert.True(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP"));
-        Assert.False(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var"));
-    }
-
     /// <summary>Expected private paths are built under the volume root.</summary>
     [Fact]
     public static void BuildExpectedPrivatePathBuildsCanonicalPath()
@@ -52,7 +33,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         var info = new DirectoryInfo(candidate);
 
         // Darwin ships /tmp -> /private/tmp; that path cannot exercise the non-link failure branch.
-        if (info.LinkTarget is not null)
+        if (info.LinkTarget != null)
         {
             Assert.True(MacOsCompatibilitySymlink.TryFollow(info, true, out var followed));
             Assert.False(string.IsNullOrEmpty(followed));
@@ -103,6 +84,25 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-macos-identity-nested");
         var nested = Path.Join(root.Path, "var");
         Assert.False(MacOsCompatibilitySymlink.TryGetRootLinkIdentity(new DirectoryInfo(nested), out _, out _));
+    }
+
+    /// <summary>Allowlisted root link names are recognized.</summary>
+    /// <param name="name">Candidate name.</param>
+    /// <param name="expected">Expected allowlist result.</param>
+    [Theory]
+    [InlineData("var", true)]
+    [InlineData("tmp", true)]
+    [InlineData("etc", true)]
+    [InlineData("usr", false)]
+    [InlineData("VAR", false)]
+    public static void IsAllowlistedRootLinkNameMatches(string name, bool expected) => Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
+
+    /// <summary>Private-target comparison is case-insensitive.</summary>
+    [Fact]
+    public static void IsExpectedPrivateTargetIgnoresCase()
+    {
+        Assert.True(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP"));
+        Assert.False(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var"));
     }
 
     /// <summary>Resolving a non-link directory returns false.</summary>

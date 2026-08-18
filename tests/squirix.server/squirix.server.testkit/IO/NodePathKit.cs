@@ -64,7 +64,7 @@ public static class NodePathKit
 
     private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        if (heapBuffer is not null)
+        if (heapBuffer != null)
         {
             heapBuffer.Add(segment);
             return;
@@ -189,10 +189,10 @@ public static class NodePathKit
 
     private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
     {
-        if (count is 0)
+        if (count == 0)
             return string.Empty;
 
-        if (heapBuffer is not null)
+        if (heapBuffer != null)
             return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
 
         return JoinSegments(buffer.AsSpan(0, count));
@@ -223,10 +223,10 @@ public static class NodePathKit
 
     private static string JoinSegments(ReadOnlySpan<string> segments)
     {
-        if (segments.Length is 0)
+        if (segments.Length == 0)
             return string.Empty;
 
-        if (segments.Length is 1)
+        if (segments.Length == 1)
             return segments[0];
 
         var result = segments[0];

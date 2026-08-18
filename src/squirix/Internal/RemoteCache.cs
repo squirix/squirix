@@ -38,7 +38,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = await GetEntryOrDefaultAsync(key, cancellationToken).ConfigureAwait(false);
-        return entry is null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
+        return entry == null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
     }
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
@@ -295,7 +295,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {
-            if (options?.Expiration is not null && options.ExpiresAt is not null)
+            if (options?.Expiration != null && options.ExpiresAt != null)
                 throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
 
             return new CacheEntry<T>

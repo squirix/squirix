@@ -55,7 +55,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (result.Removed && existing is not null)
+        if (result.Removed && existing != null)
             AccountRemove(keyValue, existing);
 
         return result;
@@ -68,7 +68,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing?.ExpiresUtc is null)
+        if (existing?.ExpiresUtc == null)
             return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, false);
@@ -92,7 +92,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set);
 
-        if (existing is null)
+        if (existing == null)
         {
             if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             {
@@ -115,7 +115,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, true);
@@ -134,7 +134,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
+        if (existing != null)
             return false;
 
         AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd);
@@ -152,7 +152,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return false;
 
         var replacement = new NodeCacheEntry<T>
@@ -193,7 +193,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> replacement)
     {
-        if (existing is null)
+        if (existing == null)
         {
             AccountInsert(key, replacement);
             return;

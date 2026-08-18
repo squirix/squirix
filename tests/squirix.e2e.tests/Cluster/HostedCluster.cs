@@ -34,7 +34,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         for (var i = _clients.Count - 1; i >= 0; i--)

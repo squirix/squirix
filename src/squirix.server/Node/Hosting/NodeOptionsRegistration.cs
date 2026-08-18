@@ -37,7 +37,7 @@ internal static class NodeOptionsRegistration
         var idempotency = await IdempotencyBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
-        if (args.PersistenceOptions is not null)
+        if (args.PersistenceOptions != null)
             await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, null, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
@@ -66,7 +66,7 @@ internal static class NodeOptionsRegistration
         _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
             sp.GetRequiredService<IOptions<MtlsOptions>>(),
             sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
-        _ = args.MtlsMaterial is not null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
+        _ = args.MtlsMaterial != null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
             var options = provider.GetRequiredService<MtlsOptions>();

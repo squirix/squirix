@@ -27,7 +27,7 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -55,7 +55,7 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
             return;
 
         var location = AnalyzerHelpers.GetBestLocation(method);
-        if (location is null)
+        if (location == null)
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, location, name, effectiveLength, AnalyzerLimits.MaxMethodNameLength));

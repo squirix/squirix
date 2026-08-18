@@ -85,7 +85,7 @@ internal sealed class FollowerLog : IFollowerLog
     public FollowerLogReadiness Readiness { get; private set; } = FollowerLogReadiness.Unknown;
 
     /// <summary>Gets a value indicating whether the log has been disposed.</summary>
-    private bool IsDisposed => Volatile.Read(ref _disposed) is not 0;
+    private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
     /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
@@ -93,7 +93,7 @@ internal sealed class FollowerLog : IFollowerLog
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
                 return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
 
             // Applied index moves only monotonically.
@@ -124,7 +124,7 @@ internal sealed class FollowerLog : IFollowerLog
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
             // Commit index moves only monotonically.
@@ -155,11 +155,11 @@ internal sealed class FollowerLog : IFollowerLog
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (IsDisposed || Readiness is not FollowerLogReadiness.Ready)
+            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
                 return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
 
             var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(this, request, cancellationToken).ConfigureAwait(false);
-            if (termError is not null)
+            if (termError != null)
                 return termError.Value;
 
             var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(this, request);
@@ -174,7 +174,7 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is not 0)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -357,21 +357,21 @@ internal sealed class FollowerLog : IFollowerLog
         {
             // Validate the whole batch for contiguity and conflicts before writing anything.
             var entries = request.Entries;
-            var lastVerifiedIndex = entries.Length is 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
-            if (entries.Length is 0)
+            var lastVerifiedIndex = entries.Length == 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
+            if (entries.Length == 0)
                 return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, false, cancellationToken).ConfigureAwait(false);
 
             var error = PrepareAppendBatch(owner, request, out var toAppend, out var truncateAtIndex);
-            if (error is not null)
+            if (error != null)
                 return error.Value;
 
-            if (truncateAtIndex is not null)
+            if (truncateAtIndex != null)
                 await FollowerLogDurable.TruncateFromAsync(owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
 
             if (toAppend is { Count: > 0 })
                 await FollowerLogDurable.AppendFramesDurableAsync(owner, toAppend, cancellationToken).ConfigureAwait(false);
 
-            return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex is not null, cancellationToken)
+            return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex != null, cancellationToken)
                .ConfigureAwait(false);
         }
 
@@ -499,7 +499,7 @@ internal sealed class FollowerLog : IFollowerLog
                 nextExpected++;
 
                 // Once the divergent tail is being rewritten, every subsequent entry must be re-appended durably.
-                if (truncateAtIndex is not null)
+                if (truncateAtIndex != null)
                 {
                     toAppend!.Add(entry);
                     continue;
@@ -975,7 +975,7 @@ internal sealed class FollowerLog : IFollowerLog
                         await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
 
                         var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
-                        if (tail is not null)
+                        if (tail != null)
                             return tail.Value;
 
                         lastValidEnd += frameLength;

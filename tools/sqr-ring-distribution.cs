@@ -5,7 +5,7 @@ using Squirix.Server.Cluster;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
+if (argv.Length == 0 || (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
 {
@@ -82,7 +82,7 @@ try
     foreach (var node in uniqueNodes)
         nodes[nodeIndex++] = node;
 
-    if (nodes.Length is 0)
+    if (nodes.Length == 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = RuntimeServiceRegistration.CreateHashLocator(nodes, virtualNodes);

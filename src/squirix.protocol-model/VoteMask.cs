@@ -9,7 +9,7 @@ internal static class VoteMask
         var remapped = 0;
         for (var oldId = 0; oldId < map.Length; oldId++)
         {
-            if ((voteMask & (1 << oldId)) is 0)
+            if ((voteMask & (1 << oldId)) == 0)
                 continue;
 
             remapped |= 1 << map[oldId];

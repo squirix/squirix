@@ -17,7 +17,7 @@ internal sealed class TestServerCallContext : ServerCallContext
     internal TestServerCallContext(Metadata? headers = null, HttpContext? httpContext = null)
     {
         RequestHeadersCore = headers ?? [];
-        if (httpContext is not null)
+        if (httpContext != null)
             UserState[HttpContextKey] = httpContext;
     }
 

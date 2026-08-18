@@ -42,7 +42,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
     public override string ToString() => Convert.ToHexString(Bytes);
 
     /// <inheritdoc />
-    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other is not null && _digest.Equals(other._digest);
+    public bool Equals([NotNullWhen(true)] TopologyFingerprint? other) => other != null && _digest.Equals(other._digest);
 
     /// <summary>Computes a topology fingerprint from canonical inputs.</summary>
     /// <param name="inputs">Fingerprint inputs.</param>
@@ -93,7 +93,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.ClosedSnapshotMaxBytes);
 
         Span<byte> digestSpan = stackalloc byte[32];
-        if (!hasher.TryGetHashAndReset(digestSpan, out var written) || written is not 32)
+        if (!hasher.TryGetHashAndReset(digestSpan, out var written) || written != 32)
             throw new InvalidOperationException("Failed to compute topology fingerprint digest.");
 
         return new TopologyFingerprint(digestSpan);
@@ -150,7 +150,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendBytes(hasher, Bytes);
         AppendString(hasher, originalOwnerNodeId);
         Span<byte> digest = stackalloc byte[32];
-        if (!hasher.TryGetHashAndReset(digest, out var written) || written is not 32)
+        if (!hasher.TryGetHashAndReset(digest, out var written) || written != 32)
             throw new InvalidOperationException("Failed to compute group id digest.");
 
         return Convert.ToHexString(digest);
@@ -184,7 +184,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         Span<byte> length = stackalloc byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(length, byteCount);
         hasher.AppendData(length);
-        if (byteCount is 0)
+        if (byteCount == 0)
             return;
 
         if (byteCount <= 512)
@@ -239,11 +239,11 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
             static (a, b) =>
             {
                 var node = string.CompareOrdinal(a.NodeId, b.NodeId);
-                if (node is not 0)
+                if (node != 0)
                     return node;
 
                 var client = string.CompareOrdinal(a.ClientUri.AbsoluteUri, b.ClientUri.AbsoluteUri);
-                return client is not 0 ? client : string.CompareOrdinal(a.InterNodeUri.AbsoluteUri, b.InterNodeUri.AbsoluteUri);
+                return client != 0 ? client : string.CompareOrdinal(a.InterNodeUri.AbsoluteUri, b.InterNodeUri.AbsoluteUri);
             });
         return copy;
     }
@@ -277,7 +277,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
 
         internal static DigestBytes FromSpan(ReadOnlySpan<byte> digest)
         {
-            if (digest.Length is not 32)
+            if (digest.Length != 32)
                 throw new ArgumentException("Digest must be exactly 32 bytes.", nameof(digest));
 
             return new DigestBytes(

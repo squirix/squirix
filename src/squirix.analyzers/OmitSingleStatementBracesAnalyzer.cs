@@ -23,8 +23,8 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
     private static readonly LocalizableString MessageFormat = "Omit braces from '{0}' when the body is a single single-line statement";
 
     private static readonly LocalizableString Title = "Omit braces from single-line single-statement body";
-
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", DiagnosticSeverity.Error, true, Description);
+
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -32,7 +32,7 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -44,6 +44,12 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeUsing, SyntaxKind.UsingStatement);
         context.RegisterSyntaxNodeAction(AnalyzeLock, SyntaxKind.LockStatement);
         context.RegisterSyntaxNodeAction(AnalyzeFixed, SyntaxKind.FixedStatement);
+    }
+
+    private static void AnalyzeFixed(SyntaxNodeAnalysisContext context)
+    {
+        var statement = (FixedStatementSyntax)context.Node;
+        ReportSimpleEmbedded(context, statement.Statement, "fixed");
     }
 
     private static void AnalyzeIf(SyntaxNodeAnalysisContext context)
@@ -62,7 +68,7 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
         {
             ReportIfBlock(context, current.Statement, "if");
 
-            if (current.Else is null)
+            if (current.Else == null)
                 return;
 
             if (current.Else.Statement is not IfStatementSyntax elseIf)
@@ -73,6 +79,12 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
 
             current = elseIf;
         }
+    }
+
+    private static void AnalyzeLock(SyntaxNodeAnalysisContext context)
+    {
+        var statement = (LockStatementSyntax)context.Node;
+        ReportSimpleEmbedded(context, statement.Statement, "lock");
     }
 
     private static void AnalyzeLoop(SyntaxNodeAnalysisContext context)
@@ -100,46 +112,6 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
         ReportSimpleEmbedded(context, statement.Statement, "using");
     }
 
-    private static void AnalyzeLock(SyntaxNodeAnalysisContext context)
-    {
-        var statement = (LockStatementSyntax)context.Node;
-        ReportSimpleEmbedded(context, statement.Statement, "lock");
-    }
-
-    private static void AnalyzeFixed(SyntaxNodeAnalysisContext context)
-    {
-        var statement = (FixedStatementSyntax)context.Node;
-        ReportSimpleEmbedded(context, statement.Statement, "fixed");
-    }
-
-    private static void ReportSimpleEmbedded(SyntaxNodeAnalysisContext context, StatementSyntax body, string kind)
-    {
-        if (body is not BlockSyntax block || block.Statements.Count != 1)
-            return;
-
-        // using/lock/fixed chains may nest; only flag a block wrapping a non-using/lock/fixed single statement
-        // when that statement is not itself another resource statement that prefers shared braces.
-        var only = block.Statements[0];
-        if (only.IsKind(SyntaxKind.UsingStatement) || only.IsKind(SyntaxKind.LockStatement) || only.IsKind(SyntaxKind.FixedStatement))
-            return;
-
-        if (LoopStatementSyntaxHelpers.SpansMultipleLines(only))
-            return;
-
-        context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), kind));
-    }
-
-    private static void ReportIfBlock(SyntaxNodeAnalysisContext context, StatementSyntax body, string kind)
-    {
-        if (body is not BlockSyntax block || block.Statements.Count != 1)
-            return;
-
-        if (LoopStatementSyntaxHelpers.SpansMultipleLines(block.Statements[0]))
-            return;
-
-        context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), kind));
-    }
-
     private static bool ChainAllowsOmittingBraces(IfStatementSyntax ifStatement)
     {
         // All branches must be single-line single statements so stripping braces cannot
@@ -150,7 +122,7 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
             if (!IsOmittableSingleLineBody(current.Statement))
                 return false;
 
-            if (current.Else is null)
+            if (current.Else == null)
                 return true;
 
             if (current.Else.Statement is not IfStatementSyntax elseIf)
@@ -168,5 +140,33 @@ public sealed class OmitSingleStatementBracesAnalyzer : DiagnosticAnalyzer
             return false;
 
         return !LoopStatementSyntaxHelpers.SpansMultipleLines(block.Statements[0]);
+    }
+
+    private static void ReportIfBlock(SyntaxNodeAnalysisContext context, StatementSyntax body, string kind)
+    {
+        if (body is not BlockSyntax block || block.Statements.Count != 1)
+            return;
+
+        if (LoopStatementSyntaxHelpers.SpansMultipleLines(block.Statements[0]))
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), kind));
+    }
+
+    private static void ReportSimpleEmbedded(SyntaxNodeAnalysisContext context, StatementSyntax body, string kind)
+    {
+        if (body is not BlockSyntax block || block.Statements.Count != 1)
+            return;
+
+        // using/lock/fixed chains may nest; only flag a block wrapping a non-using/lock/fixed single statement
+        // when that statement is not itself another resource statement that prefers shared braces.
+        var only = block.Statements[0];
+        if (only.IsKind(SyntaxKind.UsingStatement) || only.IsKind(SyntaxKind.LockStatement) || only.IsKind(SyntaxKind.FixedStatement))
+            return;
+
+        if (LoopStatementSyntaxHelpers.SpansMultipleLines(only))
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), kind));
     }
 }

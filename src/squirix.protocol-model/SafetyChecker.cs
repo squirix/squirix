@@ -25,7 +25,7 @@ internal static class SafetyChecker
         _ = sb.Append(",\"fingerprint\":");
         JsonText.AppendString(sb, violation.StateFingerprint);
         _ = sb.Append(",\"path\":[");
-        if (counterexamplePath is not null)
+        if (counterexamplePath != null)
         {
             for (var p = 0; p < counterexamplePath.Count; p++)
             {
@@ -73,7 +73,7 @@ internal static class SafetyChecker
     private static SafetyViolation? CheckCommittedSurvives(ClusterState state)
     {
         var conflict = CheckStateMachineSafety(state);
-        if (conflict is not null)
+        if (conflict != null)
             return conflict;
 
         var committed = CollectMajorityCommitted(state);
@@ -101,7 +101,7 @@ internal static class SafetyChecker
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
-            if (node.Role is not NodeRole.Leader)
+            if (node.Role != NodeRole.Leader)
                 continue;
 
             if (leadersByTerm.TryGetValue(node.CurrentTerm, out var other))
@@ -123,7 +123,7 @@ internal static class SafetyChecker
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
-            if (node.Role is not NodeRole.Leader || node.CurrentTerm != maxTerm)
+            if (node.Role != NodeRole.Leader || node.CurrentTerm != maxTerm)
                 continue;
 
             if (!FindMissingCommittedEntry(node, committed, out var missing))
@@ -145,7 +145,7 @@ internal static class SafetyChecker
                 continue;
 
             var violation = CheckReadReadyNode(node, state);
-            if (violation is not null)
+            if (violation != null)
                 return violation;
         }
 
@@ -154,7 +154,7 @@ internal static class SafetyChecker
 
     private static SafetyViolation? CheckReadReadyNode(NodeState node, ClusterState state)
     {
-        if (node.Role is not NodeRole.Leader)
+        if (node.Role != NodeRole.Leader)
             return new SafetyViolation(ReadIndexInvariant, "Non-leader marked read ready", state.Fingerprint(false));
 
         if (node.ReadIndex <= 0)
@@ -219,7 +219,7 @@ internal static class SafetyChecker
                 continue;
 
             var entry = FindEntry(node.LogEntries, index);
-            if (entry is null)
+            if (entry == null)
                 continue;
 
             _ = termCounts.TryGetValue(entry.Value.Term, out var count);
@@ -312,10 +312,10 @@ internal static class SafetyChecker
                 continue;
 
             var entry = FindEntry(node.LogEntries, index);
-            if (entry is null)
+            if (entry == null)
                 continue;
 
-            if (seenTerm is null)
+            if (seenTerm == null)
             {
                 seenTerm = entry.Value.Term;
                 continue;

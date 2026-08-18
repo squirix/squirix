@@ -23,7 +23,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
         n += sizeof(long);
-        n += entry.ExpiresUtc is not null ? 16 : 0;
+        n += entry.ExpiresUtc != null ? 16 : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
@@ -39,7 +39,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {
-        if (tags is null || tags.Count is 0)
+        if (tags == null || tags.Count == 0)
             return 0;
 
         long sum = 0;
@@ -54,6 +54,8 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTypedPayloadBytes(T? value)
     {
+        // 'value is null' detects actual null presence for unconstrained T; comparing against
+        // default(T) would also zero-size valid payloads such as 0 or default-valued structs.
         return value is null ? 0 : value switch
         {
             string s => Encoding.UTF8.GetByteCount(s),

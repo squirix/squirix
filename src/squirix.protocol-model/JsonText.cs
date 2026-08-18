@@ -14,7 +14,7 @@ internal static class JsonText
         {
             var ch = value[i];
             var escape = ch < ControlCharacterEscapes.Length ? ControlCharacterEscapes[ch] : null;
-            _ = escape is null ? sb.Append(ch) : sb.Append(escape);
+            _ = escape == null ? sb.Append(ch) : sb.Append(escape);
         }
 
         _ = sb.Append('"');

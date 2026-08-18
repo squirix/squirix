@@ -15,7 +15,7 @@ internal sealed class PhysicalNodeRing
     internal PhysicalNodeRing(ReadOnlySpan<string> nodeIds)
     {
         _nodes = CollectSortedDistinct(nodeIds);
-        if (_nodes.Length is 0)
+        if (_nodes.Length == 0)
             throw new ArgumentException("At least one node must be provided.", nameof(nodeIds));
     }
 

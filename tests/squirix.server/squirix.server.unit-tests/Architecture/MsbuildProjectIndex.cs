@@ -46,7 +46,7 @@ internal sealed class MsbuildProjectIndex
             break;
         }
 
-        Assert.True(match is not null);
+        Assert.NotNull(match);
         return match;
     }
 

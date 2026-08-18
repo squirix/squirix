@@ -163,7 +163,7 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         finally
         {
-            if (frameBytes is not null)
+            if (frameBytes != null)
                 ArrayPool<byte>.Shared.Return(frameBytes);
         }
 
@@ -185,29 +185,11 @@ internal sealed class JournalEventLoopSegmentWriter
             _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
     }
 
-    private void WriteBatchSpan(ReadOnlySpan<byte> span, long offset)
-    {
-        try
-        {
-            _owner.SegmentWriter.Write(span, offset);
-        }
-        catch (IOException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-        catch (ObjectDisposedException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-    }
-
     private void EnsureSegmentOpen()
     {
         // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
         // advances it after every Write. No per-call stat/lseek of the writer length is needed.
-        if (_roll.ActiveSegmentPath is not null)
+        if (_roll.ActiveSegmentPath != null)
             return;
 
         var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _roll.CurrentSegmentIndex);
@@ -308,7 +290,7 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         finally
         {
-            if (frameBytes is not null)
+            if (frameBytes != null)
                 ArrayPool<byte>.Shared.Return(frameBytes);
         }
     }
@@ -350,5 +332,23 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.SetActiveSegmentWrittenBytes(offset + item.FrameLength);
         _owner.AddJournalTotalBytes(item.FrameLength);
         _owner.SetDirty(true);
+    }
+
+    private void WriteBatchSpan(ReadOnlySpan<byte> span, long offset)
+    {
+        try
+        {
+            _owner.SegmentWriter.Write(span, offset);
+        }
+        catch (IOException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+        catch (ObjectDisposedException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
     }
 }

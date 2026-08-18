@@ -23,7 +23,7 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     {
         get
         {
-            if (_namedCaches is null)
+            if (_namedCaches == null)
                 throw new InvalidOperationException("Fixture is not initialized.");
 
             return _namedCaches;
@@ -37,7 +37,7 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
     public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
     {
-        if (_cluster is null || _clientA is null || _clientB is null)
+        if (_cluster == null || _clientA == null || _clientB == null)
             throw new InvalidOperationException("Fixture is not initialized.");
 
         return TwoNodeNamedCaches<T>.CreateAsync(_cluster, _clientA, _clientB, cancellationToken, false);
@@ -46,7 +46,7 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_cluster is not null)
+        if (_cluster != null)
             await _cluster.DisposeAsync();
     }
 

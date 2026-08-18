@@ -27,7 +27,7 @@ public sealed class TypeNamespacePrefixAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -50,7 +50,7 @@ public sealed class TypeNamespacePrefixAnalyzer : DiagnosticAnalyzer
             return;
 
         var location = AnalyzerHelpers.GetBestLocation(type);
-        if (location is null)
+        if (location == null)
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, location, name, segment));
@@ -77,7 +77,7 @@ public sealed class TypeNamespacePrefixAnalyzer : DiagnosticAnalyzer
     private static bool TryGetImmediateNamespaceSegment(INamespaceSymbol? ns, out string segment)
     {
         segment = string.Empty;
-        if (ns is null || ns.IsGlobalNamespace)
+        if (ns == null || ns.IsGlobalNamespace)
             return false;
 
         segment = ns.Name;

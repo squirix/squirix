@@ -13,7 +13,7 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
     public ISnapshotTraceScope? BeginCreate()
     {
         var activity = ActivitySourceHolder.StartInternal("snapshot.create");
-        return activity is null ? null : new Scope(activity);
+        return activity == null ? null : new Scope(activity);
     }
 
     /// <inheritdoc />

@@ -10,7 +10,7 @@ internal static class JournalReader
 {
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length == 0)
             return [];
 
         Array.Sort(files, StringComparer.Ordinal);
@@ -43,19 +43,6 @@ internal static class JournalReader
         return TrimSegments(segments, writeIndex);
     }
 
-    private static JournalSegment[] TrimSegments(JournalSegment[] segments, int writeIndex)
-    {
-        if (writeIndex is 0)
-            return [];
-
-        if (writeIndex == segments.Length)
-            return segments;
-
-        var trimmed = new JournalSegment[writeIndex];
-        segments.AsSpan(0, writeIndex).CopyTo(trimmed);
-        return trimmed;
-    }
-
     private static (int SegmentCount, long TotalBytes) SumSegmentStats(string[] files)
     {
         var segmentCount = 0;
@@ -72,6 +59,19 @@ internal static class JournalReader
         }
 
         return (segmentCount, totalBytes);
+    }
+
+    private static JournalSegment[] TrimSegments(JournalSegment[] segments, int writeIndex)
+    {
+        if (writeIndex == 0)
+            return [];
+
+        if (writeIndex == segments.Length)
+            return segments;
+
+        var trimmed = new JournalSegment[writeIndex];
+        segments.AsSpan(0, writeIndex).CopyTo(trimmed);
+        return trimmed;
     }
 
     private static bool TryGetJournalFiles(string dataDir, out string[] files)

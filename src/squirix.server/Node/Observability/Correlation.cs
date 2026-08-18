@@ -30,42 +30,6 @@ internal static class Correlation
         }
     }
 
-    [Immutable]
-    private sealed class StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
-    {
-        private readonly Activity? _activity;
-        private readonly string? _method;
-        private readonly string _nodeId;
-
-        internal StandardScopeState(Activity? activity, string nodeId, string? method)
-        {
-            _activity = activity;
-            _nodeId = nodeId;
-            _method = method;
-        }
-
-        public int Count => _method is null ? 3 : 4;
-
-        public KeyValuePair<string, object?> this[int index] =>
-            index switch
-            {
-                0 => new KeyValuePair<string, object?>("trace_id", FormatTraceId(_activity)),
-                1 => new KeyValuePair<string, object?>("span_id", FormatSpanId(_activity)),
-                2 => new KeyValuePair<string, object?>("node_id", _nodeId),
-                3 when _method is not null => new KeyValuePair<string, object?>("rpc.method", _method),
-                _ => throw new ArgumentOutOfRangeException(nameof(index)),
-            };
-
-        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() =>
-            new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
-
-        IEnumerator IEnumerable.GetEnumerator() => new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
-
-        private static string FormatSpanId(Activity? activity) => activity is null ? string.Empty : activity.SpanId.ToString();
-
-        private static string FormatTraceId(Activity? activity) => activity is null ? string.Empty : activity.TraceId.ToString();
-    }
-
     private sealed class StandardScopeEnumerator : IEnumerator<KeyValuePair<string, object?>>
     {
         private readonly string? _method;
@@ -105,7 +69,7 @@ internal static class Correlation
                 case 2:
                     Current = new KeyValuePair<string, object?>("node_id", _nodeId);
                     return true;
-                case 3 when _method is not null:
+                case 3 when _method != null:
                     Current = new KeyValuePair<string, object?>("rpc.method", _method);
                     return true;
                 default:
@@ -114,5 +78,41 @@ internal static class Correlation
         }
 
         public void Reset() => _index = 0;
+    }
+
+    [Immutable]
+    private sealed class StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
+    {
+        private readonly Activity? _activity;
+        private readonly string? _method;
+        private readonly string _nodeId;
+
+        internal StandardScopeState(Activity? activity, string nodeId, string? method)
+        {
+            _activity = activity;
+            _nodeId = nodeId;
+            _method = method;
+        }
+
+        public int Count => _method == null ? 3 : 4;
+
+        public KeyValuePair<string, object?> this[int index] =>
+            index switch
+            {
+                0 => new KeyValuePair<string, object?>("trace_id", FormatTraceId(_activity)),
+                1 => new KeyValuePair<string, object?>("span_id", FormatSpanId(_activity)),
+                2 => new KeyValuePair<string, object?>("node_id", _nodeId),
+                3 when _method != null => new KeyValuePair<string, object?>("rpc.method", _method),
+                _ => throw new ArgumentOutOfRangeException(nameof(index)),
+            };
+
+        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() =>
+            new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
+
+        IEnumerator IEnumerable.GetEnumerator() => new StandardScopeEnumerator(FormatTraceId(_activity), FormatSpanId(_activity), _nodeId, _method);
+
+        private static string FormatSpanId(Activity? activity) => activity == null ? string.Empty : activity.SpanId.ToString();
+
+        private static string FormatTraceId(Activity? activity) => activity == null ? string.Empty : activity.TraceId.ToString();
     }
 }

@@ -30,7 +30,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await Host.DisposeAsync().ConfigureAwait(false);

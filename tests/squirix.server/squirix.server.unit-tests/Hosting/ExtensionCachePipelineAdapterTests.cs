@@ -66,7 +66,7 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             GetValueCalls++;
-            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(_entry is not null, _entry?.Value));
+            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(_entry != null, _entry?.Value));
         }
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>

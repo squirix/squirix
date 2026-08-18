@@ -26,10 +26,10 @@ internal static class CacheEntryCodec
         var length = 1 + 1 + 8;
         length += TagEncoding.ComputeLength(entry.Tags);
         length += CacheEntryValueEncoding.ComputeLength(entry.Value);
-        if (entry.ExpiresUtc is not null)
+        if (entry.ExpiresUtc != null)
             length += 8;
 
-        if (entry.Expiration is not null)
+        if (entry.Expiration != null)
             length += 8;
 
         return length;
@@ -125,7 +125,7 @@ internal static class CacheEntryCodec
         expiration = null;
 
         // Entry envelope: optional expires/expiration flags, fixed version, tags, then typed value payload.
-        if (source[offset++] is not 0)
+        if (source[offset++] != 0)
         {
             if (source.Length < offset + 8)
                 return false;
@@ -134,7 +134,7 @@ internal static class CacheEntryCodec
             offset += 8;
         }
 
-        if (source[offset++] is 0)
+        if (source[offset++] == 0)
             return true;
         if (source.Length < offset + 8)
             return false;
@@ -217,7 +217,7 @@ internal static class CacheEntryCodec
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
         {
-            if (value is null)
+            if (value == null)
             {
                 result = default;
                 return true;
@@ -336,7 +336,7 @@ internal static class CacheEntryCodec
             if (source.Length < 2)
                 return false;
 
-            value = source[1] is not 0;
+            value = source[1] != 0;
             bytesRead = 2;
             return true;
         }
@@ -493,7 +493,7 @@ internal static class CacheEntryCodec
             if (!JsonTreeReadCodec.TryReadNode(source, out var node, out bytesRead))
                 return false;
 
-            element = node is null ? default : JsonSerializer.SerializeToElement(node, JsonTreeJsonContext.Default.JsonNode);
+            element = node == null ? default : JsonSerializer.SerializeToElement(node, JsonTreeJsonContext.Default.JsonNode);
             return true;
         }
 
@@ -576,7 +576,7 @@ internal static class CacheEntryCodec
                 if (source.Length < 2)
                     return false;
 
-                node = JsonValue.Create(source[1] is not 0);
+                node = JsonValue.Create(source[1] != 0);
                 bytesRead = 2;
                 return true;
             }
@@ -827,7 +827,7 @@ internal static class CacheEntryCodec
     {
         internal static int ComputeLength(FrozenDictionary<string, string>? tags)
         {
-            if (tags is null || tags.Count is 0)
+            if (tags == null || tags.Count == 0)
                 return 2;
 
             if (tags.Count > ushort.MaxValue)
@@ -856,7 +856,7 @@ internal static class CacheEntryCodec
 
             var count = BinaryPrimitives.ReadUInt16LittleEndian(source);
             bytesRead = 2;
-            if (count is 0)
+            if (count == 0)
                 return true;
 
             var dict = new Dictionary<string, string>(count, StringComparer.Ordinal);
@@ -912,7 +912,7 @@ internal static class CacheEntryCodec
 
         internal static int WriteTag(FrozenDictionary<string, string>? tags, Span<byte> destination)
         {
-            if (tags is null || tags.Count is 0)
+            if (tags == null || tags.Count == 0)
             {
                 BinaryPrimitives.WriteUInt16LittleEndian(destination, 0);
                 return 2;

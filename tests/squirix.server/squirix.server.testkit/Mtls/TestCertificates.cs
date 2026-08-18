@@ -117,7 +117,7 @@ public static class TestCertificates
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
     public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
-        if (serverCertificate is null)
+        if (serverCertificate == null)
             return false;
 
         using var certificate = new X509Certificate2(serverCertificate);

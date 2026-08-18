@@ -101,7 +101,7 @@ internal static class IdempotencyCodec
         if (string.IsNullOrWhiteSpace(record.Fingerprint))
             throw new InvalidDataException("Snapshot idempotency fingerprint is missing.");
 
-        if (record.ResponseBytes.Length is 0)
+        if (record.ResponseBytes.Length == 0)
             throw new InvalidDataException("Snapshot idempotency response bytes are empty.");
     }
 

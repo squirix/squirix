@@ -138,25 +138,25 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_rawGrpc is not null)
+        if (_rawGrpc != null)
         {
             await _rawGrpc.DisposeAsync().ConfigureAwait(false);
             _rawGrpc = null;
         }
 
-        if (_publicClient is not null)
+        if (_publicClient != null)
         {
             await _publicClient.DisposeAsync().ConfigureAwait(false);
             _publicClient = null;
         }
 
-        if (_clientPool is not null)
+        if (_clientPool != null)
         {
             await _clientPool.DisposeAsync().ConfigureAwait(false);
             _clientPool = null;
         }
 
-        if (_node is not null)
+        if (_node != null)
         {
             await _node.DisposeAsync().ConfigureAwait(false);
             _node = null;
@@ -179,7 +179,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     private async Task SeedNodeAsync()
     {
-        if (_node is not null)
+        if (_node != null)
         {
             var client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
             await using (client.ConfigureAwait(false))

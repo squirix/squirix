@@ -25,7 +25,7 @@ internal sealed class KeyOwnerHelper
                 _ = uniqueNodes.Add(nodeId);
         }
 
-        if (uniqueNodes.Count is 0)
+        if (uniqueNodes.Count == 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));
 
         var nodes = new string[uniqueNodes.Count];

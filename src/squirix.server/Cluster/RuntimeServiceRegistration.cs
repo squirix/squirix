@@ -25,7 +25,9 @@ internal static class RuntimeServiceRegistration
         {
             _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
-            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(sp.GetRequiredService<INodeLocator>(), sp.GetRequiredService<TopologyOptions>()));
+            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<TopologyOptions>()));
             return services;
         }
     }
@@ -79,7 +81,7 @@ internal static class RuntimeServiceRegistration
                 _hash = hash ?? new Sha256Hasher();
 
                 var distinct = CollectDistinctNodes(nodes);
-                if (distinct.Length is 0)
+                if (distinct.Length == 0)
                     throw new ArgumentException("At least one node must be provided.", nameof(nodes));
 
                 var ringSize = checked(distinct.Length * virtualNodes);

@@ -16,11 +16,13 @@ public sealed class RequireMultilineLoopBodyBracesAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR008";
 
-    private static readonly LocalizableString Description = "When a loop body is a single embedded statement that spans multiple lines, add braces around the body. Nested loops alone are exempt.";
+    private static readonly LocalizableString Description =
+        "When a loop body is a single embedded statement that spans multiple lines, add braces around the body. Nested loops alone are exempt.";
 
     private static readonly LocalizableString MessageFormat = "Add braces to {0} body when the embedded statement spans multiple lines";
     private static readonly LocalizableString Title = "Add braces to multiline embedded loop body";
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", DiagnosticSeverity.Error, true, Description);
+
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -28,7 +30,7 @@ public sealed class RequireMultilineLoopBodyBracesAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);

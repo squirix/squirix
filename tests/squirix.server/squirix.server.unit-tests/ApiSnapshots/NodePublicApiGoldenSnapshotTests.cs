@@ -87,7 +87,7 @@ public sealed class NodePublicApiGoldenSnapshotTests
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);

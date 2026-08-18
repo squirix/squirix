@@ -33,7 +33,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
         var errors = await Task.WhenAll(a, b);
 
-        _ = Assert.Single(errors, static e => e is null);
+        _ = Assert.Single(errors, static e => e == null);
         _ = Assert.Single(errors, static e => e is CacheConflictException);
         Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
@@ -63,7 +63,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
         {
-            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken) : Cluster.CacheB.SetAsync(
+            tasks[i] = i % 2 == 0 ? Cluster.CacheA.SetAsync(key, $"a-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken) : Cluster.CacheB.SetAsync(
                 key,
                 $"b-{NodeInvariantIndexStrings.Format(i)}",
                 cancellationToken: DefaultCancellationToken);

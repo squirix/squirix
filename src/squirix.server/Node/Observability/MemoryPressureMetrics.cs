@@ -132,11 +132,11 @@ internal static class MemoryPressureMetrics
             if (index < 0)
                 return;
 
-            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
+            _items = previous.Length == 1 ? [] : previous.RemoveAt(index);
         }
 
         internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;
 
-        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is 0;
+        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) == 0;
     }
 }

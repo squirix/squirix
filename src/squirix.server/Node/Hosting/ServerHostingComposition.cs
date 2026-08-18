@@ -106,8 +106,8 @@ internal static class ServerHostingComposition
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(args);
 
-        var persistence = args.PersistenceOptions is null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions);
-        var persistenceEnabled = persistence is not null;
+        var persistence = args.PersistenceOptions == null ? null : PersistenceOptionsResolver.Resolve(cluster, args.PersistenceOptions);
+        var persistenceEnabled = persistence != null;
         var uri = cluster.Uri;
         var (mtlsOptions, mtlsMaterial) = ResolveClusterTransportSecurity(builder, cluster, args, persistenceEnabled);
 
@@ -145,7 +145,7 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         args.ServicesConfigure?.Invoke(builder.Services);
         args.Extensions?.ConfigureServices?.Invoke(builder.Services);
-        if (args.Extensions is not null)
+        if (args.Extensions != null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
     }

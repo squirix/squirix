@@ -138,7 +138,7 @@ public sealed class CorrelationClientInterceptorTests
 
         private static Metadata? SnapshotHeaders(Metadata? headers)
         {
-            if (headers is null)
+            if (headers == null)
                 return null;
 
             var snapshot = new Metadata();

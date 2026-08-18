@@ -19,7 +19,7 @@ public class SnapshotReadBenchmarks
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
     {
-        if (_host is not null)
+        if (_host != null)
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
         _snapshotPath = null;

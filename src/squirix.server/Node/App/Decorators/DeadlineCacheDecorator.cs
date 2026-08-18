@@ -68,7 +68,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
     private bool ShouldApplyPipelineDeadline(CancellationToken cancellationToken, out TimeSpan budget)
     {
         var configured = _options.Value.DefaultOperationTimeout;
-        if (configured is null || configured.Value <= TimeSpan.Zero || cancellationToken.IsCancellationRequested)
+        if (configured == null || configured.Value <= TimeSpan.Zero || cancellationToken.IsCancellationRequested)
         {
             budget = TimeSpan.Zero;
             return false;

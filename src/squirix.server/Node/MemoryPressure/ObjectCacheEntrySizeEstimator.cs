@@ -15,7 +15,7 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
     /// <inheritdoc />
     public long EstimateBytes(CacheKey key, NodeCacheEntry<object?> entry, bool payloadIsCounter)
     {
-        if (payloadIsCounter || entry.Value is null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value))
+        if (payloadIsCounter || entry.Value == null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value))
             return _typed.EstimateBytes(key, entry, payloadIsCounter);
 
         var dictionaryOverhead = _typed.EstimateBytes(key, NullPayloadShell, false);

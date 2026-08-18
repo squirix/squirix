@@ -18,7 +18,7 @@ internal sealed class AsyncLockHolder : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _released, 1) is 1)
+        if (Interlocked.Exchange(ref _released, 1) == 1)
             return;
 
         _ = _semaphore.Release();

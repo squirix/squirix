@@ -60,7 +60,7 @@ public sealed class ClientArchitectureTests
     {
         var index = ClientProjectIndex.Value;
         var packageReferences = index.GetIncludes("PackageReference");
-        if (packageReferences is not null)
+        if (packageReferences != null)
         {
             Assert.DoesNotContain(
                 packageReferences,
@@ -68,7 +68,7 @@ public sealed class ClientArchitectureTests
         }
 
         var frameworkReferences = index.GetIncludes("FrameworkReference");
-        if (frameworkReferences is not null)
+        if (frameworkReferences != null)
             Assert.DoesNotContain(frameworkReferences, static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
@@ -146,7 +146,7 @@ public sealed class ClientArchitectureTests
     private static string ResolveRepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
+        while (dir != null)
         {
             if (File.Exists(PathKit.Combine(dir.FullName, "squirix.slnx")))
                 return dir.FullName;
@@ -185,7 +185,7 @@ public sealed class ClientArchitectureTests
                 break;
             }
 
-            Assert.True(match is not null);
+            Assert.NotNull(match);
             return match;
         }
     }

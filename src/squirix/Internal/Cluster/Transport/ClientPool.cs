@@ -52,14 +52,14 @@ internal sealed class ClientPool : IClientPool
             GrpcTransportEndpoints.RequireHttps(p.Uri);
             var opts = new GrpcChannelOptions
             {
-                Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
+                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = MaxSendMessageSizeBytes,
             };
             var channel = GrpcChannel.ForAddress(p.Uri, opts);
             var invoker = channel.CreateCallInvoker();
-            if (interceptor is not null)
+            if (interceptor != null)
                 invoker = invoker.Intercept(interceptor);
             _channels[p.NodeId] = channel;
             _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
@@ -77,7 +77,7 @@ internal sealed class ClientPool : IClientPool
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         BeginDrain();
@@ -142,9 +142,9 @@ internal sealed class ClientPool : IClientPool
                 continue;
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
-            var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
+            var connectOptions = primaryNodeId == null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
             var failure = await TryWarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
-            if (failure is null)
+            if (failure == null)
             {
                 primaryNodeId ??= id;
                 continue;
@@ -154,7 +154,7 @@ internal sealed class ClientPool : IClientPool
             failuresByNode[id] = failure;
         }
 
-        if (primaryNodeId is null)
+        if (primaryNodeId == null)
             throw lastFailure ?? new InvalidOperationException("No bootstrap endpoints are configured.");
 
         RecordSecondaryWarmupFailures(primaryNodeId, failuresByNode);
@@ -222,7 +222,7 @@ internal sealed class ClientPool : IClientPool
 
                 var attemptTimeout = remaining < options.PerAttemptTimeout ? remaining : options.PerAttemptTimeout;
                 var failure = await TryConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
-                if (failure is null)
+                if (failure == null)
                     return;
 
                 lastFailure = failure;

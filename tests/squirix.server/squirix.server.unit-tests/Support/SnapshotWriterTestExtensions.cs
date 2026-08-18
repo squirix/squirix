@@ -31,7 +31,7 @@ internal static class SnapshotWriterTestExtensions
 
         public int Count => 1;
 
-        public T this[int index] => index is 0 ? _item : throw new ArgumentOutOfRangeException(nameof(index));
+        public T this[int index] => index == 0 ? _item : throw new ArgumentOutOfRangeException(nameof(index));
 
         public IEnumerator<T> GetEnumerator()
         {

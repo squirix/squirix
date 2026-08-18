@@ -57,8 +57,8 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         _ = app.MapSquirixServer();
 
         var endpoints = GetMappedEndpoints(app);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) is true);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) is true);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
 
         await app.StartAsync(DefaultCancellationToken);
         await app.StopAsync(DefaultCancellationToken);
@@ -165,7 +165,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         Assert.Same(marker, registeredMarker);
         Assert.Equal(marker.Name, registeredMarker.Name);
         var endpoints = GetMappedEndpoints(app);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) is true);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
     }
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>

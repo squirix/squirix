@@ -73,7 +73,7 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
         while (records.MoveNext())
         {
             var record = records.Current;
-            if (record.Operation is not JournalOperationKind.IdempotencyOutcome)
+            if (record.Operation != JournalOperationKind.IdempotencyOutcome)
                 continue;
 
             Assert.Equal(ValidOperationId, record.IdempotencyOperationId);

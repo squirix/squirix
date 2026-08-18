@@ -95,7 +95,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         Array.Fill(payload, Convert.ToByte('z'));
 
         var deadline = Environment.TickCount64 + 30_000;
-        for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
+        for (var i = 0; pipelined.CurrentSegmentIndex == 1 && Environment.TickCount64 < deadline;)
         {
             await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);

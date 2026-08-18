@@ -41,7 +41,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _onJournalAppended = OnJournalAppended;
     }
 
-    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) is not 0;
+    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) != 0;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

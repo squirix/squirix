@@ -76,7 +76,7 @@ internal static class EndpointExtensions
         private static void AppendMetricLine(StringBuilder sb, string metric, string? suffix, string labels, double value)
         {
             _ = sb.Append(metric);
-            if (suffix is not null)
+            if (suffix != null)
                 _ = sb.Append(suffix);
             if (labels.Length > 0)
             {
@@ -169,7 +169,7 @@ internal static class EndpointExtensions
             /// <returns>Prometheus label set without outer braces.</returns>
             internal static string BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
             {
-                if (tags.Length is 0)
+                if (tags.Length == 0)
                     return string.Empty;
 
                 var rented = ArrayPool<KeyValuePair<string, object?>>.Shared.Rent(tags.Length);
@@ -184,7 +184,7 @@ internal static class EndpointExtensions
                         rented[writeIndex++] = tag;
                     }
 
-                    if (writeIndex is 0)
+                    if (writeIndex == 0)
                         return string.Empty;
 
                     var filtered = rented.AsSpan(0, writeIndex);
@@ -199,7 +199,7 @@ internal static class EndpointExtensions
 
             private static void AppendEscaped(StringBuilder sb, string s)
             {
-                if (s.Length is 0)
+                if (s.Length == 0)
                     return;
 
                 var needsEscape = false;

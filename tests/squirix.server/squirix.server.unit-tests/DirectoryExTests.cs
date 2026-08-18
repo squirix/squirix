@@ -54,7 +54,7 @@ public sealed class DirectoryExTests
         }
         finally
         {
-            if (created is not null && Directory.Exists(created))
+            if (created != null && Directory.Exists(created))
                 Directory.Delete(created, true);
         }
     }
@@ -206,11 +206,11 @@ public sealed class DirectoryExTests
                 RedirectStandardError = true,
             };
             using var process = Process.Start(processStartInfo);
-            if (process is null)
+            if (process == null)
                 return false;
 
             if (process.WaitForExit(10_000))
-                return process.ExitCode is 0 && Directory.Exists(linkPath);
+                return process.ExitCode == 0 && Directory.Exists(linkPath);
             try
             {
                 process.Kill(true);

@@ -36,6 +36,50 @@ internal static class ServerTypeCatalog
 
     private static Task<IReadOnlyList<DeclaredType>>? _allDeclaredTypesTask;
 
+    /// <summary>Asserts every type in a non-empty collection resides in the given exact namespace.</summary>
+    /// <param name="types">Non-empty set of types under test.</param>
+    /// <param name="exactNamespace">Required exact namespace.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="types" /> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="types" /> is empty or <paramref name="exactNamespace" /> is null or empty.</exception>
+    internal static void AssertResideInNamespace(IReadOnlyList<DeclaredType> types, string exactNamespace)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+        ArgumentException.ThrowIfNullOrEmpty(exactNamespace);
+        if (types.Count == 0)
+            throw new ArgumentException("At least one discovered type is required.", nameof(types));
+
+        for (var index = 0; index < types.Count; index++)
+        {
+            var type = types[index];
+            Assert.True(
+                string.Equals(type.NamespaceName, exactNamespace, StringComparison.Ordinal),
+                $"Type '{type.FullName}' resides in '{type.NamespaceName}', expected '{exactNamespace}'.");
+        }
+    }
+
+    /// <summary>Asserts every type resides in one of the given exact namespaces.</summary>
+    /// <param name="types">Non-empty set of types under test.</param>
+    /// <param name="exactNamespaces">Allowed exact namespace names.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is empty.</exception>
+    internal static void AssertResideInOneOfNamespaces(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+        ArgumentNullException.ThrowIfNull(exactNamespaces);
+        if (types.Count == 0)
+            throw new ArgumentException("At least one discovered type is required.", nameof(types));
+        if (exactNamespaces.Length == 0)
+            throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
+
+        for (var index = 0; index < types.Count; index++)
+        {
+            var type = types[index];
+            Assert.True(
+                ResidesInOneOfExactNamespaces(type.NamespaceName, exactNamespaces),
+                $"Type '{type.FullName}' resides in '{type.NamespaceName}', which is not an approved namespace.");
+        }
+    }
+
     /// <summary>
     /// Collects declared types under <c>src/squirix.server</c> whose simple name ends with <paramref name="suffix" />.
     /// </summary>
@@ -78,50 +122,6 @@ internal static class ServerTypeCatalog
         return matches;
     }
 
-    /// <summary>Asserts every type resides in one of the given exact namespaces.</summary>
-    /// <param name="types">Non-empty set of types under test.</param>
-    /// <param name="exactNamespaces">Allowed exact namespace names.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is empty.</exception>
-    internal static void AssertResideInOneOfNamespaces(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
-    {
-        ArgumentNullException.ThrowIfNull(types);
-        ArgumentNullException.ThrowIfNull(exactNamespaces);
-        if (types.Count is 0)
-            throw new ArgumentException("At least one discovered type is required.", nameof(types));
-        if (exactNamespaces.Length is 0)
-            throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
-
-        for (var index = 0; index < types.Count; index++)
-        {
-            var type = types[index];
-            Assert.True(
-                ResidesInOneOfExactNamespaces(type.NamespaceName, exactNamespaces),
-                $"Type '{type.FullName}' resides in '{type.NamespaceName}', which is not an approved namespace.");
-        }
-    }
-
-    /// <summary>Asserts every type in a non-empty collection resides in the given exact namespace.</summary>
-    /// <param name="types">Non-empty set of types under test.</param>
-    /// <param name="exactNamespace">Required exact namespace.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="types" /> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="types" /> is empty or <paramref name="exactNamespace" /> is null or empty.</exception>
-    internal static void AssertResideInNamespace(IReadOnlyList<DeclaredType> types, string exactNamespace)
-    {
-        ArgumentNullException.ThrowIfNull(types);
-        ArgumentException.ThrowIfNullOrEmpty(exactNamespace);
-        if (types.Count is 0)
-            throw new ArgumentException("At least one discovered type is required.", nameof(types));
-
-        for (var index = 0; index < types.Count; index++)
-        {
-            var type = types[index];
-            Assert.True(
-                string.Equals(type.NamespaceName, exactNamespace, StringComparison.Ordinal),
-                $"Type '{type.FullName}' resides in '{type.NamespaceName}', expected '{exactNamespace}'.");
-        }
-    }
-
     private static Task<IReadOnlyList<DeclaredType>> AllDeclaredTypesAsync()
     {
         lock (ScanGate)
@@ -131,9 +131,8 @@ internal static class ServerTypeCatalog
 
             var task = ScanAsync();
             _allDeclaredTypesTask = task;
-            const TaskContinuationOptions faultResetOptions = TaskContinuationOptions.NotOnRanToCompletion
-                | TaskContinuationOptions.ExecuteSynchronously
-                | TaskContinuationOptions.DenyChildAttach;
+            const TaskContinuationOptions faultResetOptions =
+                TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.DenyChildAttach;
             _ = task.ContinueWith(
                 static completed =>
                 {
@@ -148,6 +147,60 @@ internal static class ServerTypeCatalog
                 TaskScheduler.Default);
             return task;
         }
+    }
+
+    private static bool IsExcludedFullName(string fullName, string[] excludeFullNames)
+    {
+        for (var index = 0; index < excludeFullNames.Length; index++)
+        {
+            if (string.Equals(fullName, excludeFullNames[index], StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsUnderServerRoot(string namespaceName)
+    {
+        const string root = ServerArchitectureNamespaces.Root;
+        return string.Equals(namespaceName, root, StringComparison.Ordinal) || namespaceName.StartsWith(root + ".", StringComparison.Ordinal);
+    }
+
+    private static string ParseNamespace(string trimmedNamespaceLine)
+    {
+        var value = trimmedNamespaceLine["namespace ".Length..].Trim();
+        var comment = value.IndexOf("//", StringComparison.Ordinal);
+        if (comment >= 0)
+            value = value[..comment].TrimEnd();
+
+        if (value.Length > 0 && value[^1] is ';' or '{')
+            value = value[..^1].TrimEnd();
+        return value;
+    }
+
+    private static string ReadIdentifier(ReadOnlySpan<char> text)
+    {
+        var length = 0;
+        while (length < text.Length)
+        {
+            var ch = text[length];
+            if (!(char.IsLetterOrDigit(ch) || ch is '_' or '@'))
+                break;
+            length++;
+        }
+
+        return length == 0 ? string.Empty : text[..length].ToString();
+    }
+
+    private static bool ResidesInOneOfExactNamespaces(string typeNamespace, string[] exactNamespaces)
+    {
+        for (var namespaceIndex = 0; namespaceIndex < exactNamespaces.Length; namespaceIndex++)
+        {
+            if (string.Equals(typeNamespace, exactNamespaces[namespaceIndex], StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     private static async Task<IReadOnlyList<DeclaredType>> ScanAsync()
@@ -167,7 +220,7 @@ internal static class ServerTypeCatalog
                     continue;
                 }
 
-                if (currentNamespace is null || !IsUnderServerRoot(currentNamespace))
+                if (currentNamespace == null || !IsUnderServerRoot(currentNamespace))
                     continue;
 
                 if (!TryParseTypeName(trimmed, out var typeName, out var isInterface))
@@ -178,47 +231,6 @@ internal static class ServerTypeCatalog
         }
 
         return matches;
-    }
-
-    private static bool IsUnderServerRoot(string namespaceName)
-    {
-        const string root = ServerArchitectureNamespaces.Root;
-        return string.Equals(namespaceName, root, StringComparison.Ordinal) ||
-               namespaceName.StartsWith(root + ".", StringComparison.Ordinal);
-    }
-
-    private static bool IsExcludedFullName(string fullName, string[] excludeFullNames)
-    {
-        for (var index = 0; index < excludeFullNames.Length; index++)
-        {
-            if (string.Equals(fullName, excludeFullNames[index], StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static string ParseNamespace(string trimmedNamespaceLine)
-    {
-        var value = trimmedNamespaceLine["namespace ".Length..].Trim();
-        var comment = value.IndexOf("//", StringComparison.Ordinal);
-        if (comment >= 0)
-            value = value[..comment].TrimEnd();
-
-        if (value.Length > 0 && value[^1] is ';' or '{')
-            value = value[..^1].TrimEnd();
-        return value;
-    }
-
-    private static bool ResidesInOneOfExactNamespaces(string typeNamespace, string[] exactNamespaces)
-    {
-        for (var namespaceIndex = 0; namespaceIndex < exactNamespaces.Length; namespaceIndex++)
-        {
-            if (string.Equals(typeNamespace, exactNamespaces[namespaceIndex], StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
     }
 
     private static bool TryParseTypeName(string trimmed, out string typeName, out bool isInterface)
@@ -287,20 +299,6 @@ internal static class ServerTypeCatalog
         token = text[..length];
         text = text[length..];
         return true;
-    }
-
-    private static string ReadIdentifier(ReadOnlySpan<char> text)
-    {
-        var length = 0;
-        while (length < text.Length)
-        {
-            var ch = text[length];
-            if (!(char.IsLetterOrDigit(ch) || ch is '_' or '@'))
-                break;
-            length++;
-        }
-
-        return length is 0 ? string.Empty : text[..length].ToString();
     }
 
     /// <summary>A type declaration discovered in server sources.</summary>

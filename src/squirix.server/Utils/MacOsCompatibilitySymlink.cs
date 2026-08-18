@@ -91,7 +91,7 @@ internal static class MacOsCompatibilitySymlink
 
         var pathRoot = Path.GetPathRoot(directory.FullName);
         var parent = directory.Parent;
-        if (pathRoot is null || parent is null)
+        if (pathRoot == null || parent == null)
             return false;
 
         // Compare trimmed and raw root forms: Path.GetPathRoot may keep a trailing separator.
@@ -135,7 +135,7 @@ internal static class MacOsCompatibilitySymlink
             return false;
         }
 
-        if (target is null)
+        if (target == null)
             return false;
 
         targetFull = DirectoryPathHelpers.TrimTrailingSeparators(target.FullName);

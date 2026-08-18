@@ -34,8 +34,8 @@ internal sealed class PressureGate : IMemoryPressureGate
     {
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
         var currentBytes = _accounting.ReadEstimatedBytes();
-        var notCritical = _evaluator.Evaluate(currentBytes) is not PressureLevel.Critical;
-        if (notCritical && (magnitudeUnknown || boundedGrowth <= 0 || _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) is not PressureLevel.Critical))
+        var notCritical = _evaluator.Evaluate(currentBytes) != PressureLevel.Critical;
+        if (notCritical && (magnitudeUnknown || boundedGrowth <= 0 || _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) != PressureLevel.Critical))
             return;
 
         if (!magnitudeUnknown && boundedGrowth <= 0)

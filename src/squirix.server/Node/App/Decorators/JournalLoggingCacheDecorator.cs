@@ -114,7 +114,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return false;
 
         var prepared = JournalEntryPayload.PrepareEncode(CreateUpdateReplacement(existing, value));

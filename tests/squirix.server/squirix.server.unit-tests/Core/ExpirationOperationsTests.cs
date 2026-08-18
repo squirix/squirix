@@ -25,7 +25,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 
         var entryBefore = await cache.GetEntryAsync(CacheKey.Default("k1"), DefaultCancellationToken);
         Assert.NotNull(entryBefore);
-        Assert.True(entryBefore.ExpiresUtc is not null);
+        _ = Assert.NotNull(entryBefore.ExpiresUtc);
 
         var ok = await cache.RemoveExpirationAsync(CacheKey.Default("k1"), DefaultCancellationToken);
         Assert.True(ok);

@@ -28,7 +28,7 @@ internal static class DistinctNodeIds
 
     private static string[] Trim(string[] buffer, int write)
     {
-        if (write is 0)
+        if (write == 0)
             return [];
 
         if (write == buffer.Length)

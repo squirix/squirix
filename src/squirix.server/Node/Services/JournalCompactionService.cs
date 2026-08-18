@@ -52,7 +52,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
-    public bool IsInFlight => Volatile.Read(ref _inFlight) is not 0;
+    public bool IsInFlight => Volatile.Read(ref _inFlight) != 0;
 
     public DateTime LastRunUtc { get; private set; } = DateTime.MinValue;
 
@@ -106,7 +106,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
-        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
             return AttemptResult.Skipped; // already running, skip
 
         try
@@ -142,7 +142,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         // and CI thread-pool delay cannot strand the snapshot-triggered attempt.
         Volatile.Write(ref _pendingSnapshotHint, e.SnapshotRef);
         var wake = _wake.Read();
-        if (wake is not null)
+        if (wake != null)
             _ = wake.TrySetResult();
     }
 
@@ -203,7 +203,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 var snapshotHint = Interlocked.Exchange(ref _pendingSnapshotHint, null);
                 var res = await MaybeCompactAsync(snapshotHint, cancellationToken).ConfigureAwait(false);
 
-                if (res is not AttemptResult.Failed)
+                if (res != AttemptResult.Failed)
                     continue;
 
                 // Exponential backoff with full jitter
@@ -230,7 +230,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private void SubscribeSnapshotCompleted()
     {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) != 0)
             return;
 
         _snap.SnapshotCompleted += _onSnapshotCompleted;
@@ -244,7 +244,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private void UnsubscribeSnapshotCompleted()
     {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) == 0)
             return;
 
         _snap.SnapshotCompleted -= _onSnapshotCompleted;
@@ -257,7 +257,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         try
         {
             // Snapshot completion may have queued work before the wake signal was published.
-            if (Volatile.Read(ref _pendingSnapshotHint) is not null)
+            if (Volatile.Read(ref _pendingSnapshotHint) != null)
                 return;
 
             // Jitter next wake-up to avoid thundering herd across nodes

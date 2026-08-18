@@ -128,7 +128,7 @@ internal static class ServerArchitectureFixtures
     internal static List<string> CollectUnexpectedMatches(List<string>? includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
     {
         var unexpected = new List<string>();
-        if (includes is null)
+        if (includes == null)
             return unexpected;
 
         for (var index = 0; index < includes.Count; index++)

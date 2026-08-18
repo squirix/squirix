@@ -41,6 +41,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public string? ActiveSegmentPath { get; private set; }
 
+    long IJournalEventLoopState.ActiveSegmentWrittenBytes => ActiveSegmentWrittenBytes;
+
     public CancellationToken BackgroundToken { get; }
 
     public int CurrentSegmentIndex { get; private set; }
@@ -67,24 +69,11 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public JournalWriteBatchBuffer WriteBatch { get; }
 
-    long IJournalEventLoopState.ActiveSegmentWrittenBytes => ActiveSegmentWrittenBytes;
-
     internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
 
     private JournalEventLoopDrainScheduler DrainScheduler { get; }
 
     private bool IsDurabilityFlushPending { get; set; }
-
-    public bool TryConsumeSegmentRollCompletion()
-    {
-        if (Volatile.Read(ref _segmentRollCompletionPending) is 0)
-            return false;
-
-        Volatile.Write(ref _segmentRollCompletionPending, 0);
-        return true;
-    }
-
-    public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
 
@@ -98,6 +87,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     }
 
     public void IncrementJournalSegmentCount() => JournalSegmentCount++;
+
+    public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
 
@@ -114,6 +105,15 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     public void SetPendingRollTargetSegmentIndex(int value) => PendingRollTargetSegmentIndex = value;
 
     public void SetSegmentRollInFlight(bool value) => SegmentRollInFlight = value;
+
+    public bool TryConsumeSegmentRollCompletion()
+    {
+        if (Volatile.Read(ref _segmentRollCompletionPending) == 0)
+            return false;
+
+        Volatile.Write(ref _segmentRollCompletionPending, 0);
+        return true;
+    }
 
     internal void AttachGroupCommit(JournalDurabilityGroupCommit? groupCommit) => GroupCommit = groupCommit;
 
@@ -163,13 +163,13 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
         internal bool RunJournalThreadIteration(ref JournalWorkItem? rollDeferredAppend)
         {
-            if (_segmentWriter.TryCompletePendingSegmentRoll() && rollDeferredAppend is not null)
+            if (_segmentWriter.TryCompletePendingSegmentRoll() && rollDeferredAppend != null)
             {
                 ProcessRollDeferredAppend(ref rollDeferredAppend);
                 return true;
             }
 
-            if (rollDeferredAppend is not null)
+            if (rollDeferredAppend != null)
             {
                 _owner.Host.ThrowIfJournalThreadFailed();
                 DrainDueGroupCommitBatches();
@@ -183,7 +183,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             if (shutdownRequested)
                 return false;
 
-            if (rollDeferredAppend is not null)
+            if (rollDeferredAppend != null)
                 return true;
 
             _segmentWriter.FlushWriteBatch(true);
@@ -216,7 +216,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
         private bool ProcessRingItem(JournalWorkItem item, ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
         {
-            if (item.Kind is not JournalWorkKind.Append)
+            if (item.Kind != JournalWorkKind.Append)
                 return TryProcessNonAppendFromRing(item, out shutdownRequested);
             shutdownRequested = false;
             return TryProcessAppendFromRing(item, ref rollDeferredAppend);

@@ -95,7 +95,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     private static void RecordResult(Activity? activity, string result)
     {
-        if (activity?.IsAllDataRequested is not true)
+        if (activity?.IsAllDataRequested != true)
             return;
 
         _ = activity.SetTag("cache.result", result);
@@ -106,7 +106,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private Activity? StartActivity(string operation)
     {
         var activity = ActivitySourceHolder.StartInternal(GetSpanName(operation));
-        if (activity?.IsAllDataRequested is not true)
+        if (activity?.IsAllDataRequested != true)
             return activity;
 
         _ = activity.SetTag("cache.operation", operation);

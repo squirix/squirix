@@ -5,5 +5,5 @@ namespace Squirix.Server.Utils;
 
 internal static class OptionsValidator
 {
-    internal static ValidateOptionsResult ToResult(List<string> failures) => failures.Count is 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    internal static ValidateOptionsResult ToResult(List<string> failures) => failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
 }

@@ -26,7 +26,7 @@ internal sealed class RollPublisher : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         _queue.CompleteAdding();
@@ -45,7 +45,7 @@ internal sealed class RollPublisher : IDisposable
     internal void PublishRoll(int currentJournal, ulong nextSequence, Action onSuccess)
     {
         ArgumentNullException.ThrowIfNull(onSuccess);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
 
         if (!_queue.TryAdd(new RollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
             throw new InvalidOperationException("manifest roll publisher is shutting down.");

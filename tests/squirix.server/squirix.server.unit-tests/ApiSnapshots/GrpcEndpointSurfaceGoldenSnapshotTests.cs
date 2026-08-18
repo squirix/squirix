@@ -32,7 +32,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
-            if (lines[i].Length is 0)
+            if (lines[i].Length == 0)
                 continue;
 
             _ = expected.Add(lines[i]);
@@ -109,7 +109,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 {
                     var endpoint = source.Endpoints[index];
                     var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-                    if (grpc is null)
+                    if (grpc == null)
                         continue;
 
                     if (grpc.Method.Name.Contains("grpcunimplemented", StringComparison.Ordinal))

@@ -66,7 +66,7 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  Cluster ID: {options.ClusterId}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count is 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
+            await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
                          .ConfigureAwait(false);
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
@@ -96,7 +96,7 @@ internal static class Program
         private static async Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command, CancellationToken cancellationToken = default)
         {
             var settingsPath = ResolveSettingsPath(command);
-            var options = settingsPath is null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
+            var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
             Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist);
             return options;
         }
@@ -125,7 +125,7 @@ internal static class Program
 
         private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)
         {
-            if (command.SettingsPath is null)
+            if (command.SettingsPath == null)
                 throw new InvalidOperationException("validate-config requires --settings PATH.");
 
             var (success, error) = await Configurator.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
@@ -221,6 +221,8 @@ internal static class Program
 
             private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, null);
 
+            private static bool IsHelpFlag(string flag) => string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
+
             private static string ReadValue(string[] args, ref int index)
             {
                 index++;
@@ -232,29 +234,11 @@ internal static class Program
 
             private static int ResolveFlagStart(string[] args, string name)
             {
-                var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal));
+                var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal));
                 return isImplicitRun ? 0 : 1;
             }
 
-            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
-
-            private static bool TryApplyFlag(string[] args, FlagState state, ref int index)
-            {
-                var flag = args[index];
-                if (IsHelpFlag(flag))
-                    return false;
-
-                if (TryApplyBooleanFlag(flag, state))
-                    return true;
-
-                if (TryApplyValueFlag(args, flag, state, ref index))
-                    return true;
-
-                throw new InvalidOperationException($"Unknown argument '{flag}'.");
-            }
-
-            private static bool IsHelpFlag(string flag) =>
-                string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
+            private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
             private static bool TryApplyBooleanFlag(string flag, FlagState state)
             {
@@ -269,6 +253,21 @@ internal static class Program
                     default:
                         return false;
                 }
+            }
+
+            private static bool TryApplyFlag(string[] args, FlagState state, ref int index)
+            {
+                var flag = args[index];
+                if (IsHelpFlag(flag))
+                    return false;
+
+                if (TryApplyBooleanFlag(flag, state))
+                    return true;
+
+                if (TryApplyValueFlag(args, flag, state, ref index))
+                    return true;
+
+                throw new InvalidOperationException($"Unknown argument '{flag}'.");
             }
 
             private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)

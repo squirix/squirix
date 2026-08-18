@@ -80,7 +80,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         var anchor = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
-            _ = pool.ForNode(i % 2 is 0 ? "n0" : "n1");
+            _ = pool.ForNode(i % 2 == 0 ? "n0" : "n1");
 
         Assert.Same(anchor, pool.ForNode("n0"));
     }

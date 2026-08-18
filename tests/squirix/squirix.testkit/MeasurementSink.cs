@@ -68,7 +68,7 @@ public sealed class MeasurementSink : IDisposable
 
     private static bool HasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
-        if (measurement.OverflowTags is not null)
+        if (measurement.OverflowTags != null)
         {
             foreach (var tag in measurement.OverflowTags)
             {
@@ -140,7 +140,7 @@ public sealed class MeasurementSink : IDisposable
 
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
-            if (tags.Length is 0)
+            if (tags.Length == 0)
                 return new CapturedMeasurement(instrumentName, 0, default, null);
 
             if (tags.Length <= 3)
@@ -153,7 +153,7 @@ public sealed class MeasurementSink : IDisposable
 
         internal void GetTag(int index, out string key, out object? value)
         {
-            if (OverflowTags is not null)
+            if (OverflowTags != null)
             {
                 var tag = OverflowTags[index];
                 key = tag.Key;

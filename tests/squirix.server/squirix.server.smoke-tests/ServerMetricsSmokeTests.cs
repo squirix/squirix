@@ -54,7 +54,7 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
             else
             {
                 var skip = eol + 1;
-                if (remaining[eol] is '\r' && skip < remaining.Length && remaining[skip] is '\n')
+                if (remaining[eol] == '\r' && skip < remaining.Length && remaining[skip] == '\n')
                     skip++;
                 remaining = remaining[skip..];
             }

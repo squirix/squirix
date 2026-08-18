@@ -33,9 +33,9 @@ internal sealed class NodeState
 
     internal int Id { get; }
 
-    internal int LastLogIndex => LogEntries.Count is 0 ? 0 : LogEntries[^1].Index;
+    internal int LastLogIndex => LogEntries.Count == 0 ? 0 : LogEntries[^1].Index;
 
-    internal int LastLogTerm => LogEntries.Count is 0 ? 0 : LogEntries[^1].Term;
+    internal int LastLogTerm => LogEntries.Count == 0 ? 0 : LogEntries[^1].Term;
 
     internal IReadOnlyList<LogEntry> LogEntries { get; }
 

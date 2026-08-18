@@ -51,7 +51,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// <returns>A task that completes after the node is started.</returns>
     protected async Task StartNodeAsync()
     {
-        if (_node is not null)
+        if (_node != null)
             return;
 
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
@@ -74,7 +74,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     {
         var node = _node;
         _node = null;
-        if (node is not null)
+        if (node != null)
             await node.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -86,7 +86,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     {
         var session = _cacheSession;
         _cacheSession = null;
-        if (session is not null)
+        if (session != null)
             await session.DisposeAsync().ConfigureAwait(false);
     }
 

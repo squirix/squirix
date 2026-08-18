@@ -64,14 +64,14 @@ internal sealed class BoundedJournalRing : IDisposable
 
     internal void WaitForWork(int timeoutMs, CancellationToken cancellationToken)
     {
-        if (HasQueuedWork() || cancellationToken.IsCancellationRequested || timeoutMs is 0)
+        if (HasQueuedWork() || cancellationToken.IsCancellationRequested || timeoutMs == 0)
             return;
 
         var waitMs = timeoutMs;
-        if (timeoutMs is not Timeout.Infinite)
+        if (timeoutMs != Timeout.Infinite)
         {
             waitMs = ComputeRemainingWaitMs(Environment.TickCount64 + timeoutMs);
-            if (waitMs is 0)
+            if (waitMs == 0)
                 return;
         }
 
@@ -103,7 +103,7 @@ internal sealed class BoundedJournalRing : IDisposable
         }
 
         var index = Convert.ToInt32(head & _mask);
-        if (Volatile.Read(ref _published[index]) is 0)
+        if (Volatile.Read(ref _published[index]) == 0)
         {
             item = null;
             return false;

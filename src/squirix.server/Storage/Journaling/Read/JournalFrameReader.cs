@@ -26,13 +26,13 @@ internal static class JournalFrameReader
     private static int ReadHeader(Stream stream, Span<byte> buffer)
     {
         var read = stream.Read(buffer);
-        if (read is 0)
+        if (read == 0)
             return 0;
 
         while (read < buffer.Length)
         {
             var next = stream.Read(buffer[read..]);
-            if (next is 0)
+            if (next == 0)
                 return read;
 
             read += next;
@@ -79,7 +79,7 @@ internal static class JournalFrameReader
         }
         finally
         {
-            if (rentedBuffer is null)
+            if (rentedBuffer == null)
                 ArrayPool<byte>.Shared.Return(rented);
         }
     }
@@ -89,7 +89,7 @@ internal static class JournalFrameReader
         while (!buffer.IsEmpty)
         {
             var read = stream.Read(buffer);
-            if (read is 0)
+            if (read == 0)
                 return false;
 
             buffer = buffer[read..];

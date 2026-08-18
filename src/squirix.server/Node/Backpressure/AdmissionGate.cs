@@ -38,24 +38,24 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
 
         var disabledResult = BypassWhenDisabled(transport, operation);
-        if (disabledResult is not null)
+        if (disabledResult != null)
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
         var client = _clients.GetOrAdd(clientId, static (_, options) => new ClientState(options), _options);
 
         var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
-        if (nodeRateLimitReject is not null)
+        if (nodeRateLimitReject != null)
             return nodeRateLimitReject.Value;
 
         var clientRateLimitReject = RejectByClientRateLimitIfLimited(transport, operation, client);
-        if (clientRateLimitReject is not null)
+        if (clientRateLimitReject != null)
             return clientRateLimitReject.Value;
 
         var inFlight = Volatile.Read(ref _inFlight);
         var queueDepth = Volatile.Read(ref _queueDepth);
         var hardThresholdReject = RejectByHardThresholdIfExceeded(transport, operation, inFlight, queueDepth);
-        if (hardThresholdReject is not null)
+        if (hardThresholdReject != null)
             return hardThresholdReject.Value;
 
         if (inFlight >= _options.SlowdownThreshold)
@@ -155,7 +155,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? RejectByNodeRateLimitIfLimited(string transport, string operation)
     {
-        if (_nodeRateLimiter?.TryAcquire() is not false)
+        if (_nodeRateLimiter?.TryAcquire() != false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "node");
@@ -198,7 +198,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {
-        if (client.InFlight is not 0 || client.QueueDepth is not 0 || client.HasRecentActivity is true)
+        if (client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
             return;
 
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
@@ -274,7 +274,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         internal ref int QueueDepthRef => ref _queueDepth;
 
-        internal bool TryAcquire() => _rateLimiter?.TryAcquire() is not false;
+        internal bool TryAcquire() => _rateLimiter?.TryAcquire() != false;
     }
 
     private sealed class RateLimiter
@@ -305,8 +305,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             }
         }
 
-        internal static RateLimiter? Create(int? ratePerSecond, int? burst) =>
-            ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        internal static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond != null && burst != null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         internal bool TryAcquire()
         {

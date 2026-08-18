@@ -40,18 +40,18 @@ internal sealed class ClientInterceptor : Interceptor
         ownedActivity = null;
         rentedHeaders = null;
         var activity = Activity.Current;
-        if (activity is null)
+        if (activity == null)
         {
             activity = ActivitySourceHolder.StartClient(method);
             ownedActivity = activity;
         }
 
         // No trace headers to attach — keep caller headers untouched (including null).
-        if (activity is null)
+        if (activity == null)
             return options;
 
         Metadata metadata;
-        if (options.Headers is null)
+        if (options.Headers == null)
         {
             metadata = GrpcMetadataPool.Rent();
             rentedHeaders = metadata;
@@ -110,7 +110,7 @@ internal sealed class ClientInterceptor : Interceptor
         /// <param name="metadata">Rented metadata, or <see langword="null" /> when nothing was rented.</param>
         internal static void Return(Metadata? metadata)
         {
-            if (metadata is null)
+            if (metadata == null)
                 return;
 
             metadata.Clear();
@@ -151,7 +151,7 @@ internal sealed class ClientInterceptor : Interceptor
 
         private void DisposeOnce()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) is not 0)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
             _scope.Dispose();

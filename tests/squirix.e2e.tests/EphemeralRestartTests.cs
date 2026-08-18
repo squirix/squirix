@@ -66,13 +66,13 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
 
         private async ValueTask StopNodeAsync()
         {
-            if (_client is not null)
+            if (_client != null)
             {
                 await _client.DisposeAsync();
                 _client = null;
             }
 
-            if (_host is not null)
+            if (_host != null)
             {
                 await _host.DisposeAsync();
                 _host = null;

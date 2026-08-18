@@ -51,7 +51,7 @@ internal sealed class Coordinator
 
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
 
-    internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) is not 0;
+    internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
 
     internal async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
@@ -60,7 +60,7 @@ internal sealed class Coordinator
         if (ShouldSuppressBackgroundSnapshot())
             return;
 
-        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) is not 0)
+        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) != 0)
             return;
 
         using var activity = _telemetry.BeginCreate();

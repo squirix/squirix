@@ -28,7 +28,7 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
     {
-        if (context is null)
+        if (context == null)
             throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
@@ -49,10 +49,25 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
             return;
 
         var location = AnalyzerHelpers.GetBestLocation(type);
-        if (location is null)
+        if (location == null)
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, methodCount, AnalyzerLimits.MaxMethodsPerType));
+    }
+
+    private static bool ShouldCountMethod(IMethodSymbol method)
+    {
+        if (AnalyzerHelpers.IsCompilerOrGenerated(method))
+            return false;
+
+        return method.MethodKind switch
+        {
+            MethodKind.Constructor or MethodKind.StaticConstructor => false,
+            MethodKind.PropertyGet or MethodKind.PropertySet => false,
+            MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.EventRaise => false,
+            MethodKind.Ordinary or MethodKind.UserDefinedOperator or MethodKind.Conversion => true,
+            _ => false,
+        };
     }
 
     private static bool TryCountMethods(INamedTypeSymbol type, out int methodCount)
@@ -75,20 +90,5 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
         }
 
         return hasNonLiteralField;
-    }
-
-    private static bool ShouldCountMethod(IMethodSymbol method)
-    {
-        if (AnalyzerHelpers.IsCompilerOrGenerated(method))
-            return false;
-
-        return method.MethodKind switch
-        {
-            MethodKind.Constructor or MethodKind.StaticConstructor => false,
-            MethodKind.PropertyGet or MethodKind.PropertySet => false,
-            MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.EventRaise => false,
-            MethodKind.Ordinary or MethodKind.UserDefinedOperator or MethodKind.Conversion => true,
-            _ => false,
-        };
     }
 }

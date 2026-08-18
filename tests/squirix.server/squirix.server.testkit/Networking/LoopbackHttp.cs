@@ -50,7 +50,7 @@ public static class LoopbackHttp
         if (allowNameMismatch && errors is SslPolicyErrors.RemoteCertificateNameMismatch)
             return true;
 
-        if (!AllowUntrustedDevHttps || certificate is null)
+        if (!AllowUntrustedDevHttps || certificate == null)
             return false;
 
         // CI cannot interactively trust the ASP.NET Core HTTPS development certificate on Windows/macOS.
@@ -60,7 +60,7 @@ public static class LoopbackHttp
         if (allowNameMismatch)
             tolerated |= SslPolicyErrors.RemoteCertificateNameMismatch;
 
-        if ((errors & ~tolerated) is not SslPolicyErrors.None)
+        if ((errors & ~tolerated) != SslPolicyErrors.None)
             return false;
 
         return IsAspNetCoreHttpsDevelopmentCertificate(certificate);

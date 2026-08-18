@@ -43,7 +43,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        if (entry is null)
+        if (entry == null)
             return new GetEntryAsyncResponse { Found = false };
 
         return new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() };
@@ -53,7 +53,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        if (entry is null)
+        if (entry == null)
             return new GetExpirationAsyncResponse { Found = false };
 
         var response = new GetExpirationAsyncResponse { Found = true };

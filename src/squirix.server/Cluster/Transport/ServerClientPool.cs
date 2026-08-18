@@ -49,7 +49,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         BeginDrain();
@@ -125,9 +125,9 @@ internal sealed class ServerClientPool : IServerClientPool
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
         var channel = GrpcChannel.ForAddress(address, CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.MtlsMaterial, args.PeerHandlerFactory));
         var invoker = channel.CreateCallInvoker();
-        if (args.InternalOwnerInterceptor is not null)
+        if (args.InternalOwnerInterceptor != null)
             invoker = invoker.Intercept(args.InternalOwnerInterceptor);
-        if (args.Interceptor is not null)
+        if (args.Interceptor != null)
             invoker = invoker.Intercept(args.Interceptor);
 
         _channels[peer.NodeId] = channel;
@@ -186,7 +186,7 @@ internal sealed class ServerClientPool : IServerClientPool
         {
             ArgumentNullException.ThrowIfNull(material);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-            if (!material.Enabled || material.NodeCertificate is null || material.TrustAnchor is null)
+            if (!material.Enabled || material.NodeCertificate == null || material.TrustAnchor == null)
                 throw new InvalidOperationException("Cluster mTLS material must be loaded before creating the outbound handler.");
 
             return CreateMtlsHandler(material.NodeCertificate, material.TrustAnchor, expectedPeerNodeId);
@@ -223,7 +223,7 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
         private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
         {
-            if (serverCertificate is null)
+            if (serverCertificate == null)
                 return false;
 
             using var certificate = new X509Certificate2(serverCertificate);

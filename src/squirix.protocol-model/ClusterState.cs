@@ -221,35 +221,35 @@ internal sealed class ClusterState
         private static int CompareMessages(InFlightMessage a, InFlightMessage b)
         {
             var c = a.Kind.CompareTo(b.Kind);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.From.CompareTo(b.From);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.To.CompareTo(b.To);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.Term.CompareTo(b.Term);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.LastLogIndex.CompareTo(b.LastLogIndex);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.LastLogTerm.CompareTo(b.LastLogTerm);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.Success.CompareTo(b.Success);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             c = a.MatchIndex.CompareTo(b.MatchIndex);
-            if (c is not 0)
+            if (c != 0)
                 return c;
 
             return a.ReadIndex.CompareTo(b.ReadIndex);
@@ -352,7 +352,7 @@ internal sealed class ClusterState
             public int Compare(int x, int y)
             {
                 var cmp = string.CompareOrdinal(_signatures[x], _signatures[y]);
-                return cmp is not 0 ? cmp : x.CompareTo(y);
+                return cmp != 0 ? cmp : x.CompareTo(y);
             }
         }
     }

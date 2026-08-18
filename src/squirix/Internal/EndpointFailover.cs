@@ -18,7 +18,7 @@ internal sealed class EndpointFailover
     internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
-        if (bootstrapNodeIds.Count is 0)
+        if (bootstrapNodeIds.Count == 0)
             throw new ArgumentException("At least one bootstrap node id is required.", nameof(bootstrapNodeIds));
 
         _bootstrapNodeIds = bootstrapNodeIds;

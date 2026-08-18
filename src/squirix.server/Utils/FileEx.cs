@@ -38,7 +38,7 @@ internal static class FileEx
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-        var validatedBackup = backupPath is null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
+        var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
         if (File.Exists(validatedFinal))
             File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
         else
