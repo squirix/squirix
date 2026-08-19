@@ -38,6 +38,10 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         ArgumentNullException.ThrowIfNull(execute);
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
+
+        if (_journal != null)
+            await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
         if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
