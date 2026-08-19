@@ -1,10 +1,15 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -16,6 +21,48 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
+
+    /// <summary>
+    /// After an unclean restart the idempotency store is empty until background recovery restores it and opens the
+    /// startup gate. The coordinator must block on that gate and only then check replay, so a retry arriving before
+    /// recovery finishes replays the restored record instead of re-executing the mutation. This deterministically
+    /// simulates the race: the store stays empty and the gate stays closed while ExecuteAsync is in flight, then
+    /// recovery restores the record and the gate opens. Regression guard for issue #320.
+    /// </summary>
+    [Fact]
+    public async Task CoordinatorAwaitsStartupGateBeforeReplay()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        await using var journal = new RecordingGateJournal();
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var original = new TryAddAsyncResponse { Added = true };
+
+        var flag = new ExecFlag();
+
+        // Start the operation without awaiting: with the gate closed and the store empty it must block on the
+        // startup gate rather than replay or execute.
+        var operation = coordinator.ExecuteAsync(
+            ValidOperationId,
+            "fp-1",
+            flag,
+            static (state, _) =>
+            {
+                state.Value = true;
+                return Task.FromResult(new TryAddAsyncResponse { Added = false });
+            },
+            DefaultCancellationToken);
+
+        Assert.False(operation.IsCompleted);
+
+        // Recovery restores the idempotency record and opens the startup gate.
+        store.RestoreRecord(ValidOperationId, "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original), DateTime.UtcNow);
+        journal.ReleaseStartupGate();
+
+        var response = await operation;
+
+        Assert.True(response.Added);
+        Assert.False(flag.Value);
+    }
 
     /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
     [Fact]
@@ -175,8 +222,82 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
     }
 
+    private sealed class ExecFlag
+    {
+        internal bool Value { get; set; }
+    }
+
     private sealed class ExecutionCounter
     {
         internal int Value { get; set; }
+    }
+
+    private sealed class RecordingGateJournal : IJournalCoordinator
+    {
+        private readonly JournalStartupGate _gate = new(false);
+        private EventHandler? _onAppended;
+
+        public event EventHandler? OnAppended
+        {
+            add => _onAppended += value;
+            remove => _onAppended -= value;
+        }
+
+        public long AppendedBytes => 0;
+
+        public long AppendedOps => 0;
+
+        public int CurrentSegmentIndex => 0;
+
+        public bool HasFlushLoopFailure => false;
+
+        public long HighWaterBytes => 0;
+
+        public QuiescenceGate InFlightApplyGate => new();
+
+        public bool IsJournalGroupCommitEnabled => false;
+
+        public long MaxBytes => 0;
+
+        public ulong NextSequence => 0;
+
+        public double RecentAppendLatencyMs => 0;
+
+        public long UsedBytes => 0;
+
+        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) => default;
+
+        public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
+
+        public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
+
+        public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => default;
+
+        public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => default;
+
+        public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => default;
+
+        public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => default;
+
+        public ValueTask DisposeAsync() => default;
+
+        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
+
+        public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
+            TState state,
+            Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+            Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
+            CancellationToken cancellationToken) => default;
+
+        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => default;
+
+        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
+            TState state,
+            Func<TState, CancellationToken, ValueTask<TResult>> action,
+            CancellationToken cancellationToken) => default;
+
+        public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
+
+        internal void ReleaseStartupGate() => _gate.Open();
     }
 }
