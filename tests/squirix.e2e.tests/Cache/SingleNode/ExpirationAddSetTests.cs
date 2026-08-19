@@ -115,10 +115,12 @@ public sealed class ExpirationAddSetTests : TestBase
 
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
 
-        await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
+        // Generous expiration so the immediate read is not overtaken by expiry on a loaded CI runner.
+        var expiration = TimeSpan.FromSeconds(2);
+        await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = expiration }, DefaultCancellationToken);
         Assert.True((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
 
-        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(expiration + TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
