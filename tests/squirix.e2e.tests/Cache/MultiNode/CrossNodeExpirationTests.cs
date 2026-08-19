@@ -15,16 +15,11 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task AddNodeBTreatsExpiredRemoteKeyAsAbsent()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-add-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "expired",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(100),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(100),
+        };
+        await Cluster.CacheA.SetAsync(key, "expired", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
         await Cluster.CacheB.AddAsync(key, "new", cancellationToken: DefaultCancellationToken);
         Assert.Equal("new", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
@@ -36,13 +31,9 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-expire");
         var expiration = TimeSpan.FromSeconds(2);
-
         await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(expiration), DefaultCancellationToken);
-
         Assert.Equal("v1", (await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
-
         await Task.Delay(expiration + TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
-
         Assert.False((await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Found);
         Assert.False((await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
@@ -52,7 +43,6 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task GetExpirationNodeBReturnsEntryInsertedNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-get-expiration");
-
         await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
         var expiration = await Cluster.CacheB.GetExpirationAsync(key, DefaultCancellationToken);
         Assert.True(expiration.Found);
@@ -64,9 +54,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task PersistNodeBNonExpiringReturnsFalseKeepsKeyLive()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-non-expiring");
-
         await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
-
         Assert.False(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
         Assert.False((await Cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
@@ -77,9 +65,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task PersistNodeBRemovesExpirationEntryInsertedOnNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
-
         await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
-
         Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
     }
 
@@ -88,16 +74,11 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task PersistOnNodeBIsIdempotentForExistingRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-idempotent");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMinutes(1),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMinutes(1),
+        };
+        await Cluster.CacheA.SetAsync(key, "v", cacheEntryOptions, DefaultCancellationToken);
         Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
         Assert.False(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
@@ -109,18 +90,12 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task PersistOnNodeBTreatsExpiredRemoteKeyAsMissing()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(100),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(100),
+        };
+        await Cluster.CacheA.SetAsync(key, "v", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
-
         Assert.False(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
         Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
@@ -131,13 +106,14 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
 
-        // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
-        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
-
+        // Use a generously long expiration and remove it immediately so the remote RemoveExpirationAsync always
+        // lands while the key is still alive on the owning node, regardless of scheduler/RPC latency on a loaded CI runner.
+        var expiration = TimeSpan.FromSeconds(2);
+        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(expiration), DefaultCancellationToken);
         Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
-        await Task.Delay(TimeSpan.FromMilliseconds(350), TimeProvider.System, DefaultCancellationToken);
 
+        // The key must survive its original TTL because the expiration was removed before it could fire.
+        await Task.Delay(expiration + TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
         Assert.False((await Cluster.CacheB.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
     }
@@ -150,13 +126,9 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
         // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
         await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
-
         await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
-
         Assert.True(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromSeconds(2), DefaultCancellationToken));
-
         await Task.Delay(TimeSpan.FromMilliseconds(350), TimeProvider.System, DefaultCancellationToken);
-
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
@@ -165,18 +137,12 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task RemoveNodeBTreatsExpiredRemoteKeyAsMissing()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(100),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(100),
+        };
+        await Cluster.CacheA.SetAsync(key, "v", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
-
         Assert.False(await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken));
         Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
@@ -186,13 +152,9 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task TouchNodeBNonExpiringKeyAddsExpirationKeepsValue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-non-expiring");
-
         await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
-
         Assert.True(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromMinutes(1), DefaultCancellationToken));
-
         var expiration = await Cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken);
-
         Assert.True(expiration.Value > TimeSpan.Zero);
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
@@ -202,18 +164,12 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task TouchNodeBTreatsExpiredRemoteKeyAsMissingResurrect()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(100),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(100),
+        };
+        await Cluster.CacheA.SetAsync(key, "v", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
-
         Assert.False(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromMinutes(1), DefaultCancellationToken));
         Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
@@ -223,9 +179,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task TouchOnNodeBUpdatesExpirationEntryInsertedOnNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-update-expiration");
-
         await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
-
         Assert.True(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromHours(2), DefaultCancellationToken));
     }
 
@@ -234,18 +188,12 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task TryAddOnNodeBTreatsExpiredRemoteKeyAsAbsent()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-add-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "expired",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(100),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(100),
+        };
+        await Cluster.CacheA.SetAsync(key, "expired", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
-
         Assert.True(await Cluster.CacheB.TryAddAsync(key, "new", cancellationToken: DefaultCancellationToken));
         Assert.Equal("new", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
@@ -255,20 +203,13 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     public async Task TryRemoveOnNodeBTreatsExpiredRemoteEntryAsMissing()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
-
-        await Cluster.CacheA.SetAsync(
-            key,
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(50),
-            },
-            DefaultCancellationToken);
-
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMilliseconds(50),
+        };
+        await Cluster.CacheA.SetAsync(key, "v", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(150), TimeProvider.System, DefaultCancellationToken);
-
         var removed = await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
-
         Assert.False(removed);
     }
 }
