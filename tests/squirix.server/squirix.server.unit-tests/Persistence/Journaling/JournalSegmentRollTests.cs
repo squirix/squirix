@@ -50,14 +50,20 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
         Exception? rollError = null;
-        ledger.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
-        await StoreTestSupport.WaitUntilAsync(
-            ledger,
-            static async (l, ct) => (await l.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).NextSequence == 1,
-            DefaultCancellationToken);
+        var firstRollDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ledger.EnqueueRoll(
+            1,
+            1,
+            () => firstRollDone.TrySetResult(),
+            ex =>
+            {
+                rollError = ex;
+                _ = firstRollDone.TrySetResult();
+            });
+        await firstRollDone.Task;
         StoreTestSupport.ThrowIfFaulted(rollError);
 
-        await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
         var block = CountManifestDataFiles(dir);
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
