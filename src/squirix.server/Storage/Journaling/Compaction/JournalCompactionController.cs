@@ -21,7 +21,7 @@ internal sealed class JournalCompactionController : IDisposable
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly PersistenceOptions _opt;
     private readonly ISnapshotReader _snapshotReader;
-    private bool _disposed;
+    private int _disposed;
 
     internal JournalCompactionController(
         PersistenceOptions opt,
@@ -39,16 +39,15 @@ internal sealed class JournalCompactionController : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
         _mutex.Dispose();
     }
 
     internal async Task<bool> TryTriggerNowAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
         if (!await _mutex.WaitAsync(0, cancellationToken).ConfigureAwait(false))
             return false;

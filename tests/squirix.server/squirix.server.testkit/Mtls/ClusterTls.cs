@@ -263,9 +263,7 @@ public sealed class ClusterTls : IDisposable
 
     private static class InternalPortPool
     {
-        private static PortAllocator Allocator { get; } = new(
-            HostPortRegions.StartInclusive(HostPortRegion.MtlsInternal),
-            HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1);
+        private static ListenPortPool Pool { get; } = ConsumerPortSlicer.PoolFor(HostPortRegion.MtlsInternal);
 
         /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
         /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
@@ -278,7 +276,7 @@ public sealed class ClusterTls : IDisposable
 
             for (var attempt = 0; attempt < 64; attempt++)
             {
-                var port = Allocator.Allocate();
+                var port = Pool.AllocatePort();
                 var isExcluded = false;
                 foreach (var excludedPort in excludedPorts)
                 {

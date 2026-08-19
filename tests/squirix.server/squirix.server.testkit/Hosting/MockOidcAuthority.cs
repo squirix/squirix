@@ -32,9 +32,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         _keyId = keyId;
     }
 
-    private static PortAllocator PortPool { get; } = new(
-        HostPortRegions.StartInclusive(HostPortRegion.MockOidcAuthority),
-        HostPortRegions.EndExclusive(HostPortRegion.MockOidcAuthority) - 1);
+    private static ListenPortPool PortPool { get; } = ConsumerPortSlicer.PoolFor(HostPortRegion.MockOidcAuthority);
 
     /// <summary>Gets the authority base endpoint (also used as the token issuer).</summary>
     private string AuthorityEndpoint { get; }
@@ -47,7 +45,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     /// <returns>A started mock authority.</returns>
     public static async Task<MockOidcAuthority> StartAsync(CancellationToken cancellationToken = default)
     {
-        var port = PortPool.Allocate();
+        var port = PortPool.AllocatePort();
         var authorityUrl = NodeInvariantIndexStrings.FormatOrigin("http", "127.0.0.1", port);
         var signingKey = RSA.Create(2048);
         const string keyId = "mock-oidc-key";

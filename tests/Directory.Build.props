@@ -1,0 +1,25 @@
+<Project>
+    <!-- Chain the repository-wide Directory.Build.props so test projects keep the
+         shared analyzer, packaging, and project-classification rules, then layer
+         the test-executable specific settings on top. -->
+    <Import Project="$(MSBuildThisFileDirectory)..\Directory.Build.props" Condition="Exists('$(MSBuildThisFileDirectory)..\Directory.Build.props')"/>
+
+    <!-- Shared build settings for Squirix test executables (xUnit v3 + MTP runner).
+         Selected by project name so the testkit libraries (Squirix.TestKit /
+         Squirix.Server.TestKit) stay ordinary libraries and are not turned into
+         MTP executables. -->
+    <PropertyGroup Condition="$(MSBuildProjectName.Contains('Tests'))">
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <UseAppHost>true</UseAppHost>
+    </PropertyGroup>
+
+    <ItemGroup Condition="$(MSBuildProjectName.Contains('Tests'))">
+        <PackageReference Include="xunit.v3"/>
+        <PackageReference Include="xunit.v3.assert"/>
+    </ItemGroup>
+</Project>

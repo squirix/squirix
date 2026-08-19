@@ -41,7 +41,7 @@ internal static class JournalReadPath
             private readonly FileStream? _stream;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
-            private bool _disposed;
+            private int _disposed;
             private long _offset;
             private byte[]? _rentedFrameBuffer;
             private bool _valid;
@@ -74,17 +74,16 @@ internal static class JournalReadPath
 
             void IDisposable.Dispose()
             {
-                if (_disposed)
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
                 ReturnRentedFrameBuffer();
                 _stream?.Dispose();
-                _disposed = true;
             }
 
             bool IJournalRecordEnumerator.MoveNext()
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                 if (!_valid || _stream == null)
                     return false;
 

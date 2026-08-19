@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
@@ -11,7 +12,7 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
 {
     private readonly TempDirectory _dataDirectory;
-    private bool _disposed;
+    private int _disposed;
 
     private RecoveryScenarioBuilder(TempDirectory dataDirectory)
     {
@@ -37,10 +38,9 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
         Ledger.Dispose();
         await Cache.DisposeAsync().ConfigureAwait(false);
         _dataDirectory.Dispose();

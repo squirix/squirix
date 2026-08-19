@@ -16,7 +16,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private readonly AdmissionOptions _options;
     private readonly SemaphoreSlim _slots;
     private readonly TimeProvider _timeProvider;
-    private bool _disposed;
+    private int _disposed;
     private int _inFlight;
     private int _queueDepth;
 
@@ -67,10 +67,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
         _observerRegistration.Dispose();
         _slots.Dispose();
     }
@@ -204,7 +203,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
     }
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
     private async ValueTask<(Decision Decision, Lease Lease)> WaitInQueueAsync(
         string transport,

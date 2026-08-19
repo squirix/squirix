@@ -20,7 +20,7 @@ internal sealed class Ledger : IDisposable
     private readonly Index _index = new();
     private readonly Publisher _publisher;
     private readonly RetentionWorker _retentionWorker;
-    private bool _disposed;
+    private int _disposed;
 
     internal Ledger(
         PersistenceOptions options,
@@ -44,12 +44,11 @@ internal sealed class Ledger : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
         _publisher.Dispose();
         _gate.Dispose();
-        _disposed = true;
     }
 
     internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed) => _publisher.EnqueueRoll(
@@ -259,14 +258,6 @@ internal sealed class Ledger : IDisposable
         }
 
         [Immutable]
-        private abstract class WorkItemBase
-        {
-            internal Action<Exception>? OnFailure { get; init; }
-
-            internal abstract void Execute(Publisher publisher);
-        }
-
-        [Immutable]
         private sealed class RollItem : WorkItemBase
         {
             internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State>? onCommitted)
@@ -289,6 +280,14 @@ internal sealed class Ledger : IDisposable
         }
 
         [Immutable]
+        private abstract class WorkItemBase
+        {
+            internal Action<Exception>? OnFailure { get; init; }
+
+            internal abstract void Execute(Publisher publisher);
+        }
+
+        [Immutable]
         private sealed class WriteItem : WorkItemBase
         {
             internal WriteItem(State manifest, int encodedLength)
@@ -297,9 +296,9 @@ internal sealed class Ledger : IDisposable
                 EncodedLength = encodedLength;
             }
 
-            internal State Manifest { get; }
-
             internal int EncodedLength { get; }
+
+            internal State Manifest { get; }
 
             internal override void Execute(Publisher publisher) => publisher.Process(this);
         }

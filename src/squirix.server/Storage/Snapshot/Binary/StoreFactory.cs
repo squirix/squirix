@@ -84,7 +84,7 @@ internal static class StoreFactory
             private readonly bool _strict;
             private uint _crc;
             private object? _current;
-            private bool _disposed;
+            private int _disposed;
             private bool _footerValidated;
             private byte[] _scratch = new byte[InitialRecordScratchSize];
 
@@ -109,18 +109,17 @@ internal static class StoreFactory
 
             public void Dispose()
             {
-                if (_disposed)
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
                 _stream.Dispose();
-                _disposed = true;
             }
 
             public bool MoveNext()
             {
                 while (true)
                 {
-                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                     if (_footerValidated)
                         return false;
 

@@ -1,23 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <Nullable>enable</Nullable>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
         <RootNamespace>Squirix.IntegrationTests</RootNamespace>
         <AssemblyName>Squirix.IntegrationTests</AssemblyName>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="xunit.v3"/>
-        <PackageReference Include="xunit.v3.assert"/>
-        <PackageReference Include="xunit.runner.visualstudio"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\squirix.testkit\Squirix.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix\Squirix.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 </Project>

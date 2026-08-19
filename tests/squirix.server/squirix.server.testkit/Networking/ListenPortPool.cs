@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -13,13 +14,18 @@ namespace Squirix.Server.TestKit.Networking;
 public sealed class ListenPortPool : IDisposable
 {
     private readonly PortAllocator _allocator;
-    private bool _disposed;
+    private int _disposed;
 
     private ListenPortPool(HostPortRegion region)
     {
         var regionStart = HostPortRegions.StartInclusive(region);
         var regionEndInclusive = HostPortRegions.EndExclusive(region) - 1;
         _allocator = new PortAllocator(regionStart, regionEndInclusive);
+    }
+
+    private ListenPortPool(int startInclusive, int endInclusive)
+    {
+        _allocator = new PortAllocator(startInclusive, endInclusive);
     }
 
     /// <summary>Gets the port pool for end-to-end BenchmarkDotNet hosts.</summary>
@@ -51,21 +57,21 @@ public sealed class ListenPortPool : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         _allocator.Dispose();
-        _disposed = true;
     }
 
-    private static string FormatLoopbackHttps(int port) =>
-        string.Create(CultureInfo.InvariantCulture, $"https://127.0.0.1:{port}");
+    /// <summary>Builds a pool over an explicit inclusive port range (used for per-process shared-region slices).</summary>
+    /// <param name="startInclusive">Inclusive lower bound of the port range.</param>
+    /// <param name="endInclusive">Inclusive upper bound of the port range.</param>
+    /// <returns>A port pool backed by the given range.</returns>
+    internal static ListenPortPool ForRange(int startInclusive, int endInclusive) => new(startInclusive, endInclusive);
+
+    private static string FormatLoopbackHttps(int port) => string.Create(CultureInfo.InvariantCulture, $"https://127.0.0.1:{port}");
 
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    private string NextHttpAddress()
-    {
-        var port = AllocatePort();
-        return FormatLoopbackHttps(port);
-    }
+    private string NextHttpAddress() => FormatLoopbackHttps(AllocatePort());
 }
