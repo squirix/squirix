@@ -1228,13 +1228,7 @@ jobs:
                     sudo apt-get install -y pvs-studio-dotnet
 
             -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            -   name: Build in-repo analyzers
-                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
-
-            -   name: Build
-                run: dotnet build squirix.slnx --configuration Release --no-restore
+                run: dotnet restore src/squirix/Squirix.csproj src/squirix.server/Squirix.Server.csproj src/squirix.server.host/Squirix.Server.Host.csproj src/squirix.protocol-model/Squirix.ProtocolModel.csproj src/squirix.analyzers/Squirix.Analyzers.csproj
 
             -   name: Configure PVS-Studio License
                 shell: bash
@@ -1255,7 +1249,11 @@ jobs:
                     echo "report=false" >> "$GITHUB_OUTPUT"
                     exit_code=0
                     pvs-studio-dotnet \
-                      -t squirix.slnx \
+                      -t src/squirix/Squirix.csproj \
+                      -t src/squirix.server/Squirix.Server.csproj \
+                      -t src/squirix.server.host/Squirix.Server.Host.csproj \
+                      -t src/squirix.protocol-model/Squirix.ProtocolModel.csproj \
+                      -t src/squirix.analyzers/Squirix.Analyzers.csproj \
                       -o pvs-studio-out/pvs-studio-report.json \
                       -c Release \
                       -C .pvsconfig \
