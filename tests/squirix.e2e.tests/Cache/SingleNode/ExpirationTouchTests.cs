@@ -82,27 +82,36 @@ public sealed class ExpirationTouchTests : TestBase
         Assert.Equal("v", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>Verifies TouchAsync extends expiration for an existing public cache entry.</summary>
+    /// <summary>
+    /// Verifies TouchAsync refreshes the expiration of an entry inserted with an absolute ExpiresAt through the public API.
+    /// The absolute deadline is set safely in the future so the key is still live when the touch runs, even under full-suite load
+    /// where the SetAsync round-trip can be slow.
+    /// </summary>
     [Fact]
     public async Task TouchAsyncExtendsExpirationThroughPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra", DefaultCancellationToken);
-        var originalExpiresUtc = DateTime.UtcNow.AddSeconds(1);
-        await cache.SetAsync(
-            "k",
-            "v",
-            new CacheEntryOptions
-            {
-                ExpiresAt = new DateTimeOffset(originalExpiresUtc, TimeSpan.Zero),
-            },
-            DefaultCancellationToken);
+
+        // Absolute deadline well beyond the SetAsync round-trip so the key cannot expire before the touch,
+        // even when the full e2e suite runs concurrently and RPCs are slow.
+        var originalExpiresUtc = DateTime.UtcNow.AddSeconds(30);
+        var cacheEntryOptions = new CacheEntryOptions
+        {
+            ExpiresAt = new DateTimeOffset(originalExpiresUtc, TimeSpan.Zero),
+        };
+        await cache.SetAsync("k", "v", cacheEntryOptions, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken);
         Assert.True(await cache.TouchAsync("k", TimeSpan.FromSeconds(2), DefaultCancellationToken));
 
-        var touched = await cache.GetEntryAsync("k", DefaultCancellationToken);
-        Assert.True(touched.Found);
-        Assert.Equal("v", touched.Value);
-        Assert.True(touched.ExpiresUtc > originalExpiresUtc);
+        var expiration = await cache.GetExpirationAsync("k", DefaultCancellationToken);
+        Assert.True(expiration.Found);
+        Assert.True(expiration.HasExpiration);
+        Assert.True(expiration > TimeSpan.Zero);
+        Assert.True(expiration <= TimeSpan.FromSeconds(3));
+
+        var value = await cache.GetValueAsync("k", DefaultCancellationToken);
+        Assert.True(value.Found);
+        Assert.Equal("v", value.Value);
     }
 
     /// <summary>Verifies TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
