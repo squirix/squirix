@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
@@ -35,7 +36,19 @@ internal static class StoreTestSupport
         return Pointer.Read(pointerBytes);
     }
 
-    internal static async Task WaitUntilAsync<T>(T state, Func<T, bool> condition, TimeSpan timeout, CancellationToken cancellationToken)
+    internal static void ThrowIfFaulted(Exception? error)
+    {
+        if (error != null)
+            ExceptionDispatchInfo.Capture(error).Throw();
+    }
+
+    internal static Task WaitUntilAsync<T>(T state, Func<T, bool> condition, CancellationToken cancellationToken) =>
+        WaitUntilAsync(state, condition, TimeSpan.FromSeconds(5), cancellationToken);
+
+    internal static Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, CancellationToken cancellationToken) =>
+        WaitUntilAsync(state, condition, TimeSpan.FromSeconds(5), cancellationToken);
+
+    private static async Task WaitUntilAsync<T>(T state, Func<T, bool> condition, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(condition);
 
@@ -49,7 +62,7 @@ internal static class StoreTestSupport
         }
     }
 
-    internal static async Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, TimeSpan timeout, CancellationToken cancellationToken)
+    private static async Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(condition);
 
@@ -60,12 +73,12 @@ internal static class StoreTestSupport
             if (remainingMs <= 0)
                 throw new TimeoutException("Timed out waiting for manifest retention side effects.");
 
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            linkedCts.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
+            using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            source.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
 
             try
             {
-                var satisfied = await condition(state, linkedCts.Token).ConfigureAwait(false);
+                var satisfied = await condition(state, source.Token).ConfigureAwait(false);
                 if (satisfied)
                     return;
             }

@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Attributes;
 using Squirix.Server.Storage;
@@ -32,10 +33,10 @@ public class ManifestPublishBreakdownBenchmarks
 
     /// <summary>Creates a warmed manifest session for the current parameter set.</summary>
     [GlobalSetup]
-    public void GlobalSetup()
+    public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = ManifestBenchmarkSupport.ResolvePublishOperationsPerInvoke();
-        _session = Session.Create();
+        _session = await Session.CreateAsync().ConfigureAwait(false);
         ResetFileIndex();
         _nextJournal = 2;
         _nextSequence = 2;
@@ -44,12 +45,26 @@ public class ManifestPublishBreakdownBenchmarks
     /// <summary>Full production roll publish path via manifest store roll blocking API.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
-    public void PublishRollBlocking()
+    public Task PublishRollBlockingAsync()
     {
         var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         for (var i = 0; i < operations; i++)
-            session.Ledger.PublishRollBlocking(_nextJournal++, _nextSequence++);
+            session.Ledger.EnqueueRoll(_nextJournal++, _nextSequence++, i == operations - 1 ? OnSuccess : static () => { }, OnFailure);
+
+        return completion.Task;
+
+        void OnFailure(Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+
+        void OnSuccess()
+        {
+            completion.TrySetResult();
+        }
     }
 
     /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
@@ -139,7 +154,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         /// <summary>Creates a warmed manifest session with primed in-memory cache.</summary>
         /// <returns>A session ready for breakdown benchmarks.</returns>
-        internal static Session Create()
+        internal static async Task<Session> CreateAsync()
         {
             var dataDir = new TempDirectory("manifest-breakdown");
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
@@ -150,7 +165,9 @@ public class ManifestPublishBreakdownBenchmarks
                 SnapshotRetentionCount = retention,
             };
             var store = new Ledger(options);
-            store.PublishRollBlocking(1, 1);
+            var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            store.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
+            await warmup.Task.ConfigureAwait(false);
 
             var encodeBuffer = new byte[EncodeBufferSize];
             var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);

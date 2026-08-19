@@ -11,8 +11,15 @@ namespace Squirix.Server.Threading;
 internal sealed class AsyncLock : IDisposable
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private int _released;
 
-    public void Dispose() => _semaphore.Dispose();
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _released, 1) == 1)
+            return;
+
+        _semaphore.Dispose();
+    }
 
     internal async ValueTask<AsyncLockHolder> LockAsync(CancellationToken cancellationToken = default)
     {

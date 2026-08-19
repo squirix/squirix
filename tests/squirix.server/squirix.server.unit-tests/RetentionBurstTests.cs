@@ -31,37 +31,44 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             ManifestRetentionCount = 32,
         };
 
-        var store = new Ledger(options);
-        try
+        using var store = new Ledger(options);
+        using (var seeder = new Ledger(options))
         {
-            using (var seeder = new Ledger(options))
+            for (var i = 1; i <= 5; i++)
             {
-                for (var i = 1; i <= 5; i++)
+                var state = new State
                 {
-                    var state = new State
-                    {
-                        Format = 1,
-                        CurrentJournal = i,
-                        NextSequence = Convert.ToUInt64(i),
-                        LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow, Path = new string('x', 65000) } : null,
-                    };
-                    await seeder.WriteAsync(state, DefaultCancellationToken);
-                }
+                    Format = 1,
+                    CurrentJournal = i,
+                    NextSequence = Convert.ToUInt64(i),
+                    LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow, Path = new string('x', 65000) } : null,
+                };
+                await seeder.WriteAsync(state, DefaultCancellationToken);
             }
-
-            var read = store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-            for (var i = 6; i <= 20; i++)
-                store.PublishRollBlocking(i, Convert.ToUInt64(i));
-
-            _ = await read;
-
-            var finalState = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-            Assert.Equal(20, finalState.CurrentJournal);
-            Assert.Equal(20, await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, DefaultCancellationToken));
         }
-        finally
+
+        var read = store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        Exception? rollError = null;
+        for (var i = 6; i <= 20; i++)
+            store.EnqueueRoll(i, Convert.ToUInt64(i), static () => { }, OnRollFailed);
+
+        await StoreTestSupport.WaitUntilAsync(
+            store,
+            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
+            DefaultCancellationToken);
+
+        StoreTestSupport.ThrowIfFaulted(rollError);
+
+        _ = await read;
+
+        var finalState = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        Assert.Equal(20, finalState.CurrentJournal);
+        Assert.Equal(20, await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, DefaultCancellationToken));
+        return;
+
+        void OnRollFailed(Exception ex)
         {
-            store.Dispose();
+            rollError = ex;
         }
     }
 
@@ -75,23 +82,19 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             DataDir = dir.Path,
             ManifestRetentionCount = 2,
         };
-        var store = new Ledger(options);
-        try
-        {
-            for (var i = 1; i <= 20; i++)
-                store.PublishRollBlocking(i, Convert.ToUInt64(i));
+        using var store = new Ledger(options);
+        Exception? rollError = null;
+        Action<Exception> onRollFailed = ex => rollError = ex;
+        for (var i = 1; i <= 20; i++)
+            store.EnqueueRoll(i, Convert.ToUInt64(i), static () => { }, onRollFailed);
 
-            await StoreTestSupport.WaitUntilAsync(
-                store,
-                static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
-                TimeSpan.FromSeconds(5),
-                DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(
+            store,
+            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
+            DefaultCancellationToken);
 
-            Assert.True(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20))));
-        }
-        finally
-        {
-            store.Dispose();
-        }
+        StoreTestSupport.ThrowIfFaulted(rollError);
+
+        Assert.True(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20))));
     }
 }

@@ -42,17 +42,28 @@ public class ManifestPublishBenchmarks
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.
-        _host.Ledger.PublishRollBlocking(1, _nextSequence++);
+        // Await the durable publish so the warmup reflects finished work.
+        var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _host.Ledger.EnqueueRoll(1, _nextSequence++, () => warmup.TrySetResult(), ex => warmup.TrySetException(ex));
+        await warmup.Task.ConfigureAwait(false);
     }
 
     /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark]
-    public void PublishManifest()
+    public Task PublishManifestAsync()
     {
         var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Action onSuccess = () => completion.TrySetResult();
+        Action<Exception> onFailure = ex => completion.TrySetException(ex);
         for (var journal = 1; journal <= _operationsPerInvoke; journal++)
-            host.Ledger.PublishRollBlocking(journal, _nextSequence++);
+        {
+            var isFinal = journal == _operationsPerInvoke;
+            host.Ledger.EnqueueRoll(journal, _nextSequence++, isFinal ? onSuccess : static () => { }, onFailure);
+        }
+
+        return completion.Task;
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>

@@ -29,25 +29,16 @@ internal sealed class Ledger : IDisposable
         IManifestRetentionFailureMetrics? failureMetrics = null,
         IStorageFileOperations? fileOperations = null)
     {
-        var dataDir = options.DataDir;
-        _currentPath = PathEx.Combine(dataDir, $"{FilePrefixes.Manifest}current");
-        _allocator = new IndexAllocator(
-            dataDir,
-            _currentPath,
-            PathEx.Combine(dataDir, FilePrefixes.Manifest),
-            $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}",
-            ReadCurrentIndexForInit);
-        _publisher = new Publisher(dataDir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
-        var retentionContext = new RetentionContext(
-            new RetentionSettings(
-                dataDir,
-                options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
-                options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
-                $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}"),
-            fileOperations,
-            logger,
-            IndexAllocator.ParseManifestIndex,
-            failureMetrics ?? NoOpManifestRetentionFailureMetrics.Instance);
+        var dir = options.DataDir;
+        _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
+        _allocator = new IndexAllocator(dir, _currentPath, PathEx.Combine(dir, FilePrefixes.Manifest), $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}", ReadCurrentIndex);
+        _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
+        var retentionSettings = new RetentionSettings(
+            dir,
+            options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
+            options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
+            $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}");
+        var retentionContext = new RetentionContext(retentionSettings, fileOperations, logger, IndexAllocator.ParseManifestIndex, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
     }
 
@@ -61,12 +52,12 @@ internal sealed class Ledger : IDisposable
         _disposed = true;
     }
 
-    internal void PublishRollBlocking(int currentJournal, ulong nextSequence)
-    {
-        var nextIndex = _allocator.AllocateNextManifestIndex();
-        var manifest = _publisher.PublishRollCoreBlocking(currentJournal, nextSequence, nextIndex);
-        _retentionWorker.ScheduleRetentionCleanup(manifest);
-    }
+    internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed) => _publisher.EnqueueRoll(
+        currentJournal,
+        nextSequence,
+        onSuccess,
+        onRollFailed,
+        _retentionWorker.ScheduleRetentionCleanup);
 
     internal async Task<State> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
     {
@@ -81,8 +72,7 @@ internal sealed class Ledger : IDisposable
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
-        var nextIndex = _allocator.IncrementNextManifestIndex();
-        await _publisher.PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
+        await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
         _retentionWorker.ScheduleRetentionCleanup(manifest);
     }
 
@@ -102,7 +92,7 @@ internal sealed class Ledger : IDisposable
         return TryGetCachedCurrent(out var current) ? current : manifest;
     }
 
-    private int? ReadCurrentIndexForInit()
+    private int? ReadCurrentIndex()
     {
         lock (_cacheSync)
             return _index.IsInitialized ? _index.CurrentIndex : null;
@@ -164,114 +154,55 @@ internal sealed class Ledger : IDisposable
         }
     }
 
-    [Immutable]
-    private sealed class NoOpManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
-    {
-        internal static NoOpManifestRetentionFailureMetrics Instance { get; } = new();
-
-        public void RecordDeleteFailure(string artifactKind, string outcome)
-        {
-            _ = artifactKind;
-            _ = outcome;
-        }
-    }
-
-    private sealed class Publisher : IDisposable, IWorkPoolItem
+    private sealed class Publisher : IDisposable
     {
         private const int DefaultEncodeBufferCapacity = 256;
 
         private readonly IndexAllocator _allocator;
         private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
+
         private readonly PersistentPointerWriter _currentPointerWriter;
 
-        private readonly string _dataDir;
-        private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _readRollBaselineLocked;
+        private readonly string _dir;
+        private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _rbl;
         private readonly Action<State, int> _setCache;
-        private bool _dataDirEnsured;
+        private readonly SingleConsumerWorker<WorkItemBase> _worker;
+        private bool _dirCreated;
         private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
-        private PublishWork? _publishWork;
 
-        internal Publisher(
-            string dataDir,
-            string currentPath,
-            IndexAllocator allocator,
-            Action<State, int> setCache,
-            Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> readRollBaselineLocked)
+        internal Publisher(string dir, string path, IndexAllocator allocator, Action<State, int> setCache, Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             _allocator = allocator;
             _setCache = setCache;
-            _readRollBaselineLocked = readRollBaselineLocked;
-            _currentPointerWriter = new PersistentPointerWriter(currentPath);
+            _rbl = rbl;
+            _currentPointerWriter = new PersistentPointerWriter(path);
+            _worker = new SingleConsumerWorker<WorkItemBase>(work => work.Execute(this), static (work, ex) => work.OnFailure?.Invoke(ex));
         }
 
-        public void Dispose() => _currentPointerWriter.Dispose();
-
-        void IWorkPoolItem.Execute()
+        public void Dispose()
         {
-            if (_publishWork is not { } publishWork)
-                throw new InvalidOperationException("Publish work was not initialized.");
-
-            FileDurability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
-            UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
+            _worker.Dispose();
+            _currentPointerWriter.Dispose();
         }
+
+        internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
+            _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });
 
         internal async Task EnsureDataDirectoryExistsAsync(CancellationToken cancellationToken)
         {
-            if (_dataDirEnsured)
+            if (_dirCreated)
                 return;
 
-            _ = await DirectoryEx.CreateDirectoryAsync(_dataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
-            _dataDirEnsured = true;
+            _ = await DirectoryEx.CreateDirectoryAsync(_dir, cancellationToken: cancellationToken).ConfigureAwait(false);
+            _dirCreated = true;
         }
 
-        internal async Task PublishCoreAsync(State manifest, int nextIndex, CancellationToken cancellationToken)
+        internal async Task PublishAsync(State manifest, CancellationToken cancellationToken)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
-
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
             var encodedLength = FileCodec.ComputeEncodedLength(manifest);
-            EnsureEncodeBufferCapacity(encodedLength);
-
-            FileCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
-
-            _publishWork = new PublishWork(targetPath, encodedLength, nextIndex);
-
-            await WorkPool.RunAsync(this, cancellationToken).ConfigureAwait(false);
-
-            _setCache(manifest, nextIndex);
-        }
-
-        internal State PublishRollCoreBlocking(int currentJournal, ulong nextSequence, int nextIndex)
-        {
-            if (!_dataDirEnsured)
-            {
-                _ = Directory.CreateDirectory(_dataDir);
-                _dataDirEnsured = true;
-            }
-
-            var (previous, snapshotPathUtf8) = _readRollBaselineLocked();
-            var format = previous.Format == 0 ? 1 : previous.Format;
-            var snapshot = previous.LastSnapshot;
-
-            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
-            EnsureEncodeBufferCapacity(encodedLength);
-
-            _ = FileCodec.WriteRollEncoded(format, currentJournal, nextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
-
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            Pointer.Write(_currentPointerBuffer, nextIndex);
-            FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
-
-            var manifest = new State
-            {
-                Format = format,
-                CurrentJournal = currentJournal,
-                NextSequence = nextSequence,
-                LastSnapshot = snapshot,
-            };
-            _setCache(manifest, nextIndex);
-            return manifest;
+            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength)).ConfigureAwait(false);
         }
 
         private void EnsureEncodeBufferCapacity(int encodedLength)
@@ -282,13 +213,95 @@ internal sealed class Ledger : IDisposable
             _encodeBuffer = new byte[Math.Max(encodedLength, _encodeBuffer.Length * 2)];
         }
 
-        private void UpdateCurrentPointerBlocking(int manifestIndex)
+        private void Process(RollItem rollItem)
         {
-            Pointer.Write(_currentPointerBuffer, manifestIndex);
+            if (!_dirCreated)
+            {
+                _ = Directory.CreateDirectory(_dir);
+                _dirCreated = true;
+            }
+
+            var nextIndex = _allocator.AllocateNextManifestIndex();
+            var (previous, snapshotPathUtf8) = _rbl();
+            var format = previous.Format == 0 ? 1 : previous.Format;
+            var snapshot = previous.LastSnapshot;
+
+            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
+            EnsureEncodeBufferCapacity(encodedLength);
+            _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
+
+            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
+            Pointer.Write(_currentPointerBuffer, nextIndex);
+            FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
+
+            var manifest = new State
+            {
+                Format = format,
+                CurrentJournal = rollItem.CurrentJournal,
+                NextSequence = rollItem.NextSequence,
+                LastSnapshot = snapshot,
+            };
+            _setCache(manifest, nextIndex);
+            rollItem.OnSuccess?.Invoke();
+            rollItem.OnCommitted?.Invoke(manifest);
+        }
+
+        private void Process(WriteItem work)
+        {
+            var nextIndex = _allocator.AllocateNextManifestIndex();
+            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
+            EnsureEncodeBufferCapacity(work.EncodedLength);
+            FileCodec.WriteEncoded(work.Manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
+            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, work.EncodedLength));
+            Pointer.Write(_currentPointerBuffer, nextIndex);
             FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
+            _setCache(work.Manifest, nextIndex);
         }
 
         [Immutable]
-        private sealed record PublishWork(string TargetPath, int EncodedLength, int ManifestIndex);
+        private abstract class WorkItemBase
+        {
+            internal Action<Exception>? OnFailure { get; init; }
+
+            internal abstract void Execute(Publisher publisher);
+        }
+
+        [Immutable]
+        private sealed class RollItem : WorkItemBase
+        {
+            internal RollItem(int currentJournal, ulong nextSequence, Action? onSuccess, Action<State>? onCommitted)
+            {
+                CurrentJournal = currentJournal;
+                NextSequence = nextSequence;
+                OnSuccess = onSuccess;
+                OnCommitted = onCommitted;
+            }
+
+            internal int CurrentJournal { get; }
+
+            internal ulong NextSequence { get; }
+
+            internal Action<State>? OnCommitted { get; }
+
+            internal Action? OnSuccess { get; }
+
+            internal override void Execute(Publisher publisher) => publisher.Process(this);
+        }
+
+        [Immutable]
+        private sealed class WriteItem : WorkItemBase
+        {
+            internal WriteItem(State manifest, int encodedLength)
+            {
+                Manifest = manifest;
+                EncodedLength = encodedLength;
+            }
+
+            internal State Manifest { get; }
+
+            internal int EncodedLength { get; }
+
+            internal override void Execute(Publisher publisher) => publisher.Process(this);
+        }
     }
 }

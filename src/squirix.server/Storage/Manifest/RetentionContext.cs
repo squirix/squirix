@@ -14,10 +14,9 @@ internal sealed record RetentionContext
         IStorageFileOperations? fileOperations,
         ILogger? logger,
         Func<string, int> parseManifestIndex,
-        IManifestRetentionFailureMetrics failureMetrics)
+        IManifestRetentionFailureMetrics? failureMetrics = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(failureMetrics);
         DataDir = settings.DataDir;
         ManifestRetention = settings.ManifestRetention;
         SnapshotRetention = settings.SnapshotRetention;
@@ -25,7 +24,7 @@ internal sealed record RetentionContext
         Logger = logger;
         ManifestFileGlob = settings.ManifestFileGlob;
         ParseManifestIndex = parseManifestIndex;
-        FailureMetrics = failureMetrics;
+        FailureMetrics = failureMetrics ?? NoOpManifestRetentionFailureMetrics.Instance;
     }
 
     internal string DataDir { get; }
@@ -43,4 +42,16 @@ internal sealed record RetentionContext
     internal Func<string, int> ParseManifestIndex { get; }
 
     internal int SnapshotRetention { get; }
+
+    [Immutable]
+    private sealed class NoOpManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
+    {
+        internal static NoOpManifestRetentionFailureMetrics Instance { get; } = new();
+
+        public void RecordDeleteFailure(string artifactKind, string outcome)
+        {
+            _ = artifactKind;
+            _ = outcome;
+        }
+    }
 }

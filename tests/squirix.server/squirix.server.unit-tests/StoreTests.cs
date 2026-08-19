@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -18,16 +20,30 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
     [Fact]
-    public async Task PublishRollBlockingIncrementsIndexWithoutDiskRead()
+    public async Task EnqueueRollAdvancesCurrentPointerSequentially()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new Ledger(options);
+        await RollAsync();
+        using var reloaded = new Ledger(options);
+        Assert.Equal(2, (await reloaded.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        return;
 
-        store.PublishRollBlocking(1, 1);
-        store.PublishRollBlocking(2, 2);
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
 
-        var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
-        Assert.Equal(2, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        async Task RollAsync()
+        {
+            using var store = new Ledger(options);
+            Exception? rollError = null;
+            store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
+            store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
+
+            await StoreTestSupport.WaitUntilAsync(store, (Func<Ledger, CancellationToken, ValueTask<bool>>)ConditionAsync, DefaultCancellationToken);
+            StoreTestSupport.ThrowIfFaulted(rollError);
+            Assert.Equal(2, (await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        }
     }
 
     /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>

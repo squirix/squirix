@@ -49,7 +49,6 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         await StoreTestSupport.WaitUntilAsync(
             staleJournalPaths,
             static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
-            TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
@@ -87,7 +86,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await StoreTestSupport.WaitUntilAsync(staleSnapshotPath, static path => !FileKit.Exists(path), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(staleSnapshotPath, static path => !FileKit.Exists(path), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));

@@ -31,11 +31,11 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
-        using var manifestStore = new Ledger(options);
+        using var ledger = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
             new JournalStartupGate(),
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
@@ -49,21 +49,24 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         var segmentOnePath = SegmentPath(dir, 1);
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-        await BlockNextManifestWriteAsync(manifestStore, dir);
-        var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
+        Exception? rollError = null;
+        ledger.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
+        await StoreTestSupport.WaitUntilAsync(
+            ledger,
+            static async (l, ct) => (await l.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).NextSequence == 1,
+            DefaultCancellationToken);
+        StoreTestSupport.ThrowIfFaulted(rollError);
+
+        await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
+        var block = CountManifestDataFiles(dir);
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
-        var deadline = Environment.TickCount64 + 5_000;
-        while (!journal.HasFlushLoopFailure && Environment.TickCount64 < deadline)
-            await Task.Delay(10, DefaultCancellationToken);
-
+        await StoreTestSupport.WaitUntilAsync(pipelined, static j => j.HasFlushLoopFailure, DefaultCancellationToken);
         Assert.True(journal.HasFlushLoopFailure);
-
         Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
-        Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));
+        Assert.Equal(block, CountManifestDataFiles(dir));
         Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
-        if (File.Exists(SegmentPath(dir, 2)))
-            Assert.False(ContainsPutKey(dir, 2, "overflow-key"));
+        Assert.False(ContainsPutKey(dir, 2, "overflow-key"));
     }
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
@@ -90,21 +93,17 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(
-            manifestStore,
-            static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2,
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(manifestStore, (Func<Ledger, CancellationToken, ValueTask<bool>>)ConditionAsync, DefaultCancellationToken);
 
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
         Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
-    }
+        return;
 
-    private static Task BlockNextManifestWriteAsync(Ledger manifestStore, string dataDir)
-    {
-        manifestStore.PublishRollBlocking(1, 1);
-        return File.WriteAllTextAsync(NodePathKit.Combine(dataDir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
     }
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
