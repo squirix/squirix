@@ -13,7 +13,7 @@ public static class LoopbackHttp
     /// <summary>
     /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
     /// On developer machines this expects a trusted ASP.NET Core HTTPS development certificate
-    /// (<c>dotnet dev-certs https --trust</c>). On macOS CI interactive trust is unavailable;
+    /// (<c>dotnet dev-certs https --trust</c>). On Windows/macOS CI, interactive trust is unavailable;
     /// set <c>SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1</c> (see <c>tools/ci/ensure-dev-https-cert.sh</c>).
     /// </summary>
     /// <returns>A handler suitable for loopback HTTPS gRPC clients.</returns>
