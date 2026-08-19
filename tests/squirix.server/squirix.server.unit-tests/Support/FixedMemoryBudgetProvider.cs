@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.UnitTests.Support;

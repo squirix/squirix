@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.Options;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;

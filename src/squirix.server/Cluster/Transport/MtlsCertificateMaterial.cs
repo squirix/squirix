@@ -1,6 +1,6 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 

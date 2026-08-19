@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

@@ -8,7 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;

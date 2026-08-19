@@ -5,7 +5,7 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Utils;

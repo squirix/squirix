@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;

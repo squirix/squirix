@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 

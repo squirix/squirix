@@ -1,6 +1,6 @@
 using System.Text;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.IO;

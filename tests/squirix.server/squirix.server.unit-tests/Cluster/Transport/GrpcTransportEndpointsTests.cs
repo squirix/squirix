@@ -2,7 +2,7 @@ using System;
 using System.Net.Http;
 using System.Net.Security;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;

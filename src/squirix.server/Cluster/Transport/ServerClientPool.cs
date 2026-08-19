@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc.Cache;

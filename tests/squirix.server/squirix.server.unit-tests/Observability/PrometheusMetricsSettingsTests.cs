@@ -1,5 +1,5 @@
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.IO;
 using Xunit;

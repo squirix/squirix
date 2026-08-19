@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 

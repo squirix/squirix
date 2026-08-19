@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 

@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Benchmarks;

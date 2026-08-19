@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 

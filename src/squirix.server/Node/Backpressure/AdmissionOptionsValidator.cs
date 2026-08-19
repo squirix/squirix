@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 

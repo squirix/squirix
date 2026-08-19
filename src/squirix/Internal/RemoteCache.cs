@@ -295,7 +295,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {
-            if (options?.Expiration != null && options.ExpiresAt != null)
+            if (options is { Expiration: not null, ExpiresAt: not null })
                 throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
 
             return new CacheEntry<T>

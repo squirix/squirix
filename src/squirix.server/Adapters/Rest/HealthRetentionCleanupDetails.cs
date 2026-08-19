@@ -1,6 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Adapters.Rest;
 

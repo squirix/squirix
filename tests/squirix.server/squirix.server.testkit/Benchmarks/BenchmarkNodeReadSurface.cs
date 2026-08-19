@@ -2,8 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
 using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Attributes;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 

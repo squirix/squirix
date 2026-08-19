@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Squirix.Attributes;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

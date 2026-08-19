@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit;
 

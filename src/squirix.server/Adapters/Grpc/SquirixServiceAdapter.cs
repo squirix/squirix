@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;

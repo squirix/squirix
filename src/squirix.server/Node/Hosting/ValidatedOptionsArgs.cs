@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;

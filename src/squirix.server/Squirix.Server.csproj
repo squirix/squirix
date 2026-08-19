@@ -37,7 +37,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\squirix.attributes\Squirix.Attributes.csproj"/>
         <FrameworkReference Include="Microsoft.AspNetCore.App"/>
     </ItemGroup>
 

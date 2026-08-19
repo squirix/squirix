@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;

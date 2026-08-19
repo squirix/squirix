@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
 

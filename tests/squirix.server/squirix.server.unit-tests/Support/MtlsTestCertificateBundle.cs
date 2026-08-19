@@ -3,7 +3,7 @@ using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Support;

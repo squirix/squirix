@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster;
 

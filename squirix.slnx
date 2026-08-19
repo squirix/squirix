@@ -6,7 +6,6 @@
     </Configurations>
     <Folder Name="/src/">
         <Project Path="src/squirix.analyzers/Squirix.Analyzers.csproj"/>
-        <Project Path="src/squirix.attributes/Squirix.Attributes.csproj"/>
         <Project Path="src/squirix.protocol-model/Squirix.ProtocolModel.csproj"/>
         <Project Path="src/squirix.server.host/Squirix.Server.Host.csproj"/>
         <Project Path="src/squirix.server/Squirix.Server.csproj"/>

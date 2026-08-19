@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;

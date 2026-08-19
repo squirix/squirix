@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;

@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -11,6 +11,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
+[Mutable]
 internal sealed class Ledger : IDisposable
 {
     private readonly IndexAllocator _allocator;

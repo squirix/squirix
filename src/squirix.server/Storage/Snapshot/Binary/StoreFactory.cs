@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;

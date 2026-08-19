@@ -1,6 +1,6 @@
 using System;
 using System.Globalization;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;

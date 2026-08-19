@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;

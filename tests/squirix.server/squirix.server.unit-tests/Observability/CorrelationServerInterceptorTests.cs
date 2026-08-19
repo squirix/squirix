@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

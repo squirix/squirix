@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Xunit;

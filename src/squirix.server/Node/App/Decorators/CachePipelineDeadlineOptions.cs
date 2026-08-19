@@ -1,6 +1,6 @@
 using System;
 using JetBrains.Annotations;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.App.Decorators;
 

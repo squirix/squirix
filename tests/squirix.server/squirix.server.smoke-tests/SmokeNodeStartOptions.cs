@@ -1,7 +1,7 @@
 using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.Hosting;

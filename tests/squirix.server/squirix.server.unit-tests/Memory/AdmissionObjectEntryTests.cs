@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;

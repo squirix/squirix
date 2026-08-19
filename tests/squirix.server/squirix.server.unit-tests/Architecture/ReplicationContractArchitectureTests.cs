@@ -1,8 +1,8 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Squirix.Attributes;
 using Squirix.Server.Adapters.Grpc.Replication;
+using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 

@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 

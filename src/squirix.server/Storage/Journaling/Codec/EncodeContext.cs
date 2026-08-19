@@ -1,6 +1,6 @@
 using System;
 using System.Text;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 

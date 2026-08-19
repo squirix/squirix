@@ -1,5 +1,5 @@
 using System;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.MemoryPressure;

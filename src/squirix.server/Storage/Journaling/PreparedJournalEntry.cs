@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 

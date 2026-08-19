@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;

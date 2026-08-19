@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;

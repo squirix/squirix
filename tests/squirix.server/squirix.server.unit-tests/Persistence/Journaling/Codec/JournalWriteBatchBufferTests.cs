@@ -1,5 +1,5 @@
 using System;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Xunit;

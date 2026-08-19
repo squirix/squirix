@@ -2,7 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Core;
 

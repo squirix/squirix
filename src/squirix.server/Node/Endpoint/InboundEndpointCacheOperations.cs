@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;

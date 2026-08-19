@@ -1,5 +1,5 @@
 using System.Diagnostics.Metrics;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Observability;

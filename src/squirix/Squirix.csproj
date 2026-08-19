@@ -38,6 +38,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\squirix.attributes\Squirix.Attributes.csproj" />
+        <Compile Include="..\squirix.attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
+        <Compile Include="..\squirix.attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
     </ItemGroup>
 </Project>

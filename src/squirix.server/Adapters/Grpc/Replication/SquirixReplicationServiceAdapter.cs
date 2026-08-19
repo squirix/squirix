@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;

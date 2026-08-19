@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using Google.Protobuf;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Snapshot;

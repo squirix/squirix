@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Frozen;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;

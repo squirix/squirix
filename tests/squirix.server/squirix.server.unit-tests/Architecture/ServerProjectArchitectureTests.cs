@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -143,16 +143,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
                 StringComparer.Ordinal));
 
         Assert.Contains(frameworkIncludes, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
-    }
-
-    /// <summary>Ensures the server project references the attributes project exactly once.</summary>
-    [Fact]
-    public void ServerProjectReferencesAttributesProjectOnce()
-    {
-        var projectReferences = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("ProjectReference");
-        Assert.NotNull(projectReferences);
-
-        _ = Assert.Single(projectReferences, static include => include.Equals(@"..\squirix.attributes\Squirix.Attributes.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
