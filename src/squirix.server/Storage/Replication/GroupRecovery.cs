@@ -19,15 +19,15 @@ namespace Squirix.Server.Storage.Replication;
 internal sealed class GroupRecovery : IAsyncDisposable
 {
     private readonly GroupComposition _composition;
-    private readonly string _persistenceRoot;
     private readonly Lock _gate = new();
+    private readonly string _persistenceRoot;
+    private int _disposed;
 
     /// <summary>
     /// The open follower logs are published as an immutable snapshot so readers observe a fully-built map and never a
     /// partially-populated one while <see cref="RecoverAllAsync" /> / <see cref="CloseLogsAsync" /> swap the collection.
     /// </summary>
     private IReadOnlyDictionary<string, IFollowerLog> _logs = new Dictionary<string, IFollowerLog>(StringComparer.Ordinal);
-    private bool _disposed;
 
     internal GroupRecovery(string persistenceRoot, GroupComposition composition)
     {
@@ -38,10 +38,9 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (Volatile.Read(ref _disposed))
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        Volatile.Write(ref _disposed, true);
         await CloseLogsAsync().ConfigureAwait(false);
     }
 
@@ -63,7 +62,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <exception cref="ObjectDisposedException">Thrown when the coordinator is already disposed.</exception>
     internal async Task RecoverAllAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed), this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
         // A re-recovery replaces the currently open logs, so the previous set is closed first.
         await CloseLogsAsync().ConfigureAwait(false);
@@ -79,6 +78,21 @@ internal sealed class GroupRecovery : IAsyncDisposable
         foreach (var log in opened)
             await log.DisposeAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Disposes and forgets every currently open follower log.</summary>
+    /// <returns>A task that completes when all open logs are disposed.</returns>
+    private async Task CloseLogsAsync()
+    {
+        var previous = Volatile.Read(ref _logs);
+        Volatile.Write(ref _logs, new Dictionary<string, IFollowerLog>(StringComparer.Ordinal));
+        foreach (var log in previous.Values)
+            await log.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>A follower log for the group.</returns>
+    private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition);
 
     /// <summary>Opens and recovers every group log in the composition, disposing the already-opened set on failure.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -113,7 +127,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
         lock (_gate)
         {
             // The coordinator was disposed while the logs were being opened, so nothing may be published.
-            if (Volatile.Read(ref _disposed))
+            if (Volatile.Read(ref _disposed) != 0)
                 return ValueTask.FromResult(false);
 
             var snapshot = new Dictionary<string, IFollowerLog>(opened.Count, StringComparer.Ordinal);
@@ -123,19 +137,4 @@ internal sealed class GroupRecovery : IAsyncDisposable
             return ValueTask.FromResult(true);
         }
     }
-
-    /// <summary>Disposes and forgets every currently open follower log.</summary>
-    /// <returns>A task that completes when all open logs are disposed.</returns>
-    private async Task CloseLogsAsync()
-    {
-        var previous = Volatile.Read(ref _logs);
-        Volatile.Write(ref _logs, new Dictionary<string, IFollowerLog>(StringComparer.Ordinal));
-        foreach (var log in previous.Values)
-            await log.DisposeAsync().ConfigureAwait(false);
-    }
-
-    /// <summary>Opens a follower log for <paramref name="groupId" /> without materializing storage yet.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <returns>A follower log for the group.</returns>
-    private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition);
 }

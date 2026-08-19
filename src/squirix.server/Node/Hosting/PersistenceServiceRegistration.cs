@@ -137,7 +137,7 @@ internal static class PersistenceServiceRegistration
     /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
     private sealed class PersistenceRuntime : IDisposable
     {
-        private bool _disposed;
+        private int _disposed;
 
         private PersistenceRuntime(PersistenceOptions persistence)
         {
@@ -158,11 +158,10 @@ internal static class PersistenceServiceRegistration
         /// <inheritdoc />
         public void Dispose()
         {
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
             Ledger.Dispose();
-            _disposed = true;
         }
 
         internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)

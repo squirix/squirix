@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -16,10 +15,10 @@ public sealed class PortAllocator : IDisposable
     /// <summary>Process-wide reservation to avoid duplicates between allocators inside one process.</summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
 
-    private readonly List<int> _allocatedPorts = [];
+    private readonly ConcurrentBag<int> _allocatedPorts = [];
     private readonly int _rangeSize;
     private readonly int _start;
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>Rolling cursor.</summary>
     private int _next;
@@ -27,16 +26,16 @@ public sealed class PortAllocator : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="PortAllocator" /> class.
     /// </summary>
-    /// <param name="startPort">Inclusive lower bound of the port range (1–65535).</param>
-    /// <param name="endPortInclusive">Inclusive upper bound of the port range (1–65535).</param>
+    /// <param name="startPort">Inclusive lower bound of the port range (1–65,535).</param>
+    /// <param name="endPortInclusive">Inclusive upper bound of the port range (1–65,535).</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown if either <paramref name="startPort" /> or <paramref name="endPortInclusive" /> is outside 1–65535.
+    /// Thrown if either <paramref name="startPort" /> or <paramref name="endPortInclusive" /> is outside 1–65,535.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// Thrown if <paramref name="endPortInclusive" /> is less than <paramref name="startPort" />.
     /// </exception>
     /// <remarks>
-    /// The allocator will hand out ports within <c>[startPort, endPortInclusive]</c> on subsequent allocation calls.
+    /// The allocator will hand out ports within <c>[startPort, endPortInclusive]</c> on later allocation calls.
     /// This constructor only validates numeric bounds; it does not probe the OS for port availability.
     /// </remarks>
     public PortAllocator(int startPort, int endPortInclusive)
@@ -83,7 +82,7 @@ public sealed class PortAllocator : IDisposable
     /// </example>
     public int Allocate(int maxAttempts = 3_000)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
@@ -110,14 +109,13 @@ public sealed class PortAllocator : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        for (var i = 0; i < _allocatedPorts.Count; i++)
-            _ = Reserved.TryRemove(_allocatedPorts[i], out _);
+        foreach (var port in _allocatedPorts)
+            _ = Reserved.TryRemove(port, out _);
 
         _allocatedPorts.Clear();
-        _disposed = true;
     }
 
     private static int CreateProcessOffset()

@@ -21,7 +21,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private readonly SemaphoreSlim _semaphore;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
-    private bool _disposed;
+    private int _disposed;
     private bool _semaphoreDisposed;
 
     internal ServerCallPolicy(
@@ -55,7 +55,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return new ValueTask(_disposeTask);
 
             _draining.Write(true);
-            _disposed = true;
+            _ = Interlocked.Exchange(ref _disposed, 1);
             if (_activeOperations.CheckIfIdle())
             {
                 DisposeSemaphoreUnderLockIfIdle();
@@ -113,7 +113,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     private void DisposeSemaphoreUnderLockIfIdle()
     {
-        if (!_disposed || _semaphoreDisposed || !_activeOperations.CheckIfIdle())
+        if (Volatile.Read(ref _disposed) == 0 || _semaphoreDisposed || !_activeOperations.CheckIfIdle())
             return;
 
         _semaphore.Dispose();
@@ -134,7 +134,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     private void ThrowIfDisposed()
     {
-        if (!_disposed)
+        if (Volatile.Read(ref _disposed) == 0)
             return;
 
         throw new ObjectDisposedException(nameof(ServerCallPolicy));

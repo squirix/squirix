@@ -12,7 +12,7 @@ public sealed class SquirixClient : ISquirixClient
 {
     private readonly IRemoteClientSession _remoteSession;
     private int _disposeOnce;
-    private bool _disposed;
+    private int _disposed;
 
     private SquirixClient(IRemoteClientSession remoteSession)
     {
@@ -61,7 +61,7 @@ public sealed class SquirixClient : ISquirixClient
         if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) != 0)
             return;
 
-        _disposed = true;
+        _ = Interlocked.Exchange(ref _disposed, 1);
         await _remoteSession.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -90,7 +90,7 @@ public sealed class SquirixClient : ISquirixClient
         return new SquirixClient(session);
     }
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
     [Immutable]
     private sealed class InternalCache<T> : ICache<T>

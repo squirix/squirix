@@ -163,7 +163,7 @@ public sealed class ExpirationTouchTests : TestBase
     [Fact]
     public async Task TouchAsyncTreatsExpiredKeyAsMissingAndNotResurrect()
     {
-        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("touch-expired-resurrect-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",

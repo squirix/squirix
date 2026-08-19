@@ -1,10 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <Nullable>enable</Nullable>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
-        <UseAppHost>true</UseAppHost>
         <RootNamespace>Squirix.E2ETests</RootNamespace>
         <AssemblyName>Squirix.E2ETests</AssemblyName>
     </PropertyGroup>
@@ -12,15 +7,13 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
-        <PackageReference Include="xunit.v3"/>
-        <PackageReference Include="xunit.v3.assert"/>
-        <PackageReference Include="xunit.runner.visualstudio"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
         <ProjectReference Include="..\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>
+    <ItemGroup>
+        <Content Include="..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
 </Project>
-

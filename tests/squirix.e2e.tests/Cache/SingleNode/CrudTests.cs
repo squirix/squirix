@@ -210,7 +210,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredEntryNullValue()
     {
-        var cache = await Client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-entry-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 
@@ -224,7 +224,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredNullValue()
     {
-        var cache = await Client.GetCacheAsync<string?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 
@@ -238,7 +238,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
     [Fact]
     public async Task RemoveAsyncStoredNullReportsRemoved()
     {
-        var cache = await Client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-stored-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 

@@ -1227,8 +1227,16 @@ jobs:
                     sudo apt-get update
                     sudo apt-get install -y pvs-studio-dotnet
 
-            -   name: Restore
-                run: dotnet restore src/squirix/Squirix.csproj src/squirix.server/Squirix.Server.csproj src/squirix.server.host/Squirix.Server.Host.csproj src/squirix.protocol-model/Squirix.ProtocolModel.csproj src/squirix.analyzers/Squirix.Analyzers.csproj
+            -   name: Restore production projects
+                run: |
+                    for p in \
+                      src/squirix/Squirix.csproj \
+                      src/squirix.server/Squirix.Server.csproj \
+                      src/squirix.server.host/Squirix.Server.Host.csproj \
+                      src/squirix.protocol-model/Squirix.ProtocolModel.csproj \
+                      src/squirix.analyzers/Squirix.Analyzers.csproj; do
+                      dotnet restore "$p"
+                    done
 
             -   name: Configure PVS-Studio License
                 shell: bash
