@@ -3,8 +3,8 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Attributes;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;

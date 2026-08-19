@@ -135,6 +135,7 @@ internal static class PersistenceServiceRegistration
     }
 
     /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
+    [Mutable]
     private sealed class PersistenceRuntime : IDisposable
     {
         private int _disposed;

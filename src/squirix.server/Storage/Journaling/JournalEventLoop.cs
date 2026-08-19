@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 

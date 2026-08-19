@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

@@ -1,7 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Attributes;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

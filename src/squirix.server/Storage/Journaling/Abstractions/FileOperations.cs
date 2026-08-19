@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;

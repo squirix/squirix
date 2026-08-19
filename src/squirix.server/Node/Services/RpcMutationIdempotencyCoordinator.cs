@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;

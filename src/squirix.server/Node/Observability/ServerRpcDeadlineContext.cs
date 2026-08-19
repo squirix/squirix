@@ -1,6 +1,6 @@
 using System;
 using System.Threading;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 

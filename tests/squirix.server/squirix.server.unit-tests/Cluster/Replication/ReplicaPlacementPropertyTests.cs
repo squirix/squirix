@@ -1,6 +1,6 @@
 using System;
 using System.Globalization;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;

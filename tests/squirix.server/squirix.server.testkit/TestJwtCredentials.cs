@@ -1,5 +1,5 @@
 using System;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit;
 

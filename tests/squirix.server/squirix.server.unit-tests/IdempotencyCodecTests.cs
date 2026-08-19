@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using Google.Protobuf;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;

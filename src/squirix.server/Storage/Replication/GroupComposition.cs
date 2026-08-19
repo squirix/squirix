@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 

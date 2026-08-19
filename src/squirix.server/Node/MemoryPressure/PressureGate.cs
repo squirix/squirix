@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.MemoryPressure;

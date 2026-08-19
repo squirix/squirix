@@ -1,6 +1,6 @@
 using System;
 using System.Buffers.Binary;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

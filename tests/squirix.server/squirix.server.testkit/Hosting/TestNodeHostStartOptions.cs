@@ -1,4 +1,4 @@
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.TestKit.Hosting;

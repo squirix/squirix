@@ -4,7 +4,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.Node.Observability;

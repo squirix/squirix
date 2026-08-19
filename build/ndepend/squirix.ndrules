@@ -179,6 +179,7 @@ where (m.ReadsMutableObjectState || m.ReadsMutableTypeState) &&
       m.ParentType != null &&
       m.ParentType.ParentAssembly.Name != "Squirix.Analyzers" &&
       !m.ParentType.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
       !m.ParentType.IsGeneratedByCompiler &&
       !m.IsUsing("System.Threading.Monitor".AllowNoMatch()) &&
       !m.IsUsing("System.Threading.ReaderWriterLock".AllowNoMatch())
@@ -198,6 +199,9 @@ where t.IsImmutable &&
       !t.HasAttribute("Squirix.Attributes.ImmutableAttribute".AllowNoMatch()) &&
       !t.HasAttribute("Squirix.Attributes.MutableAttribute".AllowNoMatch()) &&
       !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
       !t.IsGeneratedByCompiler &&
       !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
 select new { t, t.NbLinesOfCode, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>

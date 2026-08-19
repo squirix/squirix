@@ -1,6 +1,6 @@
 using System.Collections.Frozen;
 using System.Text;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;

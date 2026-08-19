@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using JetBrains.Annotations;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;

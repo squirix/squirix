@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;

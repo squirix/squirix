@@ -2,7 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Xml.XPath;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;

@@ -29,4 +29,8 @@
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="Squirix.settings.default.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\squirix.server\Attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
+        <Compile Include="..\squirix.server\Attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
+    </ItemGroup>
 </Project>

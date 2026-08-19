@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Observability;

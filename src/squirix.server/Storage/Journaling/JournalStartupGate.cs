@@ -1,6 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;

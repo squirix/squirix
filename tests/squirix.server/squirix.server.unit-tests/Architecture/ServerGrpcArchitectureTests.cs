@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;

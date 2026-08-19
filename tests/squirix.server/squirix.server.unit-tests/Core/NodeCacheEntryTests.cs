@@ -1,6 +1,6 @@
 using System.Text.Json;
 using JetBrains.Annotations;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.Storage.Snapshot;

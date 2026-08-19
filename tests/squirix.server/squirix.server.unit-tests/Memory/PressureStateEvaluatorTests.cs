@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Options;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Xunit;
 

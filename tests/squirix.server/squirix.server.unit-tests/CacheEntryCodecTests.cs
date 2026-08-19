@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using Squirix.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 using Squirix.Server.TestKit;
