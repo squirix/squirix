@@ -1,52 +1,53 @@
 using System;
 using System.IO;
-using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Reusable <c>man-current</c> handle for the journal roll hot path.</summary>
+/// <summary>Durable writer for the fixed-size SQMC <c>man-current</c> pointer.</summary>
+/// <remarks>
+/// Each write is staged to a fixed temporary file (<c>man-current.next</c>) in the same directory and then
+/// atomically replaced into <c>man-current</c>. A concurrent reader can therefore only ever observe a fully
+/// written, valid pointer (or the previous valid one) — never a torn or zeroed file left mid-update. The stage
+/// file is opened with <see cref="FileMode.Create" />, so a leftover from a previous failed write is safely
+/// overwritten; <see cref="Write" /> is only ever called serially by the manifest roll worker.
+/// </remarks>
+[Immutable]
 internal sealed class PersistentPointerWriter : IManifestPointerWriter
 {
-    private readonly string _currentPath;
-    private SafeFileHandle? _handle;
+    private readonly string _path;
+    private readonly string _tempPath;
 
-    internal PersistentPointerWriter(string currentPath)
+    internal PersistentPointerWriter(string path)
     {
-        _currentPath = currentPath;
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Pointer path must be a non-empty string.", nameof(path));
+
+        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException($"Pointer path has no directory: {path}");
+        _path = path;
+        _tempPath = PathEx.Combine(directory, "man-current.next");
     }
 
-    public void Dispose() => ReleaseHandle();
-
-    public void Write(ReadOnlySpan<byte> pointerBuffer)
+    public void Write(ReadOnlySpan<byte> buffer)
     {
-        if (pointerBuffer.Length != Pointer.Size)
-            throw new ArgumentException("Pointer buffer must be exactly 12 bytes.", nameof(pointerBuffer));
+        if (buffer.Length != Pointer.Size)
+            throw new ArgumentException("Pointer buffer must be exactly 12 bytes.", nameof(buffer));
 
-        EnsureOpen();
-        RandomAccess.Write(_handle!, pointerBuffer, 0);
-        FileDurability.FlushPointerIfNeeded(_handle!);
-        if (!OperatingSystem.IsLinux())
-            ReleaseHandle();
-    }
+        try
+        {
+            using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileDurability.GetPointerFileOptions()))
+            {
+                RandomAccess.Write(handle, buffer, 0);
+                FileDurability.FlushPointerIfNeeded(handle);
+            }
 
-    private void EnsureOpen()
-    {
-        if (_handle?.IsInvalid == false)
-            return;
-
-        // An invalid-but-non-null handle must be fully released before reopening, otherwise the stale
-        // SafeFileHandle leaks.
-        ReleaseHandle();
-
-        var options = FileDurability.GetPointerFileOptions();
-        _handle = File.OpenHandle(_currentPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, PointerFile.CompatibleShare, options);
-        if (RandomAccess.GetLength(_handle) != Pointer.Size)
-            RandomAccess.SetLength(_handle, Pointer.Size);
-    }
-
-    private void ReleaseHandle()
-    {
-        _handle?.Dispose();
-        _handle = null;
+            File.Move(_tempPath, _path, true);
+        }
+        catch
+        {
+            _ = FileEx.TryDeleteFile(_tempPath);
+            throw;
+        }
     }
 }
