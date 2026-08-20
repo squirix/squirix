@@ -180,11 +180,7 @@ internal sealed class Ledger : IDisposable
             _worker = new SingleConsumerWorker<WorkItemBase>(work => work.Execute(this), static (work, ex) => work.OnFailure?.Invoke(ex));
         }
 
-        public void Dispose()
-        {
-            _worker.Dispose();
-            _currentPointerWriter.Dispose();
-        }
+        public void Dispose() => _worker.Dispose();
 
         internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
             _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });

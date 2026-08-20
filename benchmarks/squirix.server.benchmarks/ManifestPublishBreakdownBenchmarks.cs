@@ -147,7 +147,6 @@ public class ManifestPublishBreakdownBenchmarks
 
         public void Dispose()
         {
-            PointerWriter.Dispose();
             Ledger.Dispose();
             _dataDir.Dispose();
         }
