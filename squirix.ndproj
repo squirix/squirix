@@ -623,7 +623,26 @@
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1108$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid transforming an immutable type into a mutable one</Name>
+// <Id>ND1108:AvoidTransformingAnImmutableTypeIntoAMutableOne</Id>
+// ND1108 squirix override: scope to JustMyCode and drop any type that hosts an
+// xUnit [Fact]/[Theory] test method. Test fixtures (excluded from JustMyCode by
+// "Discard unit-test assemblies from cohesion / SCA gates") and test classes that
+// live inside product assemblies are not held to product-layer immutability
+// standards: they may carry mutable instance state (fixtures, collected values)
+// without signalling a product immutability regression. Product types remain fully
+// covered by JustMyCode.
+warnif count > 0
+from t in JustMyCode.Types where
+   t.CodeWasChanged() &&
+   t.OlderVersion().IsImmutable &&
+  !t.IsImmutable &&
+  !t.IsStatic &&
+  !t.Methods.Any(m => m.HasAttribute("Xunit.FactAttribute".AllowNoMatch()) ||
+                       m.HasAttribute("Xunit.TheoryAttribute".AllowNoMatch()))
+let culpritFields = t.InstanceFields.Where(f => !f.IsImmutable)
+select new { t, culpritFields, Debt = (10 + 10 * culpritFields.Count()).ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
 
 
 
@@ -2054,6 +2073,7 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Server.IntegrationTests",
       "Squirix.Server.SmokeTests",
       "Squirix.E2ETests",
+      "Squirix.ProtocolModel.Tests",
       "Squirix.Benchmarks",
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")

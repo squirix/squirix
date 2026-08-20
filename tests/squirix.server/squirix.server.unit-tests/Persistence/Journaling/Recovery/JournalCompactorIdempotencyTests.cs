@@ -11,7 +11,6 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -20,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Compaction must preserve durable idempotency journal frames.</summary>
 [Immutable]
-public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
+public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 {
     private const string Fingerprint = "try-add-entry-async|default|compact-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
@@ -29,8 +28,7 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
     [Fact]
     public async Task CompactionPreservesIdempotencyOutcomeFrames()
     {
-        using var dir = new TempDirectory("squirix-compact-idempotency-frames");
-        var persistence = CreatePersistence(dir.Path);
+        var persistence = CreatePersistence(Dir.Path);
         using var manifestStore = new Ledger(persistence);
         await WritePutAndIdempotencyAsync(persistence, manifestStore);
 

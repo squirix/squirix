@@ -11,13 +11,12 @@ namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers the public server configuration loader.</summary>
 [Immutable]
-public sealed class ConfiguratorTests : ServerUnitTestBase
+public sealed class ConfiguratorTests : IsolatedStorageTestBase
 {
     /// <summary>Canonicalizes a safe data directory override to an absolute path.</summary>
     [Fact]
     public void ApplyCommandLineCanonicalizesDataDirectory()
     {
-        using var dir = new TempDirectory("squirix-server-config-datadir");
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
@@ -28,29 +27,8 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
             ],
         };
 
-        Configurator.ApplyCommandLineOverrides(options, null, dir.Path, true);
-        Assert.Equal(Path.GetFullPath(dir.Path), options.DataDirectory);
-    }
-
-    /// <summary>CopyOptions preserves replica placement fields.</summary>
-    [Fact]
-    public void CopyOptionsCopiesReplicaSettings()
-    {
-        var source = new SquirixServerOptions
-        {
-            NodeId = "node-a",
-            Uri = new Uri("https://localhost:5001"),
-            ReplicaCount = 3,
-            ConfigurationGeneration = 9,
-            Peers =
-            [
-                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
-            ],
-        };
-        var target = new SquirixServerOptions();
-        Configurator.CopyOptions(source, target);
-        Assert.Equal(3, target.ReplicaCount);
-        Assert.Equal(9u, target.ConfigurationGeneration);
+        Configurator.ApplyCommandLineOverrides(options, null, Dir.Path, true);
+        Assert.Equal(Path.GetFullPath(Dir.Path), options.DataDirectory);
     }
 
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
@@ -75,20 +53,39 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
     [Fact]
     public void ApplyRuntimeDefaultsCanonicalizesDataDirectory()
     {
-        using var dir = new TempDirectory("squirix-server-config-runtime-datadir");
-        var options = new SquirixServerOptions { DataDirectory = dir.Path };
+        var options = new SquirixServerOptions { DataDirectory = Dir.Path };
         Configurator.ApplyRuntimeDefaults(options);
-        Assert.Equal(Path.GetFullPath(dir.Path), options.DataDirectory);
+        Assert.Equal(Path.GetFullPath(Dir.Path), options.DataDirectory);
+    }
+
+    /// <summary>CopyOptions preserves replica placement fields.</summary>
+    [Fact]
+    public void CopyOptionsCopiesReplicaSettings()
+    {
+        var source = new SquirixServerOptions
+        {
+            NodeId = "node-a",
+            Uri = new Uri("https://localhost:5001"),
+            ReplicaCount = 3,
+            ConfigurationGeneration = 9,
+            Peers =
+            [
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+            ],
+        };
+        var target = new SquirixServerOptions();
+        Configurator.CopyOptions(source, target);
+        Assert.Equal(3, target.ReplicaCount);
+        Assert.Equal(9u, target.ConfigurationGeneration);
     }
 
     /// <summary>Ensures cluster settings can be loaded from a settings file path.</summary>
     [Fact]
     public async Task LoadFromFileReadsClusterSection()
     {
-        using var dir = new TempDirectory("squirix-server-config");
         const string json =
             """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
-        var path = NodePathKit.Combine(dir, "Squirix.settings.json");
+        var path = NodePathKit.Combine(Dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var options = await Configurator.LoadFromFileAsync(path, DefaultCancellationToken);
         Assert.Equal("node-a", options.NodeId);
@@ -109,8 +106,7 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
     [Fact]
     public void ResolveSettingsPathCanonicalizesExplicitPath()
     {
-        using var dir = new TempDirectory("squirix-server-config-settings-path");
-        var path = Path.Join(dir.Path, "Squirix.settings.json");
+        var path = Path.Join(Dir.Path, "Squirix.settings.json");
         File.WriteAllText(path, "{}");
         var resolved = Configurator.ResolveSettingsPath(path);
         Assert.Equal(Path.GetFullPath(path), resolved);
@@ -137,8 +133,7 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
     [Fact]
     public async Task TryLoadFromFileReturnsErrorWhenFileMissing()
     {
-        using var dir = new TempDirectory("squirix-server-config-missing");
-        var (success, _, error) = await Configurator.TryLoadFromFileAsync(Path.Join(dir.Path, "missing.json"), DefaultCancellationToken);
+        var (success, _, error) = await Configurator.TryLoadFromFileAsync(Path.Join(Dir.Path, "missing.json"), DefaultCancellationToken);
         Assert.False(success);
         Assert.Contains("does not exist", error, StringComparison.OrdinalIgnoreCase);
     }
@@ -147,9 +142,8 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
     [Fact]
     public async Task TryLoadFromFileReturnsErrorsForInvalidPeers()
     {
-        using var dir = new TempDirectory("squirix-server-config-invalid");
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
-        var path = NodePathKit.Combine(dir, "invalid.json");
+        var path = NodePathKit.Combine(Dir, "invalid.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, _, error) = await Configurator.TryLoadFromFileAsync(path, DefaultCancellationToken);
         Assert.False(success);
@@ -160,10 +154,9 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
     [Fact]
     public async Task TryValidateSettingsFileInvalidMemoryPressure()
     {
-        using var dir = new TempDirectory("squirix-server-config-strict");
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";
-        var path = NodePathKit.Combine(dir, "strict.json");
+        var path = NodePathKit.Combine(Dir, "strict.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, error) = await Configurator.TryValidateSettingsFileAsync(path, true, DefaultCancellationToken);
         Assert.False(success);

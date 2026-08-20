@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -14,7 +13,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers persistence opt-in hosting behavior.</summary>
 [Immutable]
-public sealed class PersistenceHostingTests : ServerUnitTestBase
+public sealed class PersistenceHostingTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]
@@ -41,7 +40,6 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
     [Fact]
     public async Task UsePersistenceRegistersPersistenceOptions()
     {
-        using var dir = new TempDirectory("squirix-persistence-tests");
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -49,12 +47,12 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
                 EnvironmentName = "Development",
             });
 
-        var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
+        var optionsConfigurer = new PersistenceOptionsConfigurer(port, Dir.Path);
         _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
-        Assert.Equal(dir.Path, persistence.DataDir);
+        Assert.Equal(Dir.Path, persistence.DataDir);
     }
 
     [Immutable]

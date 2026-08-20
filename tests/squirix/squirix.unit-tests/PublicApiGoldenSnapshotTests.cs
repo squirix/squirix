@@ -15,7 +15,7 @@ namespace Squirix.UnitTests;
 /// When the public surface changes intentionally, update <c>ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
 /// </summary>
 [Immutable]
-public sealed class PublicApiGoldenSnapshotTests
+public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
     [Fact]
@@ -73,7 +73,7 @@ public sealed class PublicApiGoldenSnapshotTests
     private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];

@@ -11,7 +11,6 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -21,7 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
 /// </summary>
 [Immutable]
-public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
+public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures canceling pending group-commit waiters propagates journal pipeline failures.</summary>
     [Fact]
@@ -192,10 +191,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     [Fact]
     public async Task GroupCommitFsyncCompletesBeforeMemoryApply()
     {
-        using var dir = new TempDirectory("squirix-journal-group-commit-fsync");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -265,10 +263,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     [Fact]
     public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
     {
-        using var dir = new TempDirectory("squirix-journal-group-commit-batch");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -299,10 +296,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     [Fact]
     public async Task JournalPipelineFailureFailsCommitDurabilityWait()
     {
-        using var dir = new TempDirectory("squirix-journal-gc-pipeline-fail");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,

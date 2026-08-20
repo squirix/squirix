@@ -9,7 +9,6 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -17,17 +16,16 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Regression tests for durable journal ordering: fsync before in-memory apply.</summary>
 [Immutable]
-public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
+public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
     [Fact]
     public async Task MemoryApplyFailureAfterJournalIsNotRetried()
     {
-        using var dir = new TempDirectory("squirix-durable-mutation-no-retry");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
@@ -70,10 +68,9 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
     [Fact]
     public async Task PreconditionSkipReturnsResultWithoutJournalAppend()
     {
-        using var dir = new TempDirectory("squirix-durable-mutation-skip");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
@@ -115,10 +112,9 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
     [Fact]
     public async Task StatefulOverloadApplyAppendsThenApplies()
     {
-        using var dir = new TempDirectory("squirix-durable-mutation-stateful-apply");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
@@ -159,10 +155,9 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
     [Fact]
     public async Task StatefulOverloadSkipReturnsWithoutAppend()
     {
-        using var dir = new TempDirectory("squirix-durable-mutation-stateful-skip");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,

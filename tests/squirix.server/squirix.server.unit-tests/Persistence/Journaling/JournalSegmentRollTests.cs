@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
 [Immutable]
-public sealed class JournalSegmentRollTests : ServerUnitTestBase
+public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 {
     private const int FillPayloadSize = 8_192;
     private const int LargePayloadSize = 16_000;
@@ -29,8 +29,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     [Fact]
     public async Task BlockedNextManifestFileOverflowFrameAppended()
     {
-        using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
-        var options = CreateOptions(dir);
+        var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
@@ -46,7 +45,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
-        var segmentOnePath = SegmentPath(dir, 1);
+        var segmentOnePath = SegmentPath(Dir, 1);
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
         Exception? rollError = null;
@@ -63,24 +62,23 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         await firstRollDone.Task;
         StoreTestSupport.ThrowIfFaulted(rollError);
 
-        await File.WriteAllBytesAsync(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
-        var block = CountManifestDataFiles(dir);
+        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
+        var block = CountManifestDataFiles(Dir);
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
         await StoreTestSupport.WaitUntilAsync(pipelined, static j => j.HasFlushLoopFailure, DefaultCancellationToken);
         Assert.True(journal.HasFlushLoopFailure);
         Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
-        Assert.Equal(block, CountManifestDataFiles(dir));
-        Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
-        Assert.False(ContainsPutKey(dir, 2, "overflow-key"));
+        Assert.Equal(block, CountManifestDataFiles(Dir));
+        Assert.False(ContainsPutKey(Dir, 1, "overflow-key"));
+        Assert.False(ContainsPutKey(Dir, 2, "overflow-key"));
     }
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
     public async Task OverflowingAppendLandsOnNextSegmentManifestRoll()
     {
-        using var dir = new TempDirectory("squirix-journal-roll-overflow");
-        var options = CreateOptions(dir);
+        var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
@@ -102,8 +100,8 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         await StoreTestSupport.WaitUntilAsync(manifestStore, (Func<Ledger, CancellationToken, ValueTask<bool>>)ConditionAsync, DefaultCancellationToken);
 
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
-        Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
-        Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
+        Assert.False(ContainsPutKey(Dir, 1, "overflow-key"));
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
         return;
 
         static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)

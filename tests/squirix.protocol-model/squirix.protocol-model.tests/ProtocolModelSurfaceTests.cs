@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
 
-public static class ProtocolModelSurfaceTests
+public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
 {
     private static readonly string[] SampleCounterexamplePaths = ["start", "elect"];
 
@@ -69,8 +69,8 @@ public static class ProtocolModelSurfaceTests
             Assert.True(commitCode is 0 or 3);
             Assert.True(readCode is 0 or 3);
 
-            var commitSummary = await File.ReadAllTextAsync(Path.Join(outputCommit, "summary.json"), TestContext.Current.CancellationToken);
-            var readSummary = await File.ReadAllTextAsync(Path.Join(outputRead, "summary.json"), TestContext.Current.CancellationToken);
+            var commitSummary = await File.ReadAllTextAsync(Path.Join(outputCommit, "summary.json"), DefaultCancellationToken);
+            var readSummary = await File.ReadAllTextAsync(Path.Join(outputRead, "summary.json"), DefaultCancellationToken);
             Assert.Contains("\"broken\":\"CurrentTermCommit\"", commitSummary, StringComparison.Ordinal);
             Assert.Contains("\"broken\":\"ReadIndex\"", readSummary, StringComparison.Ordinal);
         }
@@ -91,7 +91,7 @@ public static class ProtocolModelSurfaceTests
             Assert.Equal(0, code);
             Assert.True(File.Exists(Path.Join(output, "summary.json")));
             Assert.True(File.Exists(Path.Join(output, "counterexample.json")));
-            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), TestContext.Current.CancellationToken);
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
             Assert.Contains("\"broken\":\"Vote\"", summary, StringComparison.Ordinal);
             Assert.Contains("\"invariant\":\"ElectionSafety\"", summary, StringComparison.Ordinal);
         }
@@ -110,7 +110,7 @@ public static class ProtocolModelSurfaceTests
             var code = await ExploreRunner.RunCliAsync("small", output, BrokenMode.None);
             Assert.Equal(0, code);
             Assert.True(File.Exists(Path.Join(output, "summary.json")));
-            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), TestContext.Current.CancellationToken);
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
             Assert.Contains("\"fixedPointReached\":true", summary, StringComparison.Ordinal);
             Assert.Contains("\"violation\":null", summary, StringComparison.Ordinal);
             Assert.Contains(ExploreRunner.ModelVersionHash, summary, StringComparison.Ordinal);

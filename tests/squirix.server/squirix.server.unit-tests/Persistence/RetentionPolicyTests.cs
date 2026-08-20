@@ -12,12 +12,8 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Unit tests covering automatic retention cleanup of snapshots and journal segments.</summary>
-public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 {
-    private TempDirectory? _dir;
-
-    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
-
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
     [Fact]
     public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
@@ -46,10 +42,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
-        await StoreTestSupport.WaitUntilAsync(
-            staleJournalPaths,
-            static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
-            DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(staleJournalPaths, static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -91,29 +84,6 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));
         Assert.True(FileKit.Exists(SnapshotPath(3)));
-    }
-
-    /// <summary>Cleans up the temporary storage directory after each test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>Creates a fresh temporary storage directory before each test.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("squirix");
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
-
-        base.Dispose(disposing);
     }
 
     private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{NodeInvariantIndexStrings.Format(index)}");

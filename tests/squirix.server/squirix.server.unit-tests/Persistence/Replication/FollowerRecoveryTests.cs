@@ -104,7 +104,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
         }
 
-        await File.WriteAllBytesAsync(logPath, [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(logPath, [], DefaultCancellationToken);
 
         await using var reopened = OpenLog(dir);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));

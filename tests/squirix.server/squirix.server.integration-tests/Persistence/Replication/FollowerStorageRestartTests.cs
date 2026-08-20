@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -13,7 +14,7 @@ namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Durability of the replica-group follower log across a process restarts.</summary>
 [Immutable]
-public sealed class FollowerStorageRestartTests
+public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 {
     private const string GroupId = "grp-1";
 
@@ -25,15 +26,15 @@ public sealed class FollowerStorageRestartTests
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(TestContext.Current.CancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, TestContext.Current.CancellationToken);
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(TestContext.Current.CancellationToken);
+        await reopened.OpenAsync(DefaultCancellationToken);
         Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken)));
+        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
     }
 
     /// <summary>Corruption in the committed prefix fails readiness on restart.</summary>
@@ -45,15 +46,15 @@ public sealed class FollowerStorageRestartTests
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(TestContext.Current.CancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, TestContext.Current.CancellationToken);
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
         }
 
-        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, TestContext.Current.CancellationToken);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, DefaultCancellationToken);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(TestContext.Current.CancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
         Assert.Contains("committed log frame", ex.Message, StringComparison.Ordinal);
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
@@ -67,15 +68,15 @@ public sealed class FollowerStorageRestartTests
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
         {
-            await log.OpenAsync(TestContext.Current.CancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AdvanceCommitAsync(1UL, TestContext.Current.CancellationToken));
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AdvanceCommitAsync(1UL, DefaultCancellationToken));
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(1UL, (await reopened.GetStatusAsync(TestContext.Current.CancellationToken)).CommitIndex);
-        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken)));
+        await reopened.OpenAsync(DefaultCancellationToken);
+        Assert.Equal(1UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
+        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
     }
 
     /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
@@ -86,16 +87,16 @@ public sealed class FollowerStorageRestartTests
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(TestContext.Current.CancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), TestContext.Current.CancellationToken);
-            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), TestContext.Current.CancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, TestContext.Current.CancellationToken);
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(TestContext.Current.CancellationToken);
-        _ = Assert.Single(await reopened.GetCommittedEntriesAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(2UL, (await reopened.GetStatusAsync(TestContext.Current.CancellationToken)).LastLogIndex);
+        await reopened.OpenAsync(DefaultCancellationToken);
+        _ = Assert.Single(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken));
+        Assert.Equal(2UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(

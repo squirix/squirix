@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
@@ -15,7 +16,7 @@ namespace Squirix.Server.UnitTests.ApiSnapshots;
 /// Golden snapshot and method allowlist for the intentionally minimal <c>Squirix.Server</c> CLR API.
 /// </summary>
 [Immutable]
-public sealed class NodePublicApiGoldenSnapshotTests
+public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     [Fact]
@@ -83,7 +84,7 @@ public sealed class NodePublicApiGoldenSnapshotTests
     private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];

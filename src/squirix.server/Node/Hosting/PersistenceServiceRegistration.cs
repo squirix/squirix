@@ -7,6 +7,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Observability;
@@ -135,6 +136,7 @@ internal static class PersistenceServiceRegistration
     }
 
     /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
+    [Mutable]
     private sealed class PersistenceRuntime : IDisposable
     {
         private int _disposed;

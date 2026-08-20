@@ -8,7 +8,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -16,16 +15,15 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Verifies journal snapshot cut error paths release the mutation gate.</summary>
 [Immutable]
-public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
+public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
     [Fact]
     public async Task SnapshotCutBuildPhaseDoesNotBlockMutationBarrier()
     {
-        using var dir = new TempDirectory("squirix-snap-cut-build-unblocked");
         var persistence = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -83,10 +81,9 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
     [Fact]
     public async Task SnapshotCutFailureStillAllowsJournalAppend()
     {
-        using var dir = new TempDirectory("squirix-snap-cut-fail");
         var persistence = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
@@ -120,10 +117,9 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
     [Fact]
     public async Task SnapshotCutWaitsForPendingMemoryApply()
     {
-        using var dir = new TempDirectory("squirix-snap-cut-pending-apply");
         var persistence = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,

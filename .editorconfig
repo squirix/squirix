@@ -142,6 +142,8 @@ dotnet_diagnostic.SQR004.severity = error
 dotnet_diagnostic.SQR005.severity = error
 dotnet_diagnostic.SQR006.severity = error
 dotnet_diagnostic.SQR007.severity = error
+# Forbid direct TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes.
+dotnet_diagnostic.SQR017.severity = error
 # Prefer positional args; in-order named arguments fail the build (TreatWarningsAsErrors).
 dotnet_diagnostic.SQR009.severity = warning
 # Omit braces around single-line single-statement if/else/loop/using/lock/fixed bodies (SA1520-safe).

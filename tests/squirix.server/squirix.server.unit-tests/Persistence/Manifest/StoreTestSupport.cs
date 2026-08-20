@@ -18,7 +18,6 @@ internal static class StoreTestSupport
     internal const string JournalSegment000003 = $"{FilePrefixes.Journal}000003{FileExtensions.Journal}";
     internal const string Manifest000001 = $"{FilePrefixes.Manifest}000001{FileExtensions.Manifest}";
     internal const string Manifest000003 = $"{FilePrefixes.Manifest}000003{FileExtensions.Manifest}";
-    internal const string ManifestCurrentPointer = $"{FilePrefixes.Manifest}current";
     internal const string Snapshot000001 = $"{FilePrefixes.Snapshot}000001{FileExtensions.Snapshot}";
     internal const string Snapshot000002 = $"{FilePrefixes.Snapshot}000002{FileExtensions.Snapshot}";
 
@@ -31,7 +30,7 @@ internal static class StoreTestSupport
 
     internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var currentPath = Path.Join(dataDir, ManifestCurrentPointer);
+        var currentPath = Path.Join(dataDir, $"{FilePrefixes.Manifest}current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
         return Pointer.Read(pointerBytes);
     }
