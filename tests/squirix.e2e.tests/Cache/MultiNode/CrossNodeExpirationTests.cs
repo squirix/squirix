@@ -131,12 +131,13 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
 
-        // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
-        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
+        // Margins wide enough for slow thread pools, CI load, and parallel test runs: the key must still be
+        // live when the remote RemoveExpirationAsync arrives, so expiration vastly exceeds the set-downtime.
+        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(3)), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
-        await Task.Delay(TimeSpan.FromMilliseconds(350), TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
 
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
         Assert.False((await Cluster.CacheB.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
@@ -148,14 +149,15 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-race");
 
-        // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
-        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
+        // Margins wide enough for slow thread pools, CI load, and parallel test runs: the key must still be
+        // live when the remote TouchAsync arrives, so expiration vastly exceeds the set-till-touch window.
+        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(3)), DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromSeconds(2), DefaultCancellationToken));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(350), TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
 
         Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
