@@ -1224,7 +1224,18 @@ jobs:
                       | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/viva64.gpg
                     sudo wget --max-redirect=0 -O /etc/apt/sources.list.d/viva64.list \
                       https://files.pvs-studio.com/etc/viva64.list
-                    sudo apt-get update
+                    # The pvs-studio mirror occasionally serves a mid-sync index (size/hash mismatch);
+                    # retry the index fetch a few times to ride through the transient mirror update.
+                    for attempt in 1 2 3 4 5; do
+                        if sudo apt-get update; then
+                            break
+                        fi
+                        if [[ "$attempt" -eq 5 ]]; then
+                            echo "apt-get update failed after 5 attempts (pvs-studio mirror)." >&2
+                            exit 1
+                        fi
+                        sleep 15
+                    done
                     sudo apt-get install -y pvs-studio-dotnet
 
             -   name: Restore production projects
@@ -1251,6 +1262,7 @@ jobs:
             -   name: Analyze With PVS-Studio
                 id: analyze
                 shell: bash
+                timeout-minutes: 20
                 run: |
                     set -uo pipefail
                     mkdir -p pvs-studio-out
