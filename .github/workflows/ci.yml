@@ -1222,9 +1222,22 @@ jobs:
                     # --max-redirect=0: refuse HTTP→attacker redirect of the apt signing material (S6506).
                     wget --max-redirect=0 -qO- https://files.pvs-studio.com/etc/pubkey.txt \
                       | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/viva64.gpg
-                    sudo wget --max-redirect=0 -O /etc/apt/sources.list.d/viva64.list \
-                      https://files.pvs-studio.com/etc/viva64.list
-                    sudo apt-get update
+                    # Use the primary pvs-studio host instead of the wcdn CDN edge, which occasionally
+                    # serves a mid-sync repo index (size/hash mismatch during a mirror update).
+                    echo "deb [arch=amd64] https://files.pvs-studio.com/deb viva64-release pvs-studio" \
+                      | sudo tee /etc/apt/sources.list.d/viva64.list >/dev/null
+                    # The pvs-studio mirror occasionally serves a mid-sync index (size/hash mismatch);
+                    # retry the index fetch a few times to ride through the transient mirror update.
+                    for attempt in 1 2 3 4 5; do
+                        if sudo apt-get update; then
+                            break
+                        fi
+                        if [[ "$attempt" -eq 5 ]]; then
+                            echo "apt-get update failed after 5 attempts (pvs-studio mirror)." >&2
+                            exit 1
+                        fi
+                        sleep 15
+                    done
                     sudo apt-get install -y pvs-studio-dotnet
 
             -   name: Restore production projects
@@ -1251,6 +1264,7 @@ jobs:
             -   name: Analyze With PVS-Studio
                 id: analyze
                 shell: bash
+                timeout-minutes: 20
                 run: |
                     set -uo pipefail
                     mkdir -p pvs-studio-out
