@@ -2,13 +2,14 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Verifies Prometheus metrics settings deserialization and merge via <see cref="PrometheusMetricsBootstrap" />.</summary>
 [Immutable]
-public sealed class PrometheusMetricsSettingsTests
+public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
 {
     /// <summary>
     /// Verifies System.Text.Json binds private <c>path</c>/<c>enabled</c> properties
@@ -23,11 +24,8 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        using var settings = await TempSettingsFile.WriteAsync(
-            "squirix-prom-",
-            """{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""",
-            TestContext.Current.CancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""", DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.False(merged.Enabled);
@@ -44,8 +42,8 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"enabled":false}}""", TestContext.Current.CancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"enabled":false}}""", DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.False(merged.Enabled);
@@ -62,8 +60,8 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{}}""", TestContext.Current.CancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{}}""", DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.True(merged.Enabled);

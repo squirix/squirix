@@ -9,7 +9,6 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -18,7 +17,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Coordinator and journal integration for durable idempotency.</summary>
 [Immutable]
-public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
+public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
@@ -26,10 +25,9 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
     [Fact]
     public async Task CoordinatorWithJournalPersistsOutcomeOnExecute()
     {
-        using var dir = new TempDirectory("squirix-coordinator-journal-outcome");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,

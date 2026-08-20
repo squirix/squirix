@@ -11,23 +11,22 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Tests for the single-pass on-disk journal segment statistics used by the roll capacity check.</summary>
 [Immutable]
-public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
+public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
 {
     /// <summary>GetOnDiskSegmentStats counts journal segments and sums their byte lengths in one pass.</summary>
     [Fact]
     public async Task GetOnDiskSegmentStatsCountsSegmentsAndSumsBytes()
     {
-        using var dir = new TempDirectory("squirix-journal-stats");
-        await WriteSegmentAsync(dir, 1, 10);
-        await WriteSegmentAsync(dir, 2, 25);
-        await WriteSegmentAsync(dir, 3, 7);
-        await File.WriteAllTextAsync(NodePathKit.Combine(dir, "not-a-journal.txt"), "ignored", DefaultCancellationToken);
+        await WriteSegmentAsync(Dir, 1, 10);
+        await WriteSegmentAsync(Dir, 2, 25);
+        await WriteSegmentAsync(Dir, 3, 7);
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, "not-a-journal.txt"), "ignored", DefaultCancellationToken);
 
-        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(dir);
+        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
 
         Assert.Equal(3, segmentCount);
         Assert.Equal(42, totalBytes);
-        Assert.Equal(totalBytes, JournalReader.GetOnDiskSegmentStats(dir).TotalBytes);
+        Assert.Equal(totalBytes, JournalReader.GetOnDiskSegmentStats(Dir).TotalBytes);
     }
 
     /// <summary>GetOnDiskSegmentStats returns an empty result when the directory does not exist.</summary>

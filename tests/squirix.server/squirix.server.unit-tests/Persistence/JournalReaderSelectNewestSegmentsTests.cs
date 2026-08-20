@@ -3,13 +3,14 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Tests for bounded journal segment selection used by diagnostics.</summary>
 [Immutable]
-public sealed class JournalReaderSelectNewestSegmentsTests
+public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTestBase
 {
     /// <summary>EnumerateSegments returns empty for invalid operator paths without throwing.</summary>
     /// <param name="path">Invalid directory path.</param>
@@ -27,12 +28,11 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsRespectsSegmentAndSortsAscending()
     {
-        using var dir = new TempDirectory("squirix-journal-enum-from");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x");
 
-        var segments = JournalReader.EnumerateSegments(dir, 9);
+        var segments = JournalReader.EnumerateSegments(Dir, 9);
         Assert.Equal(2, segments.Length);
         Assert.Equal(9, segments[0].Index);
         Assert.Equal(15, segments[1].Index);
@@ -51,10 +51,9 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsSkipsJournalFilesNonNumericIndex()
     {
-        using var dir = new TempDirectory("squirix-journal-enum-filter");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x");
-        var segments = JournalReader.EnumerateSegments(dir, 1);
+        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
+        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x");
+        var segments = JournalReader.EnumerateSegments(Dir, 1);
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
     }

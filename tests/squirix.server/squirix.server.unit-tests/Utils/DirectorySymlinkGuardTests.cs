@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
@@ -11,14 +10,13 @@ namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers symlink/junction guards used by directory creation.</summary>
 [Immutable]
-public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
+public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 {
     /// <summary>EnsureNoSymlinksInChain rejects an intermediate symlink under the base.</summary>
     [Fact]
     public void EnsureNoSymlinksInChainRejectsIntermediateSymlink()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-chain-reject");
-        var basePath = root.Path;
+        var basePath = Dir.Path;
         var real = Path.Join(basePath, "real");
         _ = Directory.CreateDirectory(real);
         var link = Path.Join(basePath, "link");
@@ -33,17 +31,16 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
     [Fact]
     public void EnsureNoSymlinksInChainReturnsWhenRelativeIsEmpty()
     {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
-        DirectorySymlinkGuard.EnsureNoSymlinksInChain(root, root);
-        Assert.True(Path.IsPathRooted(root));
+        var dir = Path.GetPathRoot(Path.GetTempPath())!;
+        DirectorySymlinkGuard.EnsureNoSymlinksInChain(dir, dir);
+        Assert.True(Path.IsPathRooted(dir));
     }
 
     /// <summary>Ordinary directories pass the regular-directory check.</summary>
     [Fact]
     public void EnsureRegularDirectoryAcceptsOrdinaryDirectory()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-ok");
-        var path = root.Path;
+        var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, false, true);
         Assert.True(Directory.Exists(path));
     }
@@ -52,10 +49,9 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
     [Fact]
     public void EnsureRegularDirectoryRejectsSymlinkTarget()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-reject");
-        var real = Path.Join(root.Path, "real");
+        var real = Path.Join(Dir.Path, "real");
         _ = Directory.CreateDirectory(real);
-        var link = Path.Join(root.Path, "link");
+        var link = Path.Join(Dir.Path, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
 
@@ -71,8 +67,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
     [Fact]
     public void EnsureRegularDirectorySkipsWhenNotForbidden()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-skip");
-        var path = root.Path;
+        var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, true, false);
         Assert.True(Directory.Exists(path));
     }
@@ -81,8 +76,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
     [Fact]
     public void EnsureSymlinksChainMissingIntermediateSegments()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-chain");
-        var basePath = root.Path;
+        var basePath = Dir.Path;
         var target = Path.Join(basePath, "missing", "child");
         DirectorySymlinkGuard.EnsureNoSymlinksInChain(target, basePath);
         Assert.False(Directory.Exists(target));
@@ -90,11 +84,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
 
     /// <summary>IsSymlink returns false for ordinary directories.</summary>
     [Fact]
-    public void IsSymlinkReturnsFalseForOrdinaryDirectory()
-    {
-        using var root = new TempDirectory("squirix-symlink-guard-is");
-        Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(root.Path)));
-    }
+    public void IsSymlinkReturnsFalseForOrdinaryDirectory() => Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir.Path)));
 
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {

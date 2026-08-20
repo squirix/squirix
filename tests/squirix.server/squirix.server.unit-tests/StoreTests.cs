@@ -12,11 +12,10 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Integration tests for the manifest store.</summary>
-public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class StoreTests : IsolatedStorageTestBase
 {
-    private TempDirectory? _dir;
-
-    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
+    /// <inheritdoc />
+    protected override string TempDirectoryName => "manifest";
 
     /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
     [Fact]
@@ -78,28 +77,5 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
 
         Assert.False(File.Exists(NodePathKit.Combine(Dir.Path, "man-current.tmp")));
         Assert.Equal(12, (await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);
-    }
-
-    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>Creates a temporary directory for test storage.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("manifest");
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
-
-        base.Dispose(disposing);
     }
 }

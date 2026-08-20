@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace Squirix.Server.UnitTests;
 
 /// <summary>Unit tests for <see cref="DirectoryEx" /> path validation and creation behavior.</summary>
 [Immutable]
-public sealed class DirectoryExTests
+public sealed class DirectoryExTests : ServerUnitTestBase
 {
     /// <summary>Rejects empty and whitespace paths.</summary>
     /// <param name="path">Invalid path input.</param>
@@ -64,7 +65,7 @@ public sealed class DirectoryExTests
     public async Task CreateDirectoryAsyncEnsEmptyRemovesChildrenAsync()
     {
         using var root = new TempDirectory("squirix-directoryex-empty-children");
-        var ct = TestContext.Current.CancellationToken;
+        var ct = DefaultCancellationToken;
         var child = await DirectoryEx.CreateDirectoryAsync("nest", root.Path, cancellationToken: ct);
         var leftover = Path.Join(child, "leftover.txt");
         await File.WriteAllTextAsync(leftover, "keep-me-not", ct);
@@ -82,7 +83,7 @@ public sealed class DirectoryExTests
     public void CreateDirectoryAsyncRejectsSymlinkJunctionInChain()
     {
         using var root = new TempDirectory("squirix-directoryex-symlink-async");
-        var ct = TestContext.Current.CancellationToken;
+        var ct = DefaultCancellationToken;
         var real = Path.Join(root.Path, "real");
         _ = Directory.CreateDirectory(real);
         var link = Path.Join(root.Path, "link");

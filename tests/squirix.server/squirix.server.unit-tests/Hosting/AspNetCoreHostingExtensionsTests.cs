@@ -13,7 +13,6 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -22,7 +21,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
 [Immutable]
-public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
+public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 {
     private static readonly Action<WebApplication> MapJournalQuotaEndpoint = static app => app.MapGet(
         "/throw-journal-quota",
@@ -68,21 +67,20 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
     [Fact]
     public async Task DataDirectoryOverridePreservesStrictFsyncDefault()
     {
-        using var dir = new TempDirectory("squirix-aspnet-tests");
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
                 EnvironmentName = "Development",
             });
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
+        var optionsConfigurer = new PersistenceOptionsConfigurer(port, Dir.Path);
 
         _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
-        Assert.Equal(dir.Path, persistence.DataDir);
+        Assert.Equal(Dir.Path, persistence.DataDir);
     }
 
     /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>

@@ -12,12 +12,8 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
-public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 {
-    private TempDirectory? _dir;
-
-    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
-
     /// <summary>
     /// Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
@@ -78,29 +74,6 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
         Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
-    }
-
-    /// <summary>Cleans up the temporary directory after the test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>Creates a temporary directory for test storage.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("squirix");
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
-
-        base.Dispose(disposing);
     }
 
     private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)

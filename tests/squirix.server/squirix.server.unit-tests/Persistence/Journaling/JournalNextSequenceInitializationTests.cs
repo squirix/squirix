@@ -19,17 +19,16 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal coordinator sequence initialization scans only the active manifest journal range.</summary>
 [Immutable]
-public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
+public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTestBase
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>
     [Fact]
     public async Task InitializationFailsManifestLastAvailableSegment()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-disjoint");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, only);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, only);
         await manifestStore.WriteAsync(
             new State
             {
@@ -51,14 +50,13 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task NextSequenceDerivesActiveManifestCurrentJournal()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-active-range");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, old);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, old);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 3, [live, live2]);
         var manifest = new State
         {
             Format = 1,
@@ -80,11 +78,10 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task NextSequenceRespectsSnapshotActiveJournalScan()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-snap-watermark");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, envelope);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -113,11 +110,10 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task NextSequenceScanUsesSegmentManifestCurrentJournal()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-first-available");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, envelope);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 5, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -140,15 +136,14 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task NextSequenceStaysMonotonicManifestSegmentBoundary()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-roll-boundary");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
 
         var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
         var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
         var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, s1);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, s1);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, [s2, s2B]);
         var manifest = new State
         {
             Format = 1,
@@ -176,10 +171,9 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task ObsoleteJournalCorruptionBelowAffectNextSequence()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-obsolete-crc");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var obsoletePath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var obsoletePath = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
@@ -187,7 +181,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, live);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, live);
         var manifest = new State
         {
             Format = 1,
@@ -209,8 +203,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task PostCompactionNextSequenceManifestObsoleteSegments()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-post-compact");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
@@ -246,10 +239,9 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
     [Fact]
     public async Task TruncatedFrameActiveJournalBoundsNextSequence()
     {
-        using var dir = new TempDirectory("squirix-journal-next-seq-active-truncate");
-        var persistence = NewPersistence(dir);
+        var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);

@@ -9,7 +9,6 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -19,14 +18,13 @@ namespace Squirix.Server.UnitTests.Observability;
 /// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
 /// </summary>
 [Immutable]
-public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
+public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     [Fact]
     public async Task AppendPutAsyncCreatesJournalPutSpan()
     {
-        using var dir = new TempDirectory("squirix-tracing-journal-decorator");
-        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
         using var manifestStore = new Ledger(options);
         await using var core = await JournalCoordinatorFactory.CreateAsync(
             options,
@@ -53,10 +51,9 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
     [InlineData(0)]
     public async Task AppendPutAsyncPutContextReflectsDurabilitySettings(int groupCommitMaxWaitMilliseconds)
     {
-        using var dir = new TempDirectory("squirix-tracing-journal-durability");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 600_000,

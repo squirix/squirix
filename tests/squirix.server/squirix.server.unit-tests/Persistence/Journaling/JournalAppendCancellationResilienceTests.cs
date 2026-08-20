@@ -8,7 +8,6 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -20,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
 [Immutable]
-public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBase
+public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTestBase
 {
     /// <summary>
     /// Cancelling many durable group-commit mutations around their enqueue boundary leaves the
@@ -30,10 +29,9 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     [Fact]
     public async Task CancellingDurableGroupCommitsKeepsPipelineHealthy()
     {
-        using var dir = new TempDirectory("squirix-journal-cancel-storm");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 4,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -70,10 +68,9 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     [Fact]
     public async Task DurableGroupCommitCompletesAcrossSegmentRoll()
     {
-        using var dir = new TempDirectory("squirix-journal-gc-roll");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,

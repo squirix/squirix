@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 /// Safety tests for <see cref="Ledger.WriteAsync" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
 /// </summary>
 [Immutable]
-public sealed class StoreWriteSafetyTests : ServerUnitTestBase
+public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
 {
     /// <summary>
     /// Verifies monotonic manifest writes advance the index when <c>CURRENT</c> is valid.
@@ -20,18 +20,17 @@ public sealed class StoreWriteSafetyTests : ServerUnitTestBase
     [Fact]
     public async Task WriteAdvancesManifestIndexWhenCurrentIsValid()
     {
-        using var dir = new TempDirectory("manifest-store-monotonic");
-        var options = StoreTestSupport.CreateOptions(dir);
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
 
-        var first = NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(1));
+        var first = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(1));
         Assert.True(File.Exists(first));
 
         await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
 
-        var second = NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(2));
+        var second = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2));
         Assert.True(File.Exists(second));
-        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(dir, DefaultCancellationToken));
+        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 }

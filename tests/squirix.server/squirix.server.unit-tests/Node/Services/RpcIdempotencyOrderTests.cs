@@ -11,7 +11,6 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -21,7 +20,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Idempotent durable mutations must append idempotency frames before the durability barrier.</summary>
 [Immutable]
-public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
+public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
 
@@ -36,10 +35,9 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
     [Fact]
     public async Task IdempotentMutationAppendsOutcomeDurabilityCommit()
     {
-        using var dir = new TempDirectory("squirix-idempotent-durability-order");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -132,13 +130,13 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         public long HighWaterBytes => _inner.HighWaterBytes;
 
+        public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
+
         public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
         public long MaxBytes => _inner.MaxBytes;
 
         public ulong NextSequence => _inner.NextSequence;
-
-        public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 

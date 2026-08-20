@@ -5,7 +5,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -15,16 +14,15 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// Ensures the pipelined journal coordinator exposes the same exclusive-maintenance entry point through <see cref="IExclusiveMaintenanceExecutor" /> used by hosted compaction.
 /// </summary>
 [Immutable]
-public sealed class JournalExclusiveMaintenanceExecutorTests : ServerUnitTestBase
+public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
     [Fact]
     public async Task ExclusiveMaintenanceExecutorRunsSuppliedAction()
     {
-        using var dir = new TempDirectory("squirix-journal-maint-iface");
         var persistence = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 100,
         };

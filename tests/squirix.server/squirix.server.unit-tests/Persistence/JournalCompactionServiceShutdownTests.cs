@@ -17,7 +17,6 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -25,14 +24,13 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Shutdown behavior for snapshot-triggered journal compaction.</summary>
 [Immutable]
-public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
+public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestBase
 {
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
     [Fact]
     public async Task SnapshotTriggeredCompactionShutdownClearsFlight()
     {
-        using var dir = new TempDirectory("squirix-journal-compact-shutdown");
-        var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var store = new Ledger(persistence);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,

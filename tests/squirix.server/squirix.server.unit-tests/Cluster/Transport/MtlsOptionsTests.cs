@@ -13,13 +13,13 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 /// Unit tests for <see cref="MtlsOptions" /> validation.
 /// </summary>
 [Immutable]
-public sealed class MtlsOptionsTests
+public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>
     [Fact]
     public async Task RemotePeersRejectMatchingPrimaryListenerAsync()
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -35,12 +35,11 @@ public sealed class MtlsOptionsTests
     [Fact]
     public void RemotePeersRejectMissingFiles()
     {
-        using var missingRoot = new TempDirectory("squirix-cluster-mtls-missing");
         var options = new MtlsOptions
         {
-            CaPath = NodePathKit.Combine(missingRoot, "missing-ca.crt"),
-            CertPath = NodePathKit.Combine(missingRoot, "missing-node.crt"),
-            KeyPath = NodePathKit.Combine(missingRoot, "missing-node.key"),
+            CaPath = NodePathKit.Combine(Dir, "missing-ca.crt"),
+            CertPath = NodePathKit.Combine(Dir, "missing-node.crt"),
+            KeyPath = NodePathKit.Combine(Dir, "missing-node.key"),
             InternalListenPort = 6101,
         };
 
@@ -54,7 +53,7 @@ public sealed class MtlsOptionsTests
     [Fact]
     public async Task RemotePeersRejectMixedPfxAndPemPathsAsync()
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,

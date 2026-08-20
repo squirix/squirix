@@ -10,7 +10,6 @@ using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -20,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
 [Immutable]
-public sealed class JournalCompactionControllerTests : ServerUnitTestBase
+public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 {
     /// <summary>Double dispose does not throw.</summary>
     [Fact]
@@ -28,8 +27,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
     public async Task DisposeIsIdempotent()
     {
-        using var dir = new TempDirectory("squirix-journal-compact-ctrl-double");
-        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
@@ -42,10 +40,9 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     [Fact]
     public async Task TryTriggerNowAsyncFalseControllerMutexUnavailable()
     {
-        using var dir = new TempDirectory("squirix-journal-compact-ctrl-mutex");
         var opt = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 1000,
         };
@@ -70,8 +67,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     [Fact]
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
-        using var dir = new TempDirectory("squirix-journal-compact-ctrl-dispose");
-        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);

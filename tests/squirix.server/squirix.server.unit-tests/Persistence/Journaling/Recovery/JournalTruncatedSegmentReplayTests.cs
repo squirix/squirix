@@ -14,15 +14,14 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Replay behavior when journal segment bytes end mid-frame or fail CRC / decode.</summary>
 [Immutable]
-public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
+public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.</summary>
     [Fact]
     public async Task ReadAllOnMalformedFrameDoesNotMutateSegmentFile()
     {
-        using var dir = new TempDirectory("squirix-journal-readonly-failure");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
@@ -33,7 +32,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            dir.Path,
+            Dir.Path,
             static dataDirectory =>
             {
                 using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
@@ -47,9 +46,8 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
     [Fact]
     public async Task ReadAllThrowsOnCrcMismatch()
     {
-        using var dir = new TempDirectory("squirix-journal-badcrc");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
 
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
@@ -57,7 +55,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            dir.Path,
+            Dir.Path,
             static dataDirectory =>
             {
                 using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
@@ -71,17 +69,16 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
     [Fact]
     public async Task ReadAllYieldsFirstFrameSecondFrameCrcIsTruncated()
     {
-        using var dir = new TempDirectory("squirix-journal-trunc");
         var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");
         var second = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "k2", "b");
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [first, second]);
 
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             fs.SetLength(fs.Length - 1);
 
         var list = new List<JournalRecord>(2);
-        using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
+        using var records = JournalReadPath.ReadAll(Dir, 1, DefaultCancellationToken);
         while (records.MoveNext())
             list.Add(records.Current);
 
