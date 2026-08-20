@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -39,8 +38,8 @@ public sealed class StoreTests : IsolatedStorageTestBase
             store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
             store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
 
-            await StoreTestSupport.WaitUntilAsync(store, (Func<Ledger, CancellationToken, ValueTask<bool>>)ConditionAsync, DefaultCancellationToken);
-            StoreTestSupport.ThrowIfFaulted(rollError);
+            await store.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+            rollError.ThrowIfFaulted();
             Assert.Equal(2, (await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         }
     }

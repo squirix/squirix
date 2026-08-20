@@ -1,13 +1,21 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
-internal static class DirectoryEx
+internal static partial class DirectoryEx
 {
+    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
+    private const int LinuxCloseOnExec = 0x80000;
+    private const int DarwinCloseOnExec = 0x1000000;
+    private const int FreeBsdCloseOnExec = 0x00100000;
+
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
     /// The target directory path. May be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
@@ -69,6 +77,65 @@ internal static class DirectoryEx
         ensureEmpty,
         forbidSymlinks,
         cancellationToken);
+
+    /// <summary>Flushes directory metadata to disk so a recently created or renamed entry is durable.</summary>
+    /// <param name="directory">The directory whose metadata must be flushed.</param>
+    /// <remarks>
+    ///     <para>On Windows this is a no-op: flushing the file itself is sufficient for durability of a renamed entry.</para>
+    ///     <para>
+    ///     On Unix a directory must be fsync'd through its file descriptor. .NET cannot open a directory handle via
+    ///     <see cref="File.OpenHandle" />, so a native <c>open(2)</c> is used instead.
+    ///     </para>
+    /// </remarks>
+    internal static void FlushDirectory(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var handle = OpenDirectoryForFlush(directory);
+        RandomAccess.FlushToDisk(handle);
+    }
+
+    [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
+
+    /// <summary>Returns the platform-specific <c>O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
+    /// <remarks>
+    /// Unknown Unix platforms return <c>0</c> (no close-on-exec), preserving the previous behavior rather than
+    /// risking an invalid flag. This path only runs on Unix; <see cref="FlushDirectory" /> no-ops on Windows.
+    /// </remarks>
+    private static int CloseOnExecFlag()
+    {
+        if (OperatingSystem.IsLinux())
+            return LinuxCloseOnExec;
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+            return DarwinCloseOnExec;
+        if (OperatingSystem.IsFreeBSD())
+            return FreeBsdCloseOnExec;
+        return 0;
+    }
+
+    private static SafeFileHandle OpenDirectoryForFlush(string directory)
+    {
+        // EINTR (interrupted system call) is 4 on Linux, macOS, and the *BSD family.
+        // This path only runs on Unix, where open(2) can be interrupted by a signal.
+        const int eintr = 4;
+        var pathBytes = Encoding.UTF8.GetBytes(directory + "\0");
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var descriptor = OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
+            if (descriptor >= 0)
+                return new SafeFileHandle(new IntPtr(descriptor), true);
+
+            // A system call interrupted by a signal must be retried; any other failure is surfaced as-is via the existing IOException below.
+            if (Marshal.GetLastPInvokeError() != eintr)
+                break;
+        }
+
+        throw new IOException($"Failed to open directory '{directory}' for flushing; errno={Marshal.GetLastPInvokeError()}.");
+    }
 
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {

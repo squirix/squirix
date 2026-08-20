@@ -42,7 +42,13 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
             DefaultCancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
-        await StoreTestSupport.WaitUntilAsync(staleJournalPaths, static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), DefaultCancellationToken);
+
+        // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
+        // tests use under parallel CI load.
+        await staleJournalPaths.WaitUntilAsync(
+            static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
+            TimeSpan.FromSeconds(30),
+            DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -79,7 +85,10 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await StoreTestSupport.WaitUntilAsync(staleSnapshotPath, static path => !FileKit.Exists(path), DefaultCancellationToken);
+
+        // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
+        // tests use under parallel CI load.
+        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));

@@ -1,6 +1,4 @@
-using System;
 using System.IO;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
@@ -33,65 +31,5 @@ internal static class StoreTestSupport
         var currentPath = Path.Join(dataDir, $"{FilePrefixes.Manifest}current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
         return Pointer.Read(pointerBytes);
-    }
-
-    internal static void ThrowIfFaulted(Exception? error)
-    {
-        if (error != null)
-            ExceptionDispatchInfo.Capture(error).Throw();
-    }
-
-    internal static Task WaitUntilAsync<T>(T state, Func<T, bool> condition, CancellationToken cancellationToken) =>
-        WaitUntilAsync(state, condition, TimeSpan.FromSeconds(5), cancellationToken);
-
-    internal static Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, CancellationToken cancellationToken) =>
-        WaitUntilAsync(state, condition, TimeSpan.FromSeconds(5), cancellationToken);
-
-    private static async Task WaitUntilAsync<T>(T state, Func<T, bool> condition, TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(condition);
-
-        var deadline = Environment.TickCount64 + Convert.ToInt64(timeout.TotalMilliseconds);
-        while (!condition(state))
-        {
-            if (Environment.TickCount64 >= deadline)
-                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(condition);
-
-        var deadline = Environment.TickCount64 + Convert.ToInt64(timeout.TotalMilliseconds);
-        while (true)
-        {
-            var remainingMs = deadline - Environment.TickCount64;
-            if (remainingMs <= 0)
-                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
-
-            using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            source.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
-
-            try
-            {
-                var satisfied = await condition(state, source.Token).ConfigureAwait(false);
-                if (satisfied)
-                    return;
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
-            }
-
-            remainingMs = deadline - Environment.TickCount64;
-            if (remainingMs <= 0)
-                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
-
-            var delayMs = remainingMs < 25 ? Convert.ToInt32(remainingMs) : 25;
-            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-        }
     }
 }
