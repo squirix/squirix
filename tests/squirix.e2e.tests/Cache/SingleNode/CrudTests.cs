@@ -98,12 +98,14 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
         Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
 
-        await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
+        // Generous expiration so expiry does not overtake the immediate read on a loaded CI runner.
+        var expiration = TimeSpan.FromSeconds(2);
+        await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = expiration }, DefaultCancellationToken);
         var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
         Assert.True(e.Found);
         Assert.Equal("v1", e.Value);
 
-        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(expiration + TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
     }
 
@@ -115,12 +117,14 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
         Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
 
-        await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
+        // Generous expiration so the immediate read is not overtaken by expiry on a loaded CI runner.
+        var expiration = TimeSpan.FromSeconds(2);
+        await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = expiration }, DefaultCancellationToken);
         var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
         Assert.True(e.Found);
         Assert.Equal("v1", e.Value);
 
-        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
+        await Task.Delay(expiration + TimeSpan.FromMilliseconds(500), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
     }
 

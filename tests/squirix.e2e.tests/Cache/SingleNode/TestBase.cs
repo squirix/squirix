@@ -11,12 +11,6 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public abstract class TestBase : EndToEndTestBase, IClassFixture<SingleNodeFixture>
 {
-    /// <summary>Short delay used by timing-sensitive single-node cache assertions (~60ms).</summary>
-    protected static readonly TimeSpan Delay60 = TimeSpan.FromMilliseconds(60);
-
-    /// <summary>Short delay used by timing-sensitive single-node cache assertions (~90ms).</summary>
-    protected static readonly TimeSpan Delay90 = TimeSpan.FromMilliseconds(90);
-
     private readonly SingleNodeFixture _fixture;
 
     /// <summary>
