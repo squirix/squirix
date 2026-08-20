@@ -171,12 +171,11 @@ public class ManifestPublishBreakdownBenchmarks
             var encodeBuffer = new byte[EncodeBufferSize];
             var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);
             var currentPath = PathEx.Combine(dataDir.Path, $"{FilePrefixes.Manifest}current");
-            var pointerWriter = new PersistentPointerWriter(currentPath);
 
             return new Session(
                 dataDir,
                 store,
-                pointerWriter,
+                new PersistentPointerWriter(currentPath),
                 new SessionWarmup
                 {
                     Format = 1,

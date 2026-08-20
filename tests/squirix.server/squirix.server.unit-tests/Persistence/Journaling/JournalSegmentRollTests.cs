@@ -60,13 +60,13 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
                 _ = firstRollDone.TrySetResult();
             });
         await firstRollDone.Task;
-        StoreTestSupport.ThrowIfFaulted(rollError);
+        rollError.ThrowIfFaulted();
 
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
         var block = CountManifestDataFiles(Dir);
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(pipelined, static j => j.HasFlushLoopFailure, DefaultCancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), DefaultCancellationToken);
         Assert.True(journal.HasFlushLoopFailure);
         Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
         Assert.Equal(block, CountManifestDataFiles(Dir));
@@ -97,7 +97,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(manifestStore, (Func<Ledger, CancellationToken, ValueTask<bool>>)ConditionAsync, DefaultCancellationToken);
+        await manifestStore.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
 
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         Assert.False(ContainsPutKey(Dir, 1, "overflow-key"));

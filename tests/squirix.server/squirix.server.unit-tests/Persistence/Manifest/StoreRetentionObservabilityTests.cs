@@ -41,12 +41,12 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await StoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
         await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
-        await StoreTestSupport.WaitUntilAsync(readiness, static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
         Assert.True(readiness.IsDegraded);
         Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
@@ -84,8 +84,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             },
             DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(
-            logger,
+        await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase)),
             DefaultCancellationToken);
 
@@ -117,8 +116,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         Assert.True(File.Exists(staleManifest));
         await store.WriteAsync(new State { CurrentJournal = 3 }, DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(
-            logger,
+        await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase)),
             DefaultCancellationToken);
 
@@ -169,8 +167,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             },
             DefaultCancellationToken);
 
-        await StoreTestSupport.WaitUntilAsync(
-            logger,
+        await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase)),
             DefaultCancellationToken);
 

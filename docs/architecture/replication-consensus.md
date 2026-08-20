@@ -122,6 +122,16 @@ RF=5 is the product maximum. Fan-out (vote / append / ReadIndex), per-group in-m
 must be sized for five peers on the established internal channels. Profiles RF=2..5 in the explorer confirm safety
 machinery scales across the allowed RF set; operational budgets are validated by later placement/perf milestones.
 
+### Replica-group snapshots
+
+The storage layer publishes an atomic, CRC32C-validated `group.snapshot` containing the committed baseline and resolved
+idempotency outcomes. Installing a snapshot is accepted only for the same group and compatible topology generation;
+the committed prefix is replaced while the uncommitted suffix is retained. Compaction removes only the journal prefix
+covered by the published snapshot and preserves the log header and installable snapshot.
+
+Transport streaming and catch-up orchestration are intentionally deferred to M8-08. The snapshot storage contract is
+therefore internal to `Storage.Replication` and does not add a transport dependency.
+
 ## Consequences
 
 - Product election code and local promotion stay off until this ADR merges and model evidence is green.

@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -21,6 +23,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
     /// final cached/allocator state (not the overlapping read's captured result, which is timing dependent): without
     /// the fix the load would overwrite the newer cached state with index 5 and rewind the allocator.
     /// </summary>
+    /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
     [Fact]
     public async Task ColdReadDoesNotRewindCacheOrAllocator()
     {
@@ -48,31 +51,29 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         }
 
         var read = store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        Exception? rollError = null;
+        var rollError = new StrongBox<Exception?>(null);
+        Action<Exception> onRollFailed = ex => _ = Interlocked.CompareExchange(ref rollError.Value, ex, null);
         for (var i = 6; i <= 20; i++)
-            store.EnqueueRoll(i, Convert.ToUInt64(i), static () => { }, OnRollFailed);
+            store.EnqueueRoll(i, Convert.ToUInt64(i), static () => { }, onRollFailed);
 
-        await StoreTestSupport.WaitUntilAsync(
-            store,
+        // The burst drains on a background worker; under parallel CI load the default 5s poll can trip before the
+        // worker finishes, so allow 30s for the journal to reach 20 (a real stall still throws).
+        await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
+            TimeSpan.FromSeconds(30),
             DefaultCancellationToken);
 
-        StoreTestSupport.ThrowIfFaulted(rollError);
+        Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
         _ = await read;
 
         var finalState = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         Assert.Equal(20, finalState.CurrentJournal);
         Assert.Equal(20, await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, DefaultCancellationToken));
-        return;
-
-        void OnRollFailed(Exception ex)
-        {
-            rollError = ex;
-        }
     }
 
     /// <summary>Rapid publishes retain the latest manifest file and pointer.</summary>
+    /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
     [Fact]
     public async Task RapidPublishBurstKeepsCurrentManifest()
     {
@@ -83,17 +84,19 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
             ManifestRetentionCount = 2,
         };
         using var store = new Ledger(options);
-        Exception? rollError = null;
-        Action<Exception> onRollFailed = ex => rollError = ex;
+        var rollError = new StrongBox<Exception?>(null);
+        Action<Exception> onRollFailed = ex => _ = Interlocked.CompareExchange(ref rollError.Value, ex, null);
         for (var i = 1; i <= 20; i++)
             store.EnqueueRoll(i, Convert.ToUInt64(i), static () => { }, onRollFailed);
 
-        await StoreTestSupport.WaitUntilAsync(
-            store,
+        // The burst drains on a background worker; under parallel CI load the default 5s poll can trip before the
+        // worker finishes, so allow 30s for the journal to reach 20 (a real stall still throws).
+        await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
+            TimeSpan.FromSeconds(30),
             DefaultCancellationToken);
 
-        StoreTestSupport.ThrowIfFaulted(rollError);
+        Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
         Assert.True(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20))));
     }
