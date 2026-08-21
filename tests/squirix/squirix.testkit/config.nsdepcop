@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.TestKit dependency policy.
+
+  Test harness stays independent of the client SDK assembly so it can be
+  reused by server-side tests without dragging the client package along.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix" />
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix.Server.TestKit" />
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.TestKit" To="Squirix.Analyzers" />
+
+</NsDepCopConfig>

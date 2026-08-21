@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.E2EBenchmarks dependency policy.
+
+  Public-client regression benchmarks run against a real server process.
+  The server is reached only through the shared Squirix.Server.TestKit
+  hosting helpers; direct server library internals are off-limits.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <!-- Direct server assembly reference arrives transitively via TestKit; namespace rule below
+       still restricts actual usage to TestKit.* namespaces only. -->
+  <DisallowedAssembly From="Squirix.E2EBenchmarks" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.E2EBenchmarks" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.E2EBenchmarks" To="Squirix.Analyzers" />
+
+  <!-- Server surface is reachable only via TestKit.* namespaces. -->
+  <Disallowed From="/^Squirix\.E2EBenchmarks(?:\.|$)/" To="/^Squirix\.Server(?:\.(?!TestKit(?:\.|$)).*)?$/" />
+
+  <!-- Public client surface only: client internals stay out of scope. -->
+  <Disallowed From="/^Squirix\.E2EBenchmarks(?:\.|$)/" To="/^Squirix\.Internal(?:\.|$)/" />
+
+</NsDepCopConfig>

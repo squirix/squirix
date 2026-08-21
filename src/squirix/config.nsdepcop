@@ -36,6 +36,11 @@
   <Disallowed From="Squirix.*" To="Squirix.ProtocolModel.*" />
   <Disallowed From="Squirix.Transport.*" To="Squirix.ProtocolModel.*" />
 
+  <!-- Shared transport CLR stays self-contained: generated proto/mappers only, no client namespaces. -->
+  <Disallowed From="/^Squirix\.Transport(?:\.|$)/" To="/^Squirix$/" />
+  <Disallowed From="/^Squirix\.Transport(?:\.|$)/" To="/^Squirix\.Core(?:\.|$)/" />
+  <Disallowed From="/^Squirix\.Transport(?:\.|$)/" To="/^Squirix\.Internal(?:\.|$)/" />
+
   <!-- ═══ Public surface purity ═══ -->
 
   <!-- Cache name/key validators are public helpers; must not pull remote implementation. -->

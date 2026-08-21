@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.E2ETests dependency policy.
+
+  End-to-end tests drive a real server process and the exported v0.1 client
+  surface. The server is reached only through the shared Squirix.Server.TestKit
+  hosting helpers; direct server library internals are off-limits.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <!-- Direct server assembly reference arrives transitively via TestKit; namespace rule below
+       still restricts actual usage to TestKit.* namespaces only. -->
+  <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.Analyzers" />
+
+  <!-- Server surface is reachable only via TestKit.* namespaces. -->
+  <Disallowed From="/^Squirix\.E2ETests(?:\.|$)/" To="/^Squirix\.Server(?:\.(?!TestKit(?:\.|$)).*)?$/" />
+
+  <!-- Public client surface only: client internals stay out of scope. -->
+  <Disallowed From="/^Squirix\.E2ETests(?:\.|$)/" To="/^Squirix\.Internal(?:\.|$)/" />
+
+</NsDepCopConfig>

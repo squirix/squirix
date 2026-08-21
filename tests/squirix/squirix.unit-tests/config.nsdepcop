@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.UnitTests dependency policy.
+
+  Client bucket stays free of server-side packages: unit tests exercise the
+  exported v0.1 client surface in isolation.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Server.TestKit" />
+  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Analyzers" />
+
+</NsDepCopConfig>

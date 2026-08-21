@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Analyzers dependency policy.
+
+  Design-time Roslyn analyzers package; must not reference shipped product
+  assemblies (client SDK, server, host, protocol-model).
+  Assembly rules only: namespace pattern To="Squirix.*" would also match
+  Squirix.Analyzers itself.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Analyzers" To="Squirix" />
+  <DisallowedAssembly From="Squirix.Analyzers" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.Analyzers" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.Analyzers" To="Squirix.ProtocolModel" />
+
+</NsDepCopConfig>
