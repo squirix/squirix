@@ -164,7 +164,7 @@ internal sealed class JournalEventLoopSegmentWriter
         finally
         {
             if (frameBytes != null)
-                ArrayPool<byte>.Shared.Return(frameBytes);
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
         }
 
         CompleteJournalWorkItem(item);
@@ -291,7 +291,7 @@ internal sealed class JournalEventLoopSegmentWriter
         finally
         {
             if (frameBytes != null)
-                ArrayPool<byte>.Shared.Return(frameBytes);
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
         }
     }
 

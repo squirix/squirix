@@ -105,7 +105,7 @@ internal static class JournalReadPath
                 if (read.Status != JournalFrameReadStatus.Success)
                 {
                     if (buffer != null)
-                        ArrayPool<byte>.Shared.Return(buffer);
+                        ArrayPool<byte>.Shared.ReturnCleared(buffer);
 
                     if (ShouldThrowOnReadFailure(read.Status))
                         throw new InvalidDataException("journal segment corruption.");
@@ -124,7 +124,7 @@ internal static class JournalReadPath
                 if (_rentedFrameBuffer == null)
                     return;
 
-                ArrayPool<byte>.Shared.Return(_rentedFrameBuffer);
+                ArrayPool<byte>.Shared.ReturnCleared(_rentedFrameBuffer);
                 _rentedFrameBuffer = null;
             }
 

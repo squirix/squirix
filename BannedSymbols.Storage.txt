@@ -5,3 +5,6 @@ M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte});Use bi
 M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte},System.Text.Json.JsonDocumentOptions);Use binary codecs on persistence paths instead of JSON parse.
 M:System.Text.Json.JsonDocument.Parse(System.Buffers.ReadOnlySequence{System.Byte});Use binary codecs on persistence paths instead of JSON parse.
 M:System.Text.Encoding.UTF8.GetBytes(System.String);Use GetByteCount + GetBytes(string, span) or Utf8 encoding into a pre-sized buffer instead.
+
+// Pooled buffers carry operation data; returning them uncleared leaks payloads into unrelated operations.
+M:System.Buffers.ArrayPool`1.Return(`0[],System.Boolean);Pooled buffers carry operation data: return through ArrayPoolExtensions.ReturnCleared so the buffer is cleared before reuse.

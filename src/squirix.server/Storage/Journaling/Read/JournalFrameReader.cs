@@ -80,7 +80,7 @@ internal static class JournalFrameReader
         finally
         {
             if (rentedBuffer == null)
-                ArrayPool<byte>.Shared.Return(rented);
+                ArrayPool<byte>.Shared.ReturnCleared(rented);
         }
     }
 
