@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
@@ -29,13 +30,13 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static void ExploreProfileForCliRejectsUnknownName() => Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForCli("tiny", true));
+    public static void ExploreProfileForCliRejectsUnknownName() => NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
 
     [Fact]
     public static void ExploreProfileForReplicaCountRejectsOutOfRange()
     {
-        _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
-        _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
     }
 
     [Fact]
