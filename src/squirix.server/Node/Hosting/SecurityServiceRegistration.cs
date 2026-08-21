@@ -86,7 +86,7 @@ internal static class SecurityServiceRegistration
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
             SquirixAuthorizationPolicies.JwtBearer,
-            p =>
+            static p =>
             {
                 _ = p.RequireAuthenticatedUser();
                 p.AuthenticationSchemes.Add(JwtBearerDefaults.AuthenticationScheme);
