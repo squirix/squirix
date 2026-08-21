@@ -16,6 +16,7 @@ internal static class RuntimeServiceRegistration
     /// <summary>
     /// Extension methods that register cluster locator services on <see cref="IServiceCollection" />.
     /// </summary>
+    /// <param name="services">The service collection to register locators on.</param>
     extension(IServiceCollection services)
     {
         /// <summary>Registers static topology node location and ownership resolution.</summary>

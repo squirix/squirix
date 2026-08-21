@@ -7,6 +7,7 @@ internal static class ResourceExhaustedExceptionExtensions
     /// <summary>
     /// Maps <see cref="ResourceExhaustedException" /> to transport-specific error representations.
     /// </summary>
+    /// <param name="exception">The resource exhaustion exception.</param>
     extension(ResourceExhaustedException exception)
     {
         /// <summary>
