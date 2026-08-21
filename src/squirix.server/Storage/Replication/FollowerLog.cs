@@ -689,7 +689,7 @@ internal sealed class FollowerLog : IFollowerLog
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(_buffer);
+                    ArrayPool<byte>.Shared.ReturnCleared(_buffer);
                 }
 
                 _faults.OnFrameWritten();
@@ -731,7 +731,7 @@ internal sealed class FollowerLog : IFollowerLog
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(_buffer);
+                    ArrayPool<byte>.Shared.ReturnCleared(_buffer);
                 }
             }
         }
@@ -885,7 +885,7 @@ internal sealed class FollowerLog : IFollowerLog
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(header);
+                ArrayPool<byte>.Shared.ReturnCleared(header);
             }
         }
 
@@ -982,12 +982,12 @@ internal sealed class FollowerLog : IFollowerLog
                     }
                     finally
                     {
-                        ArrayPool<byte>.Shared.Return(frame);
+                        ArrayPool<byte>.Shared.ReturnCleared(frame);
                     }
                 }
                 finally
                 {
-                    ArrayPool<byte>.Shared.Return(frameHeader);
+                    ArrayPool<byte>.Shared.ReturnCleared(frameHeader);
                 }
             }
 

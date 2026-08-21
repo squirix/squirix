@@ -18,7 +18,7 @@ internal static class JournalEntryPayload
         }
         catch
         {
-            ArrayPool<byte>.Shared.Return(pooledBuffer);
+            ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
             throw;
         }
     }

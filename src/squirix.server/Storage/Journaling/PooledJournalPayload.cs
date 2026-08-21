@@ -28,6 +28,6 @@ internal sealed class PooledJournalPayload : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        ArrayPool<byte>.Shared.Return(_buffer);
+        ArrayPool<byte>.Shared.ReturnCleared(_buffer);
     }
 }

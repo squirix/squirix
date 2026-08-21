@@ -76,7 +76,7 @@ internal static class JournalRecoveryScan
 
             validLength = read.NextFrameOffset;
             if (rentedBuffer != null)
-                ArrayPool<byte>.Shared.Return(rentedBuffer);
+                ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
         }
     }
 

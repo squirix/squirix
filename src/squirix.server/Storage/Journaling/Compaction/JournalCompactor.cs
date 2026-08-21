@@ -223,7 +223,7 @@ internal static class JournalCompactor
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(frame);
+            ArrayPool<byte>.Shared.ReturnCleared(frame);
         }
 
         return sequence + 1UL;
@@ -303,7 +303,7 @@ internal static class JournalCompactor
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(frame);
+            ArrayPool<byte>.Shared.ReturnCleared(frame);
         }
 
         return sequence + 1UL;
