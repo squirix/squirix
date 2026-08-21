@@ -291,28 +291,25 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
-        PersistenceOptions? persistenceOptions,
-        string selfNodeId,
-        string testScope,
-        bool clean,
-        CancellationToken cancellationToken)
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
         var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
         if (clean && CleanedScopes.TryAdd(path, 0))
             await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir) ? NodePathKit.Combine(true, path, selfNodeId) : persistenceOptions.DataDir;
+        var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
         DirectoryKit.CreateDirectory(effectiveDataDir);
 
-        if (persistenceOptions == null)
+        if (options == null)
+        {
             return new PersistenceOptions
             {
                 DataDir = effectiveDataDir,
                 JournalMaxSegmentMb = 64,
             };
+        }
 
-        return string.IsNullOrWhiteSpace(persistenceOptions.DataDir) ? persistenceOptions with { DataDir = effectiveDataDir } : persistenceOptions;
+        return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
     }
 
     /// <summary>

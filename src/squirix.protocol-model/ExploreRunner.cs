@@ -794,12 +794,11 @@ internal static class ExploreRunner
                 // Response travels receiver → original sender (swap relative to request From/To).
                 var responseFrom = msg.To;
                 var responseTo = msg.From;
-                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
-                    messages.Add(
-                        new InFlightMessage(
-                            nextId++,
-                            MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, success, index)));
-
+                if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                var payload = MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, success, index);
+                var inFlightMessage = new InFlightMessage(nextId++, payload);
+                messages.Add(inFlightMessage);
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
@@ -850,10 +849,10 @@ internal static class ExploreRunner
                 // Response travels receiver → original sender (swap relative to request From/To).
                 var responseFrom = msg.To;
                 var responseTo = msg.From;
-                if (messages.Count < profile.MaxInFlight && state.CanCommunicate(responseFrom, responseTo))
-                    messages.Add(
-                        new InFlightMessage(nextId++, MessagePayload.ReadResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex)));
-
+                if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                var payload = MessagePayload.ReadResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex);
+                messages.Add(new InFlightMessage(nextId++, payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 

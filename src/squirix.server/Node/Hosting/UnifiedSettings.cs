@@ -45,6 +45,7 @@ internal static class UnifiedSettings
         var (found, pressure) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settingsFilePath, new UnresolvedMemoryPressureOptions(), cancellationToken)
                                                        .ConfigureAwait(false);
         if (found)
+        {
             try
             {
                 _ = OptionsResolver.Resolve(pressure, GcMemoryBudgetProvider.Instance);
@@ -53,6 +54,7 @@ internal static class UnifiedSettings
             {
                 failures.Add(ex.Message);
             }
+        }
 
         var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFilePathAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
         if (snapshotFound)
