@@ -44,7 +44,7 @@
   <!-- ═══ Process / package boundary ═══ -->
   <!-- Server product must not depend on any client SDK namespace (shared Squirix.Transport.Grpc is
        the only allowed client-side namespace; root facade, Core/Internal/Serialization all banned). -->
-  <Disallowed From="Squirix.Server.*" To="/^Squirix(?:\.(?!(?:Transport|Server)(?:\.|$)).*)?$/" />
+  <Disallowed From="Squirix.Server.*" To="/^Squirix(?:\.(?!(?:Transport\.Grpc|Server)(?:\.|$)).*)?$/" />
 
   <!-- ═══ Kernel purity (inner shared types must stay free of outer layers) ═══ -->
 

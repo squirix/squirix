@@ -9,7 +9,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\..\src\squirix.protocol-model\Squirix.ProtocolModel.csproj"/>
-        <ProjectReference Include="..\..\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>
     <ItemGroup>
         <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
