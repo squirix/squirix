@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -87,7 +88,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
             },
             static (_, _) => { });
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => worker.EnqueueAsync(1));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(worker.EnqueueAsync(1));
         await worker.EnqueueAsync(2);
 
         Assert.Equal([2], handled);

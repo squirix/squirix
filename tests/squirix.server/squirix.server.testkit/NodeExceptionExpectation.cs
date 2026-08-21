@@ -10,6 +10,26 @@ namespace Squirix.Server.TestKit;
 public readonly record struct NodeExceptionExpectation<TException>
     where TException : Exception
 {
+    /// <summary>Invokes a capture-free operation and asserts it throws exactly <typeparamref name="TException" />.</summary>
+    /// <param name="operation">Operation expected to throw.</param>
+    /// <returns>The observed exception.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
+    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    public TException Throws(Action operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        try
+        {
+            operation();
+        }
+        catch (TException thrown) when (thrown.GetType() == typeof(TException))
+        {
+            return thrown;
+        }
+
+        throw Missing();
+    }
+
     /// <summary>Invokes an operation with one state value and asserts it throws exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TState">Operation state type.</typeparam>
     /// <param name="state">State passed to <paramref name="operation" />.</param>

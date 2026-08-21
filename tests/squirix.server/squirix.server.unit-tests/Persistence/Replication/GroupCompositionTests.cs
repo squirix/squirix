@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -12,7 +13,7 @@ public sealed class GroupCompositionTests : ServerUnitTestBase
 {
     /// <summary>A composition must not accept the same group twice.</summary>
     [Fact]
-    public void CreateRejectsDuplicateGroupId() => Assert.Throws<ArgumentException>(static () => GroupComposition.Create("grp-1", "grp-1"));
+    public void CreateRejectsDuplicateGroupId() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(static () => GroupComposition.Create("grp-1", "grp-1"));
 
     /// <summary>Distinct group identifiers form a valid composition.</summary>
     [Fact]
