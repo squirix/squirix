@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.IntegrationTests dependency policy.
+
+  Client bucket stays free of server-side packages: integration tests exercise
+  the exported v0.1 client surface against a locally hosted endpoint.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Server.TestKit" />
+  <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Analyzers" />
+
+</NsDepCopConfig>

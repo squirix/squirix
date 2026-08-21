@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.ProtocolModel.Tests dependency policy.
+
+  Isolated design-time test harness; must not reference Squirix, Squirix.Server,
+  or any server-side test harness. Exception assertions use the local
+  ProtocolModelExceptionAssert helper instead of Squirix.Server.TestKit.
+  Assembly rules only: namespace pattern To="Squirix.*" would also match
+  Squirix.ProtocolModel.Tests itself.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.ProtocolModel.Tests" To="Squirix" />
+  <DisallowedAssembly From="Squirix.ProtocolModel.Tests" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.ProtocolModel.Tests" To="Squirix.Server.TestKit" />
+  <DisallowedAssembly From="Squirix.ProtocolModel.Tests" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.ProtocolModel.Tests" To="Squirix.Analyzers" />
+
+</NsDepCopConfig>

@@ -114,9 +114,10 @@
         <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <!-- Namespace dependency rules for production packages under src/** (except analyzers),
-         protocol-model, and server tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <!-- Namespace dependency rules for production packages under src/**, analyzers, protocol-model,
+         all client-bucket tests/benchmarks, e2e harnesses, protocol-model tests, samples, and server
+         tests under tests/squirix.server/**. -->
+    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixAnalyzerProject)' == 'true' Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 

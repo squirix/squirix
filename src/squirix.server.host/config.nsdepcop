@@ -43,5 +43,6 @@
   <Disallowed From="Squirix.Server.Host.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.Host.*" To="Squirix.Core.*" />
   <Disallowed From="Squirix.Server.Host.*" To="Squirix.Serialization.*" />
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Transport.*" />
 
 </NsDepCopConfig>

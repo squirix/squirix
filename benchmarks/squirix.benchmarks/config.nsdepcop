@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Benchmarks dependency policy.
+
+  Internal-layer breakdown benchmarks for the v0.1 client surface. They reuse the
+  shared Squirix.Server.TestKit hosting harness (which transitively pulls the
+  server assembly), but must not touch host CLI or design-time tooling.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.Analyzers" />
+
+</NsDepCopConfig>

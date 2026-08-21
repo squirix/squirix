@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ExternalPackageSmoke dependency policy.
+
+  Simulates a third-party consumer of the shipped v0.1 packages: it may use
+  the client SDK and the server bootstrap surface, but nothing else from the
+  repository (no host CLI, no test kits, no design-time tooling).
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Server.TestKit" />
+  <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Analyzers" />
+
+  <!-- Third-party consumers see the exported bootstrap facade (root Squirix.Server
+       namespace) only; server implementation namespaces are out of scope. -->
+  <Disallowed From="/^Squirix\.ExternalPackageSmoke(?:\.|$)/" To="/^Squirix\.Server\..+$/" />
+
+</NsDepCopConfig>
