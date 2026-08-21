@@ -242,19 +242,23 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var api = _cacheOperations.ForCache(cacheName);
             var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             if (existing.Found)
+            {
                 return new GetOrAddAsyncResponse
                 {
                     Added = false,
                     Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value),
                 };
+            }
 
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
             if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
+            {
                 return new GetOrAddAsyncResponse
                 {
                     Added = true,
                     Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
                 };
+            }
 
             var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             return new GetOrAddAsyncResponse

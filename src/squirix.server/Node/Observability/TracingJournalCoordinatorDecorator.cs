@@ -166,10 +166,12 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context)
         {
             if (context != null)
+            {
                 return context with
                 {
                     GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
                 };
+            }
 
             return null;
         }

@@ -135,6 +135,8 @@ dotnet_diagnostic.RCS1007.severity = none
 dotnet_diagnostic.SQR001.severity = error
 # Squirix.Analyzers: multiline embedded loop bodies (except nested loops) must use braces.
 dotnet_diagnostic.SQR008.severity = error
+# Squirix.Analyzers: multiline embedded if/else-if/else bodies (except nested ifs) must use braces.
+dotnet_diagnostic.SQR018.severity = error
 # Squirix.Analyzers: design/naming limits (SQR002–SQR007) and style (SQR009–SQR011).
 dotnet_diagnostic.SQR002.severity = error
 dotnet_diagnostic.SQR003.severity = error

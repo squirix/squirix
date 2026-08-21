@@ -437,6 +437,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
                 enqueued = true;
                 if (appendCompleted != null)
+                {
                     try
                     {
                         await appendWaitTask.ConfigureAwait(false);
@@ -445,6 +446,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                     {
                         appendCompleted.ReturnToPool();
                     }
+                }
             }
             catch when (!enqueued)
             {
