@@ -9,7 +9,7 @@ namespace Squirix.Server.TestKit.Networking;
 internal static class HostPortRegions
 {
     private const int Origin = 20_000;
-    private const int RegionSize = 2_000;
+    private const int RegionSize = 3_000;
 
     internal static int EndExclusive(HostPortRegion region) => StartInclusive(region) + RegionSize;
 

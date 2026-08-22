@@ -8,8 +8,10 @@ namespace Squirix.Server.TestKit.Networking;
 /// Process-scoped HTTPS listen port pools backed by <see cref="PortAllocator" />.
 /// </summary>
 /// <remarks>
-/// Each preset allocates from the full <see cref="HostPortRegion" /> range. Cross-process safety
-/// relies on bind probing in <see cref="PortAllocator" />; regions stay disjoint per consumer.
+/// Each preset allocates from this process's exclusive slice of its <see cref="HostPortRegion" />,
+/// claimed via <see cref="ConsumerPortSlicer" />, so concurrently running processes of the same
+/// consumer use disjoint sub-ranges. Bind probing in <see cref="PortAllocator" /> remains a second
+/// line of defense against residual cross-process races.
 /// </remarks>
 public sealed class ListenPortPool : IDisposable
 {
@@ -18,9 +20,8 @@ public sealed class ListenPortPool : IDisposable
 
     private ListenPortPool(HostPortRegion region)
     {
-        var regionStart = HostPortRegions.StartInclusive(region);
-        var regionEndInclusive = HostPortRegions.EndExclusive(region) - 1;
-        _allocator = new PortAllocator(regionStart, regionEndInclusive);
+        var (sliceStartInclusive, sliceEndInclusive) = ConsumerPortSlicer.Slice(region);
+        _allocator = new PortAllocator(sliceStartInclusive, sliceEndInclusive);
     }
 
     private ListenPortPool(int startInclusive, int endInclusive)
