@@ -456,6 +456,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
             catch when (!enqueued)
             {
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
                 appendAck?.ReturnToPool();
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
@@ -474,6 +475,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             }
             catch when (!enqueued)
             {
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
             }
