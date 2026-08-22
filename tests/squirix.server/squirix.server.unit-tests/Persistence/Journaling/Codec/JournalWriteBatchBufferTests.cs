@@ -67,5 +67,5 @@ public sealed class JournalWriteBatchBufferTests
         Assert.True(buffer.IsEmpty);
     }
 
-    private static JournalWorkItem MakeItem(byte[] frame) => new(JournalWorkKind.Append, frameBytes: frame, frameLength: frame.Length);
+    private static JournalWorkItem MakeItem(byte[] frame) => JournalWorkItem.Append(frame, frame.Length);
 }

@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
 /// Regression coverage for the append cancellation lifecycle (audit items C1 and C2): cancelling a
-/// request after its frame is enqueued must not corrupt the durability waiter pool or double-decrement
+/// request after its frame is enqueued must not corrupt the durability ack pool or double-decrement
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
 [Immutable]
@@ -123,7 +123,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             var key = CacheKey.Default(NodeInvariantIndexStrings.Format(i));
 
             // Use 1..4 ms (not 0): a zero due-time CTS is already canceled and only exercises the
-            // pre-enqueue path, which is less representative of the durability-waiter race this test
+            // pre-enqueue path, which is less representative of the durability-ack race this test
             // was written to catch under CI scheduling pressure.
             tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, 1 + (i % 4));
         }

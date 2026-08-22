@@ -22,9 +22,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
-    /// <summary>Ensures canceling pending group-commit waiters propagates journal pipeline failures.</summary>
+    /// <summary>Ensures canceling pending group-commit acks propagates journal pipeline failures.</summary>
     [Fact]
-    public async Task CancelPendingFailsPendingGroupCommitWaiters()
+    public async Task CancelPendingFailsPendingGroupCommitAcks()
     {
         var options = new PersistenceOptions
         {
@@ -34,17 +34,17 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var failure = new IOException("journal pipeline failed");
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
 
-        var waiter = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         await groupCommit.CancelPendingAsync(failure);
-        await WaitUntilCompletedAsync(waiter);
+        await WaitUntilCompletedAsync(ack);
 
-        Assert.True(waiter.IsFaulted);
-        Assert.Same(failure, waiter.Exception?.InnerException);
+        Assert.True(ack.IsFaulted);
+        Assert.Same(failure, ack.Exception?.InnerException);
     }
 
     /// <summary>
-    /// Ensures canceling a waiter after its batch was taken but before flush completion does not
-    /// return the pooled waiter early and poison later durability waits.
+    /// Ensures canceling a ack after its batch was taken but before flush completion does not
+    /// return the pooled ack early and poison later durability waits.
     /// </summary>
     [Fact]
     public async Task GroupCommitCancelInFlightBatchDoesNotPoisonPool()
@@ -97,9 +97,9 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         Assert.True(followUp.IsCompletedSuccessfully);
     }
 
-    /// <summary>Ensures canceling the only pending waiter leaves the next group commit batch usable.</summary>
+    /// <summary>Ensures canceling the only pending ack leaves the next group commit batch usable.</summary>
     [Fact]
-    public async Task GroupCommitCanceledWaiterDoesNotPoisonFutureBatch()
+    public async Task GroupCommitCanceledAckDoesNotPoisonFutureBatch()
     {
         var options = new PersistenceOptions
         {
@@ -127,7 +127,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         Assert.Equal(1, flushCounter.Value);
     }
 
-    /// <summary>Ensures a delayed flush failure fails pending waiters instead of leaving them pending.</summary>
+    /// <summary>Ensures a delayed flush failure fails pending acks instead of leaving them pending.</summary>
     [Fact]
     public async Task GroupCommitDelayFlushFailureFailsPendingWaiters()
     {
@@ -156,9 +156,9 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         Assert.Same(flushFailure, secondFailure);
     }
 
-    /// <summary>Ensures cancellation of the first waiter does not cancel the shared delayed flush for other waiters.</summary>
+    /// <summary>Ensures cancellation of the first ack does not cancel the shared delayed flush for other acks.</summary>
     [Fact]
-    public async Task GroupCommitFirstWaiterCancelOtherWaiters()
+    public async Task GroupCommitFirstAckCancelOtherAcks()
     {
         var options = new PersistenceOptions
         {
@@ -230,7 +230,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask();
     }
 
-    /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
+    /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
     [Fact]
     public async Task GroupCommitImmediateBatchFlushRacesDelayTimer()
     {
@@ -244,24 +244,24 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var time = new FakeTimeProvider();
         var groupCommit = CreateGroupCommit(flushCounter.IncrementAction, options, time);
 
-        var waiters = new Task[8];
-        for (var i = 0; i < waiters.Length; i++)
-            waiters[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var acks = new Task[8];
+        for (var i = 0; i < acks.Length; i++)
+            acks[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
         groupCommit.DrainDueBatchesOnJournalThread();
         groupCommit.DrainDueBatchesOnJournalThread();
 
-        await Task.WhenAll(waiters);
+        await Task.WhenAll(acks);
 
-        foreach (var waiter in waiters)
-            Assert.True(waiter.IsCompletedSuccessfully);
+        foreach (var ack in acks)
+            Assert.True(ack.IsCompletedSuccessfully);
 
         Assert.True(flushCounter.Value >= 1);
     }
 
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
-    public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
+    public async Task GroupCommitSharesFlushAcrossConcurrentAcks()
     {
         var options = new PersistenceOptions
         {

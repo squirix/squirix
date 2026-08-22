@@ -54,29 +54,30 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    internal void CompleteDurabilityCheckpointOnJournalThread()
+    internal void CompleteDurabilityCheckpointOnJournalThread(JournalWorkItem item)
     {
-        if (!_owner.DurabilityWaiters.TryTakeAllIfAny(out var waiters))
+        var ack = item.Ack ?? throw new InvalidOperationException("durability checkpoint work item is missing a durability ack.");
+
+        // Complete only the ack carried by this work item. The ack rides the ring position of its
+        // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
+        // it. Completing acks registered later (their checkpoints are still queued behind this item)
+        // would report frames durable before they are written, so foreign acks must stay pending.
+        if (_owner.DurabilityAcks.Remove(ack))
         {
-            _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
-            return;
+            _owner.EventLoop.FsyncOnJournalThread();
+            _ = ack.TrySetResult();
         }
-
-        _owner.EventLoop.FsyncOnJournalThread();
-
-        for (var i = 0; i < waiters.Count; i++)
-            _ = waiters[i].TrySetResult();
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
-        var begin = JournalDurabilityWaiter.Rent();
+        var begin = DurabilityAck.Rent();
         try
         {
             var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = new JournalWorkItem(JournalWorkKind.MaintenanceBegin, begin);
+            var beginItem = JournalWorkItem.MaintenanceBegin(begin);
             await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
             await beginWaitTask.ConfigureAwait(false);
@@ -86,11 +87,11 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
             var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
 
-            var end = JournalDurabilityWaiter.Rent();
+            var end = DurabilityAck.Rent();
             try
             {
                 var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = new JournalWorkItem(JournalWorkKind.MaintenanceEnd, end, resetSegmentIndex: resetSegmentIndex, resetSequence: resetSequence);
+                var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
                 await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
                 await endWaitTask.ConfigureAwait(false);
@@ -106,22 +107,22 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(new JournalWorkItem(JournalWorkKind.Shutdown), CancellationToken.None);
+    internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
 
     internal void FailJournalPipeline(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
         _owner.SetJournalThreadFailure(reason);
-        FailPendingDurabilityWaiters(reason);
+        FailPendingDurabilityAcks(reason);
         _owner.GroupCommit?.CancelPendingCore(reason);
     }
 
-    internal void FailPendingDurabilityWaiters(Exception reason)
+    internal void FailPendingDurabilityAcks(Exception reason)
     {
-        var waiters = _owner.DurabilityWaiters.TakeAll();
+        var acks = _owner.DurabilityAcks.TakeAll();
 
-        for (var i = 0; i < waiters.Count; i++)
-            _ = waiters[i].TrySetException(reason);
+        for (var i = 0; i < acks.Count; i++)
+            _ = acks[i].TrySetException(reason);
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
@@ -160,40 +161,40 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    private void DetachDurabilityWaiter(JournalDurabilityWaiter waiter) => _ = _owner.DurabilityWaiters.Remove(waiter);
+    private void DetachDurabilityAck(DurabilityAck ack) => _ = _owner.DurabilityAcks.Remove(ack);
 
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var waiter = JournalDurabilityWaiter.Rent();
-        _owner.DurabilityWaiters.Add(waiter);
+        var ack = DurabilityAck.Rent();
+        _owner.DurabilityAcks.Add(ack);
 
         try
         {
-            var waitTask = waiter.AwaitAsync(cancellationToken);
-            var item = new JournalWorkItem(JournalWorkKind.DurabilityCheckpoint);
+            var ackWaitTask = ack.AwaitAsync(cancellationToken);
+            var item = JournalWorkItem.DurabilityCheckpoint(ack);
             await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 
-            await waitTask.ConfigureAwait(false);
+            await ackWaitTask.ConfigureAwait(false);
             ThrowIfJournalThreadFailed();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            RemoveDurabilityWaiter(waiter, cancellationToken);
+            RemoveDurabilityAck(ack, cancellationToken);
             throw;
         }
         finally
         {
-            DetachDurabilityWaiter(waiter);
-            waiter.ReturnToPool();
+            DetachDurabilityAck(ack);
+            ack.ReturnToPool();
         }
     }
 
-    private void RemoveDurabilityWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
+    private void RemoveDurabilityAck(DurabilityAck ack, CancellationToken cancellationToken)
     {
-        if (!_owner.DurabilityWaiters.Remove(waiter))
+        if (!_owner.DurabilityAcks.Remove(ack))
             return;
 
-        _ = waiter.TrySetCanceled(cancellationToken);
+        _ = ack.TrySetCanceled(cancellationToken);
     }
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem

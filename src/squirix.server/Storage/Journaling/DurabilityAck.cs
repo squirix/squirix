@@ -6,16 +6,16 @@ using System.Threading.Tasks.Sources;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Pooled void durability waiter backed by <see cref="ManualResetValueTaskSourceCore{TResult}" />.</summary>
-internal sealed class JournalDurabilityWaiter : IValueTaskSource
+/// <summary>Pooled void durability ack backed by <see cref="ManualResetValueTaskSourceCore{TResult}" />.</summary>
+internal sealed class DurabilityAck : IValueTaskSource
 {
-    private static readonly ConcurrentBag<JournalDurabilityWaiter> Pool = [];
+    private static readonly ConcurrentBag<DurabilityAck> Pool = [];
     private int _abandonedByCaller;
 
     private ManualResetValueTaskSourceCore<bool> _core;
     private int _leased;
 
-    private JournalDurabilityWaiter()
+    private DurabilityAck()
     {
         _core = default;
     }
@@ -27,15 +27,15 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
     void IValueTaskSource.OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags) =>
         _core.OnCompleted(continuation, state, token, flags);
 
-    internal static JournalDurabilityWaiter Rent()
+    internal static DurabilityAck Rent()
     {
-        while (Pool.TryTake(out var waiter))
+        while (Pool.TryTake(out var ack))
         {
-            if (Interlocked.CompareExchange(ref waiter._leased, 1, 0) == 0)
-                return waiter;
+            if (Interlocked.CompareExchange(ref ack._leased, 1, 0) == 0)
+                return ack;
         }
 
-        return new JournalDurabilityWaiter { _leased = 1 };
+        return new DurabilityAck { _leased = 1 };
     }
 
     internal ValueTask AwaitAsync(CancellationToken cancellationToken)
