@@ -51,6 +51,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
 
         // Dispose explicitly before reading: shutdown must drain the ring. The trailing await-using
         // disposal is a no-op (dispose is idempotent).
+        // ReSharper disable once DisposeOnUsingVariable
         await journal.DisposeAsync();
 
         var expectedKeys = new HashSet<string>(StringComparer.Ordinal);
@@ -65,6 +66,6 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             _ = foundKeys.Add(records.Current.Key.Key);
         }
 
-        Assert.True(expectedKeys.SetEquals(foundKeys), $"missing keys: {string.Join(", ", expectedKeys)}");
+        Assert.True(expectedKeys.SetEquals(foundKeys), $"expected keys: {string.Join(", ", expectedKeys)}; found keys: {string.Join(", ", foundKeys)}");
     }
 }
