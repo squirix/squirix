@@ -166,6 +166,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return;
 
         var failures = new List<Exception>();
+
+        // The shutdown marker must enter the ring BEFORE background cancellation is requested: the
+        // journal thread dequeues FIFO, so every item enqueued before it is drained and written, and
+        // only then does the thread observe Shutdown and exit. Cancelling first would let the thread
+        // exit via OperationCanceledException while frames were still queued, silently dropping them.
+        await DurabilityPipeline.EnqueueShutdownAsync().ConfigureAwait(false);
+        await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
+
         try
         {
             await BackgroundCancellation.CancelAsync().ConfigureAwait(false);
@@ -179,9 +187,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             await GroupCommit.CancelPendingAsync(new ObjectDisposedException(nameof(JournalCoordinator))).ConfigureAwait(false);
 
         DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-
-        await DurabilityPipeline.EnqueueShutdownAsync().ConfigureAwait(false);
-        await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
 
         await _segmentWriter.DisposeAsync().ConfigureAwait(false);
         Ring.Dispose();
