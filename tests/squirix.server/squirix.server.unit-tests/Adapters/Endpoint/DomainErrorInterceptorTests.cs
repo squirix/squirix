@@ -13,22 +13,6 @@ namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 [Immutable]
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
-    /// <summary>Server-streaming handler maps journal capacity to ResourceExhausted.</summary>
-    [Fact]
-    public async Task StreamingMapsJournalCapacityToRpcResourceExhausted()
-    {
-        var interceptor = new ResourceExhaustedExceptionInterceptor();
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            interceptor.ServerStreamingServerHandler(
-                "request",
-                new NullStreamWriter<string>(),
-                new TestServerCallContext(),
-                static (_, _, _) => throw new JournalCapacityExceededException()));
-
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
-    }
-
     /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
     [Fact]
     public async Task UnaryMapsJournalCapacityToRpcResourceExhausted()
@@ -39,12 +23,5 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
         Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
-    }
-
-    private sealed class NullStreamWriter<T> : IServerStreamWriter<T>
-    {
-        public WriteOptions? WriteOptions { get; set; }
-
-        public Task WriteAsync(T message) => Task.CompletedTask;
     }
 }

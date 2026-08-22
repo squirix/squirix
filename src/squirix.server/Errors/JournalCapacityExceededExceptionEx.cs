@@ -7,6 +7,7 @@ internal static class JournalCapacityExceededExceptionEx
     /// <summary>
     /// Maps <see cref="JournalCapacityExceededException" /> to transport-specific error representations.
     /// </summary>
+    /// <param name="exception">The journal capacity exception.</param>
     extension(JournalCapacityExceededException exception)
     {
         /// <summary>
