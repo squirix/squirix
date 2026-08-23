@@ -306,8 +306,10 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         var (decision, rejectedLease) = await gate.AcquireAsync("grpc", "insert", "grpc:client-c", DefaultCancellationToken);
         rejectedLease.Dispose();
 
-        Assert.False(decision.IsAccepted);
+        // Check the reason first so a recurring flake reports the observed rejection instead of
+        // a bare boolean failure.
         Assert.Equal("hard_threshold", decision.RejectReason);
+        Assert.False(decision.IsAccepted);
         Assert.True(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "insert"), ("reason", "hard_threshold")));
 
         await secondCts.CancelAsync();
