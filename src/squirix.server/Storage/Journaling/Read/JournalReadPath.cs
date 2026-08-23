@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -38,7 +39,7 @@ internal static class JournalReadPath
         {
             private readonly CancellationToken _cancellationToken;
             private readonly long _length;
-            private readonly FileStream? _stream;
+            private readonly SafeFileHandle? _handle;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
             private int _disposed;
@@ -58,15 +59,9 @@ internal static class JournalReadPath
                     case < JournalFraming.FileHeaderSize:
                         throw JournalFraming.CreateTruncatedHeaderException();
                     default:
-                        _stream = new FileStream(
-                            path,
-                            FileMode.Open,
-                            FileAccess.Read,
-                            FileShare.ReadWrite | FileShare.Delete,
-                            0,
-                            FileOptions.SequentialScan);
+                        _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
                         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-                        if (!StreamEx.TryReadExact(_stream, header))
+                        if (!HandleEx.TryReadExact(_handle, header, ref _offset))
                             throw JournalFraming.CreateTruncatedHeaderException();
 
                         JournalFraming.EnsureSegmentHeaderSupported(header);
@@ -84,13 +79,13 @@ internal static class JournalReadPath
                     return;
 
                 ReturnRentedFrameBuffer();
-                _stream?.Dispose();
+                _handle?.Dispose();
             }
 
             bool IJournalRecordEnumerator.MoveNext()
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                if (!_valid || _stream == null)
+                if (!_valid || _handle == null)
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
@@ -104,7 +99,7 @@ internal static class JournalReadPath
             {
                 ReturnRentedFrameBuffer();
 
-                var read = JournalFrameReader.ReadNext(_stream!, _offset, out var buffer, out var payloadLength);
+                var read = JournalFrameReader.ReadNext(_handle!, _offset, out var buffer, out var payloadLength);
                 if (read.Status is JournalFrameReadStatus.EndOfFile)
                     return false;
 

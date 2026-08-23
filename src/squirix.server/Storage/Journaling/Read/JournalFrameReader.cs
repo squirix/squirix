@@ -2,47 +2,67 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
 internal static class JournalFrameReader
 {
-    internal static JournalFrameReadResult ReadNext(Stream stream, long frameOffset, out byte[]? rentedBuffer, out int payloadLength)
+    internal static JournalFrameReadResult ReadNext(SafeFileHandle handle, long frameOffset, out byte[]? rentedBuffer, out int payloadLength)
     {
         rentedBuffer = null;
         payloadLength = 0;
 
         Span<byte> lengthBytes = stackalloc byte[JournalFrameEnvelope.HeaderSize];
-        var headerRead = ReadHeader(stream, lengthBytes);
+        var headerRead = ReadAtLeast(handle, lengthBytes, frameOffset);
         return headerRead switch
         {
             0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
             < JournalFrameEnvelope.HeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
-            _ => ReadNextFromValidStreamHeader(stream, frameOffset, lengthBytes, out rentedBuffer, out payloadLength),
+            _ => ReadNextFromValidStreamHeader(handle, frameOffset, lengthBytes, out rentedBuffer, out payloadLength),
         };
     }
 
-    private static int ReadHeader(Stream stream, Span<byte> buffer)
+    /// <summary>Reads up to <paramref name="buffer.Length" /> bytes at <paramref name="offset" /> and returns the number of bytes read.</summary>
+    /// <param name="handle">The file handle to read from.</param>
+    /// <param name="buffer">The span to fill partially.</param>
+    /// <param name="offset">The file offset to start reading at.</param>
+    /// <returns>The number of bytes read; zero at end of file.</returns>
+    private static int ReadAtMost(SafeFileHandle handle, Span<byte> buffer, long offset)
     {
-        var read = stream.Read(buffer);
-        if (read == 0)
-            return 0;
-
-        while (read < buffer.Length)
+        var total = 0;
+        while (total < buffer.Length)
         {
-            var next = stream.Read(buffer[read..]);
-            if (next == 0)
-                return read;
+            var read = RandomAccess.Read(handle, buffer[total..], offset + total);
+            if (read == 0)
+                break;
 
-            read += next;
+            total += read;
         }
 
-        return read;
+        return total;
     }
 
+    private static int ReadAtLeast(SafeFileHandle handle, Span<byte> buffer, long offset)
+    {
+        var total = ReadAtMost(handle, buffer, offset);
+        while (total > 0 && total < buffer.Length)
+        {
+            var next = RandomAccess.Read(handle, buffer[total..], offset + total);
+            if (next == 0)
+                break;
+
+            total += next;
+        }
+
+        return total;
+    }
+
+    private static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, long offset) => ReadAtMost(handle, buffer, offset) == buffer.Length;
+
     private static JournalFrameReadResult ReadNextFromValidStreamHeader(
-        Stream stream,
+        SafeFileHandle handle,
         long frameOffset,
         ReadOnlySpan<byte> lengthBytes,
         out byte[]? rentedBuffer,
@@ -60,11 +80,12 @@ internal static class JournalFrameReader
         try
         {
             var payload = rented.AsSpan(0, payloadLength);
-            if (!TryReadExact(stream, payload))
+            if (!TryReadExact(handle, payload, frameOffset + JournalFrameEnvelope.HeaderSize))
                 return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
 
             Span<byte> checksumBytes = stackalloc byte[JournalFrameEnvelope.FooterSize];
-            if (!TryReadExact(stream, checksumBytes))
+            var checksumOffset = frameOffset + JournalFrameEnvelope.HeaderSize + payloadLength;
+            if (!TryReadExact(handle, checksumBytes, checksumOffset))
                 return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
 
             var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes);
@@ -82,19 +103,5 @@ internal static class JournalFrameReader
             if (rentedBuffer == null)
                 ArrayPool<byte>.Shared.ReturnCleared(rented);
         }
-    }
-
-    private static bool TryReadExact(Stream stream, Span<byte> buffer)
-    {
-        while (!buffer.IsEmpty)
-        {
-            var read = stream.Read(buffer);
-            if (read == 0)
-                return false;
-
-            buffer = buffer[read..];
-        }
-
-        return true;
     }
 }

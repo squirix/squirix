@@ -11,7 +11,6 @@ namespace Squirix.Server.TestKit.IO;
 /// </summary>
 public static class JournalSegmentLeaseWait
 {
-    private const int BufferSize = 64 * 1024;
     private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const string ManifestCurrentFileName = "man-current";
 
@@ -67,8 +66,7 @@ public static class JournalSegmentLeaseWait
     {
         try
         {
-            await using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, BufferSize, FileOptions.Asynchronous)
-               .ConfigureAwait(false);
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
             cancellationToken.ThrowIfCancellationRequested();
             return true;
         }

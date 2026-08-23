@@ -162,12 +162,9 @@ public class SnapshotWriteBreakdownBenchmarks
         internal async Task WriteTempFileOnlyAsync()
         {
             var path = BuildTempPath(_nextFileIndex++);
-            var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
-            await using (fs.ConfigureAwait(false))
-            {
-                var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
-                await SnapshotFileEncoder.WriteFileAsync(fs, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
-            }
+            using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
+            var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
+            await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
         }
 
         private string BuildSnapshotPath(int index) =>

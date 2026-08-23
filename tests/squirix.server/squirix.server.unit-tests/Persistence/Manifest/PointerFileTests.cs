@@ -21,7 +21,7 @@ public sealed class PointerFileTests : IsolatedStorageTestBase
         using (var create = File.OpenHandle(path, FileMode.Create, FileAccess.Write, FileShare.None))
             RandomAccess.Write(create, pointer, 0);
 
-        using var writer = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, PointerFile.CompatibleShare, 64, FileOptions.None);
+        using var writer = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, PointerFile.CompatibleShare);
         Assert.Equal(7, PointerFile.ReadIndex(path));
     }
 }

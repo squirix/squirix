@@ -245,8 +245,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);
-        await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-            fs.SetLength(fs.Length - 1);
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);
 
         await manifestStore.WriteAsync(
             new State
