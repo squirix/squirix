@@ -371,7 +371,7 @@ internal sealed class FollowerLog : IFollowerLog
             // Materialize payload ownership for the append set synchronously, before the first await: once
             // the durable write is scheduled it must never reference the caller's buffer, and a cancellation
             // during truncation aborts the batch without writing any frame.
-            List<FollowerLogEntry>? ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
+            var ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
 
             if (truncateAtIndex != null)
                 await FollowerLogDurable.TruncateFromAsync(owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
