@@ -78,13 +78,14 @@ internal sealed class RecoveryService<T> : IHostedService
 #pragma warning disable VSTHRD003
 
             // The replay task is owned by this hosted service and is awaited during shutdown.
-            // ApplicationStopping is signalled before hosted-service StopAsync, which cancels replay.
+            // ApplicationStopping is signaled before hosted-service StopAsync, which cancels replay.
             await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
 #pragma warning restore VSTHRD003
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             // Host shutdown cancelled in-flight replay or the stop token expired.
+            LogManager.RecoveryReplayInterrupted(_log, ex);
         }
     }
 
@@ -254,28 +255,25 @@ internal sealed class RecoveryService<T> : IHostedService
         {
             await ReplayAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
         {
             // Host shutdown path.
+            LogManager.RecoveryReplayInterrupted(_log, ex);
         }
         catch (IOException)
         {
-            // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
         }
         catch (UnauthorizedAccessException)
         {
-            // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
         }
         catch (InvalidDataException)
         {
-            // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
         }
         catch (InvalidOperationException)
         {
-            // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
         }
     }

@@ -37,6 +37,7 @@ internal static class PersistenceServiceRegistration
 
         RegisterPersistenceRuntime(services, await PersistenceRuntime.CreateAsync(persistence, cancellationToken).ConfigureAwait(false));
         RegisterPersistenceHostedServices(services, waitForRecovery);
+
         return services;
     }
 
@@ -166,7 +167,9 @@ internal static class PersistenceServiceRegistration
             Ledger.Dispose();
         }
 
-        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)
+        internal static async Task<PersistenceRuntime> CreateAsync(
+            PersistenceOptions persistence,
+            CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(persistence);
             var runtime = new PersistenceRuntime(persistence);

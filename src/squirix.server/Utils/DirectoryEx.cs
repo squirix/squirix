@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
@@ -15,6 +17,9 @@ internal static partial class DirectoryEx
     private const int LinuxCloseOnExec = 0x80000;
     private const int DarwinCloseOnExec = 0x1000000;
     private const int FreeBsdCloseOnExec = 0x00100000;
+
+    /// <summary>Gets or sets the optional logger used for best-effort deletion diagnostics. Defaults to <see cref="NullLogger.Instance" />.</summary>
+    public static ILogger Logger { get; set; } = NullLogger.Instance;
 
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
@@ -188,13 +193,15 @@ internal static partial class DirectoryEx
             if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
         }
     }
 

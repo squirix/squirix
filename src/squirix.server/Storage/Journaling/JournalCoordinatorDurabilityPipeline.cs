@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -20,6 +22,8 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         _owner = owner;
         _snapshot = snapshot;
     }
+
+    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>();
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
     {
@@ -47,6 +51,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
             // Dispose Canceled the join wait when teardown already completed.
+            LogManager.DurabilityJoinWaitCanceledOnDispose(JournalLog);
         }
         catch (ObjectDisposedException ex)
         {

@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -75,6 +77,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private bool IsDurabilityFlushPending { get; set; }
 
+    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalEventLoop>();
+
     public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
 
     public void FsyncOnJournalThread()
@@ -145,6 +149,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
+            LogManager.JournalThreadExitOnCancel(JournalLog);
         }
     }
 

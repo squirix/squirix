@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -10,12 +12,14 @@ namespace Squirix.Server.Node.Services;
 internal sealed class IdempotencyStoreSweepService : BackgroundService
 {
     private readonly IdempotencyOptions _options;
+    private readonly ILogger<IdempotencyStoreSweepService> _log;
     private readonly RpcMutationIdempotencyStore _store;
 
-    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options)
+    public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         ArgumentNullException.ThrowIfNull(options);
+        _log = log ?? throw new ArgumentNullException(nameof(log));
         _options = options.Value;
     }
 
@@ -28,9 +32,10 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
                 _store.SweepExpired(DateTime.UtcNow);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             // Expected on host stop/dispose; do not fault BackgroundService (StopHost).
+            LogManager.IdempotencySweepCanceled(_log, ex);
         }
     }
 }
