@@ -152,13 +152,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     {
         using var payload = JournalEntryPayload.Encode(in prepared);
         var cacheKey = new CacheKey(cacheName, key);
-        var state = (Self: this, Args: new TryAddMutationArgs(operationId, cacheName, key, entry, payload.Memory, cacheKey));
+        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payload.Memory, cacheKey);
         return await _durableMutations.ExecuteAsync(
             cacheKey,
-            state,
-            static (s, ct) => EvaluateTryAddPreconditionAsync(s.Self, s.Args, ct),
-            static (s, ct) => s.Self._journal.AppendPutAsync(s.Args.CacheKey, s.Args.Payload, ct),
-            static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, ct),
+            ct => EvaluateTryAddPreconditionAsync(this, args, ct),
+            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TryAddMutationArgs Args), bool>(
+                (this, args),
+                static (s, ct) => s.Self._journal.AppendPutAsync(s.Args.CacheKey, s.Args.Payload, ct),
+                static (s, ct) => s.Self._inner.TryAddEntryAsync(s.Args.OperationId, s.Args.CacheName, s.Args.Key, s.Args.Entry, ct)),
             cancellationToken).ConfigureAwait(false);
     }
 
