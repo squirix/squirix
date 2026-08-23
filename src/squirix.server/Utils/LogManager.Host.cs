@@ -12,7 +12,37 @@ internal static partial class LogManager
     internal static void Configure(ILoggerFactory factory) => HostFactory = factory ?? throw new ArgumentNullException(nameof(factory));
 
     internal static ILogger<T> GetLogger<T>()
-        where T : class => HostFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
+        where T : class
+    {
+        var factory = HostFactory;
+        if (factory == null)
+            return NullLogger<T>.Instance;
 
-    internal static ILogger GetLogger(string categoryName) => HostFactory?.CreateLogger(categoryName) ?? NullLogger.Instance;
+        try
+        {
+            return factory.CreateLogger<T>();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The host that supplied the factory has been torn down; diagnostics are best-effort.
+            return NullLogger<T>.Instance;
+        }
+    }
+
+    internal static ILogger GetLogger(string categoryName)
+    {
+        var factory = HostFactory;
+        if (factory == null)
+            return NullLogger.Instance;
+
+        try
+        {
+            return factory.CreateLogger(categoryName);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The host that supplied the factory has been torn down; diagnostics are best-effort.
+            return NullLogger.Instance;
+        }
+    }
 }
