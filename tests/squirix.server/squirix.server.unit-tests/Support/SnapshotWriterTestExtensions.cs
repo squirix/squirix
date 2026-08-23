@@ -14,7 +14,7 @@ internal static class SnapshotWriterTestExtensions
 {
     private static readonly IReadOnlyList<PersistedIdempotencyRecord> NoIdempotencyRecords = [];
 
-    internal static Task<string> WriteSingleAsync(this ISnapshotWriter writer, int index, CacheKey key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+    internal static ValueTask<string> WriteSingleAsync(this ISnapshotWriter writer, int index, CacheKey key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
         writer.WriteAsync(index, new SingleItemReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>((key, entry)), NoIdempotencyRecords, cancellationToken);
 
     /// <summary>Zero-array <see cref="IReadOnlyList{T}" /> wrapper for a single test value.</summary>

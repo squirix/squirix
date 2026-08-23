@@ -56,7 +56,7 @@ internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
         return Task.FromResult(new SnapshotBenchmarkHost(dataDir, persistence, items));
     }
 
-    internal Task<string> WriteNextSnapshotAsync()
+    internal ValueTask<string> WriteNextSnapshotAsync()
     {
         _nextIndex++;
         return _writer.WriteAsync(_nextIndex, _items, [], CancellationToken.None);

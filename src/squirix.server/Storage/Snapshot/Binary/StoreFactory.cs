@@ -32,7 +32,7 @@ internal static class StoreFactory
     {
         private const int InitialRecordScratchSize = 4096;
 
-        public Task<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
+        public ValueTask<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
@@ -43,7 +43,7 @@ internal static class StoreFactory
                     AppendRecord(enumerator.Current, skipExpired, entries, idempotencyRecords);
             }
 
-            return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
+            return new(new LoadResult<T>(entries, idempotencyRecords));
         }
 
         private static void AppendRecord<T>(object record, bool skipExpired, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
