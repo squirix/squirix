@@ -236,7 +236,7 @@ internal static class JournalCompactor
         ulong lastSeq,
         CancellationToken cancellationToken)
     {
-        var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using (fs.ConfigureAwait(false))
         {
             await WriteCompactedJournalHeaderAsync(fs, cancellationToken).ConfigureAwait(false);
