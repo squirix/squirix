@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -94,9 +95,9 @@ public sealed class TestNodeHost : IAsyncDisposable
         {
             await task.ConfigureAwait(false);
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException ex)
         {
-            // Best-effort teardown during test host shutdown.
+            TestLog.Suppressed("Suppressed ObjectDisposedException during test host teardown.", ex);
         }
     }
 
@@ -115,9 +116,9 @@ public sealed class TestNodeHost : IAsyncDisposable
         {
             await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (TimeoutException)
+        catch (TimeoutException ex)
         {
-            // Best-effort: another teardown path may already have removed or released the files.
+            TestLog.Suppressed("Journal lease release wait timed out during teardown; assuming already released.", ex);
         }
     }
 }

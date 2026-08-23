@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -149,8 +150,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 options.PersistenceOptions,
                 selfNodeId,
                 BuildTestScope(scopeName, options.ExtraScope),
-                options.CleanTestDir,
-                DefaultCancellationToken);
+                options.CleanTestDir);
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
@@ -291,25 +291,26 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
+    private Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
     {
         var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(path, 0))
-            await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
+        if (clean && CleanedScopes.TryAdd(path, 0) && Directory.Exists(path))
+            Directory.Delete(path, true);
 
         var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
-        DirectoryKit.CreateDirectory(effectiveDataDir);
+        Directory.CreateDirectory(effectiveDataDir);
 
         if (options == null)
         {
-            return new PersistenceOptions
-            {
-                DataDir = effectiveDataDir,
-                JournalMaxSegmentMb = 64,
-            };
+            return Task.FromResult(
+                new PersistenceOptions
+                {
+                    DataDir = effectiveDataDir,
+                    JournalMaxSegmentMb = 64,
+                });
         }
 
-        return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
+        return Task.FromResult(string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options);
     }
 
     /// <summary>

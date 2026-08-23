@@ -27,7 +27,7 @@ public static class FileKit
         var full = ValidateAndGetFullPath(path);
         var directory = Path.GetDirectoryName(full);
         if (!string.IsNullOrWhiteSpace(directory))
-            DirectoryKit.CreateDirectory(directory);
+            Directory.CreateDirectory(directory);
 
         File.WriteAllText(full, contents);
     }

@@ -8,6 +8,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -109,9 +110,9 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         {
             await journal.AppendPutAndAwaitDurabilityAsync(key, payload, cts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            // Expected for the pre-enqueue backpressure path; must not corrupt shared state.
+            TestLog.Suppressed("Append cancellation observed on the pre-enqueue backpressure path; expected, shared state must remain intact.", ex);
         }
     }
 

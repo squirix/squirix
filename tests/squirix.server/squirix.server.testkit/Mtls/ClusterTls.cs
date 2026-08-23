@@ -359,7 +359,7 @@ public sealed class ClusterTls : IDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
 
             var nodeDirectory = NodePathKit.Combine(_rootDirectory, nodeId);
-            DirectoryKit.CreateDirectory(nodeDirectory);
+            Directory.CreateDirectory(nodeDirectory);
 
             using var nodeCertificate = CreateNodeCertificate(nodeId);
             return await CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);

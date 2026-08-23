@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -177,13 +178,13 @@ public sealed class DirectoryExTests : ServerUnitTestBase
             _ = Directory.CreateSymbolicLink(linkPath, targetPath);
             return Directory.Exists(linkPath);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // Fall through to a Windows junction attempt when symlink privilege is missing.
+            TestLog.Suppressed($"Symlink creation failed for '{linkPath}' -> '{targetPath}'; falling back to junction.", ex);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            // Fall through to a Windows junction attempt when symlink privilege is missing.
+            TestLog.Suppressed($"Symlink creation denied for '{linkPath}' -> '{targetPath}'; falling back to junction.", ex);
         }
         catch (PlatformNotSupportedException)
         {
@@ -216,9 +217,9 @@ public sealed class DirectoryExTests : ServerUnitTestBase
             {
                 process.Kill(true);
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
-                // Process exited between the wait timeout and Kill.
+                TestLog.Suppressed("Junction process exited between wait timeout and Kill; treating as not created.", ex);
             }
 
             return false;
