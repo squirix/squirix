@@ -78,6 +78,8 @@ internal static class StoreFactory
 
         private sealed class SnapshotRecordEnumerator : IEnumerator<object>
         {
+            private const int LoadBufferSize = 64 * 1024;
+
             private readonly CancellationToken _cancellationToken;
             private readonly long _footerOffset;
             private readonly FileStream _stream;
@@ -92,7 +94,13 @@ internal static class StoreFactory
             {
                 _strict = strict;
                 _cancellationToken = cancellationToken;
-                _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                _stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    LoadBufferSize,
+                    FileOptions.SequentialScan);
                 if (_stream.Length < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
                     throw new InvalidDataException("Binary snapshot file is truncated.");
 
