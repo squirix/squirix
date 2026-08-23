@@ -44,7 +44,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         StartupGate = startupGate;
         _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this);
-        DurabilityPipeline = new JournalCoordinatorDurabilityPipeline(this, this);
+        DurabilityPipeline = new JournalCoordinatorDurabilityPipeline(this, this, LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>());
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;

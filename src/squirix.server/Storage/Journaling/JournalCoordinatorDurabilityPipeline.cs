@@ -16,14 +16,15 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 {
     private readonly IJournalCoordinatorState _owner;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
+    private readonly ILogger _logger;
 
-    internal JournalCoordinatorDurabilityPipeline(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot)
+    internal JournalCoordinatorDurabilityPipeline(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger)
     {
+        ArgumentNullException.ThrowIfNull(logger);
         _owner = owner;
         _snapshot = snapshot;
+        _logger = logger;
     }
-
-    private ILogger JournalLog => LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>();
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
     {
@@ -51,7 +52,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
             // Dispose Canceled the join wait when teardown already completed.
-            LogManager.DurabilityJoinWaitCanceledOnDispose(JournalLog);
+            LogManager.DurabilityJoinWaitCanceledOnDispose(_logger);
         }
         catch (ObjectDisposedException ex)
         {
