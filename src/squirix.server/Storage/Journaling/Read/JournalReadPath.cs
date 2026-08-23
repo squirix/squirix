@@ -58,7 +58,13 @@ internal static class JournalReadPath
                     case < JournalFraming.FileHeaderSize:
                         throw JournalFraming.CreateTruncatedHeaderException();
                     default:
-                        _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        _stream = new FileStream(
+                            path,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.ReadWrite | FileShare.Delete,
+                            0,
+                            FileOptions.SequentialScan);
                         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
                         if (!StreamEx.TryReadExact(_stream, header))
                             throw JournalFraming.CreateTruncatedHeaderException();
