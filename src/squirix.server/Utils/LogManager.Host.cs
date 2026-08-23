@@ -7,10 +7,12 @@ namespace Squirix.Server.Utils;
 /// <summary>Host logging wiring for <see cref="LogManager" />.</summary>
 internal static partial class LogManager
 {
-    private static ILoggerFactory? _hostFactory;
+    private static ILoggerFactory? HostFactory { get; set; }
 
-    internal static void Configure(ILoggerFactory factory) => _hostFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+    internal static void Configure(ILoggerFactory factory) => HostFactory = factory ?? throw new ArgumentNullException(nameof(factory));
 
     internal static ILogger<T> GetLogger<T>()
-        where T : class => _hostFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
+        where T : class => HostFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
+
+    internal static ILogger GetLogger(string categoryName) => HostFactory?.CreateLogger(categoryName) ?? NullLogger.Instance;
 }

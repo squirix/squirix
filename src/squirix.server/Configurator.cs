@@ -8,7 +8,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
@@ -20,8 +19,7 @@ public static class Configurator
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 
-    /// <summary>Gets or sets the optional logger used for best-effort listener release diagnostics. Defaults to <see cref="NullLogger.Instance" />.</summary>
-    internal static ILogger Logger { get; set; } = NullLogger.Instance;
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>

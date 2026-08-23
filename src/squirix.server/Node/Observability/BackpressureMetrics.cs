@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
@@ -25,8 +24,7 @@ internal static class BackpressureMetrics
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
 
-    /// <summary>Gets or sets the optional logger used for observer probe diagnostics. Defaults to <see cref="NullLogger.Instance" />.</summary>
-    public static ILogger Logger { get; set; } = NullLogger.Instance;
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Node.Observability.BackpressureMetrics");
 
     internal static void AddBypass(string transport, string operation)
     {

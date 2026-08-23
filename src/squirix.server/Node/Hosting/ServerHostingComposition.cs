@@ -53,7 +53,7 @@ internal static class ServerHostingComposition
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        SquirixStaticLoggers.Configure(app.Services.GetRequiredService<ILoggerFactory>());
+        LogManager.Configure(app.Services.GetRequiredService<ILoggerFactory>());
 
         _ = app.Use(static async (context, next) =>
         {

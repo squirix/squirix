@@ -11,15 +11,9 @@ using Microsoft.Win32.SafeHandles;
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
-internal static partial class DirectoryEx
+internal static class DirectoryEx
 {
-    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
-    private const int LinuxCloseOnExec = 0x80000;
-    private const int DarwinCloseOnExec = 0x1000000;
-    private const int FreeBsdCloseOnExec = 0x00100000;
-
-    /// <summary>Gets or sets the optional logger used for best-effort deletion diagnostics. Defaults to <see cref="NullLogger.Instance" />.</summary>
-    public static ILogger Logger { get; set; } = NullLogger.Instance;
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectoryEx");
 
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">

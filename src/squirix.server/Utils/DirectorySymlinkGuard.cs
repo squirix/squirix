@@ -1,15 +1,13 @@
 using System;
 using System.IO;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Rejects unexpected symlinks and junctions in directory path chains.</summary>
 internal static class DirectorySymlinkGuard
 {
-    /// <summary>Gets or sets the optional logger used for symlink probe fallbacks. Defaults to <see cref="NullLogger.Instance" />.</summary>
-    public static ILogger Logger { get; set; } = NullLogger.Instance;
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectorySymlinkGuard");
 
     /// <summary>Walks from <paramref name="baseFull" /> (or the drive root) toward <paramref name="full" /> and rejects forbidden links.</summary>
     /// <param name="full">Absolute target path.</param>
