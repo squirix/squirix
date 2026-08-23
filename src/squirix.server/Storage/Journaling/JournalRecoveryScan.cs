@@ -98,7 +98,13 @@ internal static class JournalRecoveryScan
 
     private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
     {
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            0,
+            FileOptions.SequentialScan);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
