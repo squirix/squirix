@@ -35,6 +35,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 public abstract class NodeIntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ScopeLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
@@ -291,7 +292,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
     {
         PathValidationKit.ValidateSegmentName(testScope, nameof(testScope));
         PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
@@ -299,34 +300,45 @@ public abstract class NodeIntegrationTestBase : IDisposable
             PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
 
         var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(path, 0))
-        {
-            try
-            {
-                if (Directory.Exists(path))
-                    Directory.Delete(path, true);
-            }
-            catch (Exception)
-            {
-                _ = CleanedScopes.TryRemove(path, out _);
-                throw;
-            }
-        }
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
-        Directory.CreateDirectory(effectiveDataDir);
-
-        if (options == null)
+        // Serialize cleanup-and-creation per scope so a concurrent node start can never create
+        // its node directory while another caller is deleting the scope.
+        var scopeLock = ScopeLocks.GetOrAdd(path, static _ => new SemaphoreSlim(1, 1));
+        await scopeLock.WaitAsync(DefaultCancellationToken).ConfigureAwait(false);
+        try
         {
-            return Task.FromResult(
-                new PersistenceOptions
+            if (clean && CleanedScopes.TryAdd(path, 0))
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                        Directory.Delete(path, true);
+                }
+                catch (Exception)
+                {
+                    _ = CleanedScopes.TryRemove(path, out _);
+                    throw;
+                }
+            }
+
+            var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
+            Directory.CreateDirectory(effectiveDataDir);
+
+            if (options == null)
+            {
+                return new PersistenceOptions
                 {
                     DataDir = effectiveDataDir,
                     JournalMaxSegmentMb = 64,
-                });
-        }
+                };
+            }
 
-        return Task.FromResult(string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options);
+            return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
+        }
+        finally
+        {
+            _ = scopeLock.Release();
+        }
     }
 
     /// <summary>
