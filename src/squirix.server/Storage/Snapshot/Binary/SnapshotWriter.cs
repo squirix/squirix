@@ -25,7 +25,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         _fileOperations = fileOperations;
     }
 
-    public async Task<string> WriteAsync(
+    public async ValueTask<string> WriteAsync(
         int index,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,

@@ -41,7 +41,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), DefaultCancellationToken);
 
         var failingWriter = new SnapshotWriter(Dir, new PublishFailingStorageFileOperations());
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), DefaultCancellationToken));
 
         Assert.True(File.Exists(path));
         Assert.Equal("stable", Assert.Single(await ReadSnapshotKeysAsync(path)));
@@ -54,7 +54,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
     {
         var writer = new SnapshotWriter(Dir);
         var items = FailingItems();
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(writer.WriteAsync(1, items, [], DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(writer.WriteAsync(1, items, [], DefaultCancellationToken));
         Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }

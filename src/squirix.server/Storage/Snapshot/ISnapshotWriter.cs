@@ -14,7 +14,7 @@ internal interface ISnapshotWriter
     /// <param name="idempotencyRecords">Retained idempotency records.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Path to the completed snapshot file.</returns>
-    Task<string> WriteAsync(
+    ValueTask<string> WriteAsync(
         int index,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
