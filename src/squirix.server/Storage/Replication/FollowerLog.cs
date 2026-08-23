@@ -973,8 +973,12 @@ internal sealed class FollowerLog : IFollowerLog
 
                     if (frame == null || frame.Length < frameLength)
                     {
-                        if (frame != null)
-                            ArrayPool<byte>.Shared.ReturnCleared(frame);
+                        // Detach before returning so a Rent failure can never leave an already-returned
+                        // array referenced here for a second return in the outer finally.
+                        var exhausted = frame;
+                        frame = null;
+                        if (exhausted != null)
+                            ArrayPool<byte>.Shared.ReturnCleared(exhausted);
 
                         frame = ArrayPool<byte>.Shared.Rent(frameLength);
                     }
