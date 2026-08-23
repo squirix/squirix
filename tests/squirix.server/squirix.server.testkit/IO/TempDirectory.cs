@@ -54,7 +54,7 @@ public sealed class TempDirectory : IDisposable
             catch (Exception ex) when (attempt < maxAttempts && ex is IOException or UnauthorizedAccessException)
             {
                 TestLog.Suppressed($"Transient delete failure on '{Path}' (attempt {attempt}); retrying.", ex);
-                Thread.Sleep(20 * attempt);
+                _ = SpinWait.SpinUntil(static () => false, 20 * attempt);
                 attempt++;
             }
         }
