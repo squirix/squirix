@@ -297,15 +297,19 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", DefaultCancellationToken)).Lease;
         using var secondCts = new CancellationTokenSource();
-        var secondAcquire = gate.AcquireAsync("grpc", "insert", "grpc:client-b", secondCts.Token).AsTask();
 
-        await Task.Delay(TimeSpan.FromMilliseconds(20), TimeProvider.System, DefaultCancellationToken);
+        // With MaxSlowdownDelay = 0 the queued acquire runs synchronously up to the queue-slot
+        // await, so client-b is already counted in the queue depth (incremented before that
+        // await suspends) by the time the task is created - no wall-clock delay is needed.
+        var secondAcquire = gate.AcquireAsync("grpc", "insert", "grpc:client-b", secondCts.Token).AsTask();
 
         var (decision, rejectedLease) = await gate.AcquireAsync("grpc", "insert", "grpc:client-c", DefaultCancellationToken);
         rejectedLease.Dispose();
 
-        Assert.False(decision.IsAccepted);
+        // Check the reason first so a recurring flake reports the observed rejection instead of
+        // a bare boolean failure.
         Assert.Equal("hard_threshold", decision.RejectReason);
+        Assert.False(decision.IsAccepted);
         Assert.True(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "insert"), ("reason", "hard_threshold")));
 
         await secondCts.CancelAsync();
