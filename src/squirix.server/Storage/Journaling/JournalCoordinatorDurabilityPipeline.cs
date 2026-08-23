@@ -23,7 +23,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         _snapshot = snapshot;
     }
 
-    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>();
+    private ILogger JournalLog => LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>();
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
     {
