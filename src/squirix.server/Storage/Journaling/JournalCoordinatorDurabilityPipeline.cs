@@ -172,11 +172,14 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
         var ack = DurabilityAck.Rent();
+
+        // Initialize the wait before exposing the ack to failure paths: a concurrent
+        // FailPendingDurabilityAcks must never complete a source that this await would reset.
+        var ackWaitTask = ack.AwaitAsync(cancellationToken);
         _owner.DurabilityAcks.Add(ack);
 
         try
         {
-            var ackWaitTask = ack.AwaitAsync(cancellationToken);
             var item = JournalWorkItem.DurabilityCheckpoint(ack);
             await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 

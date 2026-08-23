@@ -32,15 +32,22 @@ internal sealed class DurabilityAck : IValueTaskSource
         while (Pool.TryTake(out var ack))
         {
             if (Interlocked.CompareExchange(ref ack._leased, 1, 0) == 0)
+            {
+                ack.ResetForLease();
                 return ack;
+            }
         }
 
-        return new DurabilityAck { _leased = 1 };
+        var fresh = new DurabilityAck { _leased = 1 };
+        fresh.ResetForLease();
+        return fresh;
     }
 
     internal ValueTask AwaitAsync(CancellationToken cancellationToken)
     {
-        _core.Reset();
+        // The source is reset during the successful lease transition in Rent(), never here: a failure path
+        // may complete this instance between registration and await creation, and resetting here would
+        // silently discard that failure and hang the waiter.
         var pending = new ValueTask(this, _core.Version);
         return cancellationToken.CanBeCanceled ? AwaitWithCancellationAsync(pending, cancellationToken) : pending;
     }
@@ -105,4 +112,6 @@ internal sealed class DurabilityAck : IValueTaskSource
     }
 
     private static ValueTask AwaitWithCancellationAsync(ValueTask pending, CancellationToken cancellationToken) => new(pending.AsTask().WaitAsync(cancellationToken));
+
+    private void ResetForLease() => _core.Reset();
 }
