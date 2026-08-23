@@ -293,9 +293,25 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     private Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
     {
+        PathValidationKit.ValidateSegmentName(testScope, nameof(testScope));
+        PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
+        if (!string.IsNullOrWhiteSpace(options?.DataDir))
+            PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
+
         var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(path, 0) && Directory.Exists(path))
-            Directory.Delete(path, true);
+        if (clean && CleanedScopes.TryAdd(path, 0))
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path, true);
+            }
+            catch (Exception)
+            {
+                _ = CleanedScopes.TryRemove(path, out _);
+                throw;
+            }
+        }
 
         var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
         Directory.CreateDirectory(effectiveDataDir);

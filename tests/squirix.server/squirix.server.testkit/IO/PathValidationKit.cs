@@ -4,10 +4,38 @@ using System.IO;
 
 namespace Squirix.Server.TestKit.IO;
 
-internal static class PathValidationKit
+/// <summary>Validation helpers for test-controlled path segments and paths.</summary>
+public static class PathValidationKit
 {
     private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
     private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
+
+    /// <summary>Validates a single path segment used to build a test directory or file name.</summary>
+    /// <param name="value">Segment value (must not be empty, contain parent-directory or drive separators).</param>
+    /// <param name="paramName">Caller parameter name for exception reporting.</param>
+    /// <exception cref="ArgumentException">Thrown when the segment is empty or contains traversal separators.</exception>
+    public static void ValidateSegmentName(string value, string paramName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+
+        if (value.Contains("..", StringComparison.Ordinal))
+            throw new ArgumentException($"'{value}' must not contain parent-directory segments ('..').", paramName);
+
+        if (value.Contains(':', StringComparison.Ordinal))
+            throw new ArgumentException($"'{value}' must not contain a drive separator (':').", paramName);
+    }
+
+    /// <summary>Validates a caller-supplied path before it is used for cleanup or creation.</summary>
+    /// <param name="path">Path value (must not contain parent-directory segments).</param>
+    /// <param name="paramName">Caller parameter name for exception reporting.</param>
+    /// <exception cref="ArgumentException">Thrown when the path contains a parent-directory segment.</exception>
+    public static void ValidateNoParentSegments(string path, string paramName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        if (path.Contains("..", StringComparison.Ordinal))
+            throw new ArgumentException($"'{path}' must not contain parent-directory segments ('..').", paramName);
+    }
 
     internal static void ValidateNoInvalidChars(string path)
     {

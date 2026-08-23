@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Diagnostics;
 
@@ -39,7 +40,8 @@ public sealed class TempDirectory : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        var attemptsLeft = 5;
+        const int maxAttempts = 5;
+        var attempt = 1;
         while (true)
         {
             try
@@ -49,19 +51,21 @@ public sealed class TempDirectory : IDisposable
 
                 return;
             }
-            catch (IOException ex) when (--attemptsLeft > 0)
+            catch (Exception ex) when (attempt < maxAttempts && ex is IOException or UnauthorizedAccessException)
             {
-                TestLog.Suppressed($"Transient delete failure on '{Path}'; retrying.", ex);
-            }
-            catch (UnauthorizedAccessException ex) when (--attemptsLeft > 0)
-            {
-                TestLog.Suppressed($"Transient access failure on '{Path}'; retrying.", ex);
+                TestLog.Suppressed($"Transient delete failure on '{Path}' (attempt {attempt}); retrying.", ex);
+                Thread.Sleep(20 * attempt);
+                attempt++;
             }
         }
     }
 
     private static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
+        PathValidationKit.ValidateSegmentName(innerDirectory, nameof(innerDirectory));
+        if (!string.IsNullOrEmpty(hint))
+            PathValidationKit.ValidateSegmentName(hint, nameof(hint));
+
         var d = string.IsNullOrEmpty(hint) ? System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
             : System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         Directory.CreateDirectory(d);

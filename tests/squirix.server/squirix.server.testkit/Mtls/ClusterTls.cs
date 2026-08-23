@@ -357,6 +357,7 @@ public sealed class ClusterTls : IDisposable
             CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+            PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
 
             var nodeDirectory = NodePathKit.Combine(_rootDirectory, nodeId);
             Directory.CreateDirectory(nodeDirectory);
