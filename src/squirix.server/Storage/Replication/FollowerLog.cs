@@ -151,7 +151,10 @@ internal sealed class FollowerLog : IFollowerLog
     public async Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
-        request = FollowerLogAppend.SnapshotRequestEntries(request);
+
+        // Payload ownership is materialized lazily: the caller is blocked on this append, so validation
+        // reads its buffer directly and only entries that will actually hit disk are copied (inside
+        // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -365,13 +368,18 @@ internal sealed class FollowerLog : IFollowerLog
             if (error != null)
                 return error.Value;
 
+            // Materialize payload ownership for the append set synchronously, before the first await: once
+            // the durable write is scheduled it must never reference the caller's buffer, and a cancellation
+            // during truncation aborts the batch without writing any frame.
+            List<FollowerLogEntry>? ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
+
             if (truncateAtIndex != null)
                 await FollowerLogDurable.TruncateFromAsync(owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
 
-            if (toAppend is { Count: > 0 })
-                await FollowerLogDurable.AppendFramesDurableAsync(owner, toAppend, cancellationToken).ConfigureAwait(false);
+            if (ownedToAppend != null)
+                await FollowerLogDurable.AppendFramesDurableAsync(owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
 
-            return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, toAppend is { Count: > 0 } || truncateAtIndex != null, cancellationToken)
+            return await CompleteAppendAsync(owner, request.LeaderCommitIndex, lastVerifiedIndex, ownedToAppend != null || truncateAtIndex != null, cancellationToken)
                .ConfigureAwait(false);
         }
 
@@ -391,19 +399,6 @@ internal sealed class FollowerLog : IFollowerLog
                 owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
-        }
-
-        internal static FollowerLogAppendRequest SnapshotRequestEntries(FollowerLogAppendRequest request)
-        {
-            var entries = request.Entries;
-            var owned = new FollowerLogEntry[entries.Length];
-            for (var i = 0; i < entries.Length; i++)
-            {
-                var entry = entries.Span[i];
-                owned[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray());
-            }
-
-            return request with { Entries = owned };
         }
 
         internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLog owner, FollowerLogAppendRequest request)
@@ -534,6 +529,20 @@ internal sealed class FollowerLog : IFollowerLog
                 return candidate.LogIndex <= owner._meta.LastAppliedIndex && owner._entryOffsets.TryGetValue(candidate.LogIndex, out var location) &&
                        location.Term == candidate.Term;
             }
+        }
+
+        private static List<FollowerLogEntry> MaterializeOwnedEntries(List<FollowerLogEntry> source)
+        {
+            // Ownership is needed only for what will actually hit disk or be retained above the applied
+            // watermark; duplicates satisfied by local state and refused batches are never copied.
+            var owned = new List<FollowerLogEntry>(source.Count);
+            for (var i = 0; i < source.Count; i++)
+            {
+                var entry = source[i];
+                owned.Add(new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray()));
+            }
+
+            return owned;
         }
     }
 
