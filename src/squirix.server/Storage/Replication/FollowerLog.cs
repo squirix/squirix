@@ -947,17 +947,20 @@ internal sealed class FollowerLog : IFollowerLog
         {
             long lastValidEnd = GroupLogCodec.LogFileHeader.Length;
 
-            while (stream.Position < stream.Length)
+            // The header size is fixed and known up front, and frames reuse one growing pooled buffer, so the
+            // whole walk costs two pool rents instead of two per frame (bucket locks and cleared returns).
+            var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
+            byte[]? frame = null;
+            try
             {
-                var nextLogIndex = owner._lastLogIndex + 1;
-
-                // A partial header is a torn trailing frame.
-                if (stream.Length - stream.Position < FrameHeaderByteCount)
-                    return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
-                try
+                while (stream.Position < stream.Length)
                 {
+                    var nextLogIndex = owner._lastLogIndex + 1;
+
+                    // A partial header is a torn trailing frame.
+                    if (stream.Length - stream.Position < FrameHeaderByteCount)
+                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+
                     await stream.ReadExactlyAsync(frameHeader.AsMemory(0, FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
 
                     // A header that fails structural validation is either a torn tail or a corrupt committed frame.
@@ -968,30 +971,36 @@ internal sealed class FollowerLog : IFollowerLog
                     if (stream.Length - stream.Position < frameLength - FrameHeaderByteCount)
                         return UncommittedTail(owner, lastValidEnd, nextLogIndex);
 
-                    var frame = ArrayPool<byte>.Shared.Rent(frameLength);
-                    try
+                    if (frame == null || frame.Length < frameLength)
                     {
-                        frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
-                        await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+                        // Detach before returning so a Rent failure can never leave an already-returned
+                        // array referenced here for a second return in the outer finally.
+                        var exhausted = frame;
+                        frame = null;
+                        if (exhausted != null)
+                            ArrayPool<byte>.Shared.ReturnCleared(exhausted);
 
-                        var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
-                        if (tail != null)
-                            return tail.Value;
+                        frame = ArrayPool<byte>.Shared.Rent(frameLength);
+                    }
 
-                        lastValidEnd += frameLength;
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.ReturnCleared(frame);
-                    }
+                    frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
+                    await stream.ReadExactlyAsync(frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), cancellationToken).ConfigureAwait(false);
+
+                    var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
+                    if (tail != null)
+                        return tail.Value;
+
+                    lastValidEnd += frameLength;
                 }
-                finally
-                {
-                    ArrayPool<byte>.Shared.ReturnCleared(frameHeader);
-                }
+
+                return new WalkResult(lastValidEnd, false);
             }
-
-            return new WalkResult(lastValidEnd, false);
+            finally
+            {
+                ArrayPool<byte>.Shared.ReturnCleared(frameHeader);
+                if (frame != null)
+                    ArrayPool<byte>.Shared.ReturnCleared(frame);
+            }
         }
 
         /// <summary>Result of walking the log frames during startup recovery.</summary>
