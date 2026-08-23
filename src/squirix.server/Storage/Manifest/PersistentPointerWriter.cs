@@ -43,6 +43,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
             }
 
             File.Move(_tempPath, _path, true);
+            FileEx.FlushDirectoryEntry(_path);
         }
         catch
         {
