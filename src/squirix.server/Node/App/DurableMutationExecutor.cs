@@ -56,15 +56,12 @@ internal sealed class DurableMutationExecutor
 
         try
         {
-            if (IsIdempotentDurabilityDeferred())
-            {
-                var withState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
-            }
+            if (!IsIdempotentDurabilityDeferred())
+                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
 
-            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            var withStateDeferred = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
+            // The state is applied to memory right here; only the durability commit above was conditional.
+            var applyState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
