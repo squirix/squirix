@@ -74,6 +74,13 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             _ = ack.TrySetResult();
         }
 
+        // Cancellation during fsync transfers pooling responsibility to this completion path
+        // (MarkAbandonedByCaller): the terminal setter has now run, so the ack can safely be
+        // pooled here. In every other case the caller pools it after consuming its result,
+        // which keeps GetResult always ahead of any reset.
+        if (ack.IsAbandonedByCaller())
+            ack.ReturnToPool();
+
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
 
@@ -125,7 +132,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
     internal void FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll();
+        var acks = _owner.DurabilityAcks.Fail(reason);
 
         for (var i = 0; i < acks.Count; i++)
             _ = acks[i].TrySetException(reason);
@@ -167,43 +174,50 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    private void DetachDurabilityAck(DurabilityAck ack) => _ = _owner.DurabilityAcks.Remove(ack);
-
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
         var ack = DurabilityAck.Rent();
+        var enqueued = false;
 
         // Initialize the wait before exposing the ack to failure paths: a concurrent
         // FailPendingDurabilityAcks must never complete a source that this await would reset.
         var ackWaitTask = ack.AwaitAsync(cancellationToken);
-        _owner.DurabilityAcks.Add(ack);
-
         try
         {
-            var item = JournalWorkItem.DurabilityCheckpoint(ack);
-            await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            // Registration and terminal-failure detection are atomic (registry lock). When the
+            // journal already failed, TryRegister completes ackWaitTask with the recorded failure
+            // and the enqueue below is skipped.
+            if (_owner.DurabilityAcks.TryRegister(ack))
+            {
+                var item = JournalWorkItem.DurabilityCheckpoint(ack);
+                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+                enqueued = true;
+            }
 
             await ackWaitTask.ConfigureAwait(false);
             ThrowIfJournalThreadFailed();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            RemoveDurabilityAck(ack, cancellationToken);
+            _ = _owner.DurabilityAcks.Remove(ack);
+
+            // When the ring already accepted the checkpoint the queued work item still holds this
+            // ack, so pooling must not happen here: transfer responsibility to the journal-thread
+            // completion path, which pools it after its terminal setter has run.
+            if (enqueued)
+                ack.MarkAbandonedByCaller();
+
             throw;
         }
         finally
         {
-            DetachDurabilityAck(ack);
-            ack.ReturnToPool();
+            _ = _owner.DurabilityAcks.Remove(ack);
+
+            // The caller pools in every case except a transferred ownership: normal completion,
+            // registration rejection, and enqueue failures all end here with a quiescent ack.
+            if (!ack.IsAbandonedByCaller())
+                ack.ReturnToPool();
         }
-    }
-
-    private void RemoveDurabilityAck(DurabilityAck ack, CancellationToken cancellationToken)
-    {
-        if (!_owner.DurabilityAcks.Remove(ack))
-            return;
-
-        _ = ack.TrySetCanceled(cancellationToken);
     }
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem

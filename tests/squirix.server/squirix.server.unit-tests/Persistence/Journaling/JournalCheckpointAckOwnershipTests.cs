@@ -42,7 +42,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
 
         var registered = DurabilityAck.Rent();
         var registeredWait = registered.AwaitAsync(CancellationToken.None);
-        coordinator.DurabilityAcks.Add(registered);
+        _ = coordinator.DurabilityAcks.TryRegister(registered);
 
         // A later caller registers and enqueues its own checkpoint; processing it must not touch
         // the ack registered above.
