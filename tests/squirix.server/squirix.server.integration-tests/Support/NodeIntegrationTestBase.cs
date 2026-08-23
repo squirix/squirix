@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -34,6 +35,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 public abstract class NodeIntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ScopeLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
@@ -149,8 +151,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 options.PersistenceOptions,
                 selfNodeId,
                 BuildTestScope(scopeName, options.ExtraScope),
-                options.CleanTestDir,
-                DefaultCancellationToken);
+                options.CleanTestDir);
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
@@ -291,25 +292,53 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
     {
+        PathValidationKit.ValidateSegmentName(testScope, nameof(testScope));
+        PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
+        if (!string.IsNullOrWhiteSpace(options?.DataDir))
+            PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
+
         var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(path, 0))
-            await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
-        DirectoryKit.CreateDirectory(effectiveDataDir);
-
-        if (options == null)
+        // Serialize cleanup-and-creation per scope so a concurrent node start can never create
+        // its node directory while another caller is deleting the scope.
+        var scopeLock = ScopeLocks.GetOrAdd(path, static _ => new SemaphoreSlim(1, 1));
+        await scopeLock.WaitAsync(DefaultCancellationToken).ConfigureAwait(false);
+        try
         {
-            return new PersistenceOptions
+            if (clean && CleanedScopes.TryAdd(path, 0))
             {
-                DataDir = effectiveDataDir,
-                JournalMaxSegmentMb = 64,
-            };
-        }
+                try
+                {
+                    if (Directory.Exists(path))
+                        Directory.Delete(path, true);
+                }
+                catch (Exception)
+                {
+                    _ = CleanedScopes.TryRemove(path, out _);
+                    throw;
+                }
+            }
 
-        return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
+            var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
+            Directory.CreateDirectory(effectiveDataDir);
+
+            if (options == null)
+            {
+                return new PersistenceOptions
+                {
+                    DataDir = effectiveDataDir,
+                    JournalMaxSegmentMb = 64,
+                };
+            }
+
+            return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
+        }
+        finally
+        {
+            _ = scopeLock.Release();
+        }
     }
 
     /// <summary>

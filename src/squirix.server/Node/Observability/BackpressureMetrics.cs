@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
@@ -22,6 +23,8 @@ internal static class BackpressureMetrics
     private static readonly Counter<long> RateLimitRejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
+
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Node.Observability.BackpressureMetrics");
 
     internal static void AddBypass(string transport, string operation)
     {
@@ -106,13 +109,15 @@ internal static class BackpressureMetrics
                 {
                     total += selector(entry);
                 }
-                catch (ObjectDisposedException)
+                catch (ObjectDisposedException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
+                    LogManager.BackpressureObservationFailed(Logger, ex);
                 }
-                catch (InvalidOperationException)
+                catch (InvalidOperationException ex)
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
+                    LogManager.BackpressureObservationFailed(Logger, ex);
                 }
             }
 

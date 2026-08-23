@@ -10,9 +10,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -26,11 +28,13 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ILogger? _logger;
     private int _disposed;
 
     internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args)
     {
         ArgumentNullException.ThrowIfNull(args);
+        _logger = args.Logger;
         var nodeIds = new string[peers.Count];
 
         for (var i = 0; i < peers.Count; i++)
@@ -55,34 +59,30 @@ internal sealed class ServerClientPool : IServerClientPool
         BeginDrain();
         for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var nodeId = _nodeIds[i];
             try
             {
-                await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
+                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or IOException)
             {
-                // Best-effort drain.
-            }
-            catch (IOException)
-            {
-                // Best-effort drain.
+                if (_logger != null)
+                    LogManager.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
             }
         }
 
         for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var nodeId = _nodeIds[i];
             try
             {
-                _channels[_nodeIds[i]].Dispose();
+                _channels[nodeId].Dispose();
                 ServerClientPoolMetrics.AddDisposal();
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or IOException)
             {
-                // Best-effort drain.
-            }
-            catch (IOException)
-            {
-                // Best-effort drain.
+                if (_logger != null)
+                    LogManager.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
             }
         }
     }

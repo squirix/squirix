@@ -89,7 +89,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
     {
         var path = NodePathKit.Combine(clusterRoot.Path, nodeId);
-        DirectoryKit.CreateDirectory(path);
+        Directory.CreateDirectory(path);
         return path;
     }
 

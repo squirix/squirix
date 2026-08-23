@@ -9,12 +9,20 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Creates <see cref="IJournalCoordinator" /> instances.</summary>
 internal static class JournalCoordinatorFactory
 {
-    internal static async Task<IJournalCoordinator> CreateAsync(
+    internal static Task<IJournalCoordinator> CreateAsync(
         PersistenceOptions persistence,
         State manifest,
         Ledger store,
         JournalStartupGate gate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CreateCoreAsync(persistence, manifest, store, gate, cancellationToken);
+
+    private static async Task<IJournalCoordinator> CreateCoreAsync(
+        PersistenceOptions persistence,
+        State manifest,
+        Ledger store,
+        JournalStartupGate gate,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(persistence);
         await JournalRecoveryScan.PrepareActiveSegmentForSequenceScanAsync(manifest, persistence, cancellationToken).ConfigureAwait(false);

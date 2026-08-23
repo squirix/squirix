@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -48,9 +49,9 @@ public sealed class TempSettingsFile : IDisposable
         {
             File.Delete(Path);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // Best-effort cleanup for temp test files.
+            TestLog.Suppressed($"Best-effort cleanup failed for temp settings file '{Path}'.", ex);
         }
     }
 

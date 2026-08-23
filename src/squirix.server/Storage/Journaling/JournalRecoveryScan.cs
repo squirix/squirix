@@ -37,8 +37,7 @@ internal static class JournalRecoveryScan
 
     internal static async Task PrepareActiveSegmentForSequenceScanAsync(State manifest, PersistenceOptions options, CancellationToken cancellationToken)
     {
-        var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
+        var path = JournalReadPath.BuildSegmentPath(options.DataDir, manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal);
         if (!File.Exists(path))
             return;
 

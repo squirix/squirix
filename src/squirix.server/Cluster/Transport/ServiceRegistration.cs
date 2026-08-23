@@ -43,6 +43,7 @@ internal static class ServiceRegistration
                             TimeSpan.FromMilliseconds(60),
                             TimeSpan.FromMilliseconds(600))),
                         PeerHandlerFactory = peerHandlerFactory,
+                        Logger = sp.GetService<ILogger<ServerClientPool>>(),
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
                         MtlsMaterial = material,

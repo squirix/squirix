@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
@@ -16,6 +18,8 @@ namespace Squirix.Server;
 public static class Configurator
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
@@ -67,10 +71,7 @@ public static class Configurator
         target.DataDirectory = source.DataDirectory;
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
-        {
-            var peer = source.Peers[i];
-            peers[i] = new SquirixServerPeerOptions { NodeId = peer.NodeId, Uri = peer.Uri };
-        }
+            peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };
 
         target.Peers = peers;
     }
@@ -132,13 +133,10 @@ public static class Configurator
             {
                 listener.Stop();
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
-            }
-            catch (SocketException)
-            {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+                var port = uri.Port.ToString(CultureInfo.InvariantCulture);
+                LogManager.ListenerReleaseFailed(Logger, exception, port);
             }
         }
     }
@@ -347,13 +345,9 @@ public static class Configurator
             {
                 listener.Stop();
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
-            }
-            catch (SocketException)
-            {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+                LogManager.ListenerReleaseFailed(Logger, exception, "ephemeral");
             }
         }
     }

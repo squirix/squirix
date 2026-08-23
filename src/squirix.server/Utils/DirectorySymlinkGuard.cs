@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Rejects unexpected symlinks and junctions in directory path chains.</summary>
 internal static class DirectorySymlinkGuard
 {
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectorySymlinkGuard");
+
     /// <summary>Walks from <paramref name="baseFull" /> (or the drive root) toward <paramref name="full" /> and rejects forbidden links.</summary>
     /// <param name="full">Absolute target path.</param>
     /// <param name="baseFull">Optional absolute base path already validated.</param>
@@ -50,29 +53,34 @@ internal static class DirectorySymlinkGuard
             if (fsi.LinkTarget != null)
                 return true;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
             // Some FS/providers may throw; fall back to attributes
+            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
             // Some FS/providers may throw; fall back to attributes
+            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
         }
-        catch (NotSupportedException)
+        catch (NotSupportedException ex)
         {
             // LinkTarget may be unsupported on some providers; fall back to attributes
+            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
         }
 
         try
         {
             return (fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.None;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
             return false;
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
             return false;
         }
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -60,23 +61,25 @@ internal static class ConsumerPortSlicer
     {
         for (var index = 0; index < SliceCount; index++)
         {
+            Mutex? mutex = null;
             try
             {
-                var mutex = new Mutex(true, $"squirix-test-port-slice-{index}", out var createdNew);
+                mutex = new Mutex(true, $"squirix-test-port-slice-{index}", out var createdNew);
 
                 if (createdNew)
                     return (index, mutex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                TestLog.Suppressed($"Port slice {index} cannot be claimed (unauthorized); trying next.", ex);
+            }
+            catch (WaitHandleCannotBeOpenedException ex)
+            {
+                TestLog.Suppressed($"Port slice {index} cannot be claimed (already open); trying next.", ex);
+            }
 
-                mutex.Dispose();
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // This slice cannot be claimed. Try the next one.
-            }
-            catch (WaitHandleCannotBeOpenedException)
-            {
-                // This slice cannot be claimed. Try the next one.
-            }
+            // Slice already owned by another process (or claim failed): release our handle.
+            mutex?.Dispose();
         }
 
         // More than SliceCount test processes are running concurrently.

@@ -1279,7 +1279,6 @@ jobs:
                       -o pvs-studio-out/pvs-studio-report.json \
                       -c Release \
                       -C .pvsconfig \
-                      -u pvs-studio.suppress.json \
                       -r \
                       --disableLicenseExpirationCheck \
                       --selectProjects "Squirix;Squirix.Server;Squirix.Server.Host;Squirix.ProtocolModel;Squirix.Analyzers" \

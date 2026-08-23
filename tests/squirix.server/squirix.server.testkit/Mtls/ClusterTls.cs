@@ -357,9 +357,10 @@ public sealed class ClusterTls : IDisposable
             CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+            PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
 
             var nodeDirectory = NodePathKit.Combine(_rootDirectory, nodeId);
-            DirectoryKit.CreateDirectory(nodeDirectory);
+            Directory.CreateDirectory(nodeDirectory);
 
             using var nodeCertificate = CreateNodeCertificate(nodeId);
             return await CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);

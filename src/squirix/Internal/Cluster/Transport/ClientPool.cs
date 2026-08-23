@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
@@ -23,6 +25,19 @@ internal sealed class ClientPool : IClientPool
     private const int MaxReceiveMessageSizeBytes = 8 * 1024 * 1024;
 
     private const int MaxSendMessageSizeBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// The client SDK has no logging pipeline or DI container by default, so suppressed-exception
+    /// diagnostics emitted during pool drain intentionally target NullLogger. A host that wants these
+    /// failures observable should supply an ILogger here once the client surface gains a logging configuration point.
+    /// </summary>
+    private static readonly ILogger Logger = NullLogger.Instance;
+
+    private static readonly Action<ILogger, string, Exception?> LogPolicyDisposeFailed =
+        LoggerMessage.Define<string>(LogLevel.Debug, new EventId(4001, "ClientPoolPolicyDisposeFailed"), "Client pool policy dispose failed for node {NodeId} during drain");
+
+    private static readonly Action<ILogger, string, Exception?> LogChannelDisposeFailed =
+        LoggerMessage.Define<string>(LogLevel.Debug, new EventId(4002, "ClientPoolChannelDisposeFailed"), "Client pool channel dispose failed for node {NodeId} during drain");
 
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
@@ -83,34 +98,30 @@ internal sealed class ClientPool : IClientPool
         BeginDrain();
         for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var nodeId = _nodeIds[i];
             try
             {
-                await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
+                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
             }
-            catch (ObjectDisposedException)
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
-            }
-            catch (IOException)
-            {
-                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
+                LogPolicyDisposeFailed(Logger, nodeId, ex);
             }
         }
 
         for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var nodeId = _nodeIds[i];
             try
             {
-                _channels[_nodeIds[i]].Dispose();
+                _channels[nodeId].Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch (ObjectDisposedException)
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
-            }
-            catch (IOException)
-            {
-                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
+                LogChannelDisposeFailed(Logger, nodeId, ex);
             }
         }
     }

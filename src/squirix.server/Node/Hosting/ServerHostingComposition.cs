@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Adapters.Rest;
@@ -51,6 +52,8 @@ internal static class ServerHostingComposition
     internal static WebApplication MapServer(WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
+
+        LogManager.Configure(app.Services.GetRequiredService<ILoggerFactory>());
 
         _ = app.Use(static async (context, next) =>
         {

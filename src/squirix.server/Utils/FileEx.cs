@@ -1,10 +1,19 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
 
-internal static class FileEx
+/// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
+internal static partial class FileEx
 {
+    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
+    private const int LinuxCloseOnExec = 0x80000;
+    private const int DarwinCloseOnExec = 0x1000000;
+    private const int FreeBsdCloseOnExec = 0x00100000;
+
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
         var cwd = Directory.GetCurrentDirectory();
@@ -43,6 +52,27 @@ internal static class FileEx
             File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
         else
             File.Move(validatedTemp, validatedFinal);
+
+        FlushDirectoryEntry(validatedFinal);
+    }
+
+    /// <summary>
+    /// Flushes the parent directory of <paramref name="filePath" /> so a recent directory-entry change
+    /// (create, rename, or delete) survives a crash. A no-op on Windows.
+    /// </summary>
+    /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
+    /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
+    internal static void FlushDirectoryEntry(string filePath)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(directory))
+            return;
+
+        using var handle = OpenDirectoryForFlush(directory);
+        RandomAccess.FlushToDisk(handle);
     }
 
     /// <summary>
@@ -94,5 +124,46 @@ internal static class FileEx
         {
             return false;
         }
+    }
+
+    [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
+
+    /// <summary>Returns the platform-specific <c>O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
+    /// <remarks>
+    /// Unknown Unix platforms return <c>0</c> (no close-on-exec), preserving the previous behavior rather than
+    /// risking an invalid flag. This path only runs on Unix; <see cref="FlushDirectoryEntry" /> no-ops on Windows.
+    /// </remarks>
+    private static int CloseOnExecFlag()
+    {
+        if (OperatingSystem.IsLinux())
+            return LinuxCloseOnExec;
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+            return DarwinCloseOnExec;
+        if (OperatingSystem.IsFreeBSD())
+            return FreeBsdCloseOnExec;
+        return 0;
+    }
+
+    private static SafeFileHandle OpenDirectoryForFlush(string directory)
+    {
+        // EINTR (interrupted system call) is 4 on Linux, macOS, and the *BSD family.
+        // This path only runs on Unix, where open(2) can be interrupted by a signal.
+        const int eintr = 4;
+        var pathBytes = Encoding.UTF8.GetBytes(directory + "\0");
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var descriptor = OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
+            if (descriptor >= 0)
+                return new SafeFileHandle(new IntPtr(descriptor), true);
+
+            // A system call interrupted by a signal must be retried; any other failure is surfaced as-is via the existing IOException below.
+            if (Marshal.GetLastPInvokeError() != eintr)
+                break;
+        }
+
+        throw new IOException($"Failed to open directory '{directory}' for flushing; errno={Marshal.GetLastPInvokeError()}.");
     }
 }
