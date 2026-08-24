@@ -51,6 +51,7 @@ internal static class SnapshotFileEncoder
         long totalFileSize,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         RandomAccess.SetLength(destination, totalFileSize);
 
         long offset = 0;
@@ -75,6 +76,7 @@ internal static class SnapshotFileEncoder
             offset += recordLength;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         WriteFileFooter(destination, offset, crc);
     }
 

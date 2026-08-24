@@ -475,6 +475,20 @@ internal sealed class FollowerLog : IFollowerLog
             return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner._meta.CurrentTerm, owner._lastLogIndex);
         }
 
+        private static List<FollowerLogEntry> MaterializeOwnedEntries(List<FollowerLogEntry> source)
+        {
+            // Ownership is needed only for what will actually hit disk or be retained above the applied
+            // watermark; duplicates satisfied by local state and refused batches are never copied.
+            var owned = new List<FollowerLogEntry>(source.Count);
+            for (var i = 0; i < source.Count; i++)
+            {
+                var entry = source[i];
+                owned.Add(new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray()));
+            }
+
+            return owned;
+        }
+
         private static FollowerLogAppendResult? PrepareAppendBatch(
             FollowerLog owner,
             FollowerLogAppendRequest request,
@@ -530,20 +544,6 @@ internal sealed class FollowerLog : IFollowerLog
                 return candidate.LogIndex <= owner._meta.LastAppliedIndex && owner._entryOffsets.TryGetValue(candidate.LogIndex, out var location) &&
                        location.Term == candidate.Term;
             }
-        }
-
-        private static List<FollowerLogEntry> MaterializeOwnedEntries(List<FollowerLogEntry> source)
-        {
-            // Ownership is needed only for what will actually hit disk or be retained above the applied
-            // watermark; duplicates satisfied by local state and refused batches are never copied.
-            var owned = new List<FollowerLogEntry>(source.Count);
-            for (var i = 0; i < source.Count; i++)
-            {
-                var entry = source[i];
-                owned.Add(new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray()));
-            }
-
-            return owned;
         }
     }
 
@@ -895,6 +895,59 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
+        /// <summary>
+        /// Reads the frame starting at <paramref name="frameStart" /> into scratch buffers: validates the
+        /// header, grows the frame buffer when needed, and reads payload bytes at their explicit offset.
+        /// A partial header/payload or an oversized declaration yields a terminal torn-tail result.
+        /// </summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="handle">The open log file handle.</param>
+        /// <param name="frameHeader">Scratch buffer for the fixed-size frame header.</param>
+        /// <param name="previousFrame">The previously rented frame buffer to reuse when large enough.</param>
+        /// <param name="frameStart">File offset of the frame to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The read outcome: buffers, frame length, next log index, and a terminal result when torn.</returns>
+        private static async Task<FrameReadOutcome> ReadNextFrameAsync(
+            FollowerLog owner,
+            SafeFileHandle handle,
+            byte[] frameHeader,
+            byte[]? previousFrame,
+            long frameStart,
+            CancellationToken cancellationToken)
+        {
+            var nextLogIndex = owner._lastLogIndex + 1;
+
+            // A partial header is a torn trailing frame.
+            if (RandomAccess.GetLength(handle) - frameStart < FrameHeaderByteCount)
+                return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
+
+            var headerEnd = await HandleEx.TryReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), frameStart, cancellationToken).ConfigureAwait(false);
+            if (headerEnd == null)
+                return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
+
+            // A header that fails structural validation is either a torn tail or a corrupt committed frame.
+            if (!GroupLogCodec.TryReadFrameHeaderLength(frameHeader.AsSpan(0, FrameHeaderByteCount), out var frameLength))
+                return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
+
+            // A frame that ends past EOF is a torn trailing frame.
+            if (RandomAccess.GetLength(handle) - (frameStart + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
+                return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
+
+            var previous = previousFrame;
+            var frame = RentFrameBuffer(previous, frameLength, out var exhausted);
+
+            var payloadOffset = frameStart + FrameHeaderByteCount;
+            frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
+            var payloadEnd = await HandleEx.TryReadExactAsync(handle, frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), payloadOffset, cancellationToken)
+                                           .ConfigureAwait(false);
+
+            // The frame content is incomplete: hand ownership back to the caller's pooling path.
+            if (payloadEnd == null)
+                return new FrameReadOutcome(frame, exhausted, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
+
+            return new FrameReadOutcome(frame, exhausted, frameLength, nextLogIndex, null);
+        }
+
         /// <summary>Records a CRC-validated frame, keeping the payload only above the applied watermark.</summary>
         /// <param name="owner">The log being recovered.</param>
         /// <param name="nextLogIndex">The index the frame must carry.</param>
@@ -929,6 +982,23 @@ internal sealed class FollowerLog : IFollowerLog
             return null;
         }
 
+        /// <summary>Rents a frame buffer of at least <paramref name="frameLength" /> bytes, reusing the current one when it fits.</summary>
+        /// <param name="current">The previously rented buffer, if any.</param>
+        /// <param name="frameLength">The required frame length.</param>
+        /// <param name="exhausted">The returned buffer when the current one was replaced; the caller must return it to the pool.</param>
+        /// <returns>A rented buffer large enough for the frame.</returns>
+        private static byte[] RentFrameBuffer(byte[]? current, int frameLength, out byte[]? exhausted)
+        {
+            // Detach before returning so a Rent failure can never leave an already-returned
+            // array referenced here for a second return in the outer finally.
+            exhausted = null;
+            if (current != null && current.Length >= frameLength)
+                return current;
+
+            exhausted = current;
+            return ArrayPool<byte>.Shared.Rent(frameLength);
+        }
+
         private static void ResetLogState(FollowerLog owner)
         {
             owner.SetLogLength(0);
@@ -960,40 +1030,19 @@ internal sealed class FollowerLog : IFollowerLog
             {
                 while (lastValidEnd < RandomAccess.GetLength(handle))
                 {
-                    var nextLogIndex = owner._lastLogIndex + 1;
+                    var outcome = await ReadNextFrameAsync(owner, handle, frameHeader, frame, lastValidEnd, cancellationToken).ConfigureAwait(false);
+                    if (outcome.Terminal != null)
+                        return outcome.Terminal.Value;
 
-                    // A partial header is a torn trailing frame.
-                    if (RandomAccess.GetLength(handle) - lastValidEnd < FrameHeaderByteCount)
-                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
+                    frame = outcome.Frame;
+                    if (outcome.Exhausted != null)
+                        ArrayPool<byte>.Shared.ReturnCleared(outcome.Exhausted);
 
-                    var headerEnd = await HandleEx.TryReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), lastValidEnd, cancellationToken).ConfigureAwait(false);
-                    if (headerEnd == null)
-                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                    // A header that fails structural validation is either a torn tail or a corrupt committed frame.
-                    if (!GroupLogCodec.TryReadFrameHeaderLength(frameHeader.AsSpan(0, FrameHeaderByteCount), out var frameLength))
-                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                    // A frame that ends past EOF is a torn trailing frame.
-                    if (RandomAccess.GetLength(handle) - (lastValidEnd + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
-                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                    var previousFrame = frame;
-                    frame = RentFrameBuffer(previousFrame, frameLength, out var exhausted);
-                    if (exhausted != null)
-                        ArrayPool<byte>.Shared.ReturnCleared(exhausted);
-
-                    var payloadOffset = lastValidEnd + FrameHeaderByteCount;
-                    frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
-                    var payloadEnd = await HandleEx.TryReadExactAsync(handle, frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), payloadOffset, cancellationToken).ConfigureAwait(false);
-                    if (payloadEnd == null)
-                        return UncommittedTail(owner, lastValidEnd, nextLogIndex);
-
-                    var tail = RecordFrame(owner, nextLogIndex, lastValidEnd, frame.AsSpan(0, frameLength));
+                    var tail = RecordFrame(owner, outcome.NextLogIndex, lastValidEnd, outcome.Frame.AsSpan(0, outcome.FrameLength));
                     if (tail != null)
                         return tail.Value;
 
-                    lastValidEnd += frameLength;
+                    lastValidEnd += outcome.FrameLength;
                 }
 
                 return new WalkResult(lastValidEnd, false);
@@ -1006,22 +1055,13 @@ internal sealed class FollowerLog : IFollowerLog
             }
         }
 
-        /// <summary>Rents a frame buffer of at least <paramref name="frameLength" /> bytes, reusing the current one when it fits.</summary>
-        /// <param name="current">The previously rented buffer, if any.</param>
-        /// <param name="frameLength">The required frame length.</param>
-        /// <param name="exhausted">The returned buffer when the current one was replaced; the caller must return it to the pool.</param>
-        /// <returns>A rented buffer large enough for the frame.</returns>
-        private static byte[] RentFrameBuffer(byte[]? current, int frameLength, out byte[]? exhausted)
-        {
-            // Detach before returning so a Rent failure can never leave an already-returned
-            // array referenced here for a second return in the outer finally.
-            exhausted = null;
-            if (current != null && current.Length >= frameLength)
-                return current;
-
-            exhausted = current;
-            return ArrayPool<byte>.Shared.Rent(frameLength);
-        }
+        /// <summary>Outcome of reading a single recovery frame into scratch buffers.</summary>
+        /// <param name="Frame">The rented frame buffer holding header + payload.</param>
+        /// <param name="Exhausted">The previously rented buffer to return to the pool, when it was replaced.</param>
+        /// <param name="FrameLength">Total length of the frame read; zero when torn.</param>
+        /// <param name="NextLogIndex">The log index expected for this frame position.</param>
+        /// <param name="Terminal">A torn-tail walk result; non-null when the walk must stop.</param>
+        private readonly record struct FrameReadOutcome(byte[] Frame, byte[]? Exhausted, int FrameLength, ulong NextLogIndex, WalkResult? Terminal);
 
         /// <summary>Result of walking the log frames during startup recovery.</summary>
         /// <param name="LastValidEnd">The byte offset after the last valid frame.</param>
