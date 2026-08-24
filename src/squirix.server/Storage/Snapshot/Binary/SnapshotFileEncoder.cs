@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
@@ -43,25 +44,27 @@ internal static class SnapshotFileEncoder
     }
 
     internal static async Task WriteFileAsync(
-        FileStream destination,
+        SafeFileHandle destination,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         byte[] encodeBuffer,
         long totalFileSize,
         CancellationToken cancellationToken)
     {
-        destination.SetLength(totalFileSize);
-        destination.Position = 0;
+        cancellationToken.ThrowIfCancellationRequested();
+        RandomAccess.SetLength(destination, totalFileSize);
 
-        WriteFileHeader(destination);
-
+        long offset = 0;
         var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
+        WriteFileHeader(destination, ref offset);
+
         for (var i = 0; i < items.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var (key, entry) = items[i];
             var recordLength = WriteEntryRecord(encodeBuffer, key, entry);
-            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
+            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, offset, crc, cancellationToken).ConfigureAwait(false);
+            offset += recordLength;
         }
 
         for (var i = 0; i < idempotencyRecords.Count; i++)
@@ -69,11 +72,27 @@ internal static class SnapshotFileEncoder
             cancellationToken.ThrowIfCancellationRequested();
             var record = idempotencyRecords[i];
             var recordLength = WriteIdempotencyRecord(encodeBuffer, record);
-            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
+            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, offset, crc, cancellationToken).ConfigureAwait(false);
+            offset += recordLength;
         }
 
-        WriteFileFooter(destination, crc);
-        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        WriteFileFooter(destination, offset, crc);
+    }
+
+    private static void WriteFileHeader(SafeFileHandle destination, ref long offset)
+    {
+        Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
+        SnapshotCodec.WriteFileHeader(header);
+        RandomAccess.Write(destination, header, offset);
+        offset += header.Length;
+    }
+
+    private static void WriteFileFooter(SafeFileHandle destination, long offset, uint crc)
+    {
+        Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
+        RandomAccess.Write(destination, footer, offset);
     }
 
     private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, NodeCacheEntry<object?> entry)
@@ -86,20 +105,6 @@ internal static class SnapshotFileEncoder
         return recordLength;
     }
 
-    private static void WriteFileFooter(FileStream destination, uint crc)
-    {
-        Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
-        destination.Write(footer);
-    }
-
-    private static void WriteFileHeader(FileStream destination)
-    {
-        Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
-        SnapshotCodec.WriteFileHeader(header);
-        destination.Write(header);
-    }
-
     private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)
     {
         var bodyLength = IdempotencyCodec.ComputeEncodedLength(record);
@@ -110,11 +115,11 @@ internal static class SnapshotFileEncoder
         return recordLength;
     }
 
-    private static async Task<uint> WriteRecordAndUpdateCrcAsync(FileStream destination, byte[] encodeBuffer, int recordLength, uint crc, CancellationToken cancellationToken)
+    private static async Task<uint> WriteRecordAndUpdateCrcAsync(SafeFileHandle destination, byte[] encodeBuffer, int recordLength, long offset, uint crc, CancellationToken cancellationToken)
     {
         var recordBytes = encodeBuffer.AsMemory(0, recordLength);
         crc = Crc32C.Append(crc, recordBytes.Span);
-        await destination.WriteAsync(recordBytes, cancellationToken).ConfigureAwait(false);
+        await RandomAccess.WriteAsync(destination, recordBytes, offset, cancellationToken).ConfigureAwait(false);
         return crc;
     }
 }

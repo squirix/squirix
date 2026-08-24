@@ -1,7 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -42,36 +43,44 @@ internal static class BinaryJournalTestSegmentWriter
 
     internal static async Task WriteSegmentAsync(string path, JournalRecord record)
     {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
-        WriteRecordFrame(stream, record);
-        await stream.FlushAsync(CancellationToken.None);
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        long offset = 0;
+        WriteFileHeader(handle, ref offset);
+        WriteRecordFrame(handle, ref offset, record);
     }
 
     internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
     {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        long offset = 0;
+        WriteFileHeader(handle, ref offset);
         for (var i = 0; i < records.Count; i++)
-            WriteRecordFrame(stream, records[i]);
-
-        await stream.FlushAsync(CancellationToken.None);
+            WriteRecordFrame(handle, ref offset, records[i]);
     }
 
-    private static void WriteRecordFrame(Stream stream, JournalRecord record)
+    private static void WriteFileHeader(SafeFileHandle handle, ref long offset)
+    {
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        RandomAccess.Write(handle, header, offset);
+        offset += header.Length;
+    }
+
+    private static void WriteRecordFrame(SafeFileHandle handle, ref long offset, JournalRecord record)
     {
         var encode = BinaryJournalCodec.PrepareEncode(record);
         var frameLength = JournalFraming.FrameTotalLength(encode.BodyLength);
         BufferKit.WithBuffer(
             frameLength,
-            (stream, record, encode),
+            (Handle: handle, Record: record, Encode: encode, Offset: offset),
             static (ctx, frame) =>
             {
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
-                var body = frame.Slice(bodyOffset, ctx.encode.BodyLength);
-                _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.encode);
+                var body = frame.Slice(bodyOffset, ctx.Encode.BodyLength);
+                _ = BinaryJournalCodec.Encode(ctx.Record, body, in ctx.Encode);
                 JournalFraming.WriteFrame(frame, body);
-                ctx.stream.Write(frame);
+                RandomAccess.Write(ctx.Handle, frame, ctx.Offset);
             });
+        offset += frameLength;
     }
 }

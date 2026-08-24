@@ -74,8 +74,8 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [first, second]);
 
-        await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-            fs.SetLength(fs.Length - 1);
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);
 
         var list = new List<JournalRecord>(2);
         using var records = JournalReadPath.ReadAll(Dir, 1, DefaultCancellationToken);

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
@@ -78,12 +79,11 @@ internal static class StoreFactory
 
         private sealed class SnapshotRecordEnumerator : IEnumerator<object>
         {
-            private const int LoadBufferSize = 64 * 1024;
-
             private readonly CancellationToken _cancellationToken;
             private readonly long _footerOffset;
-            private readonly FileStream _stream;
+            private readonly SafeFileHandle _handle;
             private readonly bool _strict;
+            private long _offset;
             private uint _crc;
             private object? _current;
             private int _disposed;
@@ -94,23 +94,17 @@ internal static class StoreFactory
             {
                 _strict = strict;
                 _cancellationToken = cancellationToken;
-                _stream = new FileStream(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    LoadBufferSize,
-                    FileOptions.SequentialScan);
-                if (_stream.Length < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
+                _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+                if (RandomAccess.GetLength(_handle) < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
                     throw new InvalidDataException("Binary snapshot file is truncated.");
 
                 Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
-                if (!StreamEx.TryReadExact(_stream, header))
+                if (!HandleEx.TryReadExact(_handle, header, ref _offset))
                     throw new EndOfStreamException("Binary snapshot file header is truncated.");
 
                 SnapshotCodec.ValidateFileHeader(header);
                 _crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
-                _footerOffset = _stream.Length - SnapshotCodec.FileFooterSize;
+                _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
             }
 
             public object Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
@@ -120,7 +114,7 @@ internal static class StoreFactory
                 if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
-                _stream.Dispose();
+                _handle.Dispose();
             }
 
             public bool MoveNext()
@@ -132,7 +126,7 @@ internal static class StoreFactory
                         return false;
 
                     _cancellationToken.ThrowIfCancellationRequested();
-                    if (_stream.Position >= _footerOffset)
+                    if (_offset >= _footerOffset)
                     {
                         ValidateFooter();
                         return false;
@@ -191,7 +185,7 @@ internal static class StoreFactory
             private bool TryReadNextRecord(out object? record)
             {
                 record = null;
-                if (_stream.Position >= _footerOffset)
+                if (_offset >= _footerOffset)
                     return false;
 
                 if (!TryReadRecordBytes(out var recordBytes))
@@ -214,7 +208,7 @@ internal static class StoreFactory
             {
                 recordBytes = default;
                 Span<byte> recordHeader = stackalloc byte[SnapshotCodec.RecordHeaderSize];
-                if (!StreamEx.TryReadExact(_stream, recordHeader))
+                if (!HandleEx.TryReadExact(_handle, recordHeader, ref _offset))
                 {
                     if (_strict)
                         throw new EndOfStreamException("Binary snapshot record header is truncated.");
@@ -228,7 +222,7 @@ internal static class StoreFactory
                     _scratch = new byte[recordLength];
 
                 recordHeader.CopyTo(_scratch);
-                if (!StreamEx.TryReadExact(_stream, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize)))
+                if (!HandleEx.TryReadExact(_handle, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize), ref _offset))
                 {
                     if (_strict)
                         throw new EndOfStreamException("Binary snapshot record body is truncated.");
@@ -242,7 +236,7 @@ internal static class StoreFactory
 
             private void ValidateFooter()
             {
-                if (_stream.Position != _footerOffset)
+                if (_offset != _footerOffset)
                 {
                     if (_strict)
                         throw new InvalidDataException("Binary snapshot file footer is misaligned.");
@@ -252,7 +246,7 @@ internal static class StoreFactory
                 }
 
                 Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
-                if (!StreamEx.TryReadExact(_stream, footer))
+                if (!HandleEx.TryReadExact(_handle, footer, ref _offset))
                     throw new EndOfStreamException("Binary snapshot file footer is truncated.");
 
                 SnapshotCodec.ValidateFileFooter(footer, Crc32C.Finalize(_crc));

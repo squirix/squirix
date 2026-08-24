@@ -3,6 +3,7 @@ using System.Buffers;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
@@ -54,14 +55,15 @@ internal static class JournalRecoveryScan
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private static long ComputeValidLength(FileStream stream)
+    private static long ComputeValidLength(SafeFileHandle handle)
     {
-        if (stream.Length == 0)
+        var length = RandomAccess.GetLength(handle);
+        if (length == 0)
             return 0;
 
-        stream.Position = 0;
         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-        if (!StreamEx.TryReadExact(stream, header))
+        long offset = 0;
+        if (!HandleEx.TryReadExact(handle, header, ref offset))
             throw new InvalidDataException("journal segment has a truncated file header.");
 
         JournalFraming.EnsureSegmentHeaderSupported(header);
@@ -69,7 +71,7 @@ internal static class JournalRecoveryScan
         long validLength = JournalFraming.FileHeaderSize;
         while (true)
         {
-            var read = JournalFrameReader.ReadNext(stream, validLength, out var rentedBuffer, out _);
+            var read = JournalFrameReader.ReadNext(handle, validLength, out var rentedBuffer, out _);
             if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
                 return validLength;
 
@@ -98,21 +100,20 @@ internal static class JournalRecoveryScan
 
     private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
     {
-        var stream = new FileStream(
+        var handle = File.OpenHandle(
             path,
             FileMode.Open,
             FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete,
-            0,
             FileOptions.SequentialScan);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ComputeValidLength(stream);
+            return ComputeValidLength(handle);
         }
         finally
         {
-            await stream.DisposeAsync().ConfigureAwait(false);
+            handle.Dispose();
         }
     }
 

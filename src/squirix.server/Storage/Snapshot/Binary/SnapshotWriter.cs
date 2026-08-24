@@ -55,11 +55,8 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         long totalFileSize,
         CancellationToken cancellationToken)
     {
-        var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
-        await using (fs.ConfigureAwait(false))
-        {
-            await SnapshotFileEncoder.WriteFileAsync(fs, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
-            SnapshotDurability.FlushIfNeeded(fs.SafeFileHandle);
-        }
+        using var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
+        await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
+        SnapshotDurability.FlushIfNeeded(handle);
     }
 }
