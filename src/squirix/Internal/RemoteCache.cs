@@ -362,7 +362,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         private static class CacheOperationContract
         {
-            private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
+            private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
             /// <summary>
             /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
@@ -382,7 +382,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
             internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
                                                                                              message.StartsWith(
-                                                                                                 InsertVersionMustExceedCurrentMessagePrefix,
+                                                                                                 InsertVersionMustExceedCurrentPrefix,
                                                                                                  StringComparison.Ordinal) && message.Contains(
                                                                                                  ", provided=",
                                                                                                  StringComparison.Ordinal);

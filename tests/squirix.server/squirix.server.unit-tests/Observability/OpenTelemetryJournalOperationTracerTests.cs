@@ -36,7 +36,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
     /// <summary>Ensures durability settings on <see cref="JournalOperationTraceContext" /> are exported as span tags.</summary>
     [Fact]
-    public void BeginAppliesStrictFsyncAndGroupCommitTags()
+    public void BeginTagsStrictFsyncAndGroupCommit()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
@@ -56,7 +56,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
     /// <summary>Ensures unset durability settings do not emit durability span tags.</summary>
     [Fact]
-    public void BeginOmitsDurabilityTagsWhenContextValuesAreNull()
+    public void BeginOmitsTagsForNullContextValues()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 

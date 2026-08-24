@@ -36,7 +36,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Fact]
     public async Task EntryJustAboveLimitThrowsPayloadTooLarge()
     {
-        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
+        var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         var ex = NodeExceptionAssert.For<SquirixException>().Throws(entry, static value => JournalEntryPayload.EnsureEncodedLengthWithinLimit(value));
@@ -50,7 +50,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Fact]
     public async Task EntryJustBelowLimitDoesNotThrow()
     {
-        var value = await EntryLimitKit.CreateStringValueAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
+        var value = await EntryLimitKit.CreateStringAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);

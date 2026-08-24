@@ -11,9 +11,9 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
 {
     /// <summary>Verifies an existing client session fails over to a second live bootstrap URL when the active peer stops.</summary>
     [Fact]
-    public async Task ClientContinuesAlternateActiveEndpointLoss()
+    public async Task ContinuesOnAlternateEndpointAfterLoss()
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(ClientContinuesAlternateActiveEndpointLoss), cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(ContinuesOnAlternateEndpointAfterLoss), cancellationToken: DefaultCancellationToken);
         var uriA = cluster.GetUri("nodeA");
         var uriB = cluster.GetUri("nodeB");
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "bootstrap-failover");

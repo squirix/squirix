@@ -19,7 +19,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 {
     /// <summary>Verifies an external caller cannot spoof internal owner-routing metadata without trusted cluster mTLS.</summary>
     [Fact]
-    public async Task ExternalClientCannotSpoofInternalOwnerHeader()
+    public async Task ExternalClientCannotSpoofOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var uri = GetNextHttpUri();
@@ -44,7 +44,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
     /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to inter-node forwarding.</summary>
     [Fact]
-    public async Task ExternalJwtAuthSucceedsForwardingUsesInternalMtls()
+    public async Task JwtAuthForwardingUsesInternalMtls()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-forward");
         var uriA = GetNextHttpUri();
@@ -75,7 +75,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
     /// <summary>Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.</summary>
     [Fact]
-    public async Task InterNodeForwardingSucceedsJwtOnInternalTransport()
+    public async Task ForwardingAcceptsJwtOnInternalTransport()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -111,7 +111,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
     [Fact]
-    public async Task InternalListenerRejectsCallsTrustedPeerCertificate()
+    public async Task InternalListenerNeedsTrustedPeerCert()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -126,7 +126,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             interNodeUrl,
             new GrpcChannelOptions
             {
-                HttpHandler = await CreateClusterCaTrustingHandlerNoClientCertAsync("node-b", peers, DefaultCancellationToken),
+                HttpHandler = await CreateCaTrustingHandlerAsync("node-b", peers, DefaultCancellationToken),
                 MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
@@ -143,7 +143,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
     /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
     [Fact]
-    public async Task MultiNodeExternalClientSpoofInternalOwnerHeader()
+    public async Task SpoofedInternalOwnerHeaderRejected()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var uriA = GetNextHttpUri();
@@ -178,7 +178,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     /// <summary>Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
     [Fact]
-    public async Task TrustedInternalOwnerRpcWrongNodeReturnsStaleOwner()
+    public async Task OwnerRpcWrongNodeReturnsStaleOwner()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

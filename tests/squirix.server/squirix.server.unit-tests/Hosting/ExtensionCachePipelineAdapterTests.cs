@@ -16,7 +16,7 @@ public sealed class ExtensionCachePipelineAdapterTests
 {
     /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>
     [Fact]
-    public async Task EntryOperationsUseEntryAwareDecoratedPipelineAsync()
+    public async Task EntryOpsUseEntryAwarePipelineAsync()
     {
         var core = new RecordingLogicalCache();
         var decorated = new RecordingEntryPipeline();

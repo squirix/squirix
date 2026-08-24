@@ -35,7 +35,7 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 
     /// <summary>Verifies stable codes across REST and gRPC projections for journal disk quota.</summary>
     [Fact]
-    public void JournalDiskQuotaMapsToHttp429AndGrpcExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
+    public void DiskQuotaMapsToHttp429AndGrpcExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
         ServerOpContract.JournalDiskQuota(),
         SquirixErrorCode.JournalDiskQuota,
         "JOURNAL_DISK_QUOTA",
@@ -44,7 +44,7 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 
     /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>
     [Fact]
-    public async Task JournalDiskQuotaRestPayloadUsesStableFields()
+    public async Task DiskQuotaRestPayloadUsesStableFields()
     {
         var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(new JournalCapacityExceededException().ToHttpResult(), DefaultCancellationToken);
         using (payload)

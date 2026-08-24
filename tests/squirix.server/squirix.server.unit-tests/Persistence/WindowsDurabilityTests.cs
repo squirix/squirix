@@ -18,7 +18,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     /// Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
     [Fact]
-    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
+    public async Task FirstWriteCreatesCurrentPointer()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);
@@ -31,7 +31,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
     [Fact]
-    public async Task ManifestStoreReturnsDefaultCurrentPointerIsMissing()
+    public async Task MissingPointerReadsAsDefault()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options);
@@ -44,7 +44,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 
     /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
     [Fact]
-    public async Task ManifestStoreThrowsCurrentPointerTargetIsMissing()
+    public async Task ThrowsWhenPointerTargetVanishes()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options);
@@ -55,7 +55,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 
     /// <summary>Verifies that an empty current pointer is treated as storage corruption.</summary>
     [Fact]
-    public async Task ManifestStoreThrowsWhenCurrentPointerIsEmpty()
+    public async Task ThrowsWhenCurrentPointerIsEmpty()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options);
@@ -66,7 +66,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
     [Fact]
-    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
+    public async Task RewriteUpdatesCurrentPointer()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);

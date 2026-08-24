@@ -44,7 +44,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
     /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
     [Fact]
-    public async Task IdenticalOperationIdReplaysCachedResponse()
+    public async Task RepeatedOperationIdReplaysResponse()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, "node-a");
@@ -68,7 +68,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
     /// <summary>Verifies malformed operation ids are rejected at the adapter.</summary>
     [Fact]
-    public async Task InvalidFormatOperationIdReturnsInvalidArgument()
+    public async Task BadOperationIdFormatIsInvalidArgument()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, "node-a");
@@ -93,7 +93,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
     /// <summary>Verifies reusing an operation id with a different mutation fingerprint fails with the stable contract.</summary>
     [Fact]
-    public async Task ReusedOperationIdReturnsFailedPrecondition()
+    public async Task ReuseReturnsFailedPrecondition()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, "node-a");

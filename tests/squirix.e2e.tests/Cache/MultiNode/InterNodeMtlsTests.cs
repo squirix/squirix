@@ -19,7 +19,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 {
     /// <summary>Verifies a client connected to node A forwards owner mutations to node B over trusted inter-node mTLS.</summary>
     [Fact]
-    public async Task ClientOnNodeAForwardsToOwnerNodeBOverMtls()
+    public async Task NodeAClientForwardsToOwnerOverMtls()
     {
         await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-mtls-forward");
@@ -33,7 +33,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies an external client cannot spoof internal owner-routing metadata on the primary listener.</summary>
     [Fact]
-    public async Task ExternalClientCannotSpoofInternalOwnerHeader()
+    public async Task ExternalClientCannotSpoofOwnerHeader()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -51,7 +51,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies external JWT authentication works independently of inter-node mTLS forwarding.</summary>
     [Fact]
-    public async Task ExternalJwtAuthWorksIndependentlyFromInterNodeMtls()
+    public async Task JwtAuthIndependentOfInterNodeMtls()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -79,7 +79,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies node B rejects inter-node forwarding when node A presents a certificate signed by an untrusted CA.</summary>
     [Fact]
-    public async Task ForwardFailsCallerUntrustedClientCertificate()
+    public async Task ForwardFailsUntrustedCallerCert()
     {
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
@@ -91,7 +91,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies node A rejects inter-node forwarding when node B presents an untrusted server certificate.</summary>
     [Fact]
-    public async Task ForwardFailsOwnerUntrustedServerCertificate()
+    public async Task ForwardFailsUntrustedOwnerCert()
     {
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
@@ -103,7 +103,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies node B rejects inter-node forwarding when node A does not present a client certificate.</summary>
     [Fact]
-    public async Task ForwardFailsWhenCallerPresentsNoClientCertificate()
+    public async Task ForwardFailsWithoutCallerCertificate()
     {
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.NoOutboundClientCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
@@ -127,7 +127,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies a two-node cluster with inter-node mTLS enabled starts and serves SDK traffic.</summary>
     [Fact]
-    public async Task TwoNodeClusterWithInterNodeMtlsStartsSuccessfully()
+    public async Task ClusterWithInterNodeMtlsStartsUp()
     {
         await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
 

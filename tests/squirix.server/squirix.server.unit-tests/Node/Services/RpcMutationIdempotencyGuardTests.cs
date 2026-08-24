@@ -23,7 +23,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
 
     /// <summary>Execute with a journal must append an IdempotencyOutcome frame.</summary>
     [Fact]
-    public async Task CoordinatorWithJournalPersistsOutcomeOnExecute()
+    public async Task JournaledCoordinatorPersistsOutcome()
     {
         var options = new PersistenceOptions
         {

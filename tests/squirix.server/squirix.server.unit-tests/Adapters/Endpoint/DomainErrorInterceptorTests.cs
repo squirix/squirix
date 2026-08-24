@@ -15,7 +15,7 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
     /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
     [Fact]
-    public async Task UnaryMapsJournalCapacityToRpcResourceExhausted()
+    public async Task UnaryMapsQuotaToResourceExhausted()
     {
         var interceptor = new ResourceExhaustedExceptionInterceptor();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(

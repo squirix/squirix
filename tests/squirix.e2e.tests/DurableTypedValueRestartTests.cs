@@ -16,11 +16,11 @@ namespace Squirix.E2ETests;
 [Immutable]
 public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
-    /// <summary>Verifies RestartShouldNotRestoreExpiredCustomRecord.</summary>
+    /// <summary>Verifies RestartSkipsExpiredCustomRecord.</summary>
     [Fact]
-    public async Task RestartShouldNotRestoreExpiredCustomRecord()
+    public async Task RestartSkipsExpiredCustomRecord()
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldNotRestoreExpiredCustomRecord), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartSkipsExpiredCustomRecord), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
 
         await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(100) }, DefaultCancellationToken);
@@ -35,11 +35,11 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         Assert.False((await restartedCache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>Verifies RestartShouldRestoreCustomRecordFromJournal.</summary>
+    /// <summary>Verifies RestartRestoresCustomRecordFromJournal.</summary>
     [Fact]
-    public async Task RestartShouldRestoreCustomRecordFromJournal()
+    public async Task RestartRestoresCustomRecordFromJournal()
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreCustomRecordFromJournal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresCustomRecordFromJournal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("journal-record");
 
@@ -53,11 +53,11 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies RestartShouldRestoreMutableClassFromJournal.</summary>
+    /// <summary>Verifies RestartRestoresMutableClassFromJournal.</summary>
     [Fact]
-    public async Task RestartShouldRestoreMutableClassFromJournal()
+    public async Task RestartRestoresMutableClassFromJournal()
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreMutableClassFromJournal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresMutableClassFromJournal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateCart("journal-cart");
 

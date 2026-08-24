@@ -19,7 +19,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     /// the least recently used entry is evicted once capacity is exceeded.
     /// </summary>
     [Fact]
-    public async Task DefaultPolicyLruCapacitySetEvictLeastRecentlyUsed()
+    public async Task LruPolicyEvictsLeastRecentlyUsed()
     {
         await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
 
@@ -43,7 +43,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     /// regardless of subsequent accesses.
     /// </summary>
     [Fact]
-    public async Task FifoPolicyWhenCapacitySetShouldEvictOldestInserted()
+    public async Task FifoPolicyEvictsOldestInserted()
     {
         await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
 

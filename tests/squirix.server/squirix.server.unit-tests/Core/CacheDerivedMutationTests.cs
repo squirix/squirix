@@ -14,7 +14,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
 {
     /// <summary>Ensures ClientCache UpdateAsync preserves expiration through the adapter.</summary>
     [Fact]
-    public async Task ClientCacheUpdateAsyncPreservesExpiration()
+    public async Task ClientUpdateAsyncPreservesExpiry()
     {
         var timeProvider = new FakeTimeProvider();
         await using var physical = new PhysicalCache<string>(timeProvider);
@@ -33,7 +33,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
 
     /// <summary>Ensures UpdateAsync changes the value while preserving expiration.</summary>
     [Fact]
-    public async Task UpdateAsyncPreservesExpirationOnPhysicalCache()
+    public async Task UpdateKeepsExpiryOnPhysicalCacheAsync()
     {
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);

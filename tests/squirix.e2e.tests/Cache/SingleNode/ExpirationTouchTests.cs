@@ -19,7 +19,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
     [Fact]
-    public async Task TouchAsyncExpiredEntryReturnsFalseMakesKeyMissing()
+    public async Task TouchAsyncExpiredEntryStaysMissing()
     {
         var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
 
@@ -60,7 +60,7 @@ public sealed class ExpirationTouchTests : TestBase
     /// Ensures the key remains available past the original expiration after a successful touch.
     /// </summary>
     [Fact]
-    public async Task TouchAsyncExtendsExpirationInsertedEntryPublicApi()
+    public async Task TouchAsyncExtendsInsertedEntryExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra-expiration", DefaultCancellationToken);
 
@@ -88,7 +88,7 @@ public sealed class ExpirationTouchTests : TestBase
     /// where the SetAsync round-trip can be slow.
     /// </summary>
     [Fact]
-    public async Task TouchAsyncExtendsExpirationThroughPublicApi()
+    public async Task TouchAsyncExtendsExpiryThroughPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra", DefaultCancellationToken);
 
@@ -116,7 +116,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
     [Fact]
-    public async Task TouchAsyncOnNonExpiringKeyAddsExpirationKeepsValue()
+    public async Task TouchAsyncAddsExpiryToNonExpiringKey()
     {
         var cache = await Client.GetCacheAsync<string>("touch-non-expiring-public-extra", DefaultCancellationToken);
 
@@ -133,7 +133,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync rejects non-positive expiration without mutating the existing expiration.</summary>
     [Fact]
-    public async Task TouchAsyncRejectsNonChangingExistingExpiration()
+    public async Task TouchAsyncRejectsUnchangedExistingExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("touch-invalid-expiration-public-extra", DefaultCancellationToken);
 
@@ -161,7 +161,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync returns false for a missing key through the public API.</summary>
     [Fact]
-    public async Task TouchAsyncReturnsFalseForMissingKeyPublicApi()
+    public async Task TouchAsyncReturnsFalseForMissingKey()
     {
         var cache = await Client.GetCacheAsync<string>("missing-touch-missing", DefaultCancellationToken);
 
@@ -170,7 +170,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync treats an expired key as missing and does not resurrect it.</summary>
     [Fact]
-    public async Task TouchAsyncTreatsExpiredKeyAsMissingAndNotResurrect()
+    public async Task TouchAsyncDoesNotResurrectExpiredKeys()
     {
         var cache = await Client.GetCacheAsync<string>("touch-expired-resurrect-public-extra", DefaultCancellationToken);
 

@@ -117,7 +117,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures outbound call options inherit the ambient deadline budget.</summary>
     [Fact]
-    public void DeadlineContextComputesEffectiveCallDeadline()
+    public void DeadlineContextComputesCallDeadline()
     {
         using var scope = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2));
 
@@ -165,7 +165,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures transient Http retries stop when maxAttempts is 1.</summary>
     [Fact]
-    public async Task ExecuteAsyncDoesNotRetryHttpWhenMaxAttemptsIsOne()
+    public async Task NoHttpRetryWhenMaxAttemptsIsOne()
     {
         await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-http-stop", timeProvider: TimeProvider.System);
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException, int>(
@@ -175,7 +175,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures non-retryable Rpc status codes stop without retry.</summary>
     [Fact]
-    public async Task ExecuteAsyncDoesNotRetryNonRetryableRpcStatus()
+    public async Task NoRetryForNonRetryableRpcStatus()
     {
         await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-rpc-stop", timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();
@@ -195,7 +195,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures caller cancellation stops retry flow and is not treated as per-attempt timeout.</summary>
     [Fact]
-    public async Task ExecuteAsyncDoesNotRetryWhenCallerCancellationWins()
+    public async Task CallerCancellationPreventsRetries()
     {
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(50), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-h", timeProvider: TimeProvider.System);
         using var cts = new CancellationTokenSource();
@@ -222,7 +222,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesPerTimeoutSucceedsNextAttempt()
+    public async Task PerAttemptTimeoutRetrySucceedsNextTry()
     {
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(25), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-i", timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();
@@ -245,7 +245,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesUnavailableRpcAndSucceeds()
+    public async Task UnavailableRpcRetriedUntilSuccess()
     {
         var timeProvider = new FakeTimeProvider();
         await using var policy = CreatePolicy(
@@ -275,7 +275,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
     [Fact]
-    public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
+    public async Task QueuedCallRejectedWhenDrainStartsFirst()
     {
         var timeout = TimeSpan.FromSeconds(5);
         using var sink = new NodeMeasurementSink("Squirix");
@@ -341,7 +341,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures timeout metrics record deadline-budget exhaustion as a separate category.</summary>
     [Fact]
-    public async Task TimeoutMetricsAreRecordedAsFirstClassCategory()
+    public async Task TimeoutMetricsRecordedAsOwnCategory()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System);

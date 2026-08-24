@@ -17,7 +17,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
 {
     /// <summary>Scope with a method includes the rpc.method field.</summary>
     [Fact]
-    public void BeginStandardScopeWithMethodExposesFourFields()
+    public void ScopeWithMethodExposesFourFields()
     {
         var logger = new CapturingLogger();
         using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
@@ -41,7 +41,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
 
     /// <summary>Scope without a method exposes trace, span, and node fields.</summary>
     [Fact]
-    public void BeginStandardScopeWithoutMethodExposesThreeFields()
+    public void ScopeWithoutMethodExposesThreeFields()
     {
         using var activity = new Activity("corr-test");
         _ = activity.Start();

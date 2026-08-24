@@ -21,7 +21,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
     /// and verifies readiness plus <c>journalDisk</c> pressure details remain available.
     /// </summary>
     [Fact]
-    public async Task DurableWriteAtCapFailsAndReadyStaysHealthy()
+    public async Task WriteAtCapFailsReadyStaysHealthy()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(

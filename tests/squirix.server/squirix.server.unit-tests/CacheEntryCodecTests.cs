@@ -93,7 +93,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>Numeric and JsonElement coercions used by typed journal reads succeed.</summary>
     [Fact]
-    public void MapEntryCoercesNumericAndJsonElementValues()
+    public void MapEntryCoercesNumericAndJsonValues()
     {
         Assert.True(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(42L), out var asInt));
         Assert.Equal(42, asInt!.Value);
@@ -142,7 +142,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     /// <summary>ComputeEncodedLength rejects tag dictionaries exceeding ushort.MaxValue entries.</summary>
     [Fact]
-    public void ComputeEncodedLengthRejectsExcessiveTagCount()
+    public void EncodedLengthRejectsExcessiveTagCount()
     {
         var tags = EntryTagsKit.CreateCount(65_536);
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(new NodeCacheEntry<object?>(null, tags: tags), static value => CacheEntryCodec.ComputeEncodedLength(value));

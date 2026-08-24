@@ -25,7 +25,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
 
     /// <summary>Peer order does not change the topology fingerprint.</summary>
     [Fact]
-    public async Task DifferentPeerOrderProducesSameFingerprint()
+    public async Task PeerOrderDoesNotChangeFingerprint()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

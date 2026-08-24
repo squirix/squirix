@@ -13,9 +13,9 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixture)
 {
-    /// <summary>Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies AddThrowsForExistingCustomRecord.</summary>
     [Fact]
-    public async Task AddShouldThrowForExistingCustomRecordOnSingleNode()
+    public async Task AddThrowsForExistingCustomRecord()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("add-conflict");
@@ -30,9 +30,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(original, result.Value!);
     }
 
-    /// <summary>Verifies CustomRecordShouldRoundTripWithEmptyCollections.</summary>
+    /// <summary>Verifies RecordRoundTripsEmptyCollections.</summary>
     [Fact]
-    public async Task CustomRecordShouldRoundTripWithEmptyCollections()
+    public async Task RecordRoundTripsEmptyCollections()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-empty", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithEmptyCollections("empty");
@@ -44,9 +44,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies CustomRecordShouldRoundTripWithNullValueProperty.</summary>
+    /// <summary>Verifies RecordRoundTripsNullValueProperty.</summary>
     [Fact]
-    public async Task CustomRecordShouldRoundTripWithNullValueProperty()
+    public async Task RecordRoundTripsNullValueProperty()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-null", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithNullEmail("null-email");
@@ -58,9 +58,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies CustomRecordShouldRoundTripWithUnicodeText.</summary>
+    /// <summary>Verifies RecordRoundTripsUnicodeText.</summary>
     [Fact]
-    public async Task CustomRecordShouldRoundTripWithUnicodeText()
+    public async Task RecordRoundTripsUnicodeText()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-unicode", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithUnicodeText("unicode");
@@ -72,9 +72,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies GetAddStoreFactoryProducedCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies GetOrAddUsesFactoryProducedRecord.</summary>
     [Fact]
-    public async Task GetAddStoreFactoryProducedCustomRecordOnSingleNode()
+    public async Task GetOrAddUsesFactoryProducedRecord()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("k");
@@ -94,9 +94,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         Assert.Equal(1, counter.Count);
     }
 
-    /// <summary>Verifies GetEntryReturnTypedValueAndMetadataOnSingleNode.</summary>
+    /// <summary>Verifies GetEntryReturnsTypedValueAndMetadata.</summary>
     [Fact]
-    public async Task GetEntryReturnTypedValueAndMetadataOnSingleNode()
+    public async Task GetEntryReturnsTypedValueAndMetadata()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-entry", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("entry");
@@ -110,9 +110,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         Assert.True(entry.ExpiresUtc > DateTime.UtcNow);
     }
 
-    /// <summary>Verifies RemoveExpirationClearExpirationRecordSingleNode.</summary>
+    /// <summary>Verifies RemoveExpiryClearsRecordOnSingleNode.</summary>
     [Fact]
-    public async Task RemoveExpirationClearExpirationRecordSingleNode()
+    public async Task RemoveExpiryClearsRecordOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-remove-expiration", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("remove-expiration");
@@ -128,9 +128,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies SetAndGetShouldRoundTripCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies CustomRecordRoundTripsOnSingleNode.</summary>
     [Fact]
-    public async Task SetAndGetShouldRoundTripCustomRecordOnSingleNode()
+    public async Task CustomRecordRoundTripsOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-record", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("record");
@@ -142,9 +142,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies SetAndGetShouldRoundTripMutableClassOnSingleNode.</summary>
+    /// <summary>Verifies MutableClassRoundTripsOnSingleNode.</summary>
     [Fact]
-    public async Task SetAndGetShouldRoundTripMutableClassOnSingleNode()
+    public async Task MutableClassRoundTripsOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedMutableCart>("typed-single-cart", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateCart("cart");
@@ -156,9 +156,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertCartEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies TouchUpdateExpirationForCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies TouchUpdatesCustomRecordExpirySingleNode.</summary>
     [Fact]
-    public async Task TouchUpdateExpirationForCustomRecordOnSingleNode()
+    public async Task TouchUpdatesCustomRecordExpirySingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-touch", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("touch");
@@ -176,9 +176,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies TryAddReturnFalseExistingCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies TryAddReturnsFalseForExistingRecord.</summary>
     [Fact]
-    public async Task TryAddReturnFalseExistingCustomRecordOnSingleNode()
+    public async Task TryAddReturnsFalseForExistingRecord()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-try-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("try-add");
@@ -191,9 +191,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(original, result.Value!);
     }
 
-    /// <summary>Verifies UpdatePreserveExpirationCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies UpdatePreservesCustomRecordExpiry.</summary>
     [Fact]
-    public async Task UpdatePreserveExpirationCustomRecordOnSingleNode()
+    public async Task UpdatePreservesCustomRecordExpiry()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-update", DefaultCancellationToken);
         var updated = TypedValueFactory.CreateUpdatedProfile("update");

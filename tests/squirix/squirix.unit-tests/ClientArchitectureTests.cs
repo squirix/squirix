@@ -26,7 +26,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
     [Fact]
-    public void ClientAssemblyGrpcTransportTypesRemainInternal()
+    public void GrpcTransportTypesRemainInternal()
     {
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
@@ -35,7 +35,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
     [Fact]
-    public void ClientAssemblyShouldNotExposeInternalsToServer()
+    public void ShouldNotExposeInternalsToServer()
     {
         var path = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
         var text = File.ReadAllText(path);
@@ -44,7 +44,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Fact]
-    public void ClientProjectGeneratesNarrowCacheGrpcFromShared()
+    public void GeneratesNarrowCacheGrpcFromShared()
     {
         var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
@@ -56,7 +56,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client project does not grow server-hosting dependency debt.</summary>
     [Fact]
-    public void ClientProjectShouldNotReferenceServerHosting()
+    public void ShouldNotReferenceServerHosting()
     {
         var index = ClientProjectIndex.Value;
         var packageReferences = index.GetIncludes("PackageReference");

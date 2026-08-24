@@ -47,7 +47,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
     /// return the pooled ack early and poison later durability waits.
     /// </summary>
     [Fact]
-    public async Task GroupCommitCancelInFlightBatchDoesNotPoisonPool()
+    public async Task CancelInFlightBatchSparesPool()
     {
         var options = new PersistenceOptions
         {
@@ -99,7 +99,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>Ensures canceling the only pending ack leaves the next group commit batch usable.</summary>
     [Fact]
-    public async Task GroupCommitCanceledAckDoesNotPoisonFutureBatch()
+    public async Task CanceledAckDoesNotPoisonFutureBatch()
     {
         var options = new PersistenceOptions
         {
@@ -129,7 +129,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>Ensures a delayed flush failure fails pending acks instead of leaving them pending.</summary>
     [Fact]
-    public async Task GroupCommitDelayFlushFailureFailsPendingWaiters()
+    public async Task DelayFlushFailureFailsWaiters()
     {
         var options = new PersistenceOptions
         {
@@ -189,7 +189,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
     [Fact]
-    public async Task GroupCommitFsyncCompletesBeforeMemoryApply()
+    public async Task FsyncCompletesBeforeMemoryApply()
     {
         var options = new PersistenceOptions
         {
@@ -232,7 +232,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
     [Fact]
-    public async Task GroupCommitImmediateBatchFlushRacesDelayTimer()
+    public async Task ImmediateFlushRacesDelayTimer()
     {
         var options = new PersistenceOptions
         {
@@ -261,7 +261,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
-    public async Task GroupCommitSharesFlushAcrossConcurrentAcks()
+    public async Task OneFlushSharedByConcurrentAcks()
     {
         var options = new PersistenceOptions
         {
@@ -294,7 +294,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>
     [Fact]
-    public async Task JournalPipelineFailureFailsCommitDurabilityWait()
+    public async Task PipelineFailureFailsDurabilityWait()
     {
         var options = new PersistenceOptions
         {

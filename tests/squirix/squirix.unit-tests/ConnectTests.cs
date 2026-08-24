@@ -22,7 +22,7 @@ public sealed class ConnectTests : UnitTestBase
 
     /// <summary>Verifies plaintext HTTP endpoints are rejected during bootstrap configuration.</summary>
     [Fact]
-    public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
+    public async Task OptionsRejectPlaintextHttpEndpoint()
     {
         var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
             SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken));
@@ -41,7 +41,7 @@ public sealed class ConnectTests : UnitTestBase
 
     /// <summary>Verifies relative endpoints are rejected as non-absolute server URIs.</summary>
     [Fact]
-    public async Task ConnectAsyncOptionsRejectRelativeEndpoint()
+    public async Task OptionsRejectRelativeEndpoint()
     {
         var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
             SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("not-absolute", UriKind.Relative)), DefaultCancellationToken));

@@ -33,7 +33,7 @@ public sealed class StorageRetentionCleanupReadinessTests
 
     /// <summary>Ensures the readiness health check reports unhealthy when retention cleanup is degraded.</summary>
     [Fact]
-    public async Task HealthCheckReportsRetentionCleanupDegradedAsync()
+    public async Task HealthReportsCleanupDegradedAsync()
     {
         var readiness = CreateReadiness(2, 5);
         readiness.RecordWriteOutcome(true);
@@ -93,7 +93,7 @@ public sealed class StorageRetentionCleanupReadinessTests
         new PersistenceOptions
         {
             DataDir = "unused",
-            RetentionCleanupDegradedConsecutiveWrites = consecutiveWrites,
+            RetentionCleanupDegradedWrites = consecutiveWrites,
             RetentionCleanupDegradedWindowMinutes = 15,
             RetentionCleanupDegradedWindowFailures = windowFailures,
         });

@@ -20,7 +20,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 {
     /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>
     [Fact]
-    public void BackpressureValidatorAcceptsThresholdBoundaries()
+    public void BackpressureAcceptsThresholdBoundaries()
     {
         var v = new AdmissionOptionsValidator();
         var options = new AdmissionOptions
@@ -40,7 +40,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies a burst without rate limit configuration is rejected.</summary>
     [Fact]
-    public void BackpressureValidatorRejectsBurstWithoutRate()
+    public void BackpressureRejectsBurstWithoutRate()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions
@@ -55,7 +55,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies backpressure queue wait must remain positive when enabled semantics apply.</summary>
     [Fact]
-    public void BackpressureValidatorRejectsNonPositiveQueueWait()
+    public void BackpressureRejectsNonPositiveQueueWait()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions { MaxQueueWait = TimeSpan.Zero };
@@ -67,7 +67,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies backpressure validator rejects per-client inflight values above the node cap.</summary>
     [Fact]
-    public void BackpressureValidatorRejectsPerFlightAboveNodeCap()
+    public void BackpressureRejectsPerFlightOverCap()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions
@@ -159,7 +159,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
     [Fact]
-    public void ConfigValidatorRejectsInvalidReplicaCount()
+    public void ValidatorRejectsInvalidReplicaCount()
     {
         var v = new ConfigValidator();
         ServerPeer[] peers =
@@ -215,7 +215,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
     [Fact]
-    public void ConfigValidatorRejectsPlaintextHttpPeerUrls()
+    public void ValidatorRejectsPlaintextHttpPeers()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
@@ -233,7 +233,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
     [Fact]
-    public void ConfigValidatorRejectsZeroConfigurationGeneration()
+    public void ValidatorRejectsZeroConfigGeneration()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
@@ -249,7 +249,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
     [Fact]
-    public void JournalCompactionValidatorAcceptsValidTailSegments()
+    public void CompactionValidatorAcceptsTailSegments()
     {
         var v = new JournalCompactionOptionsValidator();
         var options = new JournalCompactionOptions { MinTailSegments = 0 };
@@ -261,7 +261,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
     [Fact]
-    public void JournalMetricsExporterAcceptsValidInterval()
+    public void ExporterValidatorAcceptsValidInterval()
     {
         var v = new JournalMetricsExporterOptionsValidator();
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
@@ -273,7 +273,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
     [Fact]
-    public void MemoryPressureValidatorThresholdBelowCritical()
+    public void PressureValidatorAcceptsBelowCritical()
     {
         var v = new PressureOptionsValidator();
         var bad = new PressureOptions
@@ -309,7 +309,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies snapshot trigger validator accepts valid local scalar values after setter validation.</summary>
     [Fact]
-    public void SnapshotTriggerValidatorAcceptsValidCadence()
+    public void TriggerValidatorAcceptsValidCadence()
     {
         var v = new TriggerOptionsValidator();
         var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;

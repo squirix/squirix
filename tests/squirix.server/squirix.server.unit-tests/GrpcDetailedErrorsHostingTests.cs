@@ -19,7 +19,7 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
 {
     /// <summary>Ensures development hosts keep detailed gRPC diagnostics available intentionally.</summary>
     [Fact]
-    public async Task DevelopmentHostEnablesDetailedGrpcErrorsByDefault()
+    public async Task DevelopmentHostEnablesDetailedErrors()
     {
         await using var app = await BuildHostAsync("Development", DefaultCancellationToken);
         var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
@@ -28,7 +28,7 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
 
     /// <summary>Ensures production-like hosts do not enable detailed gRPC errors by default.</summary>
     [Fact]
-    public async Task ProductionHostDisablesDetailedGrpcErrorsByDefault()
+    public async Task ProductionHostDisablesDetailedErrors()
     {
         await using var app = await BuildHostAsync("Production", DefaultCancellationToken);
         var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;

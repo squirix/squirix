@@ -66,7 +66,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
     /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
     [Fact]
-    public async Task CoordinatorReplaysWithoutReExecutingHandler()
+    public async Task ReplaySkipsHandlerReexecution()
     {
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store);
@@ -116,7 +116,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
     /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
     [Fact]
-    public void RecordSuccessThenTryReplayReturnsCachedResponse()
+    public void ReplayAfterSuccessReturnsCachedResponse()
     {
         var store = new RpcMutationIdempotencyStore();
         var original = new TryAddAsyncResponse { Added = true };
@@ -131,7 +131,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
     /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
     [Fact]
-    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
+    public void ReplayReturnsFalseForUnknownOpId()
     {
         var store = new RpcMutationIdempotencyStore();
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
@@ -206,7 +206,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
     /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
     [Fact]
-    public void ReuseWithDifferentFingerprintThrowsTypedException()
+    public void FingerprintMismatchThrowsTypedException()
     {
         var store = new RpcMutationIdempotencyStore();
         store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));

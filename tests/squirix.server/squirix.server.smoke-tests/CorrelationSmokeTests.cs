@@ -28,7 +28,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     /// Verifies that node B's gRPC server received the same traceparent in its request metadata.
     /// </summary>
     [Fact]
-    public async Task TraceContextFlowsFromGrpcToGrpcAcrossNodes()
+    public async Task TraceContextFlowsAcrossGrpcNodes()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

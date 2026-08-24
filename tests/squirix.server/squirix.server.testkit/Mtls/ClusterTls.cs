@@ -319,7 +319,7 @@ public sealed class ClusterTls : IDisposable
             _trustAnchor = trustAnchor;
         }
 
-        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
+        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
     }
 
     /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>

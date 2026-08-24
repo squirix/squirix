@@ -53,7 +53,7 @@ public sealed class TopologyOptionsFingerprintTests
 
     /// <summary>Explicit InterNodeUri is preferred over InternalListenPort rewriting.</summary>
     [Fact]
-    public void CreateFingerprintPrefersConfiguredInterNodeUri()
+    public void FingerprintPrefersConfiguredInterNodeUri()
     {
         var interNode = new Uri("https://127.0.0.1:7100");
         ServerPeer[] peers =

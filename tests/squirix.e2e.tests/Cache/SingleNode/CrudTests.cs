@@ -25,7 +25,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task AddAsyncEntryPreservesExpirationThroughPublicApi()
+    public async Task AddAsyncPreservesExpiryThroughPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-add-entry-expiration", DefaultCancellationToken);
 
@@ -80,7 +80,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies the public core transport does not round-trip internal tag metadata.</summary>
     [Fact]
-    public async Task GetEntryAsyncDoesNotRoundTripInternalTagMetadata()
+    public async Task GetEntryAsyncOmitsInternalTagMetadata()
     {
         var cache = await Client.GetCacheAsync<string>("immutable-output-tags-public-extra", DefaultCancellationToken);
 
@@ -212,7 +212,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
     [Fact]
-    public async Task RemoveAsyncReturnsRemovedForStoredEntryNullValue()
+    public async Task RemoveReturnsRemovedForStoredNullEntry()
     {
         var cache = await Client.GetCacheAsync<object?>("try-remove-null-entry-public-extra", DefaultCancellationToken);
 
@@ -226,7 +226,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
     [Fact]
-    public async Task RemoveAsyncReturnsRemovedForStoredNullValue()
+    public async Task RemoveReturnsRemovedForStoredNullValue()
     {
         var cache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", DefaultCancellationToken);
 
@@ -267,7 +267,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies two cache facades for the same name share logical storage before client disposal.</summary>
     [Fact]
-    public async Task RepeatedGetCacheAsyncSameNameSharesLogicalStorage()
+    public async Task RepeatedGetCacheAsyncSharesStorage()
     {
         var first = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
         var second = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
@@ -279,7 +279,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies SetAsync rejects options that specify both ExpiresAt and Expiration.</summary>
     [Fact]
-    public async Task SetAsyncEntryRejectsBothExpiresUtcAndExpiration()
+    public async Task SetAsyncRejectsExpiresUtcPlusExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", DefaultCancellationToken);
 
@@ -321,7 +321,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryPreservesExpirationPublicApi()
+    public async Task TryAddAsyncPreservesExpiryPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
 

@@ -21,7 +21,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
 
     /// <summary>Large object entries are rejected once projected usage exceeds the configured limit.</summary>
     [Fact]
-    public async Task LargeObjectEntriesRejectProjectedUsageExceedsLimit()
+    public async Task OversizedObjectUsageRejectedPastLimit()
     {
         await using var physical = new PhysicalCache<object?>();
         var accounting = new MemoryUsageAccounting();

@@ -16,7 +16,7 @@ public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]
-    public async Task DeserializeAndMergeIntoAppliesJsonOverridesAsync()
+    public async Task MergeAppliesJsonOverridesAsync()
     {
         var baseline = new PrometheusMetricsEndpointOptions
         {

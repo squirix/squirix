@@ -21,7 +21,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     /// because <see cref="NodeCacheEntry{T}.Normalize" /> serializes the runtime type.
     /// </summary>
     [Fact]
-    public void ObjectEntryRoundTripsRuntimeTypeOfDerivedValue()
+    public void ObjectEntryKeepsDerivedRuntimeType()
     {
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "journal-survives" });
         var prepared = JournalEntryPayload.PrepareEncode(entry);

@@ -16,7 +16,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Total byte cap rejects an append that would exceed configured journal size.</summary>
     [Fact]
-    public void EnsureAppendCapacityThrowThrowsExceedsTotalByteCap()
+    public void AppendCapThrowsPastTotalByteLimit()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
         var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
@@ -25,7 +25,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Roll is rejected when the next segment would exceed the configured segment-count limit.</summary>
     [Fact]
-    public void EnsureRollCapacityThrowThrowsExceedsSegmentCount()
+    public void RollThrowsPastSegmentCountLimit()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2, JournalMaxTotalBytesMb = 64 });
         var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureRollCapacityOrThrow(2, 0));
@@ -34,7 +34,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Roll is rejected when on-disk total bytes already exceed the configured journal size.</summary>
     [Fact]
-    public void EnsureRollCapacityThrowThrowsExceedsTotalByteCap()
+    public void RollThrowsPastTotalByteLimit()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1, JournalMaxSegmentCount = 32 });
         var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureRollCapacityOrThrow(1, OneMegabyte + 1));
@@ -43,7 +43,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Per-segment byte cap triggers roll before the next frame would overflow the active segment.</summary>
     [Fact]
-    public void ShouldRollSegmentIncomingExceedsSegmentByteCap()
+    public void RollTriggersPastSegmentByteCap()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = 1 });
         Assert.True(policy.ShouldRollSegment(OneMegabyte, 1));

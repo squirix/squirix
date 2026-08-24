@@ -18,7 +18,7 @@ public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
     /// Verifies monotonic manifest writes advance the index when <c>CURRENT</c> is valid.
     /// </summary>
     [Fact]
-    public async Task WriteAdvancesManifestIndexWhenCurrentIsValid()
+    public async Task WriteAdvancesIndexForValidCurrent()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);

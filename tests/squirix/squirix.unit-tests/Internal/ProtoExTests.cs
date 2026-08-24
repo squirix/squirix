@@ -60,7 +60,7 @@ public sealed class ProtoExTests
 
     /// <summary>Mismatched primitive wire falls back through the struct wrapper path.</summary>
     [Fact]
-    public async Task FromCacheValueMismatchedPrimitiveUsesWrapperAsync()
+    public async Task MismatchedPrimitiveUsesWrapperAsync()
     {
         var serializer = new SystemTextJsonSerializer();
         var wire = new CacheValue { Int32Value = 5 };
@@ -75,7 +75,7 @@ public sealed class ProtoExTests
     [InlineData("bool")]
     [InlineData("number")]
     [InlineData("null")]
-    public async Task FromCacheValueAsyncObjectReadsWrappedValuesAsync(string kind)
+    public async Task AsyncObjectReadsWrappedValuesAsync(string kind)
     {
         var serializer = new SystemTextJsonSerializer();
         var wrapped = kind switch
@@ -148,7 +148,7 @@ public sealed class ProtoExTests
 
     /// <summary>Entry mapping round-trips typed values and expiration metadata.</summary>
     [Fact]
-    public async Task MapEntryRoundTripsTypedValueAndExpirationAsync()
+    public async Task MapEntryRoundTripValueAndExpiryAsync()
     {
         var serializer = new SystemTextJsonSerializer();
         var entry = new CacheEntry<string>

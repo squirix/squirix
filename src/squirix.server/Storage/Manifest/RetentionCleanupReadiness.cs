@@ -19,7 +19,7 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     internal RetentionCleanupReadiness(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _consecutiveWriteFailureThreshold = options.RetentionCleanupDegradedConsecutiveWrites;
+        _consecutiveWriteFailureThreshold = options.RetentionCleanupDegradedWrites;
         _failureWindow = TimeSpan.FromMinutes(options.RetentionCleanupDegradedWindowMinutes);
         _windowFailureThreshold = options.RetentionCleanupDegradedWindowFailures;
     }

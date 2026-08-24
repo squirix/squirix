@@ -61,7 +61,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync returns false and removes an already expired entry.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncExpiredFalseMakesKeyMissing()
+    public async Task RemoveExpiryExpiredFalseMakesKeyMissing()
     {
         var cache = await Client.GetCacheAsync<string>("remove-expiration-expired-public-extra", DefaultCancellationToken);
 
@@ -82,7 +82,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncNonExpiringFalseKeepsKeyLive()
+    public async Task RemoveExpiryNonExpiringFalseKeepsLive()
     {
         var cache = await Client.GetCacheAsync<string>("remove-expiration-non-expiring-public-extra", DefaultCancellationToken);
 
@@ -95,7 +95,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync returns false for missing and already persistent entries and true when expiration is removed.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncPersistentExpiringEntries()
+    public async Task RemoveExpiryOnPersistentExpiringEntries()
     {
         var cache = await Client.GetCacheAsync<string>("remove-expiration-result-status-public-extra", DefaultCancellationToken);
 
@@ -133,7 +133,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncReturnsFalseWhenPersistent()
+    public async Task RemoveExpiryReturnsFalseForPersistent()
     {
         var cache = await Client.GetCacheAsync<string>("remove-expiration-idempotent-public-extra", DefaultCancellationToken);
 
@@ -154,7 +154,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync returns false for a missing key and an already non-expiring live key through the public API.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncReturnsPersistentKeyPublicApi()
+    public async Task RemoveExpiryReturnsPersistentKeyViaApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-remove-expiration-false", DefaultCancellationToken);
 
@@ -167,7 +167,7 @@ public sealed class ExpirationRemoveTests : TestBase
 
     /// <summary>Verifies RemoveExpirationAsync treats an expired key as missing.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncTreatsExpiredKeyAsMissing()
+    public async Task RemoveExpiryTreatsExpiredKeyAsMissing()
     {
         var cache = await Client.GetCacheAsync<string>("remove-expiration-expired-public-extra-2", DefaultCancellationToken);
 

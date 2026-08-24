@@ -26,7 +26,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 
     /// <summary>Compacted journal segments must retain IdempotencyOutcome frames from the pre-compaction tail.</summary>
     [Fact]
-    public async Task CompactionPreservesIdempotencyOutcomeFrames()
+    public async Task CompactionKeepsIdempotencyFrames()
     {
         var persistence = CreatePersistence(Dir.Path);
         using var manifestStore = new Ledger(persistence);
@@ -52,7 +52,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 
     /// <summary>Recovery after compaction must restore idempotency replay from the compacted journal.</summary>
     [Fact]
-    public async Task CompactionRecoveryRestoresIdempotencyReplay()
+    public async Task CompactedLogReplaysIdempotentOps()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
         var persistence = CreatePersistence(scenario.DataDir);

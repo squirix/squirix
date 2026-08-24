@@ -41,7 +41,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Non-local owners skip journal appends.</summary>
     [Fact]
-    public async Task RemoveAsyncRemoteOwnerDoesNotAppendJournal()
+    public async Task RemoteOwnerRemoveAppendsNoJournal()
     {
         await using var harness = await CreateHarnessAsync(Remote);
         var before = harness.Journal.AppendedOps;
@@ -77,7 +77,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>TryAdd skips journal when the key already exists.</summary>
     [Fact]
-    public async Task TryAddEntryAsyncSkipsJournalWhenKeyExists()
+    public async Task TryAddSkipsJournalWhenKeyExists()
     {
         await using var harness = await CreateHarnessAsync(Self);
         Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
@@ -89,7 +89,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Update returns false without journaling when the key is missing.</summary>
     [Fact]
-    public async Task UpdateAsyncMissingKeyDoesNotAppendJournal()
+    public async Task UpdateMissingKeyAppendsNoJournal()
     {
         await using var harness = await CreateHarnessAsync(Self);
         var before = harness.Journal.AppendedOps;

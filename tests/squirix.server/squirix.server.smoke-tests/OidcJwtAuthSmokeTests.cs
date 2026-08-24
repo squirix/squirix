@@ -14,7 +14,7 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
 
     /// <summary>Ensures gRPC cache RPCs accept a valid OIDC bearer token and reject missing credentials.</summary>
     [Fact]
-    public async Task CacheRpcAcceptsValidOidcJwtAndRejectsMissingAuth()
+    public async Task CacheRpcEnforcesOidcJwtAuth()
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();

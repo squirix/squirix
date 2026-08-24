@@ -38,7 +38,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerNowAsync" /> returns false without waiting.
     /// </summary>
     [Fact]
-    public async Task TryTriggerNowAsyncFalseControllerMutexUnavailable()
+    public async Task TriggerNowFalseWhenMutexUnavailableAsync()
     {
         var opt = new PersistenceOptions
         {

@@ -23,7 +23,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 {
     /// <summary>External listener does not expose the closed replication service.</summary>
     [Fact]
-    public async Task ExternalListenerRejectsReplicationService()
+    public async Task ExternalListenerRefusesReplicationRpc()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

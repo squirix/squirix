@@ -142,7 +142,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         if (Options.IsJournalGroupCommitEnabled)
-            return _appendPipeline.AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, cancellationToken);
+            return _appendPipeline.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken);
 
         return _appendPipeline.AppendRecordWithDurabilityCoreAsync(_appendPipeline.AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }
@@ -336,7 +336,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
+        internal async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
         {
             await AppendRecordCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken).ConfigureAwait(false);
             if (_owner.GroupCommit != null)
@@ -470,7 +470,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _durabilityPipeline = durabilityPipeline;
         }
 
-        void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _durabilityPipeline.CompleteDurabilityCheckpointOnJournalThread(item);
+        void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _durabilityPipeline.CompleteCheckpointOnJournalThread(item);
 
         void IJournalEventLoopHost.DecrementQueuedAppends() => _ = Interlocked.Decrement(ref _coordinator.QueuedAppendsCounter.Value);
 

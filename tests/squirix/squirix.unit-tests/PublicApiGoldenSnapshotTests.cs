@@ -19,7 +19,7 @@ public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesMainAssemblyExportsAsync()
+    public async Task SnapshotMatchesMainAssemblyExportsAsync()
     {
         // Compare the live exported-type identity set against the committed golden file.
         var assemblyPath = PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll");

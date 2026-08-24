@@ -33,7 +33,7 @@ public sealed class TopologyFingerprintTests
 
     /// <summary>Changing replica count changes the fingerprint.</summary>
     [Fact]
-    public void FingerprintChangesWhenReplicaCountChanges()
+    public void FingerprintTracksReplicaCountChange()
     {
         var peers = CreatePeers();
         var rf1 = TopologyFingerprint.Compute(CreateInputs(peers, 1));
@@ -43,7 +43,7 @@ public sealed class TopologyFingerprintTests
 
     /// <summary>Changing configuration generation changes the fingerprint.</summary>
     [Fact]
-    public void FingerprintChangesWhenConfigGenerationChanges()
+    public void FingerprintTracksGenerationChange()
     {
         var peers = CreatePeers();
         var left = TopologyFingerprint.Compute(CreateInputs(peers));
@@ -82,7 +82,7 @@ public sealed class TopologyFingerprintTests
 
     /// <summary>Changing replication policy constants changes the fingerprint.</summary>
     [Fact]
-    public void FingerprintChangesWhenReplicationPolicyChanges()
+    public void FingerprintTracksReplicationPolicyChange()
     {
         var peers = CreatePeers();
         var left = TopologyFingerprint.Compute(CreateInputs(peers));
@@ -103,7 +103,7 @@ public sealed class TopologyFingerprintTests
 
     /// <summary>Changing RF&gt;1 idempotency policy changes the fingerprint.</summary>
     [Fact]
-    public void FingerprintChangesWhenIdempotencyPolicyChanges()
+    public void FingerprintTracksIdempotencyPolicyChange()
     {
         var peers = CreatePeers();
         var left = TopologyFingerprint.Compute(CreateInputs(peers));

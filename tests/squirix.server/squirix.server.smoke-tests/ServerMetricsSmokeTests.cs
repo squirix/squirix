@@ -12,7 +12,7 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
     /// Verifies that the server host exposes <c>/metrics</c> and that basic cache operations appear in the scrape output.
     /// </summary>
     [Fact]
-    public async Task MetricsEndpointExposesCountersAfterOperations()
+    public async Task MetricsExposeCountersAfterOperations()
     {
         var uri = GetNextHttpUri();
 

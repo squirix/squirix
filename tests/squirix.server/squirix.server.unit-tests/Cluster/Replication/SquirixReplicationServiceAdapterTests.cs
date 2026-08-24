@@ -40,7 +40,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that AppendReplicaEntries returns failure and a zero-last log index when the node refuses.</summary>
     [Fact]
-    public async Task AppendReplicaEntriesOnRefusalReturnsZeroAsync()
+    public async Task EntriesAppendOnRefusalReturnsZeroAsync()
     {
         var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
         var topology = new TopologyOptions(peer);
@@ -131,7 +131,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that GetReplicaStatus returns the node's current topology fingerprint and configuration generation.</summary>
     [Fact]
-    public async Task GetReplicaStatusReturnsLocalTopologyAsync()
+    public async Task ReplicaStatusReturnsLocalTopologyAsync()
     {
         var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
         var topology = new TopologyOptions(peer);
@@ -172,7 +172,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that InstallReplicaSnapshot rejects a later chunk with a different sender node id.</summary>
     [Fact]
-    public async Task InstallReplicaSnapshotRejectsDifferingSenderAsync()
+    public async Task SnapshotRejectsMismatchedSenderAsync()
     {
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
@@ -185,7 +185,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that InstallReplicaSnapshot requires at least one chunk.</summary>
     [Fact]
-    public async Task InstallReplicaSnapshotRequiresFirstChunkAsync()
+    public async Task SnapshotInstallRequiresFirstChunkAsync()
     {
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([]);
@@ -197,7 +197,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that InstallReplicaSnapshot refuses a single-chunk stream.</summary>
     [Fact]
-    public async Task InstallReplicaSnapshotReturnsNotReadyAsync()
+    public async Task SnapshotInstallReportsNotReadyAsync()
     {
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = CreateValidHeader(), LastIncludedIndex = 9 }]);
@@ -211,7 +211,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that InstallReplicaSnapshot skips later chunks without a header.</summary>
     [Fact]
-    public async Task InstallReplicaSnapshotSkipsNullHeaderChunksAsync()
+    public async Task InstallSkipsHeaderlessChunksAsync()
     {
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(

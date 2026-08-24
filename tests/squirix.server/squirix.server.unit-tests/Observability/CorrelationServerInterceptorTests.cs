@@ -35,7 +35,7 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.</summary>
     [Fact]
-    public async Task ServerInterceptorIgnoresEmptyHeadersAsync()
+    public async Task ServerIgnoresEmptyHeadersAsync()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         var interceptor = CreateInterceptor();
@@ -59,7 +59,7 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies an incoming valid traceparent propagates the trace id onto the server activity.</summary>
     [Fact]
-    public async Task ServerInterceptorPropagatesTraceParentAsync()
+    public async Task ServerPropagatesTraceParentAsync()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         using var clientActivity = ActivitySourceHolder.StartClient("/Test.Test/Unary");
@@ -88,7 +88,7 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies interceptor scope disposal restores the previous ambient activity after the call completes.</summary>
     [Fact]
-    public async Task ServerInterceptorRestoresPreviousActivityAsync()
+    public async Task ServerRestoresPreviousActivityAsync()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         using var outer = ActivitySourceHolder.StartInternal("outer");

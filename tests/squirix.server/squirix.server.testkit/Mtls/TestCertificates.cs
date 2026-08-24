@@ -18,7 +18,7 @@ public static class TestCertificates
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
     /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
-    public static SocketsHttpHandler CreateClusterCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    public static SocketsHttpHandler CreateCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);

@@ -37,7 +37,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     /// </list>
     /// </summary>
     [Fact]
-    public async Task ReadyDetailsEndpointReportsReadinessSignals()
+    public async Task ReadyDetailsReportsReadinessSignals()
     {
         var uri = GetNextHttpUri();
 

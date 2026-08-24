@@ -26,11 +26,11 @@ public sealed class PathValidationTests : ServerUnitTestBase
 
     /// <summary>Accepts ordinary relative paths with no invalid characters.</summary>
     [Fact]
-    public static void ValidateNoInvalidCharsAcceptsOrdinaryRelativePath() => PathValidation.ValidateNoInvalidChars("data/subdir", "path");
+    public static void NoInvalidCharsAcceptsRelativePath() => PathValidation.ValidateNoInvalidChars("data/subdir", "path");
 
     /// <summary>Rejects platform-invalid path characters when present.</summary>
     [Fact]
-    public static void ValidateNoInvalidCharsRejectsInvalidPathCharacters()
+    public static void NoInvalidCharsRejectsBadCharacters()
     {
         var invalid = Path.GetInvalidPathChars();
         if (invalid.Length == 0)
@@ -59,7 +59,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
     [InlineData("COM10")]
     [InlineData("LPT")]
     [InlineData("normal")]
-    public static void ValidateSegmentAcceptsNonReservedWindowsNames(string segment) => PathValidation.ValidateSegment(segment.AsSpan(), "path", false, true);
+    public static void SegmentAcceptsNonReservedNames(string segment) => PathValidation.ValidateSegment(segment.AsSpan(), "path", false, true);
 
     /// <summary>Allows ordinary relative segments.</summary>
     [Fact]
@@ -67,14 +67,14 @@ public sealed class PathValidationTests : ServerUnitTestBase
 
     /// <summary>Windows reserved names are accepted when Windows rules are forced off.</summary>
     [Fact]
-    public static void ValidateSegmentAllowsReservedNameWithoutWinRules() => PathValidation.ValidateSegment("CON".AsSpan(), "path", false, false);
+    public static void SegmentAllowsReservedWithoutRules() => PathValidation.ValidateSegment("CON".AsSpan(), "path", false, false);
 
     /// <summary>Rejects <c>.</c> and <c>..</c> when requested.</summary>
     /// <param name="segment">Dot segment text.</param>
     [Theory]
     [InlineData(".")]
     [InlineData("..")]
-    public static void ValidateSegmentRejectsDotOrDotDotWhenRequested(string segment)
+    public static void SegmentRejectsDotSegmentsOnDemand(string segment)
     {
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(segment, static value => PathValidation.ValidateSegment(value.AsSpan(), "path", true));
         Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
@@ -90,7 +90,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
 
     /// <summary>Rejects invalid file-name characters in a segment.</summary>
     [Fact]
-    public static void ValidateSegmentRejectsInvalidFileNameCharacters()
+    public static void SegmentRejectsInvalidCharacters()
     {
         var invalid = Path.GetInvalidFileNameChars();
         if (invalid.Length == 0)
@@ -126,7 +126,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
     [InlineData("COM1")]
     [InlineData("LPT9")]
     [InlineData("COM1.txt")]
-    public static void ValidateSegmentRejectsWindowsReservedNames(string segment)
+    public static void SegmentRejectsWindowsReservedNames(string segment)
     {
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(segment, static value => PathValidation.ValidateSegment(value.AsSpan(), "path", false, true));
         Assert.Contains("reserved Windows name", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -137,7 +137,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
     [Theory]
     [InlineData("name ")]
     [InlineData("name.")]
-    public static void ValidateSegmentRejectsWindowsTrailingSpaceOrDot(string segment)
+    public static void SegmentRejectsTrailingSpaceOrDot(string segment)
     {
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(segment, static value => PathValidation.ValidateSegment(value.AsSpan(), "path", false, true));
         Assert.Contains("space or dot", ex.Message, StringComparison.OrdinalIgnoreCase);

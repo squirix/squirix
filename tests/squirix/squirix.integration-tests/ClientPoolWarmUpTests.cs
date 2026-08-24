@@ -16,7 +16,7 @@ public sealed class ClientPoolWarmUpTests : IntegrationTestBase
 
     /// <summary>Verifies warm-up fails when no bootstrap endpoint can be reached.</summary>
     [Fact]
-    public async Task WarmUpFailsFastWhenPeerEndpointIsUnreachable()
+    public async Task WarmUpFailsFastOnUnreachableEndpoint()
     {
         var peers = new[]
         {

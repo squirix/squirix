@@ -14,7 +14,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 {
     /// <summary>EnsureNoSymlinksInChain rejects an intermediate symlink under the base.</summary>
     [Fact]
-    public void EnsureNoSymlinksInChainRejectsIntermediateSymlink()
+    public void GuardRejectsIntermediateSymlink()
     {
         var basePath = Dir.Path;
         var real = Path.Join(basePath, "real");
@@ -29,7 +29,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>EnsureNoSymlinksInChain is a no-op when relative remainder is empty.</summary>
     [Fact]
-    public void EnsureNoSymlinksInChainReturnsWhenRelativeIsEmpty()
+    public void GuardPassesWhenRelativeIsEmpty()
     {
         var dir = Path.GetPathRoot(Path.GetTempPath())!;
         DirectorySymlinkGuard.EnsureNoSymlinksInChain(dir, dir);
@@ -38,7 +38,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>Ordinary directories pass the regular-directory check.</summary>
     [Fact]
-    public void EnsureRegularDirectoryAcceptsOrdinaryDirectory()
+    public void EnsureRegularAcceptsOrdinaryDir()
     {
         var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, false, true);
@@ -47,7 +47,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>Created and existing symlink targets are rejected when forbidSymlinks is true.</summary>
     [Fact]
-    public void EnsureRegularDirectoryRejectsSymlinkTarget()
+    public void EnsureRegularRejectsSymlinkTarget()
     {
         var real = Path.Join(Dir.Path, "real");
         _ = Directory.CreateDirectory(real);
@@ -65,7 +65,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>When forbidSymlinks is false, regular-directory checks are skipped.</summary>
     [Fact]
-    public void EnsureRegularDirectorySkipsWhenNotForbidden()
+    public void EnsureRegularSkipsWhenAllowed()
     {
         var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, true, false);
@@ -74,7 +74,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>EnsureNoSymlinksInChain accepts paths with no existing intermediate links.</summary>
     [Fact]
-    public void EnsureSymlinksChainMissingIntermediateSegments()
+    public void GuardFlagsMissingChainSegments()
     {
         var basePath = Dir.Path;
         var target = Path.Join(basePath, "missing", "child");
@@ -84,7 +84,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>IsSymlink returns false for ordinary directories.</summary>
     [Fact]
-    public void IsSymlinkReturnsFalseForOrdinaryDirectory() => Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir.Path)));
+    public void IsSymlinkFalseForOrdinaryDir() => Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir.Path)));
 
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {

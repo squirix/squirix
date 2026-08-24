@@ -5,7 +5,7 @@ namespace Squirix.ProtocolModel.Tests;
 public static class ProtocolSafetyModelTests
 {
     [Fact]
-    public static void StaticMembershipElectsAtMostOneLeaderPerTerm()
+    public static void MembershipElectsAtMostOneLeaderPerTerm()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
         Assert.True(result.FixedPointReached);
@@ -14,7 +14,7 @@ public static class ProtocolSafetyModelTests
     }
 
     [Fact]
-    public static void CommittedEntrySurvivesFutureLeaderSelection()
+    public static void EntrySurvivesFutureLeaderSelection()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.None);
         Assert.True(result.FixedPointReached);

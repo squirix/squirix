@@ -72,7 +72,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 
     /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
     [Fact]
-    public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
+    public async Task PoolSizeStableAcrossManyForNodeLookups()
     {
         var peers = BuildPeers(2);
         await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());

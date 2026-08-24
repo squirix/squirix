@@ -62,7 +62,7 @@ internal sealed record PersistenceOptions
 
     /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
     [JsonInclude]
-    internal int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
+    internal int RetentionCleanupDegradedWrites { get; init; } = 3;
 
     /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
     [JsonInclude]

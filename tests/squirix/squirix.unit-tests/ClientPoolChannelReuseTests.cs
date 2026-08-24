@@ -18,7 +18,7 @@ public sealed class ClientPoolChannelReuseTests
 
     /// <summary>Repeated lookups for the same node must return the same gRPC client instance.</summary>
     [Fact]
-    public async Task ForNodeReusesSameClientAcrossManyLookupsAsync()
+    public async Task ForNodeReusesClientAcrossLookupsAsync()
     {
         var peers = new[]
         {
@@ -38,7 +38,7 @@ public sealed class ClientPoolChannelReuseTests
 
     /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
     [Fact]
-    public async Task PoolSizeRemainsStableAfterManyForNodeLookupsAsync()
+    public async Task PoolSizeStableAfterManyLookupsAsync()
     {
         var peers = new[]
         {

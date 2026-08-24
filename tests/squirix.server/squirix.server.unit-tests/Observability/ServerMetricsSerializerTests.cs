@@ -17,7 +17,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
 {
     /// <summary>Json failures are recorded and rethrown.</summary>
     [Fact]
-    public void DeserializeInvalidJsonRethrowsJsonException()
+    public void InvalidJsonRethrowsJsonException()
     {
         var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
         _ = NodeExceptionAssert.For<JsonException>().ThrowsAny(serializer, static value => value.Deserialize<Dictionary<string, int>>("{not-json"));

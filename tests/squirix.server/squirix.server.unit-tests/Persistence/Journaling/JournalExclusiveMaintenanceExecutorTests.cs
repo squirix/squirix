@@ -18,7 +18,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
 {
     /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
     [Fact]
-    public async Task ExclusiveMaintenanceExecutorRunsSuppliedAction()
+    public async Task MaintenanceExecutorRunsGivenAction()
     {
         var persistence = new PersistenceOptions
         {

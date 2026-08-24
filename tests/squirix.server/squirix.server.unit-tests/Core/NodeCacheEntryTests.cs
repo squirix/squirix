@@ -40,7 +40,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
     /// so derived properties on a base/interface-declared entry survive normalization.
     /// </summary>
     [Fact]
-    public void NormalizeSerializesRuntimeTypeOfDerivedValue()
+    public void NormalizeSerializesDerivedValueType()
     {
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "survives" });
         var normalized = entry.Normalize();

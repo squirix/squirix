@@ -23,7 +23,7 @@ public sealed class ConsumerPortSlicerTests
 
     /// <summary>Every slice must sit fully inside the shared OIDC authority region.</summary>
     [Fact]
-    public void MockOidcAuthoritySlicesStayWithinRegionBounds()
+    public void OidcAuthoritySlicesStayInRegionBounds()
     {
         var regionStart = HostPortRegions.StartInclusive(HostPortRegion.MockOidcAuthority);
         var regionEndInclusive = HostPortRegions.EndExclusive(HostPortRegion.MockOidcAuthority) - 1;

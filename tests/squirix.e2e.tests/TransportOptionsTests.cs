@@ -21,7 +21,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
     /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
     /// </summary>
     [Fact]
-    public async Task ClientAuthenticatesWithBearerTokenProvider()
+    public async Task ConnectsWithBearerTokenProvider()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -33,7 +33,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ClientAuthenticatesWithBearerTokenProvider),
+            nameof(ConnectsWithBearerTokenProvider),
             security,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
@@ -50,7 +50,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
     /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.
     /// </summary>
     [Fact]
-    public async Task ClientFailsWhenJwtRequiredButNotConfigured()
+    public async Task FailsWhenJwtRequiredButUnconfigured()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var security = new TestNodeSecurityOptions
@@ -60,7 +60,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             JwtAudience = credentials.Audience,
         };
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ClientFailsWhenJwtRequiredButNotConfigured),
+            nameof(FailsWhenJwtRequiredButUnconfigured),
             security,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");

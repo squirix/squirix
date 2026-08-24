@@ -21,7 +21,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
     /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
     [Fact]
-    public async Task MemoryApplyFailureAfterJournalIsNotRetried()
+    public async Task MemoryFailureAfterJournalNotRetried()
     {
         var options = new PersistenceOptions
         {
@@ -66,7 +66,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
 
     /// <summary>Precondition Skip returns the skip result without appending.</summary>
     [Fact]
-    public async Task PreconditionSkipReturnsResultWithoutJournalAppend()
+    public async Task PreconditionSkipSkipsJournalAppend()
     {
         var options = new PersistenceOptions
         {

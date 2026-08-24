@@ -43,7 +43,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Complex object payloads round-trip through MapToProto / MapFromProto.</summary>
     [Fact]
-    public async Task ComplexObjectRoundTripsThroughEntryMappingAsync()
+    public async Task ComplexObjectRoundTripsViaMappingAsync()
     {
         var source = new NodeCacheEntry<SamplePayload>
         {
@@ -68,7 +68,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Decimal values preserve precision through struct round-trips.</summary>
     [Fact]
-    public async Task DecimalPreservesPrecisionThroughRoundTripAsync()
+    public async Task DecimalKeepsPrecisionRoundTripAsync()
     {
         var source = new NodeCacheEntry<object?> { Value = 123.456m, Version = 1 };
         var wire = source.MapToProto();
@@ -81,7 +81,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Default-valued value-type payloads encode through the scalar path, not as protobuf null.</summary>
     [Fact]
-    public async Task DefaultValuedValueTypesNotEncodedAsNullAsync()
+    public async Task DefaultedValueTypesNotEncodedNullAsync()
     {
         var intWire = new NodeCacheEntry<int> { Value = 0, Version = 1 }.MapToProto();
         Assert.Equal(Value.KindOneofCase.NumberValue, intWire.Value.Fields["\0squirix:scalar"].KindCase);
@@ -211,7 +211,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Large int64 values preserve precision through struct round-trips.</summary>
     [Fact]
-    public async Task LargeInt64PreservesPrecisionThroughRoundTripAsync()
+    public async Task Int64PreservesPrecisionRoundTripAsync()
     {
         const long big = 9_007_199_254_740_993L;
         var source = new NodeCacheEntry<object?> { Value = big, Version = 1 };
@@ -225,7 +225,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Large int64 compact wire values preserve precision when decoded as decimal or JsonElement.</summary>
     [Fact]
-    public async Task LargeInt64WireValuePreservesPrecisionAsync()
+    public async Task Int64WireValueKeepsPrecisionAsync()
     {
         const long big = 9_007_199_254_740_993L;
         var wire = new CacheValue { Int64Value = big };
@@ -267,7 +267,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Multi-field structs deserialize for object and typed targets.</summary>
     [Fact]
-    public async Task MultiFieldStructDeserializesForObjectAndTypedAsync()
+    public async Task StructDeserializesObjectAndTypedAsync()
     {
         var multi = new Struct
         {
@@ -472,7 +472,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>A user object with a single property named "value" round-trips as an object, not a scalar.</summary>
     [Fact]
-    public async Task SingleValuePropertyObjectRoundTripsAsObjectAsync()
+    public async Task SingleValueObjectRoundTripsAsObjectAsync()
     {
         var source = new NodeCacheEntry<ValuePayload> { Value = new ValuePayload { Value = "x" }, Version = 1 };
         var wire = source.MapToProto();
@@ -514,7 +514,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Wrapped list and nested struct values decode for object targets.</summary>
     [Fact]
-    public async Task WrappedListAndStructValuesDecodeAsJsonElementAsync()
+    public async Task WrappedListStructDecodeJsonElementAsync()
     {
         var listWire = new CacheValue
         {
@@ -557,7 +557,7 @@ public sealed class CacheValueGrpcMappingTests
 
     /// <summary>Wrapped protobuf null and unset values decode as null for object targets.</summary>
     [Fact]
-    public async Task WrappedNullAndUnsetValuesDecodeAsNullAsync()
+    public async Task WrappedNullAndUnsetDecodeAsNullAsync()
     {
         var nullWire = new CacheValue
         {

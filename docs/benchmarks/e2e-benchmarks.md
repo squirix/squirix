@@ -151,21 +151,21 @@ Basic operations:
 - `GetValueShouldReturnMissAsync`
 - `GetEntryShouldReturnHitAsync`
 - `TryAddShouldAddMissingValueAsync`
-- `TryAddShouldReturnFalseForExistingValueAsync`
+- `TryAddReturnsFalseForExistingValueAsync`
 - `AddShouldStoreMissingValueAsync`
 - `AddShouldThrowForExistingValueAsync`
 - `UpdateShouldModifyExistingValueAsync`
-- `UpdateShouldReturnFalseForMissingValueAsync`
+- `UpdateReturnsFalseForMissingValueAsync`
 - `RemoveShouldDeleteExistingValueAsync`
-- `RemoveShouldReturnFalseForMissingValueAsync`
+- `RemoveReturnsFalseForMissingValueAsync`
 
 Expiration:
 
 - `TouchShouldUpdateRelativeExpirationAsync`
 - `TouchShouldUpdateAbsoluteExpirationAsync`
-- `GetExpirationShouldReturnExpiringEntryAsync`
-- `GetExpirationShouldReturnNonExpiringEntryAsync`
-- `RemoveExpirationShouldClearExpirationAsync`
+- `GetExpiryReturnsExpiringEntryAsync`
+- `GetExpiryReturnsNonExpiringEntryAsync`
+- `RemoveExpiryClearsExpirationAsync`
 
 Get-or-add:
 
@@ -177,7 +177,7 @@ Mixed workloads:
 - `ReadHeavy95To5ShouldExecuteAsync`
 - `ReadMostly80To15To5ShouldExecuteAsync`
 - `HotKeyReadMostlyShouldExecuteAsync`
-- `UniformTwoNodeReadMostlyShouldExecuteAsync`
+- `TwoNodeReadMostlyUniformExecutesAsync`
 - `RemoteOwnerReadMostlyShouldExecuteAsync`
 
 ## Interpreting Output

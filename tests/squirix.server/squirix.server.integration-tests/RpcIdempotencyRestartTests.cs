@@ -25,7 +25,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After compaction and SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
     [Fact]
-    public async Task ForceKillCompactionReplayTryAddOperationIdResponse()
+    public async Task KillDuringCompactionReplaysInsert()
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
@@ -63,7 +63,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After SIGKILL-style restart a retry with the same operation id must replay the original Set response.</summary>
     [Fact]
-    public async Task ForceKillRestartReplaySetEntryOperationIdResponse()
+    public async Task KillRestartReplaysSetIdempotency()
     {
         var uri = GetNextHttpUri();
         var request = new SetEntryAsyncRequest
@@ -102,7 +102,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After SIGKILL-style restart a retry with the same operation id must replay Added=true even though the key was recovered from the journal.</summary>
     [Fact]
-    public async Task ForceKillRestartReplayTryAddOperationIdResponse()
+    public async Task KillRestartReplaysInsertIdempotency()
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
@@ -123,7 +123,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
-        await AssertJournalContainsPutAndIdempotencyOutcomeAsync(node.DataDir);
+        await JournalHasPutAndIdempotencyRecordsAsync(node.DataDir);
 
         var restartUri = GetNextHttpUri();
         await using var restarted = await StartNodeAsync(restartUri, "node-a", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope });
@@ -138,7 +138,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         }
     }
 
-    private static async Task AssertJournalContainsPutAndIdempotencyOutcomeAsync(string dataDir)
+    private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir)
     {
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new Ledger(persistence);

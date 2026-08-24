@@ -28,7 +28,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
 {
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
     [Fact]
-    public async Task SnapshotTriggeredCompactionShutdownClearsFlight()
+    public async Task ShutdownClearsSnapshotCompactionFlight()
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var store = new Ledger(persistence);

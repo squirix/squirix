@@ -24,7 +24,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Resolves a relative path under a base directory.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathAcceptsRelativeBase()
+    public void ResolveDirAcceptsRelativeBase()
     {
         using var root = new TempDirectory("squirix-dirpath-rel");
         var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", root.Path, true);
@@ -34,7 +34,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Creates a missing base directory when provided.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathCreatesMissingBase()
+    public void ResolveDirCreatesMissingBase()
     {
         using var root = new TempDirectory("squirix-dirpath-base-create");
         var baseDir = Path.Join(root.Path, "missing-base");
@@ -45,7 +45,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects targets that escape the base directory.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsBaseEscape()
+    public void ResolveDirRejectsBaseEscape()
     {
         using var root = new TempDirectory("squirix-dirpath-escape");
         var parent = Directory.GetParent(root.Path);
@@ -59,13 +59,13 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects empty paths.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsEmpty() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+    public void ResolveDirRejectsEmpty() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(
         "  ",
         static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
 
     /// <summary>Rejects when a regular file already exists at the target.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsExistingFile()
+    public void ResolveDirRejectsExistingFile()
     {
         using var root = new TempDirectory("squirix-dirpath-file");
         var target = Path.Join(root.Path, "blocked");

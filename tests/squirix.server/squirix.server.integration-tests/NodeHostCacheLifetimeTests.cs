@@ -23,7 +23,7 @@ public sealed class NodeHostCacheLifetimeTests : NodeIntegrationTestBase
 
     /// <summary>After the host stops, resolving runtime services from its provider fails deterministically.</summary>
     [Fact]
-    public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
+    public async Task ResolveThrowsAfterHostDisposal()
     {
         var uri = GetNextHttpUri();
         var host = await StartNodeAsync(uri, "nodeA");

@@ -19,7 +19,7 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Two client ids keep independent PerClientMaxInFlight budgets.</summary>
     [Fact]
-    public async Task TwoClientIdsApplyIndependentPerClientLimits()
+    public async Task TwoClientIdsGetIndependentLimits()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -50,7 +50,7 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>The void write path enforces the same per-client budgets independently across client ids.</summary>
     [Fact]
-    public async Task WritePathAppliesIndependentPerClientLimits()
+    public async Task WritesApplyIndependentPerClientCaps()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions

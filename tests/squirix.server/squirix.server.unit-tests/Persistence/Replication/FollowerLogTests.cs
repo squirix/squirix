@@ -62,7 +62,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>The applied index advances monotonically and never beyond the committed index.</summary>
     [Fact]
-    public async Task AdvanceAppliedIsMonotonicAndBoundedByCommit()
+    public async Task AdvanceAppliedBoundedByCommitIndex()
     {
         using var dir = new TempDirectory("squirix-follower-log-applied-monotonic");
         var composition = GroupComposition.Create(GroupId);
@@ -88,7 +88,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>Advancing the applied index releases applied entry payloads from memory.</summary>
     [Fact]
-    public async Task AdvanceAppliedPrunesAppliedEntriesFromMemory()
+    public async Task AdvanceAppliedPrunesMemoryEntries()
     {
         using var dir = new TempDirectory("squirix-follower-log-applied-prune");
         var composition = GroupComposition.Create(GroupId);
@@ -317,7 +317,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>A duplicate-prefix request cannot commit entries beyond the prefix it validates.</summary>
     [Fact]
-    public async Task DuplicatePrefixDoesNotCommitUnvalidatedSuffix()
+    public async Task DuplicatePrefixBlocksUnvalidatedTail()
     {
         using var dir = new TempDirectory("squirix-follower-log-duplicate-prefix");
         var composition = GroupComposition.Create(GroupId);
@@ -356,7 +356,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>A heartbeat with a high commit index does not commit a retained divergent suffix beyond the verified predecessor.</summary>
     [Fact]
-    public async Task HeartbeatDoesNotCommitRetainedDivergentSuffix()
+    public async Task HeartbeatIgnoresDivergentSuffix()
     {
         using var dir = new TempDirectory("squirix-follower-log-heartbeat-divergent");
         var composition = GroupComposition.Create(GroupId);
@@ -380,7 +380,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>Re-appending an already-applied entry is acknowledged idempotently without failing readiness.</summary>
     [Fact]
-    public async Task ReappliedAppliedEntryIsAcknowledgedIdempotently()
+    public async Task ReappliedEntryAcknowledgedOnce()
     {
         using var dir = new TempDirectory("squirix-follower-log-applied-reapply");
         var composition = GroupComposition.Create(GroupId);
@@ -400,7 +400,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>A batch whose first entry does not follow the declared predecessor is rejected as malformed.</summary>
     [Fact]
-    public async Task RejectsBatchNotFollowingDeclaredPredecessor()
+    public async Task BatchMustFollowDeclaredPredecessor()
     {
         using var dir = new TempDirectory("squirix-follower-log-predecessor");
         var composition = GroupComposition.Create(GroupId);
@@ -534,7 +534,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     /// <summary>Opening a group outside the local static composition does not create any storage.</summary>
     [Fact]
-    public async Task UnknownGroupDoesNotCreateStorageDirectory()
+    public async Task UnknownGroupCreatesNoDirectory()
     {
         using var dir = new TempDirectory("squirix-follower-log-unknown-group");
         var composition = GroupComposition.Empty();

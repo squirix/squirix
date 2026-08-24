@@ -18,7 +18,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
     [InlineData("..")]
     [InlineData("a*b")]
     [InlineData("")]
-    public static void EnumerateSegmentsReturnsEmptyForInvalidPaths(string path)
+    public static void EnumerateSegmentsEmptyOnBadPath(string path)
     {
         var segments = JournalReader.EnumerateSegments(path, 1);
         Assert.Empty(segments);
@@ -26,7 +26,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
 
     /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
     [Fact]
-    public void EnumerateSegmentsRespectsSegmentAndSortsAscending()
+    public void EnumerateSegmentsSortedAscending()
     {
         File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x");
         File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x");
@@ -40,7 +40,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
 
     /// <summary>EnumerateSegments returns empty when journal directory does not exist.</summary>
     [Fact]
-    public void EnumerateSegmentsReturnsEmptyWhenDirectoryMissing()
+    public void EnumerateSegmentsEmptyOnMissingDir()
     {
         var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
         var segments = JournalReader.EnumerateSegments(dir, 1);
@@ -49,7 +49,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
 
     /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>
     [Fact]
-    public void EnumerateSegmentsSkipsJournalFilesNonNumericIndex()
+    public void EnumerateSegmentsSkipsNonNumericNames()
     {
         File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
         File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x");
@@ -60,7 +60,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
 
     /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
     [Fact]
-    public void GetOnDiskSegmentStatsReturnsDefaultForInvalidPath()
+    public void SegmentStatsDefaultsOnBadPath()
     {
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats("..");
         Assert.Equal(0, segmentCount);

@@ -17,7 +17,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Verifies startup fails when an OIDC authority is configured without an audience.</summary>
     [Fact]
-    public async Task AuthorityWithoutAudienceFailsStartupOnLoopback()
+    public async Task AuthorityWithoutAudienceFailsStartup()
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();

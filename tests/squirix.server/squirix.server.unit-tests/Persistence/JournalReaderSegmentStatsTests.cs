@@ -15,7 +15,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
 {
     /// <summary>GetOnDiskSegmentStats counts journal segments and sums their byte lengths in one pass.</summary>
     [Fact]
-    public async Task GetOnDiskSegmentStatsCountsSegmentsAndSumsBytes()
+    public async Task SegmentStatsCountsAndSumsBytes()
     {
         await WriteSegmentAsync(Dir, 1, 10);
         await WriteSegmentAsync(Dir, 2, 25);
@@ -31,7 +31,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
 
     /// <summary>GetOnDiskSegmentStats returns an empty result when the directory does not exist.</summary>
     [Fact]
-    public void GetOnDiskSegmentStatsReturnsEmptyDirectoryMissing()
+    public void SegmentStatsEmptyForMissingDir()
     {
         var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
 

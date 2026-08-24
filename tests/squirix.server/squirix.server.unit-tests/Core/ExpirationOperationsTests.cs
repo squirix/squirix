@@ -15,7 +15,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 {
     /// <summary>Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncClearsExpirationAndKeepsKey()
+    public async Task RemoveExpiryClearsOnlyTheExpiryAsync()
     {
         await using var cache = new PhysicalCache<string>();
         await cache.SetAsync(
@@ -41,7 +41,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 
     /// <summary>Verifies RemoveExpirationAsync does not resurrect an already expired entry.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncDoesNotResurrectExpiredEntry()
+    public async Task RemoveExpiryWontResurrectExpiredEntry()
     {
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
@@ -64,7 +64,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 
     /// <summary>Verifies RemoveExpirationAsync on a non-expiring key returns false and leaves the value and absence of expiration unchanged.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncNonExpiringFalseKeepsKeyLive()
+    public async Task RemoveExpiryNonExpiringFalseKeepsLive()
     {
         await using var cache = new PhysicalCache<string>();
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Version = 1 }, DefaultCancellationToken);
@@ -78,7 +78,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 
     /// <summary>Verifies RemoveExpirationAsync returns false for a missing key.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncReturnsFalseForMissingKey()
+    public async Task RemoveExpiryReturnsFalseForMissingKey()
     {
         await using var cache = new PhysicalCache<int>();
         Assert.False(await cache.RemoveExpirationAsync(CacheKey.Default("missing"), DefaultCancellationToken));
@@ -86,7 +86,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
 
     /// <summary>Verifies RemoveExpirationAsync removes expiration once and returns false when the key is already persistent.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncReturnsFalseWhenPersistent()
+    public async Task RemoveExpiryReturnsFalseForPersistent()
     {
         await using var cache = new PhysicalCache<string>();
         await cache.SetAsync(

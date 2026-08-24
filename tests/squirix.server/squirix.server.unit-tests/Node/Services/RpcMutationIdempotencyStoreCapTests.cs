@@ -16,7 +16,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 
     /// <summary>Expired records are removed before capacity enforcement on new inserts.</summary>
     [Fact]
-    public void ExpiredRecordsAreRemovedBeforeCapacityEnforcement()
+    public void ExpiredRecordsPrunedBeforeCapCheck()
     {
         const int cap = 2;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMinutes(15) }, "test-node");
@@ -33,7 +33,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 
     /// <summary>Flooding unique operation ids keeps the in-memory record count within the configured cap.</summary>
     [Fact]
-    public void FloodUniqueOperationIdsKeepsRecordCountWithinCap()
+    public void UniqueOpIdFloodStaysWithinRecordCap()
     {
         const int cap = 8;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
@@ -46,7 +46,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 
     /// <summary>Evicting the oldest record allows a new operation id to be stored at capacity.</summary>
     [Fact]
-    public void NewOperationEvictsOldestRecordWhenAtCapacity()
+    public void NewOpEvictsOldestRecordAtCapacity()
     {
         const int cap = 2;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
@@ -64,7 +64,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 
     /// <summary>Replacing an existing operation id does not grow the record count.</summary>
     [Fact]
-    public void RecordSuccessReplaceDoesNotGrowRecordCount()
+    public void SuccessReplaceKeepsRecordCountFlat()
     {
         const int cap = 2;
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
@@ -80,7 +80,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 
     /// <summary>Background sweep removes expired records without a new access.</summary>
     [Fact]
-    public void SweepExpiredRemovesExpiredRecordsWithoutAccess()
+    public void SweepExpiredRemovesWithoutReadAccess()
     {
         var store = new RpcMutationIdempotencyStore(TimeSpan.FromMilliseconds(50));
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);

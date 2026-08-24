@@ -19,7 +19,7 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
     [InlineData("../Squirix.settings.json")]
     [InlineData("foo/../bar.json")]
     [InlineData("foo/./bar.json")]
-    public static void ResolveValidatedFilePathRejectsDotSegments(string path)
+    public static void ResolveFileRejectsDotSegments(string path)
     {
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
         Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
@@ -51,7 +51,7 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
 
     /// <summary>PathEx multi-segment combine keeps results under the Dir.</summary>
     [Fact]
-    public void PathExCombineAcceptsMultipleRelativeSegments()
+    public void CombineAcceptsMultipleSegments()
     {
         var combined = PathEx.Combine(Dir.Path, "a", "b");
         Assert.Equal(Path.GetFullPath(Path.Join(Dir.Path, "a", "b")), combined);
@@ -71,7 +71,7 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
 
     /// <summary>Accepts an absolute directory path without traversal segments.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathAcceptsAbsolutePath()
+    public void ResolveDirAcceptsAbsolutePath()
     {
         var input = Path.Join(Path.GetTempPath(), "squirix-path-validator");
         var full = FilePathValidator.ResolveValidatedDirectoryPath(input);
@@ -80,7 +80,7 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
 
     /// <summary>Accepts a simple relative file path and returns an absolute path.</summary>
     [Fact]
-    public void ResolveValidatedFilePathAcceptsRelativeFileName()
+    public void ResolveFileAcceptsRelativeName()
     {
         var full = FilePathValidator.ResolveValidatedFilePath("Squirix.settings.json");
         Assert.True(Path.IsPathRooted(full));

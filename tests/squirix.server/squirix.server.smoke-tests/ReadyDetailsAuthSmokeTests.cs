@@ -15,14 +15,14 @@ namespace Squirix.Server.SmokeTests;
 public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-    private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteClient = new(RemoteHandler, false);
 
     /// <summary>
     /// Ensures <c>/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
+    public async Task ReadyDetailsValidatesJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));

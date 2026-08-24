@@ -16,7 +16,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
 
     /// <summary>Verifies failover moves active traffic to the next bootstrap endpoint on transport errors.</summary>
     [Fact]
-    public async Task ClientFailsOverAfterSelectedEndpointUnavailable()
+    public async Task FailsOverWhenSelectedEndpointDown()
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
         var callCount = new MutableCallCount();
@@ -37,7 +37,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
 
     /// <summary>Verifies non-transport errors do not trigger bootstrap failover.</summary>
     [Fact]
-    public async Task DoesNotFailOverOnApplicationLevelRpcErrors()
+    public async Task NoFailOverOnApplicationRpcErrors()
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
 

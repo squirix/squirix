@@ -25,7 +25,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 {
     /// <summary>Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.</summary>
     [Fact]
-    public async Task OutboundMtlsHandlerHandshakeInternalListener()
+    public async Task OutboundMtlsHandshakesInternalListener()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();

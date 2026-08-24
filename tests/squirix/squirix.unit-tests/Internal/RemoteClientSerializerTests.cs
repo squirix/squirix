@@ -15,7 +15,7 @@ public sealed class RemoteClientSerializerTests
 {
     /// <summary>Unhandled exception types bypass the metrics failure filter.</summary>
     [Fact]
-    public void CreateSerializerBypassesUnhandledExceptionFilter()
+    public void BypassesUnhandledExceptionFilter()
     {
         var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
         _ = ExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
@@ -23,7 +23,7 @@ public sealed class RemoteClientSerializerTests
 
     /// <summary>Wrapping an already metrics-decorated serializer is idempotent.</summary>
     [Fact]
-    public void CreateSerializerDoesNotDoubleWrapMetricsDecorator()
+    public void DoesNotDoubleWrapMetricsDecorator()
     {
         var decorated = RemoteClientSessionFactory.CreateSerializer();
         var again = RemoteClientSessionFactory.CreateSerializer(decorated);
@@ -40,7 +40,7 @@ public sealed class RemoteClientSerializerTests
 
     /// <summary>NotSupportedException failures are recorded and rethrown.</summary>
     [Fact]
-    public void CreateSerializerRethrowsNotSupportedFailures()
+    public void RethrowsNotSupportedFailures()
     {
         var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
         _ = ExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
@@ -71,7 +71,7 @@ public sealed class RemoteClientSerializerTests
 
     /// <summary>Metrics decoration can be disabled for custom serializers.</summary>
     [Fact]
-    public void CreateSerializerWithoutMetricsReturnsInnerInstance()
+    public void WithoutMetricsReturnsInnerInstance()
     {
         var inner = new SystemTextJsonSerializer();
         var serializer = RemoteClientSessionFactory.CreateSerializer(inner, false);

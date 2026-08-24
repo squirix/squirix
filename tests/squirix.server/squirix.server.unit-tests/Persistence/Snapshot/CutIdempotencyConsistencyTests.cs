@@ -26,7 +26,7 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
 
     /// <summary>Snapshot idempotency must match the flush watermark, not outcomes recorded after the mutation gate opens.</summary>
     [Fact]
-    public async Task SnapshotCutMustNotExportPostFlushIdempotency()
+    public async Task CutMustNotExportPostFlushRecords()
     {
         using var dir = new TempDirectory("squirix-snap-cut-idempotency");
         var persistence = new PersistenceOptions
@@ -50,14 +50,14 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        var snapshotPath = await CutSnapshotDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
+        var snapshotPath = await CutDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
 
         var loaded = await StoreFactory.CreateReader(persistence).LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
         var record = Assert.Single(loaded.IdempotencyRecords);
         Assert.Equal(AtFlushOperationId, record.OperationId);
     }
 
-    private static async Task<string> CutSnapshotDuringPostFlushIdempotencyAsync(
+    private static async Task<string> CutDuringPostFlushIdempotencyAsync(
         IJournalCoordinator journal,
         Ledger manifestStore,
         ISnapshotWriter writer,

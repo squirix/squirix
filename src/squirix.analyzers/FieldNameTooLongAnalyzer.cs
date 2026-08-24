@@ -13,7 +13,7 @@ public sealed class FieldNameTooLongAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR006";
 
-    private static readonly LocalizableString Description = "Field names must be at most 50 characters.";
+    private static readonly LocalizableString Description = "Field names must be at most 40 characters.";
 
     private static readonly LocalizableString MessageFormat = "Field name '{0}' length is {1} (limit {2})";
     private static readonly LocalizableString Title = "Avoid fields with name too long";

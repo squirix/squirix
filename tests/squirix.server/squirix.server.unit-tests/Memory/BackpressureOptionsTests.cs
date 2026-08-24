@@ -42,7 +42,7 @@ public sealed class BackpressureOptionsTests
 
     /// <summary>Ensures per-client concurrency cannot be configured above the global node cap.</summary>
     [Fact]
-    public void ValidateThrowsForInvalidPerClientConcurrency()
+    public void ThrowsForInvalidPerClientConcurrency()
     {
         var options = new AdmissionOptions
         {
@@ -57,7 +57,7 @@ public sealed class BackpressureOptionsTests
 
     /// <summary>Ensures invalid threshold ordering is rejected during validation.</summary>
     [Fact]
-    public void ValidateThrowsForInvalidThresholdOrdering()
+    public void ThrowsForInvalidThresholdOrdering()
     {
         var options = new AdmissionOptions
         {

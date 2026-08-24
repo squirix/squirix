@@ -66,7 +66,7 @@ public sealed class OptionsTests
 
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsBoundaryScalars()
+    public void FieldValidationAcceptsValidScalars()
     {
         var options = new PersistenceOptions
         {
@@ -101,7 +101,7 @@ public sealed class OptionsTests
     /// while leaving all other properties unchanged from the source instance.
     /// </summary>
     [Fact]
-    public void WithExpressionOverridesSelectedPropertiesOnly()
+    public void WithOverridesSelectedPropertiesOnly()
     {
         var defaults = new PersistenceOptions();
 

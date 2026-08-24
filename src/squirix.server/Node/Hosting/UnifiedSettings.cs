@@ -30,7 +30,7 @@ internal static class UnifiedSettings
     internal static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromFileAsync(TriggerOptions baseline, CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await TryMergeSnapshotFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await TryMergeSnapshotFromSettingsFileAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -56,7 +56,7 @@ internal static class UnifiedSettings
             }
         }
 
-        var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFilePathAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
+        var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFileAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
         if (snapshotFound)
         {
             var snapshotValidator = new TriggerOptionsValidator();
@@ -76,7 +76,7 @@ internal static class UnifiedSettings
             failures.AddRange(result.Failures);
     }
 
-    private static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromSettingsFilePathAsync(
+    private static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromSettingsFileAsync(
         string path,
         TriggerOptions baseline,
         CancellationToken cancellationToken = default)

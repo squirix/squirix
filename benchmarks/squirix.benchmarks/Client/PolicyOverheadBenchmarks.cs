@@ -48,7 +48,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     /// Runs through <see cref="EndpointFailover" /> only.
     /// </summary>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapFailoverCompletedValueTaskBatchedAsync()
+    public async Task FailoverCompletedBatchedValueTasksAsync()
     {
         var failover = _failover!;
         for (var i = 0; i < Batch; i++)

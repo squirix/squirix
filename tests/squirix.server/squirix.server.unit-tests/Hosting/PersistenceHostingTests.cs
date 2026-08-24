@@ -17,7 +17,7 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]
-    public async Task DefaultHostingDoesNotRegisterPersistenceOptions()
+    public async Task DefaultHostingSkipsPersistenceOptions()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -38,7 +38,7 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
     /// Ensures <see cref="SquirixServerOptions.UsePersistence" /> registers persistence options.
     /// </summary>
     [Fact]
-    public async Task UsePersistenceRegistersPersistenceOptions()
+    public async Task UsePersistenceRegistersItsOptions()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(

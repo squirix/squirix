@@ -40,7 +40,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
     [Fact]
-    public Task MultipleValidFramesPreserveOrderAndOffsets()
+    public Task ValidFramesPreserveOrderAndOffsets()
     {
         var first = BuildPayload(1, "first");
         var second = BuildPayload(2, "second");
@@ -79,7 +79,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     /// <summary>Verifies truncated frame checksum footers classify consistently.</summary>
     [Fact]
-    public Task TruncatedChecksumIsClassifiedConsistently()
+    public Task TruncatedChecksumClassifiedStably()
     {
         var payload = BuildPayload(1, "crc");
         var frame = BuildFrameBytes(payload);

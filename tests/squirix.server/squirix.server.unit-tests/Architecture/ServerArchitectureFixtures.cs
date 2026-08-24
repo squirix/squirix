@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>Shared MSBuild project loaders and dependency baselines for server architecture tests.</summary>
 internal static class ServerArchitectureFixtures
 {
-    internal static readonly string[] ForbiddenSharedGrpcTransportMapperRuntimeMarkers =
+    internal static readonly string[] ForbiddenGrpcTransportMapperMarkers =
     [
         "ICacheRuntime",
         "ILogicalNamespacedCache",

@@ -10,7 +10,7 @@ internal static class ServerOpContract
 
     private const string EntryTagValueTooLargeDetail = "Entry tag value exceeds the maximum UTF-8 size of 1024 bytes.";
 
-    private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
+    private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
     private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
 
@@ -28,7 +28,7 @@ internal static class ServerOpContract
     /// <param name="message">An exception or RPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
     internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                     message.StartsWith(InsertVersionMustExceedCurrentMessagePrefix, StringComparison.Ordinal) &&
+                                                                                     message.StartsWith(InsertVersionMustExceedCurrentPrefix, StringComparison.Ordinal) &&
                                                                                      message.Contains(", provided=", StringComparison.Ordinal);
 
     internal static bool IsOperationIdInvalidFormatMessage(string? message) =>

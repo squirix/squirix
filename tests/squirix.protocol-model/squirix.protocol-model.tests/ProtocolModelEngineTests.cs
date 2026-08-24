@@ -8,7 +8,7 @@ public static class ProtocolModelEngineTests
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
     [Fact]
-    public static void ExplorerRejectsBrokenCurrentTermCommitRule()
+    public static void ExplorerRejectsBrokenTermCommitRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
         Assert.NotNull(result.Violation);
@@ -51,7 +51,7 @@ public static class ProtocolModelEngineTests
     }
 
     [Fact]
-    public static void SymmetryFingerprintIsLabelInvariantForVoteMasks()
+    public static void FingerprintIsLabelInvariantForVoteMasks()
     {
         var state = ClusterState.CreateInitial(3).WithNodes(
         [
