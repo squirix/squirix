@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -204,10 +203,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         while (_store.Count > cap)
         {
-            if (!_evictionIndex.TryPopEvictionVictim(out var victim))
+            if (!_evictionIndex.TryEvictOne(RemoveItem))
                 break;
+        }
 
-            _ = _store.TryRemove(victim, out _);
+        return;
+
+        void RemoveItem(CacheKey key)
+        {
+            _ = _store.TryRemove(key, out _);
         }
     }
 
@@ -321,9 +325,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             }
         }
 
-        internal bool TryPopEvictionVictim([NotNullWhen(true)] out CacheKey? victim)
+        internal bool TryEvictOne(Action<CacheKey> removeFromStore)
         {
-            victim = null;
             if (_options.Capacity == null)
                 return false;
 
@@ -343,15 +346,15 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 if (candidate == null)
                     return false;
 
-                victim = candidate;
+                if (_meta.TryGetValue(candidate, out var metadata))
+                {
+                    _order.Remove(metadata.Node);
+                    _ = _meta.Remove(candidate);
+                }
 
-                if (!_meta.TryGetValue(victim, out var metadata))
-                    return true;
-                _order.Remove(metadata.Node);
-                _ = _meta.Remove(victim);
+                removeFromStore(candidate);
+                return true;
             }
-
-            return true;
         }
 
         internal void Untrack(CacheKey key)
