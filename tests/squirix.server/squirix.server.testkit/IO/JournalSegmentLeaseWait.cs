@@ -7,18 +7,19 @@ namespace Squirix.Server.TestKit.IO;
 
 /// <summary>
 /// Waits until persistence files in a data directory can be opened with the same sharing mode used by
-/// writers (journal segments and the <c>man-current</c> pointer).
+/// writers (journal segments, the <c>man-current</c> pointer, and its <c>man-current.next</c> staging file).
 /// </summary>
 public static class JournalSegmentLeaseWait
 {
     private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const string ManifestCurrentFileName = "man-current";
+    private const string ManifestCurrentStagingFileName = "man-current.next";
 
     /// <summary>
-    /// Waits until journal segment files and <c>man-current</c> in <paramref name="dataDir" /> are not locked
-    /// incompatibly by another handle.
+    /// Waits until journal segment files, <c>man-current</c>, and <c>man-current.next</c> in
+    /// <paramref name="dataDir" /> are not locked incompatibly by another handle.
     /// </summary>
-    /// <param name="dataDir">Node data directory containing journal segments and manifest pointer.</param>
+    /// <param name="dataDir">Node data directory containing journal segments and manifest pointer files.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
     public static Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
@@ -27,7 +28,7 @@ public static class JournalSegmentLeaseWait
         return PollUntilPersistenceFilesReleasedAsync(dataDir, cancellationToken);
     }
 
-    private static async Task<bool> CanAcquireRepairLeaseAsync(string dataDir, CancellationToken cancellationToken)
+    private static bool CanAcquireRepairLease(string dataDir, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(dataDir))
             return true;
@@ -36,15 +37,38 @@ public static class JournalSegmentLeaseWait
         for (var i = 0; i < files.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!await TryOpenRepairLeaseAsync(files[i], cancellationToken).ConfigureAwait(false))
+            if (!TryOpenRepairLease(files[i], cancellationToken))
                 return false;
         }
 
-        var currentPath = Path.Join(dataDir, ManifestCurrentFileName);
-        if (!File.Exists(currentPath))
+        var path = Path.Join(dataDir, ManifestCurrentFileName);
+        if (File.Exists(path) && TryOpenRepairLease(path, cancellationToken))
+            return false;
+
+        // The manifest pointer writer stages each update in man-current.next with an exclusive
+        // (FileShare.None) handle before renaming it into place; an abrupt shutdown can leave a draining
+        // handle on it. Probe with the same exclusive mode, so the staging file is shareable by the writer
+        // during the offline compact that skipped reading it (issue #396).
+        var join = Path.Join(dataDir, ManifestCurrentStagingFileName);
+        if (!File.Exists(join))
             return true;
 
-        return await TryOpenRepairLeaseAsync(currentPath, cancellationToken).ConfigureAwait(false);
+        var handle = TryOpenExclusiveStageHandle(join);
+        cancellationToken.ThrowIfCancellationRequested();
+        return handle;
+    }
+
+    private static bool TryOpenExclusiveStageHandle(string path)
+    {
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
@@ -53,7 +77,7 @@ public static class JournalSegmentLeaseWait
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (await CanAcquireRepairLeaseAsync(dataDir, cancellationToken).ConfigureAwait(false))
+            if (CanAcquireRepairLease(dataDir, cancellationToken))
                 return;
 
             await Task.Delay(25, cancellationToken).ConfigureAwait(false);
@@ -62,7 +86,7 @@ public static class JournalSegmentLeaseWait
         throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
     }
 
-    private static async Task<bool> TryOpenRepairLeaseAsync(string path, CancellationToken cancellationToken)
+    private static bool TryOpenRepairLease(string path, CancellationToken cancellationToken)
     {
         try
         {
