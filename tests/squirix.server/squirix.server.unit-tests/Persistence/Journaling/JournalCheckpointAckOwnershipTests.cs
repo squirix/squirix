@@ -40,8 +40,8 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         await journal.WaitForStartupAsync(DefaultCancellationToken);
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
 
-        var registered = DurabilityAck.Rent();
-        var registeredWait = registered.AwaitAsync(CancellationToken.None);
+        var registered = PooledAck.Rent();
+        var registeredWait = registered.WaitAsync(CancellationToken.None);
         coordinator.DurabilityAcks.Add(registered);
 
         // A later caller registers and enqueues its own checkpoint; processing it must not touch
@@ -51,7 +51,6 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         Assert.False(registeredWait.IsCompleted);
 
         _ = coordinator.DurabilityAcks.Remove(registered);
-        registered.MarkAbandonedByCaller();
-        registered.ReturnToPool();
+        registered.Return();
     }
 }

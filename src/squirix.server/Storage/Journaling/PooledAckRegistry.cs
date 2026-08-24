@@ -1,30 +1,30 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Tracks in-flight durability acks for <see cref="JournalCoordinator" />.</summary>
-internal sealed class DurabilityAckRegistry
+internal sealed class PooledAckRegistry
 {
-    private static readonly List<DurabilityAck> EmptyAcks = [];
+    private static readonly List<PooledAck> EmptyAcks = [];
 
     private readonly Lock _sync = new();
-    private List<DurabilityAck> _acks = [];
-    private List<DurabilityAck> _acksSpare = [];
+    private List<PooledAck> _acks = [];
+    private List<PooledAck> _acksSpare = [];
 
-    internal void Add(DurabilityAck ack)
+    internal void Add(PooledAck ack)
     {
         lock (_sync)
             _acks.Add(ack);
     }
 
-    internal bool Remove(DurabilityAck ack)
+    internal bool Remove(PooledAck ack)
     {
         lock (_sync)
             return _acks.Remove(ack);
     }
 
-    internal List<DurabilityAck> TakeAll()
+    internal List<PooledAck> TakeAll()
     {
         lock (_sync)
         {
@@ -35,7 +35,7 @@ internal sealed class DurabilityAckRegistry
         }
     }
 
-    private List<DurabilityAck> SwapOutAcks()
+    private List<PooledAck> SwapOutAcks()
     {
         var batch = _acks;
         _acks = _acksSpare;

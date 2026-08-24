@@ -73,7 +73,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
-    public DurabilityAckRegistry DurabilityAcks { get; } = new();
+    public PooledAckRegistry DurabilityAcks { get; } = new();
 
     public MutableInt32 DurabilityFlushScheduledFlag { get; } = new();
 
@@ -383,17 +383,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
                 JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
                 var startedMs = Environment.TickCount64;
-                var ack = DurabilityAck.Rent();
-                try
-                {
-                    var ackWaitTask = ack.AwaitAsync(CancellationToken.None);
-                    await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
-                    await ackWaitTask.ConfigureAwait(false);
-                }
-                finally
-                {
-                    ack.ReturnToPool();
-                }
+                var ack = PooledAck.Rent();
+                var task = ack.WaitAsync(CancellationToken.None);
+                await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
+                await task.ConfigureAwait(false);
 
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
@@ -406,8 +399,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
-            var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? DurabilityAck.Rent() : null;
-            var appendWaitTask = appendAck?.AwaitAsync(CancellationToken.None) ?? default;
+            var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? PooledAck.Rent() : null;
+            var appendWaitTask = appendAck?.WaitAsync(CancellationToken.None) ?? default;
             var enqueued = false;
             try
             {
@@ -415,27 +408,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
                 enqueued = true;
                 if (appendAck != null)
-                {
-                    try
-                    {
-                        await appendWaitTask.ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        appendAck.ReturnToPool();
-                    }
-                }
+                    await appendWaitTask.ConfigureAwait(false);
             }
             catch when (!enqueued)
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                appendAck?.ReturnToPool();
+                appendAck?.Return();
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
             }
         }
 
-        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, DurabilityAck ack, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, PooledAck ack, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
             var enqueued = false;
@@ -449,6 +433,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
+                ack.Return();
                 throw;
             }
         }

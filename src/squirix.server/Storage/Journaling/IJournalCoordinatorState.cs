@@ -12,7 +12,7 @@ internal interface IJournalCoordinatorState
 
     MutableInt32 DurabilityFlushScheduledFlag { get; }
 
-    DurabilityAckRegistry DurabilityAcks { get; }
+    PooledAckRegistry DurabilityAcks { get; }
 
     JournalEventLoop EventLoop { get; }
 

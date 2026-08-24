@@ -72,6 +72,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         {
             _owner.EventLoop.FsyncOnJournalThread();
             _ = ack.TrySetResult();
+            ack.Return();
         }
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
@@ -79,38 +80,43 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
-        var begin = DurabilityAck.Rent();
+        // Ownership transfers to the journal once the work item is accepted by the ring; after that the
+        // journal returns the ack to the pool (via CompleteJournalWorkItem) strictly after its terminal
+        // setter. The caller only owns an ack that was not accepted, and returns it on that path.
+        var begin = PooledAck.Rent();
+        var beginWaitTask = begin.WaitAsync(cancellationToken);
+        var beginItem = JournalWorkItem.MaintenanceBegin(begin);
         try
         {
-            var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = JournalWorkItem.MaintenanceBegin(begin);
             await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
-
-            await beginWaitTask.ConfigureAwait(false);
-            await action(cancellationToken).ConfigureAwait(false);
-
-            var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-            var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
-
-            var end = DurabilityAck.Rent();
-            try
-            {
-                var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
-                await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
-
-                await endWaitTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                end.ReturnToPool();
-            }
         }
-        finally
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            begin.ReturnToPool();
+            begin.Return();
+            throw;
         }
+
+        await beginWaitTask.ConfigureAwait(false);
+        await action(cancellationToken).ConfigureAwait(false);
+
+        var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
+
+        var end = PooledAck.Rent();
+        var endWaitTask = end.WaitAsync(cancellationToken);
+        var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
+        try
+        {
+            await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            end.Return();
+            throw;
+        }
+
+        await endWaitTask.ConfigureAwait(false);
     }
 
     internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
@@ -129,6 +135,12 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
         for (var i = 0; i < acks.Count; i++)
             _ = acks[i].TrySetException(reason);
+
+        // Ownership has already transferred to the journal for accepted items, but those items are still
+        // queued: the registry drained them, so the journal completion path will find nothing to complete
+        // and must not pool again. Returning the ack here is the single pool point for the drained acks.
+        for (var i = 0; i < acks.Count; i++)
+            acks[i].Return();
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
@@ -167,40 +179,29 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    private void DetachDurabilityAck(DurabilityAck ack) => _ = _owner.DurabilityAcks.Remove(ack);
-
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var ack = DurabilityAck.Rent();
-        _owner.DurabilityAcks.Add(ack);
+        var ack = PooledAck.Rent();
+        var task = ack.WaitAsync(cancellationToken);
+        var item = JournalWorkItem.DurabilityCheckpoint(ack);
 
         try
         {
-            var ackWaitTask = ack.AwaitAsync(cancellationToken);
-            var item = JournalWorkItem.DurabilityCheckpoint(ack);
+            _owner.DurabilityAcks.Add(ack);
             await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-
-            await ackWaitTask.ConfigureAwait(false);
-            ThrowIfJournalThreadFailed();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            RemoveDurabilityAck(ack, cancellationToken);
+            // The item was not accepted by the ring, so the caller still owns the ack and is responsible
+            // for returning it. The journal never observes it, so there is no double-pool.
+            _ = _owner.DurabilityAcks.Remove(ack);
+            _ = ack.TrySetCanceled(cancellationToken);
+            ack.Return();
             throw;
         }
-        finally
-        {
-            DetachDurabilityAck(ack);
-            ack.ReturnToPool();
-        }
-    }
 
-    private void RemoveDurabilityAck(DurabilityAck ack, CancellationToken cancellationToken)
-    {
-        if (!_owner.DurabilityAcks.Remove(ack))
-            return;
-
-        _ = ack.TrySetCanceled(cancellationToken);
+        await task.ConfigureAwait(false);
+        ThrowIfJournalThreadFailed();
     }
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem

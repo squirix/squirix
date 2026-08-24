@@ -34,6 +34,20 @@ internal sealed class BoundedJournalRing : IDisposable
         _availableSlots.Dispose();
     }
 
+    /// <summary>Enqueues a work item, blocking until a slot is available.</summary>
+    /// <param name="item">The work item to publish into the ring.</param>
+    /// <param name="cancellationToken">Token that cancels the wait for a free slot.</param>
+    /// <returns>A task that completes when the item has been published to the ring.</returns>
+    /// <remarks>
+    /// <para>
+    /// Acceptance contract: when this method throws <see cref="OperationCanceledException" />, the item was
+    /// <b>not</b> admitted to the ring. Slot acquisition (<c>_availableSlots.WaitAsync</c>) is the only await
+    /// before publication, and it runs before <see cref="TryEnqueueCore" />; therefore a cancellation that
+    /// surfaces there leaves the ring untouched. The synchronous publication spin-loop contains no await, so
+    /// once the slot is acquired the item is published and no cancellation can interrupt it.
+    /// </para>
+    /// <para>Callers rely on this boundary to decide ack ownership: an un-admitted item means the caller still owns its ack.</para>
+    /// </remarks>
     internal async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken)
     {
         await _availableSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -41,14 +55,17 @@ internal sealed class BoundedJournalRing : IDisposable
         {
             while (!TryEnqueueCore(in item))
                 Thread.SpinWait(32);
-
-            NotifyWorkAvailable();
         }
         catch
         {
             _ = _availableSlots.Release();
             throw;
         }
+
+        // The item is admitted once the publication loop exits. Signal after admission, outside the slot-release
+        // guard: the published item has consumed a slot, so a signal failure during teardown must not release it
+        // again (double-release corrupts the slot semaphore) nor be mistaken for a not-admitted item.
+        NotifyWorkAvailable();
     }
 
     internal void NotifyWorkAvailable() => _ = _workSignal.Set();

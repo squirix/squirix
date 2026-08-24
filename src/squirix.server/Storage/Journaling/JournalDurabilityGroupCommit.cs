@@ -19,8 +19,8 @@ internal sealed class JournalDurabilityGroupCommit
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
 
-    private List<DurabilityAck> _acks;
-    private List<DurabilityAck> _acksSpare;
+    private List<PooledAck> _acks;
+    private List<PooledAck> _acksSpare;
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
     {
@@ -30,8 +30,8 @@ internal sealed class JournalDurabilityGroupCommit
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);
-        _acks = new List<DurabilityAck>(capacity);
-        _acksSpare = new List<DurabilityAck>(capacity);
+        _acks = new List<PooledAck>(capacity);
+        _acksSpare = new List<PooledAck>(capacity);
     }
 
     /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>
@@ -41,40 +41,39 @@ internal sealed class JournalDurabilityGroupCommit
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var ack = DurabilityAck.Rent();
-        try
+        var ack = PooledAck.Rent();
+        var ackWaitTask = ack.WaitAsync(cancellationToken);
+        var signalJournal = false;
+        lock (_sync)
         {
-            var ackWaitTask = ack.AwaitAsync(cancellationToken);
-            var signalJournal = false;
-            lock (_sync)
+            if (_acks.Count == 0)
             {
-                if (_acks.Count == 0)
-                {
-                    _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
-                    signalJournal = true;
-                }
-
-                _acks.Add(ack);
-                if (_acks.Count >= _opt.JournalGroupCommitMaxBatch)
-                    signalJournal = true;
+                _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
+                signalJournal = true;
             }
 
-            if (signalJournal)
-                _notifyJournalThread();
+            _acks.Add(ack);
+            if (_acks.Count >= _opt.JournalGroupCommitMaxBatch)
+                signalJournal = true;
+        }
 
+        if (signalJournal)
+            _notifyJournalThread();
+
+        try
+        {
             await ackWaitTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (!CancelAck(ack, cancellationToken))
-                ack.MarkAbandonedByCaller();
+            // The ack is caller-owned only while it is still pending (not yet captured into a journal batch).
+            // If the journal already took it, the journal owns and pools it; the caller must not.
+            if (!TryRemovePending(ack))
+                throw;
+            _ = ack.TrySetCanceled(cancellationToken);
+            ack.Return();
 
             throw;
-        }
-        finally
-        {
-            if (!ack.IsAbandonedByCaller())
-                ack.ReturnToPool();
         }
     }
 
@@ -93,13 +92,19 @@ internal sealed class JournalDurabilityGroupCommit
         lock (_sync)
         {
             _batchDeadline.Clear();
+
+            // These acks were never captured into a journal batch, so the caller side owns and pools them.
             for (var i = 0; i < _acks.Count; i++)
-                _acks[i].SetException(reason);
+                _ = _acks[i].TrySetException(reason);
+
+            for (var i = 0; i < _acks.Count; i++)
+                _acks[i].Return();
 
             _acks.Clear();
         }
 
-        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
+        // Acks already captured into a journal batch are pooled by the journal (CompleteBatchWithSuccess /
+        // CompleteBatchWithFailure); they are no longer in _acks and are not touched here.
     }
 
     /// <summary>Drains due batches on the journal thread.</summary>
@@ -126,62 +131,45 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    private static void CompleteBatchWithFailure(List<DurabilityAck> batch, Exception ex)
+    private static void CompleteBatchWithFailure(List<PooledAck> batch, Exception ex)
     {
-        // Flush failures fail the whole batch so no ack observes partial durability.
+        // Flush failures fail the whole batch so no ack observes partial durability. The journal owns every
+        // ack captured in the batch, so it sets the terminal result and is the single pool point.
         for (var i = 0; i < batch.Count; i++)
-        {
-            var ack = batch[i];
-            if (!ack.IsAbandonedByCaller())
-                ack.SetException(ex);
-        }
+            _ = batch[i].TrySetException(ex);
 
         for (var i = 0; i < batch.Count; i++)
-        {
-            if (batch[i].IsAbandonedByCaller())
-                batch[i].ReturnToPool();
-        }
+            batch[i].Return();
 
         batch.Clear();
     }
 
-    private static void CompleteBatchWithSuccess(List<DurabilityAck> batch)
+    private static void CompleteBatchWithSuccess(List<PooledAck> batch)
     {
         for (var i = 0; i < batch.Count; i++)
-        {
-            var ack = batch[i];
-
-            // Callers that canceled before the flush still own returning their ack to the pool.
-            if (!ack.IsAbandonedByCaller())
-                ack.SetResult();
-        }
+            _ = batch[i].TrySetResult();
 
         for (var i = 0; i < batch.Count; i++)
-        {
-            if (batch[i].IsAbandonedByCaller())
-                batch[i].ReturnToPool();
-        }
+            batch[i].Return();
 
         batch.Clear();
     }
 
-    private bool CancelAck(DurabilityAck ack, CancellationToken cancellationToken)
+    private bool TryRemovePending(PooledAck ack)
     {
-        bool removed;
         lock (_sync)
         {
-            removed = _acks.Remove(ack);
-            if (removed && _acks.Count == 0)
+            if (!_acks.Remove(ack))
+                return false;
+
+            if (_acks.Count == 0)
                 _batchDeadline.Clear();
+
+            return true;
         }
-
-        if (removed)
-            ack.SetCanceled(cancellationToken);
-
-        return removed;
     }
 
-    private void CompleteBatchOnJournalThread(List<DurabilityAck> batch)
+    private void CompleteBatchOnJournalThread(List<PooledAck> batch)
     {
         try
         {
@@ -200,7 +188,7 @@ internal sealed class JournalDurabilityGroupCommit
         CompleteBatchWithSuccess(batch);
     }
 
-    private bool TryTakeDueBatch(out List<DurabilityAck> batch)
+    private bool TryTakeDueBatch(out List<PooledAck> batch)
     {
         lock (_sync)
         {

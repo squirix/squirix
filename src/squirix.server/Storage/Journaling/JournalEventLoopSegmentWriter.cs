@@ -119,7 +119,14 @@ internal sealed class JournalEventLoopSegmentWriter
         return true;
     }
 
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
+    private static void CompleteJournalWorkItem(JournalWorkItem item)
+    {
+        // The journal owns the ack from the moment its work item was accepted by the ring, so returning it
+        // to the pool here (strictly after the terminal setter) is its single pool point. The waiter no
+        // longer participates in pooling, so there is no race on the pooled instance.
+        _ = item.Ack?.TrySetResult();
+        item.Ack?.Return();
+    }
 
     private void BeginSegmentRollOnJournalThread()
     {
@@ -215,6 +222,7 @@ internal sealed class JournalEventLoopSegmentWriter
     {
         ReleaseQueuedAppendResources(item);
         _ = item.Ack?.TrySetException(error);
+        item.Ack?.Return();
     }
 
     private long GetEffectiveActiveSegmentBytes() => _owner.ActiveSegmentWrittenBytes + _owner.WriteBatch.StagedByteLength;
@@ -259,6 +267,7 @@ internal sealed class JournalEventLoopSegmentWriter
             WriteAppendFrame(item);
             _owner.FsyncOnJournalThread();
             _ = ack.TrySetResult();
+            ack.Return();
         }
         catch (JournalCapacityExceededException ex)
         {

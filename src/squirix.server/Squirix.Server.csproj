@@ -44,5 +44,6 @@
         <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
+        <Compile Remove="Storage\Journaling\DurabilityAckRegistry.cs" />
     </ItemGroup>
 </Project>
