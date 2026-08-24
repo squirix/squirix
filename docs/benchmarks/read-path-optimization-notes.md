@@ -1,4 +1,4 @@
-# Squirix read path optimization notes
+﻿# Squirix read path optimization notes
 
 <!-- markdownlint-disable MD013 MD060 -->
 
@@ -155,7 +155,7 @@ Additional decode isolation check:
 | Benchmark                                | Result           |
 | :--------------------------------------- | :--------------- |
 | `SquirixGrpcTransportReadBatchedAsync`        | **132.946 µs**   |
-| `SquirixGrpcTransportFoundOnlyBatchedAsync`   | **129.470 µs**   |
+| `TransportFoundOnlyBatchedAsync`   | **129.470 µs**   |
 | `SquirixServerPipelineReadBatchedAsync`       | **2.781 µs**     |
 
 `FoundOnly` avoids client-side value decoding but allocates and runs almost the same as the normal raw gRPC read. This rules out `CacheValue` decode as the next meaningful target.
@@ -165,7 +165,7 @@ Additional request allocation isolation check:
 
 | Benchmark                                             | Result                                                      |
 | :---------------------------------------------------- | :---------------------------------------------------------- |
-| `SquirixGrpcTransportFoundOnlyBatchedAsync`                | **134.823 µs**, about **11.58 KB/op** from GC diagnostics   |
+| `TransportFoundOnlyBatchedAsync`                | **134.823 µs**, about **11.58 KB/op** from GC diagnostics   |
 | `SquirixGrpcFoundOnlyReusedBatchedAsync`   | **133.077 µs**, about **11.54 KB/op** from GC diagnostics   |
 
 Reusing the protobuf request instance saves only about **40 B/op** in this sequential benchmark. Product request pooling is not worth the complexity or concurrency risk at this
@@ -185,7 +185,7 @@ Client policy isolation check:
 
 | Benchmark                                           | Result                                                   |
 | :-------------------------------------------------- | :------------------------------------------------------- |
-| `BootstrapFailoverCompletedValueTaskBatchedAsync`        | **15.223 ns**, **0 B/op**                                |
+| `FailoverCompletedBatchedValueTasksAsync`        | **15.223 ns**, **0 B/op**                                |
 | `CallPolicyCompletedValueTaskBatched`               | **260.545 ns**, about **144 B/op** from GC diagnostics   |
 | `BootstrapCallPolicyDoneVtBatchedAsync`   | **278.299 ns**, about **144 B/op** from GC diagnostics   |
 
@@ -378,7 +378,7 @@ Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a l
     - Applied a narrow public-facade `GetValueAsync` fast path (historical `ClientScopedCache<T>`; now the internal cache wrapper on `SquirixClient`) that avoids the generic `Forward<TResult>` delegate wrapper for public reads.
     - Result: allocation moved only from roughly **12.46 KB** to **12.35 KB** on existing reads in a short run. This is too small to justify broad wrapper rewrites as the next main
       optimization.
-    - Added `SquirixGrpcTransportFoundOnlyBatchedAsync` to separate raw unary transport from client-side value decode.
+    - Added `TransportFoundOnlyBatchedAsync` to separate raw unary transport from client-side value decode.
     - Result: normal raw gRPC read **132.946 µs**, found-only raw gRPC read **129.470 µs**. Decode is not the bottleneck.
     - Added `SquirixGrpcFoundOnlyReusedBatchedAsync` to isolate per-call `GetValueAsyncRequest` allocation.
     - Result: request reuse saved only about **40 B/op**. Do not add product request pooling based on this signal.

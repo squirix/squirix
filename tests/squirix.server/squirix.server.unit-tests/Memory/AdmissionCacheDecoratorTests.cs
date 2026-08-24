@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
@@ -25,7 +25,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures RemoveAsync accounts for one removed local-owner entry.</summary>
     [Fact]
-    public async Task RemoveAsyncConcurrentRemoveEntryLocalOwnerKey()
+    public async Task ConcurrentRemoveDeletesLocalKeyOnce()
     {
         const string key = "remove-race";
         await using var physical = new PhysicalCache<string>();
@@ -53,7 +53,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures RemoveExpirationAsync accounts for removed expiration metadata on a local-owner entry.</summary>
     [Fact]
-    public async Task RemoveExpirationAsyncAccountsShrinkLocalOwnerKey()
+    public async Task RemoveExpiryAccountsShrinkForLocalKey()
     {
         const string key = "remove-expiration-key";
         var timeProvider = new FakeTimeProvider();
@@ -78,7 +78,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
     [Fact]
-    public async Task SetAsyncConcurrentMissAccountsEntryLocalOwnerKey()
+    public async Task ConcurrentSetMissAccountsOneEntry()
     {
         const string key = "set-race";
         await using var physical = new PhysicalCache<string>();
@@ -96,7 +96,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
-    public async Task SetAsyncReplaceAccountsValueSizeDeltaLocalOwnerKey()
+    public async Task SetReplaceAccountsValueDeltaForLocalKey()
     {
         const string key = "set-replace";
         await using var physical = new PhysicalCache<string>();
@@ -116,7 +116,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures TouchAsync accounts for added expiration metadata on a previously non-expiring entry.</summary>
     [Fact]
-    public async Task TouchAsyncAccountsExpirationGrowthLocalOwnerKey()
+    public async Task TouchAccountsExpiryGrowthForLocalKey()
     {
         const string key = "touch-key";
         var timeProvider = new FakeTimeProvider();
@@ -136,7 +136,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures TouchAsync does not change accounting when expiration metadata was already present.</summary>
     [Fact]
-    public async Task TouchAsyncChangeExpirationMetadataPresent()
+    public async Task TouchChangesExpiryWhenMetadataPresent()
     {
         const string key = "retouch-key";
         var timeProvider = new FakeTimeProvider();
@@ -159,7 +159,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
     [Fact]
-    public async Task TryAddAsyncConcurrentMissSingleEntryLocalOwnerKey()
+    public async Task ConcurrentTryAddMissAddsSingleEntry()
     {
         const string key = "try-add-race";
         await using var physical = new PhysicalCache<string>();
@@ -185,7 +185,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
-    public async Task UpdateAsyncAccountsValueSizeDeltaForLocalOwnerKey()
+    public async Task UpdateAccountsValueDeltaForLocalKey()
     {
         const string key = "update-replace";
         await using var physical = new PhysicalCache<string>();
@@ -206,7 +206,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
     [Fact]
-    public async Task UpdateAsyncConcurrentReplaceReplaceLocalOwnerKey()
+    public async Task ConcurrentUpdateReplacesLocalKeyOnce()
     {
         const string key = "update-race";
         await using var physical = new PhysicalCache<string>();

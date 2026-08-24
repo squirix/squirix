@@ -18,7 +18,7 @@ internal static class ServerCancelClassifier
     /// <param name="callerToken">The outer caller cancellation token.</param>
     /// <param name="linkedPipelineToken">The token passed to the inner pipeline (caller linked with the deadline timer).</param>
     /// <returns>The canonical scenario for this two-token layout.</returns>
-    internal static ServerCancelScenarioKind ClassifyLogicalPipelineDeadlineCancellation(CancellationToken callerToken, CancellationToken linkedPipelineToken) =>
+    internal static ServerCancelScenarioKind ClassifyPipelineDeadlineCancellation(CancellationToken callerToken, CancellationToken linkedPipelineToken) =>
         ClassifyFromLinkedTokenState(callerToken.IsCancellationRequested, linkedPipelineToken.IsCancellationRequested, false);
 
     /// <summary>Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.</summary>
@@ -49,7 +49,7 @@ internal static class ServerCancelClassifier
     /// </summary>
     /// <param name="operationEffectiveToken">Token linked from the caller and optional ambient deadline budget.</param>
     /// <returns><see langword="true" /> when <paramref name="operationEffectiveToken" /> is not canceled; otherwise <see langword="false" />.</returns>
-    internal static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
+    internal static bool EffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
 
     /// <summary>Classifies linked cancellation sources using explicit token state.</summary>
     /// <param name="callerCanceled">True when the outer caller token is canceled.</param>

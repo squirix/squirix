@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 
@@ -74,7 +74,7 @@ public class MixedWorkloadBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "uniform-keys", "read")]
-    public async Task UniformTwoNodeReadMostlyShouldExecuteAsync()
+    public async Task TwoNodeReadMostlyUniformExecutesAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {

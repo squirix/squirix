@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -22,7 +22,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 {
     /// <summary>Loads a binary snapshot watermark and replays only journal records after it.</summary>
     [Fact]
-    public async Task BinarySnapshotRecoveryReplaysJournalTailWatermark()
+    public async Task SnapshotRecoveryReplaysJournalTail()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-binary-snapshot");
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
@@ -68,7 +68,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 
     /// <summary>Manifest pointing at a missing snapshot path falls back to journal-only recovery.</summary>
     [Fact]
-    public async Task MissingSnapshotPathFallsBackToJournalOnlyRecovery()
+    public async Task MissingSnapshotFallsBackToJournal()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
         var missingSnapshotPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(1)}{FileExtensions.Snapshot}");

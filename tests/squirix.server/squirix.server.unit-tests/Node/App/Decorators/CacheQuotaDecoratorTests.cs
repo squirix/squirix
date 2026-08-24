@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -18,7 +18,7 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Metrics decorator rethrows journal capacity from void and result operations.</summary>
     [Fact]
-    public async Task MetricsCacheDecoratorRethrowsJournalCapacity()
+    public async Task MetricsDecoratorRethrowsQuotaFault()
     {
         var inner = new ThrowingLogicalCache();
         var cache = new MetricsCacheDecorator<string>(inner);
@@ -30,7 +30,7 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
 
     /// <summary>Tracing decorator rethrows journal capacity from void and result operations.</summary>
     [Fact]
-    public async Task TracingCacheDecoratorRethrowsJournalCapacity()
+    public async Task TracingDecoratorRethrowsQuotaFault()
     {
         var inner = new ThrowingLogicalCache();
         var cache = new TracingCacheDecorator<string>(inner, "node-a");

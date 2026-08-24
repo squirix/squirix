@@ -1,4 +1,4 @@
-using Squirix.Server.Attributes;
+﻿using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -20,14 +20,14 @@ public sealed class ServerOpContractClassifierTests : ServerUnitTestBase
 
     /// <summary>Exposes insert-version FailedPrecondition details as invalid-operation messages.</summary>
     [Fact]
-    public void MapsInsertVersionDetailToInvalidOperation()
+    public void InsertVersionDetailMapsToInvalidOp()
     {
         const string detail = "Version must be greater than current (current=1, provided=0)";
-        Assert.True(ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(detail, out var message));
+        Assert.True(ServerOpContractClassifier.TryGetFailedPreconditionMessage(detail, out var message));
         Assert.Equal(detail, message);
 
-        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ServerOpIdMismatchException.StableDetail, out var reuse));
+        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionMessage(ServerOpIdMismatchException.StableDetail, out var reuse));
         Assert.Null(reuse);
-        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(null, out _));
+        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionMessage(null, out _));
     }
 }

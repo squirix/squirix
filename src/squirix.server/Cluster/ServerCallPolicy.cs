@@ -301,7 +301,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
-            if (attempt >= _maxAttempts || !ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (attempt >= _maxAttempts || !ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
                 return AttemptOutcome<T>.Stop(ex);
 
             ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(ex));
@@ -326,7 +326,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
-            var canRetry = attempt < _maxAttempts && ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken);
+            var canRetry = attempt < _maxAttempts && ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
@@ -354,7 +354,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             var attempt = 0;
             Exception? last = null;
 
-            while (ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
+            while (ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
                 var outcome = await TryOneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
@@ -373,7 +373,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
         {
-            if (!hasDeadlineBudget || ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (!hasDeadlineBudget || ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
             {
                 throw last switch
                 {

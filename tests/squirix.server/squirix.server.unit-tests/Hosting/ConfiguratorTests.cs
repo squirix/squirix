@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -15,7 +15,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 {
     /// <summary>Canonicalizes a safe data directory override to an absolute path.</summary>
     [Fact]
-    public void ApplyCommandLineCanonicalizesDataDirectory()
+    public void CommandLineCanonicalizesDataDir()
     {
         var options = new SquirixServerOptions
         {
@@ -33,7 +33,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
     [Fact]
-    public void ApplyCommandLineOverridesTraversalDataDirectory()
+    public void CommandLineOverridesTraversalDataDir()
     {
         var options = new SquirixServerOptions
         {
@@ -51,7 +51,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>ApplyRuntimeDefaults canonicalizes an existing data directory.</summary>
     [Fact]
-    public void ApplyRuntimeDefaultsCanonicalizesDataDirectory()
+    public void RuntimeDefaultsCanonicalizeDataDir()
     {
         var options = new SquirixServerOptions { DataDirectory = Dir.Path };
         Configurator.ApplyRuntimeDefaults(options);
@@ -94,7 +94,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>Ensures TryValidate surfaces multiple validation failures.</summary>
     [Fact]
-    public void OptionsValidateReturnsErrorsWithoutThrowing()
+    public void ValidateReturnsErrorsWithoutThrowing()
     {
         var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
         var ok = options.TryValidate(out var errors);
@@ -104,7 +104,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>ResolveSettingsPath validates an explicit settings path.</summary>
     [Fact]
-    public void ResolveSettingsPathCanonicalizesExplicitPath()
+    public void SettingsPathCanonicalizesExplicitInput()
     {
         var path = Path.Join(Dir.Path, "Squirix.settings.json");
         File.WriteAllText(path, "{}");
@@ -122,7 +122,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>Rejects settings paths that contain parent-directory segments.</summary>
     [Fact]
-    public async Task TryLoadFromFileRejectsTraversalSettingsPath()
+    public async Task LoadFromFileRejectsTraversalPath()
     {
         var (success, _, error) = await Configurator.TryLoadFromFileAsync("../Squirix.settings.json", DefaultCancellationToken);
         Assert.False(success);
@@ -131,7 +131,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>TryLoadFromFile reports a clear error when the settings file is missing.</summary>
     [Fact]
-    public async Task TryLoadFromFileReturnsErrorWhenFileMissing()
+    public async Task LoadFromFileErrorsWhenFileMissing()
     {
         var (success, _, error) = await Configurator.TryLoadFromFileAsync(Path.Join(Dir.Path, "missing.json"), DefaultCancellationToken);
         Assert.False(success);
@@ -140,7 +140,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>Ensures invalid peer topology returns structured errors.</summary>
     [Fact]
-    public async Task TryLoadFromFileReturnsErrorsForInvalidPeers()
+    public async Task LoadFromFileErrorsForInvalidPeers()
     {
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
         var path = NodePathKit.Combine(Dir, "invalid.json");
@@ -152,7 +152,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
 
     /// <summary>Ensures strict validation rejects invalid memory pressure thresholds.</summary>
     [Fact]
-    public async Task TryValidateSettingsFileInvalidMemoryPressure()
+    public async Task ValidateFileFlagsInvalidMemoryPressure()
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";

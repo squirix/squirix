@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
@@ -24,7 +24,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies disabled backpressure returns an accepted empty lease and emits bypass metrics.</summary>
     [Fact]
-    public async Task AcquireBypassesWhenBackpressureIsDisabled()
+    public async Task AcquireBypassesDisabledBackpressure()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
@@ -48,7 +48,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies admission succeeds immediately while slots are available.</summary>
     [Fact]
-    public async Task AcquireSucceedsImmediatelyWhenCapacityAvailable()
+    public async Task AcquireSucceedsWithFreeCapacity()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -71,7 +71,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     [Fact]
-    public async Task ConcurrentAcquireReleaseExceedConfiguredCapacity()
+    public async Task ConcurrencyCannotExceedConfiguredCap()
     {
         const int maxInFlight = 3;
         var backpressureOptions = new AdmissionOptions
@@ -134,7 +134,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies observable gauges are not overwritten by an idle gate and remain correct after that gate is disposed.</summary>
     [Fact]
-    public async Task GaugesRemainBoundToActiveGateAfterIdleGateDispose()
+    public async Task GaugesStayBoundAfterIdleGateDispose()
     {
         var inFlight = new List<int>();
         var queueDepth = new List<int>();
@@ -223,7 +223,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
     [Fact]
-    public async Task PerClientConcurrencyRejectsNodeCapacityIsExhausted()
+    public async Task PerClientCapRejectsWhenNodeExhausted()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
@@ -400,7 +400,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies the slowdown counter is emitted when load crosses the soft threshold.</summary>
     [Fact]
-    public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
+    public async Task SlowdownCounterIncrementsPastThreshold()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(

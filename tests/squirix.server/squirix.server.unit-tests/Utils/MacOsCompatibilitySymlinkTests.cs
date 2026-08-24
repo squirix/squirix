@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using JetBrains.Annotations;
 using Squirix.Server.Attributes;
@@ -16,7 +16,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 {
     /// <summary>Expected private paths are built under the volume root.</summary>
     [Fact]
-    public static void BuildExpectedPrivatePathBuildsCanonicalPath()
+    public static void PrivatePathIsCanonical()
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         Assert.True(MacOsCompatibilitySymlink.TryBuildExpectedPrivatePath(root, "tmp", out var expected));
@@ -26,7 +26,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host follow of a volume-root candidate fails when the entry is not a resolvable link.</summary>
     [Fact]
-    public static void FollowOnAppleHostFailsRootCandidateIsNotALink()
+    public static void FollowFailsWhenRootNotALink()
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, "tmp");
@@ -46,7 +46,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host flag still rejects ordinary nested directories.</summary>
     [Fact]
-    public static void FollowReturnsFalseForNonRootChildOnAppleHost()
+    public static void FollowFalseForNonRootChild()
     {
         using var root = new TempDirectory("squirix-macos-follow-nested");
         Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), true, out var resolved));
@@ -68,7 +68,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [InlineData("var")]
     [InlineData("tmp")]
     [InlineData("etc")]
-    public static void GetRootLinkIdentityAcceptsVolumeRootChildren(string name)
+    public static void RootLinkIdentityAcceptsChildren(string name)
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, name);
@@ -79,7 +79,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Root-link identity rejects nested allowlisted names.</summary>
     [Fact]
-    public static void GetRootLinkIdentityRejectsNestedAllowlistedName()
+    public static void RootLinkIdentityRejectsNestedName()
     {
         using var root = new TempDirectory("squirix-macos-identity-nested");
         var nested = Path.Join(root.Path, "var");
@@ -107,7 +107,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Resolving a non-link directory returns false.</summary>
     [Fact]
-    public static void ResolveFinalTargetReturnsFalseOrdinaryDirectory()
+    public static void FinalTargetFalseForOrdinaryDir()
     {
         using var root = new TempDirectory("squirix-macos-resolve");
         Assert.False(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(root.Path), out var target));

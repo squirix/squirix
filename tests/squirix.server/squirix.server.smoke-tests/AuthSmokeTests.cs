@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
@@ -13,7 +13,7 @@ public sealed class AuthSmokeTests : SmokeTestBase
 
     /// <summary>Ensures gRPC cache RPCs reject missing and invalid JWT credentials and accept a valid bearer token.</summary>
     [Fact]
-    public async Task CacheRpcRejectsMissingAcceptsValidJwtConfigured()
+    public async Task CacheRpcValidatesJwtWhenConfigured()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
         var uri = GetNextHttpUri();

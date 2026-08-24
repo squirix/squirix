@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Adapters.Rest;
@@ -15,7 +15,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
 {
     /// <summary>Ensures reflection fallback remains available for application payload types.</summary>
     [Fact]
-    public void KeepsReflectionFallbackForUnknownApplicationTypes()
+    public void ReflectionFallbackForUnknownTypes()
     {
         var serializer = new ServerJsonSerializer();
         var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 });
@@ -28,7 +28,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
 
     /// <summary>Ensures REST error DTOs keep the public web JSON contract.</summary>
     [Fact]
-    public void RestContextPreservesErrorResponseJsonShape()
+    public void RestContextPreservesErrorJsonShape()
     {
         var error = JsonSerializer.SerializeToElement(new ErrorResponse("missing", "notFound", null), RestJsonSerializerContext.Default.ErrorResponse);
 
@@ -84,7 +84,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
 
     /// <summary>Ensures SerializeToElement can still round-trip application payloads through reflection fallback.</summary>
     [Fact]
-    public void SerializeElementKeepsUnknownApplicationTypes()
+    public void SerializeElementKeepsUnknownTypes()
     {
         var serializer = new ServerJsonSerializer();
         var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };

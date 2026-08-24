@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -17,7 +17,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
 
     /// <summary>Verifies health is served on the primary HTTPS listener.</summary>
     [Fact]
-    public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
+    public async Task HealthServedOnPrimaryHttpsListener()
     {
         var uri = GetNextHttpUri();
 
@@ -46,7 +46,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
 
     /// <summary>Verifies non-loopback primary listeners require authentication.</summary>
     [Fact]
-    public async Task ProductionExternalUrlRequiresAuthentication()
+    public async Task ProductionUrlRequiresAuthentication()
     {
         var mainPort = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;

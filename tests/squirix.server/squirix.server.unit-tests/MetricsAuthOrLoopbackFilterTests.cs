@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
@@ -13,15 +13,15 @@ public sealed class MetricsAuthOrLoopbackFilterTests
 {
     /// <summary>Verifies loopback clients can scrape metrics without authentication.</summary>
     [Fact]
-    public void IsRequestAuthorizedAllowsLoopbackAuthentication() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Loopback)));
+    public void LoopbackAllowedWithoutAuthentication() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Loopback)));
 
     /// <summary>Verifies remote authenticated clients can scrape metrics.</summary>
     [Fact]
-    public void IsRequestAuthorizedAllowsRemoteWhenAuthenticated() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"), true)));
+    public void RemoteAllowedWhenAuthenticated() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"), true)));
 
     /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
     [Fact]
-    public void IsRequestAuthorizedRejectsRemoteAuthentication() => Assert.False(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"))));
+    public void UnauthenticatedRemoteRejected() => Assert.False(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"))));
 
     private static DefaultHttpContext CreateContext(IPAddress remoteIp, bool authenticated = false)
     {

@@ -287,7 +287,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
-            if (attempt >= _maxAttempts || !OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (attempt >= _maxAttempts || !OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
                 return AttemptOutcome<T>.Stop(ex);
 
             CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(ex));
@@ -312,7 +312,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
-            var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken);
+            var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
@@ -340,7 +340,7 @@ internal sealed class CallPolicy : ICallPolicy
             var attempt = 0;
             Exception? last = null;
 
-            while (OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
+            while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
                 var outcome = await TryOneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
@@ -359,7 +359,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
         {
-            if (!hasDeadlineBudget || OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (!hasDeadlineBudget || OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
             {
                 throw last switch
                 {
@@ -475,7 +475,7 @@ internal sealed class CallPolicy : ICallPolicy
                 operationEffectiveToken.IsCancellationRequested,
                 perAttemptCompositeToken.IsCancellationRequested);
 
-            internal static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
+            internal static bool EffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
 
             private static CancellationScenarioKind ClassifyFromLinkedTokenState(bool callerCanceled, bool operationEffectiveCanceled, bool perAttemptScopeCanceled) =>
                 (callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled) switch

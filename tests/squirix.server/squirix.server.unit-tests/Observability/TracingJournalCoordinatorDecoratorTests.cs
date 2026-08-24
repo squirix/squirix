@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -49,7 +49,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Theory]
     [InlineData(5)]
     [InlineData(0)]
-    public async Task AppendPutAsyncPutContextReflectsDurabilitySettings(int groupCommitMaxWaitMilliseconds)
+    public async Task PutAsyncContextReflectsDurability(int groupCommitMaxWaitMilliseconds)
     {
         var options = new PersistenceOptions
         {

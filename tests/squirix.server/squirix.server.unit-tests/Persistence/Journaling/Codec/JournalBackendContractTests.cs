@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -35,7 +35,7 @@ public sealed class JournalBackendContractTests
 
     /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendRemoveExpirationReplayRoundTripAsync()
+    public async Task RemoveExpiryReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-exp-key");
@@ -65,7 +65,7 @@ public sealed class JournalBackendContractTests
 
     /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
-    public async Task AppendTouchExpirationReplayRoundTripAsync()
+    public async Task TouchExpiryReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "touch-key");

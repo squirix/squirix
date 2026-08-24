@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -22,7 +22,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
     /// cache reads stay empty until replay, and durable writes wait for the startup gate.
     /// </summary>
     [Fact]
-    public async Task NonBlockingRecoveryKeepsReadyOpensGatesCacheWrites()
+    public async Task NonBlockingRecoveryUnblocksWrites()
     {
         await SeedPersistedEntryAsync();
 

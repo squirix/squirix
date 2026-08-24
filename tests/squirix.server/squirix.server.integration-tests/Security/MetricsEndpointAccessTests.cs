@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -15,12 +15,12 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-metrics-access";
-    private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
     /// <summary>Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.</summary>
     [Fact]
-    public async Task AuthenticatedMetricsScrapeListenerAuthEnabled()
+    public async Task MetricsScrapeWithListenerAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -39,7 +39,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
-    public async Task LoopbackMetricsScrapeCredentialsAuthEnabled()
+    public async Task LoopbackMetricsScrapeWithAuth()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -53,7 +53,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
-    public async Task RemoteMetricsScrapeCredentialsAuthEnabled()
+    public async Task RemoteMetricsScrapeWithAuth()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));

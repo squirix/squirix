@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -59,7 +59,7 @@ public sealed class JournalWriteBatchBufferTests
 
     /// <summary>A frame larger than the configured capacity is rejected so callers fall back to a direct write.</summary>
     [Fact]
-    public void StageAppendRejectsFrameLargerThanCapacity()
+    public void StageAppendRejectsOversizedFrame()
     {
         var buffer = new JournalWriteBatchBuffer(8);
 

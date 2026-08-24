@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -108,7 +108,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
 
     /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
     [Fact]
-    public async Task TryAddShouldSucceedWhenExistingEntryExpired()
+    public async Task TryAddSucceedsWhenExistingEntryExpired()
     {
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);

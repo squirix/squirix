@@ -14,7 +14,7 @@ public sealed class BootstrapWarmupDiagnosticsTests
 
     /// <summary>Verifies skipped bootstrap peers emit a labeled counter measurement.</summary>
     [Fact]
-    public void RecordBootstrapPeerSkippedIncrementsMetric()
+    public void RecordPeerSkippedIncrementsMetric()
     {
         using var sink = new MeasurementSink("Squirix");
         ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped("peer-dead", new InvalidOperationException("Failed to connect to endpoint 'peer-dead' within 5000ms."));
@@ -23,7 +23,7 @@ public sealed class BootstrapWarmupDiagnosticsTests
 
     /// <summary>Verifies non-timeout failures classify as connect_failed.</summary>
     [Fact]
-    public void RecordBootstrapPeerSkippedNonTimeoutFailures()
+    public void RecordPeerSkippedNonTimeoutFailures()
     {
         using var sink = new MeasurementSink("Squirix");
         ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped("peer-dead", new InvalidOperationException("connection refused"));

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -20,7 +20,7 @@ public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesServerAssemblyExportsAsync()
+    public async Task MatchesServerAssemblyExportsAsync()
     {
         var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
         var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
@@ -36,7 +36,7 @@ public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 
     /// <summary>Ensures the server package exposes the canonical lifetime methods.</summary>
     [Fact]
-    public void ServerShouldExposeCanonicalLifetimeMethods()
+    public void ExposesCanonicalLifetimeMethods()
     {
         Assert.NotNull((Func<CancellationToken, ValueTask<SquirixServer>>)StartAsync);
         Assert.NotNull((Func<SquirixServer, ValueTask>)DisposeAsync);

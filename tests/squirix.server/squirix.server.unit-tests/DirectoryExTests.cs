@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -41,7 +41,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>On macOS, <c>/tmp</c> may be used as a base despite being a Darwin compatibility symlink.</summary>
     [Fact]
-    public void CreateDirectoryAcceptsMacOsTmpCompatibilityBase()
+    public void CreateDirAcceptsMacOsTmpBase()
     {
         if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
             return;
@@ -63,7 +63,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>When <c>ensureEmpty</c> is true, existing child files are removed.</summary>
     [Fact]
-    public async Task CreateDirectoryAsyncEnsEmptyRemovesChildrenAsync()
+    public async Task EnsureEmptyRemovesChildrenAsync()
     {
         using var root = new TempDirectory("squirix-directoryex-empty-children");
         var ct = DefaultCancellationToken;
@@ -81,7 +81,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>When <c>forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
     [Fact]
-    public void CreateDirectoryAsyncRejectsSymlinkJunctionInChain()
+    public void EnsureEmptyRejectsSymlinkInChain()
     {
         using var root = new TempDirectory("squirix-directoryex-symlink-async");
         var ct = DefaultCancellationToken;
@@ -111,7 +111,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>Throws when a regular file already exists at the target path.</summary>
     [Fact]
-    public void CreateDirectoryRejectsExistingFileAtTarget()
+    public void CreateDirRejectsFileAtTargetPath()
     {
         using var root = new TempDirectory("squirix-directoryex-file");
         var target = Path.Join(root.Path, "blocked");
@@ -123,7 +123,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>When <c>forbidSymlinks</c> is true, rejects a directory symlink or junction in the path chain.</summary>
     [Fact]
-    public void CreateDirectoryRejectsSymlinkOrJunctionInChain()
+    public void CreateDirRejectsSymlinkInChain()
     {
         using var root = new TempDirectory("squirix-directoryex-symlink");
         var real = Path.Join(root.Path, "real");
@@ -137,7 +137,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>On Windows, reserved device names such as CON are rejected.</summary>
     [Fact]
-    public void CreateDirectoryRejectsWindowsReservedName()
+    public void CreateDirRejectsWindowsReservedName()
     {
         if (!OperatingSystem.IsWindows())
             return;
@@ -148,7 +148,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>Creates under a temp path and returns an absolute existing directory.</summary>
     [Fact]
-    public void CreateDirectoryReturnsAbsoluteExistingDirectory()
+    public void CreateDirReturnsAbsoluteExistingPath()
     {
         using var root = new TempDirectory("squirix-directoryex-create");
         var created = DirectoryEx.CreateDirectory("child", root.Path);
@@ -160,7 +160,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
     /// <summary>On non-Apple hosts, <see cref="MacOsCompatibilitySymlink.TryFollow(DirectoryInfo, out string)" /> returns false for a normal directory.</summary>
     [Fact]
-    public void MacOsCompatibilitySymlinkTryReturnsFalseOffApple()
+    public void CompatSymlinkTryReturnsFalseOffApple()
     {
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
             return;

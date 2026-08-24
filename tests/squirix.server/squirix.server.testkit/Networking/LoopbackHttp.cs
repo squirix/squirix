@@ -26,7 +26,7 @@ public static class LoopbackHttp
         };
 
         if (AllowUntrustedDevHttps)
-            handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, false);
+            handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreDevCertificate(certificate, errors, false);
 
         return handler;
     }
@@ -35,14 +35,14 @@ public static class LoopbackHttp
     /// Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c>localhost</c>.
     /// </summary>
     /// <returns>A loopback handler that tolerates certificate name mismatch.</returns>
-    public static SocketsHttpHandler CreateHandlerAllowingCertificateNameMismatch()
+    public static SocketsHttpHandler CreateHandlerAllowingCertNameMismatch()
     {
         var handler = CreateHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, true);
+        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreDevCertificate(certificate, errors, true);
         return handler;
     }
 
-    private static bool AcceptsAspNetCoreHttpsDevelopmentCertificate(X509Certificate? certificate, SslPolicyErrors errors, bool allowNameMismatch)
+    private static bool AcceptsAspNetCoreDevCertificate(X509Certificate? certificate, SslPolicyErrors errors, bool allowNameMismatch)
     {
         if (errors is SslPolicyErrors.None)
             return true;

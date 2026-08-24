@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,7 +28,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
 
     /// <summary>Appending to a segment with an invalid header rewrites a valid file header before new frames.</summary>
     [Fact]
-    public async Task CoordinatorWritesHeaderAfterInvalidSegmentRepair()
+    public async Task HeaderRewrittenAfterSegmentRepair()
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -60,7 +60,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
 
     /// <summary>RF=2 with persistence but without mTLS reports mTLS before activation refusal.</summary>
     [Fact]
-    public async Task RfTwoReportsMissingMtlsBeforeActivationError()
+    public async Task RfTwoRequiresMtlsBeforeActivation()
     {
         var uri = GetNextHttpUri();
         var peers = new[]
@@ -90,7 +90,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
 
     /// <summary>Settings JSON round-trips ReplicaCount and ConfigurationGeneration.</summary>
     [Fact]
-    public async Task SettingsFileRoundTripsReplicaCountAndGeneration()
+    public async Task SettingsRoundTripReplicaCountGeneration()
     {
         using var dir = new TempDirectory("squirix-rf-settings-roundtrip");
         var path = Path.Join(dir.Path, "Squirix.settings.json");

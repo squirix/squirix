@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -18,7 +18,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]
-    public async Task DeserializeAndMergeIntoAppliesJsonOverrides()
+    public async Task MergeAppliesJsonOverrides()
     {
         var baseline = new UnresolvedMemoryPressureOptions
         {
@@ -41,7 +41,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     [Fact]
-    public async Task DeserializeAndMergeKeepsBaselineForAbsentFields()
+    public async Task MergeKeepsBaselineForAbsentFields()
     {
         var baseline = new UnresolvedMemoryPressureOptions
         {

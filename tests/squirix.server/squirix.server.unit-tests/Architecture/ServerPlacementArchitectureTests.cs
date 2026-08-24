@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -11,7 +11,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
     [Fact]
-    public async Task MetricsTypesShouldLiveInObservabilityNamespace()
+    public async Task MetricsTypesLiveInObservabilityNamespace()
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync(
             "Metrics",
@@ -25,7 +25,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
     [Fact]
-    public async Task OptionsTypesShouldLiveInApprovedNamespaces()
+    public async Task OptionsTypesLiveInApprovedNamespaces()
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Options", true, cancellationToken: DefaultCancellationToken);
         ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServerOptionsTypeNamespaces);
@@ -33,7 +33,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
-    public async Task ServiceTypesShouldLiveInApprovedNamespaces()
+    public async Task ServiceTypesLiveInApprovedNamespaces()
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Service", true, cancellationToken: DefaultCancellationToken);
         ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServiceTypeNamespaces);

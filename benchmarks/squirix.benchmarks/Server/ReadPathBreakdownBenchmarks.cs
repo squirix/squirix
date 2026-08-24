@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -101,7 +101,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
-    public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
+    public async Task TransportFoundOnlyBatchedAsync()
     {
         var cache = _rawGrpc!;
         for (var i = 0; i < ReadBatch; i++)

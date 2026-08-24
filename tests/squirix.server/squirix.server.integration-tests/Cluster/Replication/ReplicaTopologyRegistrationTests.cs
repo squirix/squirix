@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -25,7 +25,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
 
     /// <summary>Peer order does not change the topology fingerprint.</summary>
     [Fact]
-    public async Task DifferentPeerOrderProducesSameFingerprint()
+    public async Task PeerOrderDoesNotChangeFingerprint()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
@@ -20,7 +20,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
 {
     /// <summary>A foreign checkpoint flush completes only its own ack and leaves earlier registered acks pending.</summary>
     [Fact]
-    public async Task ForeignDurabilityFlushLeavesRegisteredAckPending()
+    public async Task ForeignFlushLeavesAckPending()
     {
         var options = new PersistenceOptions
         {

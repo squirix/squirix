@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Xunit;
@@ -32,7 +32,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies an expired remote-owner entry is observed as missing from another node.</summary>
     [Fact]
-    public async Task ExpiredEntryInsertedOnNodeAIsMissingReadFromNodeB()
+    public async Task ExpiredFromNodeAIsMissingOnNodeB()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-expire");
         var expiration = TimeSpan.FromSeconds(2);
@@ -49,7 +49,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies GetExpirationAsync sees the expiration for a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task GetExpirationNodeBReturnsEntryInsertedNodeA()
+    public async Task GetExpiryOnNodeBReturnsEntryFromNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-get-expiration");
 
@@ -61,7 +61,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
     [Fact]
-    public async Task PersistNodeBNonExpiringReturnsFalseKeepsKeyLive()
+    public async Task PersistNonExpiringOnNodeBKeepsKeyLive()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-non-expiring");
 
@@ -74,7 +74,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies RemoveExpirationAsync can remove expiration from a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task PersistNodeBRemovesExpirationEntryInsertedOnNodeA()
+    public async Task PersistOnNodeBClearsExpiryOfNodeAEntry()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
 
@@ -85,7 +85,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.</summary>
     [Fact]
-    public async Task PersistOnNodeBIsIdempotentForExistingRemoteKey()
+    public async Task PersistOnNodeBIdempotentForRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-idempotent");
 
@@ -106,7 +106,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveExpirationAsync treats an expired key as missing.</summary>
     [Fact]
-    public async Task PersistOnNodeBTreatsExpiredRemoteKeyAsMissing()
+    public async Task PersistOnNodeBSkipsExpiredRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-expired");
 
@@ -127,7 +127,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies RemoveExpirationAsync from another node prevents expiration.</summary>
     [Fact]
-    public async Task RemotePersistBeforeExpirationKeepsKeyAlive()
+    public async Task PersistBeforeExpiryKeepsRemoteKeyAlive()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
 
@@ -164,7 +164,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveAsync treats an expired key as missing.</summary>
     [Fact]
-    public async Task RemoveNodeBTreatsExpiredRemoteKeyAsMissing()
+    public async Task RemovingOnNodeBIgnoresExpiredRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expired");
 
@@ -185,7 +185,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
     [Fact]
-    public async Task TouchNodeBNonExpiringKeyAddsExpirationKeepsValue()
+    public async Task TouchOnNodeBAddsExpiryAndKeepsValue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-non-expiring");
 
@@ -201,7 +201,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote TouchAsync treats an expired key as missing and does not resurrect it.</summary>
     [Fact]
-    public async Task TouchNodeBTreatsExpiredRemoteKeyAsMissingResurrect()
+    public async Task TouchOnNodeBDoesNotResurrectExpiredKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-expired");
 
@@ -222,7 +222,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies TouchAsync can update expiration for a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task TouchOnNodeBUpdatesExpirationEntryInsertedOnNodeA()
+    public async Task TouchOnNodeBExtendsExpiryFromNodeAEntry()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-update-expiration");
 
@@ -233,7 +233,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote TryAddAsync treats an expired key as absent and inserts a new value.</summary>
     [Fact]
-    public async Task TryAddOnNodeBTreatsExpiredRemoteKeyAsAbsent()
+    public async Task TryAddOnNodeBAllowsExpiredRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-add-expired");
 
@@ -254,7 +254,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveAsync treats expired entries as missing.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBTreatsExpiredRemoteEntryAsMissing()
+    public async Task TryRemoveOnNodeBIgnoresExpiredEntry()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
 

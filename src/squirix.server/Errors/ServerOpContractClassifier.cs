@@ -20,7 +20,7 @@ internal static class ServerOpContractClassifier
     /// <param name="detail">The gRPC status detail string.</param>
     /// <param name="message">The invalid-operation message when the method returns <see langword="true" />.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches insert-version precondition contracts.</returns>
-    internal static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string? message)
+    internal static bool TryGetFailedPreconditionMessage(string? detail, out string? message)
     {
         var kind = ClassifyFailedPreconditionDetail(detail);
         if (kind is ServerFailedPreconditionKind.InsertVersionMustExceedCurrent)

@@ -22,7 +22,7 @@ internal static class JournalRecoveryScan
         var next = ResolveBaselineNextSequence(manifest);
         var (firstAvailableSegment, lastAvailableSegment) = ProbeAvailableSegments(options.DataDir);
         var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
-        ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+        ThrowIfJournalOnlyTopologyDisjoint(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
         var scanStartSegment = firstAvailableSegment == 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
         using var records = JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None);
@@ -81,7 +81,7 @@ internal static class JournalRecoveryScan
         }
     }
 
-    private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit() => new("journal recovery cannot determine a valid replay start.");
+    private static InvalidDataException CreateTopologyDisjointException() => new("journal recovery cannot determine a valid replay start.");
 
     private static (int FirstAvailableSegment, int LastAvailableSegment) ProbeAvailableSegments(string dataDir)
     {
@@ -148,18 +148,18 @@ internal static class JournalRecoveryScan
         return next;
     }
 
-    private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
+    private static void ThrowIfJournalOnlyTopologyDisjoint(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
     {
         if (firstAvailableSegment == 0)
         {
             if (manifestCurrentJournal != 1)
-                throw CreateJournalTopologyDisjointForSequenceInit();
+                throw CreateTopologyDisjointException();
 
             return;
         }
 
         if (lastAvailableSegment < manifestCurrentJournal)
-            throw CreateJournalTopologyDisjointForSequenceInit();
+            throw CreateTopologyDisjointException();
     }
 
     private static void WriteFreshFileHeader(IJournalSegmentWriter writer)

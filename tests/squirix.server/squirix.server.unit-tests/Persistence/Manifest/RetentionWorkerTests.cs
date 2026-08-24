@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +15,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
 {
     /// <summary>Invalid DataDir causes cleanup failure reporting without crashing the worker.</summary>
     [Fact]
-    public async Task ScheduleRetentionCleanupInvalidDirRecordsFailure()
+    public async Task CleanupWithBadDirRecordsFailure()
     {
         var readiness = new RecordingReadiness();
         var metrics = new RecordingFailureMetrics();

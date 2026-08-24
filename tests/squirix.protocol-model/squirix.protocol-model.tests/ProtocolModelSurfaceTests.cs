@@ -32,7 +32,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     public static void ExploreProfileForCliRejectsUnknownName() => ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
 
     [Fact]
-    public static void ExploreProfileForReplicaCountRejectsOutOfRange()
+    public static void ExploreReplicaCountProfileRejectsRange()
     {
         _ = ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
         _ = ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
@@ -57,7 +57,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static async Task RunCliAsyncFormatsCommitAndReadBrokenModesAsync()
+    public static async Task RunCliFormatsCommitAndReadModesAsync()
     {
         var outputCommit = CreateTempDir();
         var outputRead = CreateTempDir();
@@ -82,7 +82,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static async Task RunCliAsyncWritesCounterexampleForBrokenVoteAsync()
+    public static async Task RunCliBrokenVoteCounterexampleAsync()
     {
         var output = CreateTempDir();
         try
@@ -102,7 +102,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static async Task RunCliAsyncWritesSummaryForSafeSmallProfileAsync()
+    public static async Task RunCliWritesSummaryForSmallProfileAsync()
     {
         var output = CreateTempDir();
         try
@@ -122,7 +122,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static void SafetyCheckerFormatsCounterexampleJsonWithPath()
+    public static void SafetyCheckerFormatsCounterexampleJson()
     {
         var state = ClusterState.CreateInitial(3);
         var violation = new SafetyViolation("ElectionSafety", "dual leaders", state.Fingerprint(false));

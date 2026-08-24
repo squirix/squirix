@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -44,7 +44,7 @@ public sealed class IndexAllocatorTests : ServerUnitTestBase
     /// index. Without the guard this reseeds to the stale value and the following allocation reuses an index.
     /// </summary>
     [Fact]
-    public void StaleSeedAfterAllocationDoesNotRewindNextIndex()
+    public void StaleSeedNeverRewindsNextIndex()
     {
         var allocator = new IndexAllocator("data", "current", "manifest", "manifest*", static () => 15);
         Assert.Equal(16, allocator.AllocateNextManifestIndex());

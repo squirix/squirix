@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -15,14 +15,14 @@ namespace Squirix.Server.SmokeTests;
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
     /// <summary>
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
+    public async Task MetricsValidatesJwtWhenConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));

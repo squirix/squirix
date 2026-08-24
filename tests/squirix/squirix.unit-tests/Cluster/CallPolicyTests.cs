@@ -27,7 +27,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
     [Fact]
-    public async Task ExecuteAsyncQueuedCallRejectedOnDrainAsync()
+    public async Task QueuedCallRejectedOnDrainAsync()
     {
         var timeout = TimeSpan.FromSeconds(5);
         await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
@@ -60,7 +60,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries DeadlineExceeded RpcException.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesDeadlineExceededRpcAsync()
+    public async Task RetriesDeadlineExceededRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
         var box = new IntBox();
@@ -80,7 +80,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Retries HttpRequestException then succeeds.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesHttpRequestExceptionAsync()
+    public async Task RetriesHttpRequestExceptionAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
         var box = new IntBox();
@@ -100,7 +100,7 @@ public sealed class CallPolicyTests
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
     [Fact]
-    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOneAsync()
+    public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
         _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(

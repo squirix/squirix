@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -48,7 +48,7 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
 
     /// <summary>Configurator copies replica placement fields.</summary>
     [Fact]
-    public void ConfiguratorCopiesReplicaCountAndGeneration()
+    public void ConfiguratorCopiesCountAndGeneration()
     {
         var source = CreateServerOptions(3);
         source.ConfigurationGeneration = 9;
@@ -152,7 +152,7 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
 
     /// <summary>JSON settings load ReplicaCount and ConfigurationGeneration.</summary>
     [Fact]
-    public async Task SettingsJsonLoadsReplicaCountAndGeneration()
+    public async Task SettingsJsonLoadsCountAndGeneration()
     {
         var path = Path.Join(Dir.Path, "Squirix.settings.json");
         const string json =

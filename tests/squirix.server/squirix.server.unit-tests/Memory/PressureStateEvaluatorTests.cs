@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Xunit;
@@ -15,7 +15,7 @@ public sealed class PressureStateEvaluatorTests
     /// Verifies usage above the critical ratio maps to <see cref="PressureLevel.Critical" />.
     /// </summary>
     [Fact]
-    public void EvaluateReturnsCriticalAboveCriticalThreshold()
+    public void CriticalAboveCriticalThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -32,7 +32,7 @@ public sealed class PressureStateEvaluatorTests
     /// Verifies usage exactly at the critical ratio maps to <see cref="PressureLevel.Critical" />.
     /// </summary>
     [Fact]
-    public void EvaluateReturnsCriticalAtExactCriticalThreshold()
+    public void CriticalAtExactCriticalThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions

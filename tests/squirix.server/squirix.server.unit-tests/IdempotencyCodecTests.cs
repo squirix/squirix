@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
@@ -19,7 +19,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
 
     /// <summary>Length computation rejects oversized UTF-8 fields.</summary>
     [Fact]
-    public void ComputeEncodedLengthRejectsOversizedOperationId()
+    public void EncodedLengthRejectsOversizedOpId()
     {
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
             ushort.MaxValue + 1,

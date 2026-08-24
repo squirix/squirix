@@ -1,4 +1,4 @@
-# Squirix E2E Benchmarks (`Squirix.E2EBenchmarks`)
+﻿# Squirix E2E Benchmarks (`Squirix.E2EBenchmarks`)
 
 The E2E benchmark suite measures the public `ICache<T>` client API against real Squirix server nodes. It is intended
 for diagnostics and regression investigation, not marketing numbers.
@@ -151,21 +151,21 @@ Basic operations:
 - `GetValueShouldReturnMissAsync`
 - `GetEntryShouldReturnHitAsync`
 - `TryAddShouldAddMissingValueAsync`
-- `TryAddShouldReturnFalseForExistingValueAsync`
+- `TryAddReturnsFalseForExistingValueAsync`
 - `AddShouldStoreMissingValueAsync`
 - `AddShouldThrowForExistingValueAsync`
 - `UpdateShouldModifyExistingValueAsync`
-- `UpdateShouldReturnFalseForMissingValueAsync`
+- `UpdateReturnsFalseForMissingValueAsync`
 - `RemoveShouldDeleteExistingValueAsync`
-- `RemoveShouldReturnFalseForMissingValueAsync`
+- `RemoveReturnsFalseForMissingValueAsync`
 
 Expiration:
 
 - `TouchShouldUpdateRelativeExpirationAsync`
 - `TouchShouldUpdateAbsoluteExpirationAsync`
-- `GetExpirationShouldReturnExpiringEntryAsync`
-- `GetExpirationShouldReturnNonExpiringEntryAsync`
-- `RemoveExpirationShouldClearExpirationAsync`
+- `GetExpiryReturnsExpiringEntryAsync`
+- `GetExpiryReturnsNonExpiringEntryAsync`
+- `RemoveExpiryClearsExpirationAsync`
 
 Get-or-add:
 
@@ -177,7 +177,7 @@ Mixed workloads:
 - `ReadHeavy95To5ShouldExecuteAsync`
 - `ReadMostly80To15To5ShouldExecuteAsync`
 - `HotKeyReadMostlyShouldExecuteAsync`
-- `UniformTwoNodeReadMostlyShouldExecuteAsync`
+- `TwoNodeReadMostlyUniformExecutesAsync`
 - `RemoteOwnerReadMostlyShouldExecuteAsync`
 
 ## Interpreting Output

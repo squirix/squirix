@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Compaction;
@@ -15,7 +15,7 @@ public sealed class JournalCompactionOptionsTests
 {
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsBoundaryScalars()
+    public void FieldValidationAcceptsValidScalars()
     {
         var options = new JournalCompactionOptions
         {
@@ -31,7 +31,7 @@ public sealed class JournalCompactionOptionsTests
 
     /// <summary>Verifies invalid scalar values fail at assignment time.</summary>
     [Fact]
-    public void FieldBackedValidationRejectsInvalidScalars()
+    public void FieldValidationRejectsBadScalars()
     {
         var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static value => _ = new JournalCompactionOptions { MinTailSegments = value });
 

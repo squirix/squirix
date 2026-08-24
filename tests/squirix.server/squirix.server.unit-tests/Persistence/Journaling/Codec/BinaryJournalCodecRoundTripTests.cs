@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Attributes;
@@ -53,7 +53,7 @@ public sealed class BinaryJournalCodecRoundTripTests
 
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>
     [Fact]
-    public void PrepareEncodeRejectsInternalOnlyOperations()
+    public void PrepareEncodeRejectsInternalOnlyOps()
     {
         var record = new JournalRecord
         {
@@ -69,7 +69,7 @@ public sealed class BinaryJournalCodecRoundTripTests
 
     /// <summary>Idempotency outcome journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Fact]
-    public void PrepareEncodeRoundTripsIdempotencyOutcome() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.IdempotencyOutcome);
+    public void PrepareEncodeRoundTripsIdempotency() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.IdempotencyOutcome);
 
     /// <summary>Put journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Fact]

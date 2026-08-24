@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -25,7 +25,7 @@ public sealed class DefaultModeIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Ensures default startup does not create journal, manifest, or snapshot files.</summary>
     [Fact]
-    public async Task DefaultStartupDoesNotCreatePersistenceFiles()
+    public async Task DefaultStartupCreatesNoPersistedFiles()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, "node_ephemeral");

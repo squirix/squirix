@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -19,7 +19,7 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
 
     /// <summary>Verifies authenticated scrape output does not expose raw cache namespace names.</summary>
     [Fact]
-    public async Task AuthenticatedMetricsScrapeOmitsCacheNamespaceNames()
+    public async Task AuthenticatedScrapeOmitsCacheNames()
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         var mainPort = AllocateDedicatedPort();

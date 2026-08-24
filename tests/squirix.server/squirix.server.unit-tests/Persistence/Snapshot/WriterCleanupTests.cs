@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -21,7 +21,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
     [Fact]
-    public async Task WriteAsyncCreatesNewSnapshotFinalFileDoesNotExist()
+    public async Task WriteCreatesFinalWithoutPrecreate()
     {
         var writer = new SnapshotWriter(Dir);
 
@@ -35,7 +35,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 
     /// <summary>Verifies a failed finalize leaves the previous final snapshot intact and removes the temporary file.</summary>
     [Fact]
-    public async Task WriteAsyncFailedFinalizeKeepsPreviousSnapshot()
+    public async Task FailedFinalizeKeepsPreviousSnapshot()
     {
         var writer = new SnapshotWriter(Dir);
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), DefaultCancellationToken);
@@ -50,7 +50,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 
     /// <summary>Verifies a snapshot write failure removes the temporary file.</summary>
     [Fact]
-    public async Task WriteAsyncRemovesTmpWhenSerializationFails()
+    public async Task FailedSerializationRemovesTmpFile()
     {
         var writer = new SnapshotWriter(Dir);
         var items = FailingItems();
@@ -61,7 +61,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 
     /// <summary>Verifies a snapshot writer replaces an existing final snapshot without leaving the path absent after success.</summary>
     [Fact]
-    public async Task WriteAsyncReplacesExistingSnapshotWithoutPreDelete()
+    public async Task ReplaceNeedsNoExplicitPreDelete()
     {
         var writer = new SnapshotWriter(Dir);
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("stale"), BuildEntry("old"), DefaultCancellationToken);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -33,7 +33,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
     /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
     [Fact]
-    public async Task IdempotentMutationAppendsOutcomeDurabilityCommit()
+    public async Task MutationAppendsOutcomeThenCommitsDurably()
     {
         var options = new PersistenceOptions
         {
@@ -80,10 +80,10 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             DefaultCancellationToken);
 
         trace.AssertExpected();
-        await AssertJournalContainsPutAndIdempotencyOutcomeAsync(options.DataDir, manifestStore);
+        await JournalHasPutAndIdempotencyRecordsAsync(options.DataDir, manifestStore);
     }
 
-    private static async Task AssertJournalContainsPutAndIdempotencyOutcomeAsync(string dataDir, Ledger manifestStore)
+    private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir, Ledger manifestStore)
     {
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var sawPut = false;

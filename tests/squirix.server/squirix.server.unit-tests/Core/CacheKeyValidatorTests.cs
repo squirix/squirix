@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -60,7 +60,7 @@ public sealed class CacheKeyValidatorTests : ServerUnitTestBase
 
     /// <summary>Validate throws ArgumentException with the caller parameter name.</summary>
     [Fact]
-    public void ValidateThrowsArgumentExceptionForInvalidKeys()
+    public void ThrowsArgumentForInvalidCacheKeys()
     {
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(default(string?), static key => _ = CacheKeyValidator.Validate(key, "entryKey"));
         Assert.Equal("entryKey", ex.ParamName);

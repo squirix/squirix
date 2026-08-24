@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -28,7 +28,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures product code does not use access-check bypass attributes.</summary>
     [Fact]
-    public async Task ProductionSourcesShouldNotUseIgnoresAccessChecksTo()
+    public async Task SourcesMustNotUseIgnoresAccessChecksTo()
     {
         var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
@@ -48,7 +48,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
     [Fact]
-    public async Task RepositoryShouldNotUseGlobalOrImplicitUsings()
+    public async Task NoGlobalOrImplicitUsingsInRepo()
     {
         var root = RepositoryPaths.FindRepositoryRoot();
         Assert.Empty(await ServerArchitectureFixtures.CollectGlobalUsingSourceOffendersAsync(root, DefaultCancellationToken));
@@ -57,7 +57,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
     [Fact]
-    public async Task ServerBootstrapSourcesUsePackageHostStartupApi()
+    public async Task BootstrapSourcesUsePackageHostStartup()
     {
         var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(DefaultCancellationToken);
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
@@ -68,7 +68,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
     [Fact]
-    public void ServerHostProjectBePackableGlobalToolExecutable()
+    public void HostProjectPacksAsGlobalToolExecutable()
     {
         var index = ServerArchitectureFixtures.ParseMsbuildProject(ServerArchitectureFixtures.LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
@@ -88,7 +88,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
     [Fact]
-    public async Task ServerInternalsVisibleToMatchApprovedAllowlist()
+    public async Task InternalsVisibleToMatchesAllowlist()
     {
         string[] approved =
         [
@@ -122,7 +122,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
     [Fact]
-    public void ServerProjectKeepApprovedHostingDependencyBaseline()
+    public void HostingDependenciesMatchApprovedBaseline()
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
         var frameworkIncludes = index.GetIncludes("FrameworkReference");

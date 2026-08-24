@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -15,12 +15,12 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-ready-details";
-    private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
     /// <summary>Verifies authenticated remote scrapes succeed when server auth is enabled.</summary>
     [Fact]
-    public async Task AuthenticatedReadyDetailsScrapeListenerAuthEnabled()
+    public async Task ReadyDetailsScrapeWithListenerAuth()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -39,7 +39,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
-    public async Task LoopbackReadyDetailsScrapeCredentialsAuthEnabled()
+    public async Task LoopbackReadyDetailsScrapeWithAuth()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -53,7 +53,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
-    public async Task RemoteReadyDetailsScrapeCredentialsAuthEnabled()
+    public async Task RemoteReadyDetailsScrapeWithAuth()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));

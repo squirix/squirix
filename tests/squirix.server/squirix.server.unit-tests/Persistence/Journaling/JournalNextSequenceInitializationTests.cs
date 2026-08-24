@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -23,7 +23,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>
     [Fact]
-    public async Task InitializationFailsManifestLastAvailableSegment()
+    public async Task InitFailsOnMissingLastSegment()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -48,7 +48,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>Next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
     [Fact]
-    public async Task NextSequenceDerivesActiveManifestCurrentJournal()
+    public async Task SequenceDerivesActiveManifestJournal()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -76,7 +76,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>LastAppliedSequence from snapshot metadata raises the sequence floor before scanning the active journal tail.</summary>
     [Fact]
-    public async Task NextSequenceRespectsSnapshotActiveJournalScan()
+    public async Task SequenceRespectsSnapshotScan()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -108,7 +108,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>Scan start follows the first on-disk segment when it is already above manifest CurrentJournal.</summary>
     [Fact]
-    public async Task NextSequenceScanUsesSegmentManifestCurrentJournal()
+    public async Task ScanDerivesSequenceManifestJournal()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -134,7 +134,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>After a segment roll recorded in the manifest, a new writer continues monotonic allocation without rereading rolled segments.</summary>
     [Fact]
-    public async Task NextSequenceStaysMonotonicManifestSegmentBoundary()
+    public async Task SequenceMonotonicAcrossSegmentRoll()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -169,7 +169,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>CRC corruption in a segment below manifest CurrentJournal does not affect sequence initialization.</summary>
     [Fact]
-    public async Task ObsoleteJournalCorruptionBelowAffectNextSequence()
+    public async Task ObsoleteSegmentCorruptionIgnored()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -201,7 +201,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>After compaction, sequence initialization matches the compacted tail without reading deleted lower segments.</summary>
     [Fact]
-    public async Task PostCompactionNextSequenceManifestObsoleteSegments()
+    public async Task PostCompactionSequenceSkipsObsolete()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
@@ -237,7 +237,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
 
     /// <summary>Truncated tail in the active segment still caps discovered sequence the same way as full-file replay.</summary>
     [Fact]
-    public async Task TruncatedFrameActiveJournalBoundsNextSequence()
+    public async Task TruncatedTailBoundsSequence()
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Snapshot;
@@ -23,7 +23,7 @@ public sealed class TriggerOptionsTests
     [InlineData(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
     [InlineData(nameof(TriggerOptions.LatencySloMilliseconds))]
     [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
-    public static void FieldBackedValidationRejectsInvalidScalars(string propertyName)
+    public static void FieldValidationRejectsBadScalars(string propertyName)
     {
         var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
             propertyName,
@@ -34,7 +34,7 @@ public sealed class TriggerOptionsTests
 
     /// <summary>Verifies lower-bound scalar values remain accepted during JSON binding.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsBoundaryScalars()
+    public void FieldValidationAcceptsValidScalars()
     {
         const string json =
             """{"snapshotInterval":"00:00:00.0000001","snapshotEveryNOps":0,"snapshotEveryNBytes":0,"minGapBetweenSnapshots":"00:00:00","journalGrowthThrottleBytes":0,"latencySloMilliseconds":0,"latencyThrottleDuration":"00:00:00"}""";

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,7 +16,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
 {
     /// <summary>When one group fails to recover, previously opened logs are disposed and the error propagates.</summary>
     [Fact]
-    public async Task FailedGroupRecoveryDisposesOpenedLogsAndRollsBack()
+    public async Task FailedRecoveryDisposesLogsAndRollback()
     {
         await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"));
         await recovery.RecoverAllAsync(DefaultCancellationToken);

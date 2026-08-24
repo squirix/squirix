@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -22,7 +22,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production gRPC service surface.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesProductionGrpcEndpointSurface()
+    public async Task MatchesProductionGrpcEndpointSurface()
     {
         var actual = new HashSet<string>(await GrpcEndpointSurfaceCollector.CollectProductionGrpcMethodsAsync(), StringComparer.OrdinalIgnoreCase);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");

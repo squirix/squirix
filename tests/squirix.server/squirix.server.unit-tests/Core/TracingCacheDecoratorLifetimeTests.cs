@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.App.Decorators;
 using Xunit;
@@ -13,5 +13,5 @@ public sealed class TracingCacheDecoratorLifetimeTests
     /// Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.
     /// </summary>
     [Fact]
-    public void TracingCacheDecoratorDoesNotDeclareDispose() => Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>)));
+    public void TracingDecoratorDeclaresNoDispose() => Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>)));
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -35,7 +35,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]
-    public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
+    public async Task CustomAspNetCoreHostStartsMappedServer()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -65,7 +65,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures a configured data directory keeps the server's default strict fsync persistence mode.</summary>
     [Fact]
-    public async Task DataDirectoryOverridePreservesStrictFsyncDefault()
+    public async Task DataDirOverrideKeepsStrictFsyncDefault()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -85,7 +85,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
     [Fact]
-    public async Task MapSquirixServerMapsJournalCapacityToHttp429()
+    public async Task MapSquirixServerMapsQuotaToHttp429()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", port));
@@ -114,7 +114,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
     [Fact]
-    public async Task PackageExtensionCanDecorateBasicCachePipeline()
+    public async Task PackageExtensionDecoratesCachePipeline()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -140,7 +140,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures optional package extensions can register services and map endpoints through the public hosting API.</summary>
     [Fact]
-    public async Task PackageExtensionCanRegisterServiceAndMapEndpoint()
+    public async Task ExtensionRegistersServicesAndMapsRoutes()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -168,7 +168,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
     [Fact]
-    public async Task PackageExtensionReceivesStateMappingEndpoints()
+    public async Task ExtensionReceivesStateWhenMappingRoutes()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions

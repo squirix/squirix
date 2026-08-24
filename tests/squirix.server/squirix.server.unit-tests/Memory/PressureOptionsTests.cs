@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
@@ -22,7 +22,7 @@ public sealed class PressureOptionsTests
     [InlineData(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
     [InlineData(90, 90, "HighPressureThresholdPercent")]
     [InlineData(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
-    public static void ValidateRejectsInvalidThresholdCombinations(int critical, int high, string expectedMessageFragment)
+    public static void RejectsInvalidThresholdCombos(int critical, int high, string expectedMessageFragment)
     {
         var options = new PressureOptions
         {
@@ -62,7 +62,7 @@ public sealed class PressureOptionsTests
 
     /// <summary>Verifies local threshold boundaries remain accepted before cross-property validation runs.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsThresholdBoundaries()
+    public void FieldValidationAcceptsBoundaries()
     {
         var options = new PressureOptions
         {

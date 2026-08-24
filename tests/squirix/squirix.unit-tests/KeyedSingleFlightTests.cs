@@ -13,7 +13,7 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
 {
     /// <summary>Ensures concurrent callers observe the same factory exception.</summary>
     [Fact]
-    public async Task RunAsyncPropagatesSameFailureToConcurrentCallers()
+    public async Task PropagatesSameFailureToConcurrentCallers()
     {
         var flights = new KeyedSingleFlight<int>();
         var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };

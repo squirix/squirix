@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,7 +28,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
 
     /// <summary>Journal replay must restore idempotency CreatedUtc from the frame UnixMs, not recovery wall clock.</summary>
     [Fact]
-    public async Task JournalReplayRestoresIdempotencyCreatedUtcUnixMs()
+    public async Task ReplayRestoresIdempotencyCreatedUtc()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-unixms");
         var persistence = CreatePersistence(scenario.DataDir);

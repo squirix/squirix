@@ -176,7 +176,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
             if (ex.StatusCode != StatusCode.FailedPrecondition)
                 return;
 
-            if (ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
+            if (ServerOpContractClassifier.TryGetFailedPreconditionMessage(ex.Status.Detail, out var message))
                 throw new InvalidOperationException(message, ex);
 
             if (ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))

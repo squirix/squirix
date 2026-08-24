@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -14,7 +14,7 @@ public sealed class ReplicaPlacementPropertyTests
 {
     /// <summary>All keys owned by the same original owner share one ordered replica group.</summary>
     [Fact]
-    public void AllRangesForOwnerShareOrderedReplicaGroup()
+    public void OwnerRangesShareOrderedReplicaGroup()
     {
         var nodes = new[] { "node-a", "node-b", "node-c", "node-d" };
         var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);

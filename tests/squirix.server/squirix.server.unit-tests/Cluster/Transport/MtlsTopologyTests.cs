@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Xunit;
@@ -15,7 +15,7 @@ public sealed class MtlsTopologyTests
 
     /// <summary>Ensures remote peer node identifiers exclude the local node.</summary>
     [Fact]
-    public void GetRemotePeerNodeIdsReturnsOnlyRemotePeers()
+    public void RemotePeerIdsExcludeLocalNode()
     {
         var cluster = CreateCluster(
             "node-a",
@@ -31,7 +31,7 @@ public sealed class MtlsTopologyTests
 
     /// <summary>Ensures a standalone node with only the local peer does not require inter-node mTLS.</summary>
     [Fact]
-    public void RequiresInterNodeMtlsFalseStandaloneTopology()
+    public void StandaloneTopologyNeedsNoInterNodeMtls()
     {
         var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
 
@@ -40,7 +40,7 @@ public sealed class MtlsTopologyTests
 
     /// <summary>Ensures a multi-node topology with remote peers requires inter-node mTLS.</summary>
     [Fact]
-    public void RequiresInterNodeMtlsTrueRemotePeersConfigured()
+    public void RemotePeersRequireInterNodeMtls()
     {
         var cluster = CreateCluster(
             "node-a",

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -28,7 +28,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
     /// without hanging.
     /// </summary>
     [Fact]
-    public async Task CancellingDurableGroupCommitsKeepsPipelineHealthy()
+    public async Task CanceledGroupCommitKeepsPipelineHealthy()
     {
         var options = new PersistenceOptions
         {
@@ -67,7 +67,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
     /// whole roll), and the journal rolls to the next segment.
     /// </summary>
     [Fact]
-    public async Task DurableGroupCommitCompletesAcrossSegmentRoll()
+    public async Task GroupCommitCompletesAcrossRoll()
     {
         var options = new PersistenceOptions
         {

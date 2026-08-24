@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -61,7 +61,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
     /// <summary>A crash during commit advance recovers deterministically to the advanced commit index.</summary>
     [Fact]
-    public async Task CrashDuringCommitAdvanceRecoversDeterministically()
+    public async Task CrashMidCommitAdvanceRecoversCleanly()
     {
         using var dir = new TempDirectory("squirix-follower-restart-crash-commit");
         var crashFaults = new CommitAdvanceFaults();
@@ -81,7 +81,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
 
     /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
     [Fact]
-    public async Task UncommittedEntryRemainsInvisibleAfterRestart()
+    public async Task UncommittedEntryInvisibleAfterRestart()
     {
         using var dir = new TempDirectory("squirix-follower-restart-uncommitted");
 

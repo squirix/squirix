@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -74,7 +74,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
-    internal async Task<SocketsHttpHandler> CreateClusterCaTrustingHandlerNoClientCertAsync(
+    internal async Task<SocketsHttpHandler> CreateCaTrustingHandlerAsync(
         string targetPeerNodeId,
         ServerPeer[] peers,
         CancellationToken cancellationToken = default)
@@ -89,7 +89,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         };
         (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
-            : TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
+            : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
     }
 
     /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.</summary>

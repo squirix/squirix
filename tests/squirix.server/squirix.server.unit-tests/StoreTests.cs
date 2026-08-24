@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +18,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
     /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
     [Fact]
-    public async Task EnqueueRollAdvancesCurrentPointerSequentially()
+    public async Task EnqueueRollAdvancesPointerSequentially()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         await RollAsync();
@@ -46,7 +46,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
     /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>
     [Fact]
-    public async Task WriteAsyncCreatesCurrentPointerAndManifestFile()
+    public async Task WriteCreatesPointerAndManifestFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new Ledger(options);
@@ -67,7 +67,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
     [Fact]
-    public async Task WriteAsyncUpdatesCurrentPointerInPlaceTmpFile()
+    public async Task WriteUpdatesPointerViaTempFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new Ledger(options);

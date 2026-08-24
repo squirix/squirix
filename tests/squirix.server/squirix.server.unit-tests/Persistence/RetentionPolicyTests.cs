@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -16,7 +16,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
     [Fact]
-    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
+    public async Task WritesPruneSegmentsBeforeReplayPoint()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);
@@ -57,7 +57,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 
     /// <summary>Verifies only the newest configured snapshot files are kept after manifest persistence.</summary>
     [Fact]
-    public async Task WriteCleansUpSnapshotsBeyondRetentionCount()
+    public async Task WritesPruneSnapshotsPastRetention()
     {
         var options = new PersistenceOptions
         {

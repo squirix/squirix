@@ -7,13 +7,13 @@ namespace Squirix.Analyzers;
 internal static class AnalyzerLimits
 {
     /// <summary>Field name length (SQR006).</summary>
-    internal const int MaxFieldNameLength = 50;
+    internal const int MaxFieldNameLength = 40;
 
     /// <summary>Counted fields per type (SQR003).</summary>
     internal const int MaxFieldsPerType = 15;
 
     /// <summary>Method simple name length; property accessors subtract 4 (SQR005).</summary>
-    internal const int MaxMethodNameLength = 50;
+    internal const int MaxMethodNameLength = 40;
 
     /// <summary>Counted methods per type (SQR002).</summary>
     internal const int MaxMethodsPerType = 20;

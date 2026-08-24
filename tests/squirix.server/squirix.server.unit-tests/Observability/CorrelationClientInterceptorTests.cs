@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -22,7 +22,7 @@ public sealed class CorrelationClientInterceptorTests
     /// Verifies an active activity id is written to gRPC metadata as <c>traceparent</c>.
     /// </summary>
     [Fact]
-    public void ClientInterceptorAddsTraceParentCurrentActivity()
+    public void InterceptorAddsTraceParentFromActivity()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
@@ -45,7 +45,7 @@ public sealed class CorrelationClientInterceptorTests
     /// Verifies an existing <c>traceparent</c> entry is replaced when the current activity supplies a different id.
     /// </summary>
     [Fact]
-    public void ClientInterceptorReplacesExistingTraceParentHeader()
+    public void InterceptorReplacesTraceParentHeader()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
@@ -71,7 +71,7 @@ public sealed class CorrelationClientInterceptorTests
     /// Verifies an existing <c>tracestate</c> entry is replaced from the current activity state.
     /// </summary>
     [Fact]
-    public void ClientInterceptorReplacesExistingTraceStateHeader()
+    public void InterceptorReplacesTraceStateHeader()
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 

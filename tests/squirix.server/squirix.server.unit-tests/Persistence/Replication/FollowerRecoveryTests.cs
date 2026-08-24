@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -114,7 +114,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
     /// <summary>A missing log file with a nonzero committed index fails readiness to restart.</summary>
     [Fact]
-    public async Task MissingLogWithCommittedIndexFailsReadiness()
+    public async Task MissingLogFailsReadinessAtCommit()
     {
         using var dir = new TempDirectory("squirix-follower-recovery-missing-log");
         var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
@@ -203,7 +203,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
     /// <summary>A failed append that already wrote frames must not leave a stale suffix that a shorter retry and recovery accept.</summary>
     [Fact]
-    public async Task ShorterRetryAfterFailedAppendTruncatesStaleSuffix()
+    public async Task ShorterRetryTruncatesStaleSuffix()
     {
         using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
         var faults = new FrameWriteFaults();
@@ -256,7 +256,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
     /// <summary>A truncate that modifies the file and then faults must not leave the in-memory index ahead of durable storage.</summary>
     [Fact]
-    public async Task TruncateFailureReconcilesMemoryAheadOfDurable()
+    public async Task TruncateFailureReconcilesMemory()
     {
         using var dir = new TempDirectory("squirix-follower-log-truncate-fault");
         var faults = new TruncateFlushFaults();

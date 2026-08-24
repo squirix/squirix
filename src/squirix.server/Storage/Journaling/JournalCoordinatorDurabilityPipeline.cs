@@ -60,7 +60,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    internal void CompleteDurabilityCheckpointOnJournalThread(JournalWorkItem item)
+    internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
     {
         var ack = item.Ack ?? throw new InvalidOperationException("durability checkpoint work item is missing a durability ack.");
 

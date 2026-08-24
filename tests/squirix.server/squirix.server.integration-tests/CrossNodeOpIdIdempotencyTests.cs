@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -18,7 +18,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 
     /// <summary>Verifies bootstrap-style endpoint failover preserves operation_id and replays the cached mutation outcome.</summary>
     [Fact]
-    public async Task BootstrapEndpointSwitchReplaysSameOperationId()
+    public async Task BootstrapSwitchReplaysSameOperationId()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -50,7 +50,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 
     /// <summary>Verifies a retry with the same operation_id on a different entry node replays the owner outcome instead of double-applying when the key is owned elsewhere.</summary>
     [Fact]
-    public async Task CrossNodeIdenticalOperationIdReplaysCachedResponse()
+    public async Task CrossNodeRepeatReplaysCachedResponse()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -85,7 +85,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 
     /// <summary>Verifies reusing an operation_id with a different fingerprint fails on the owner after entry-node forwarding.</summary>
     [Fact]
-    public async Task CrossNodeReusedOperationReturnsFailedPrecondition()
+    public async Task CrossNodeReuseReturnsFailedPrecondition()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

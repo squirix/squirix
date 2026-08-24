@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -37,7 +37,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     /// </list>
     /// </summary>
     [Fact]
-    public async Task ReadyDetailsEndpointReportsReadinessSignals()
+    public async Task ReadyDetailsReportsReadinessSignals()
     {
         var uri = GetNextHttpUri();
 

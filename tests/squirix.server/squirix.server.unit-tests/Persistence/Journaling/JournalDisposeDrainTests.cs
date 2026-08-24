@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -23,7 +23,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
 {
     /// <summary>Appends enqueued right before disposal are all present in the journal after reopen.</summary>
     [Fact]
-    public async Task DisposePersistsAppendsEnqueuedBeforeShutdown()
+    public async Task DisposePersistsEnqueuedAppends()
     {
         var options = new PersistenceOptions
         {

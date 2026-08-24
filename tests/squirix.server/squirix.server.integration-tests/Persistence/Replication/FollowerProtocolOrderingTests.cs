@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -85,7 +85,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
 
     /// <summary>An out-of-order batch is rejected without any partial appending.</summary>
     [Fact]
-    public async Task OutOfOrderBatchIsRejectedWithoutPartialAppend()
+    public async Task OutOfOrderBatchRejectedAtomically()
     {
         using var dir = new TempDirectory("squirix-follower-ordering-gap");
 

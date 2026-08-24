@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +27,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
     /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]
-    public async Task BlockedNextManifestFileOverflowFrameAppended()
+    public async Task BlockedManifestStillAppendsFrames()
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
@@ -76,7 +76,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
-    public async Task OverflowingAppendLandsOnNextSegmentManifestRoll()
+    public async Task OverflowingAppendLandsOnNextRoll()
     {
         var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options);

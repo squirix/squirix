@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
@@ -18,7 +18,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
 {
     /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
     [Fact]
-    public async Task ExclusiveMaintenanceExecutorRunsSuppliedAction()
+    public async Task MaintenanceExecutorRunsGivenAction()
     {
         var persistence = new PersistenceOptions
         {

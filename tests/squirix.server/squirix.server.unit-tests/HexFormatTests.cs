@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
@@ -22,7 +22,7 @@ public sealed class HexFormatTests : ServerUnitTestBase
 
     /// <summary>Rejects digests that are not exactly 32 bytes.</summary>
     [Fact]
-    public void WriteSha256HexUpperRejectsInvalidDigestLength()
+    public void Sha256HexUpperRejectsBadDigestLength()
     {
         try
         {
@@ -39,7 +39,7 @@ public sealed class HexFormatTests : ServerUnitTestBase
 
     /// <summary>Rejects destinations shorter than 64 characters.</summary>
     [Fact]
-    public void WriteSha256HexUpperRejectsShortDestination()
+    public void Sha256HexUpperRejectsShortDestination()
     {
         try
         {

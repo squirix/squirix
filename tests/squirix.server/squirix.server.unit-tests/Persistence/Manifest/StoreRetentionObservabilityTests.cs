@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -24,7 +24,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
     [Fact]
-    public async Task RepeatedRetentionFailuresReadinessBreakingWrites()
+    public async Task RepeatedRetentionFailuresDegradeReady()
     {
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-readiness");
@@ -32,7 +32,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         {
             DataDir = dir,
             ManifestRetentionCount = 1,
-            RetentionCleanupDegradedConsecutiveWrites = 2,
+            RetentionCleanupDegradedWrites = 2,
             RetentionCleanupDegradedWindowFailures = 10,
         };
         var readiness = new RetentionCleanupReadiness(options);
@@ -57,7 +57,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public async Task WriteSucceedsJournalFailsFailureObservable()
+    public async Task JournalFailureObservableOnWrite()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
@@ -102,7 +102,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.</summary>
     [Fact]
-    public async Task WriteSucceedsManifestFailsFailureObservable()
+    public async Task ManifestFailureObservableOnWrite()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
@@ -137,7 +137,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public async Task WriteSucceedsSnapshotFailsFailureObservable()
+    public async Task SnapshotFailureObservableOnWrite()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();

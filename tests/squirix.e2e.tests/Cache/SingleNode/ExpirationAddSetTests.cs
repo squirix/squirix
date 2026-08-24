@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Xunit;
@@ -18,7 +18,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies AddAsync with immediate expiration reports success but does not leave a live key.</summary>
     [Fact]
-    public async Task AddAsyncEntryImmediateExpirationNotLeaveLiveKey()
+    public async Task AddImmediateExpiryNeverLeavesLiveKey()
     {
         var cache = await Client.GetCacheAsync<string>("add-immediate-expiration-public-extra", DefaultCancellationToken);
 
@@ -109,7 +109,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies GetValueAsync reflects presence and expiration.</summary>
     [Fact]
-    public async Task GetValueAsyncReflectsPresenceAndExpiration()
+    public async Task GetValueAsyncReflectsPresenceAndExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("contains-async", DefaultCancellationToken);
 
@@ -139,7 +139,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.</summary>
     [Fact]
-    public async Task SetAsyncValueDropOverwritingExistingExpiringEntry()
+    public async Task SetAsyncValueDropReplacesExpiringEntry()
     {
         var cache = await Client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", DefaultCancellationToken);
 
@@ -161,7 +161,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies value-based SetAsync applies relative expiration options to the stored entry.</summary>
     [Fact]
-    public async Task SetAsyncValueOptionsApplyRelativeExpiration()
+    public async Task SetAsyncOptionsApplyRelativeExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("set-options-expiration-public-extra", DefaultCancellationToken);
 
@@ -187,7 +187,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryImmediateExpirationNotLeaveLiveKey()
+    public async Task TryAddImmediateExpiryNeverLeavesLiveKey()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", DefaultCancellationToken);
 
@@ -228,7 +228,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies value-based TryAddAsync applies absolute expiration options to the stored entry.</summary>
     [Fact]
-    public async Task TryAddAsyncValueOptionsApplyAbsoluteExpiration()
+    public async Task TryAddOptionsApplyAbsoluteExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", DefaultCancellationToken);
 

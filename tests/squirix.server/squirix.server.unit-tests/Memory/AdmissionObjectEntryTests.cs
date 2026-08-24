@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -21,7 +21,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
 
     /// <summary>Large object entries are rejected once projected usage exceeds the configured limit.</summary>
     [Fact]
-    public async Task LargeObjectEntriesRejectProjectedUsageExceedsLimit()
+    public async Task OversizedObjectUsageRejectedPastLimit()
     {
         await using var physical = new PhysicalCache<object?>();
         var accounting = new MemoryUsageAccounting();

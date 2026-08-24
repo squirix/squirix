@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -18,7 +18,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.</summary>
     [Fact]
-    public async Task ReadAllOnMalformedFrameDoesNotMutateSegmentFile()
+    public async Task MalformedFrameLeavesSegmentFileIntact()
     {
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
@@ -67,7 +67,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
 
     /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>
     [Fact]
-    public async Task ReadAllYieldsFirstFrameSecondFrameCrcIsTruncated()
+    public async Task TruncatedSecondCrcYieldsFirstOnly()
     {
         var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");
         var second = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "k2", "b");

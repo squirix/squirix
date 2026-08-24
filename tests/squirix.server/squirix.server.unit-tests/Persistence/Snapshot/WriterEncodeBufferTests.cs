@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -18,7 +18,7 @@ public sealed class WriterEncodeBufferTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies an empty snapshot write rents and releases its buffer without producing records.</summary>
     [Fact]
-    public async Task WriteAsyncEmptySnapshotRoundTripsWithoutRecords()
+    public async Task EmptySnapshotRoundTripsNoRecords()
     {
         var writer = new SnapshotWriter(Dir);
 
@@ -31,7 +31,7 @@ public sealed class WriterEncodeBufferTests : IsolatedStorageTestBase
 
     /// <summary>Verifies consecutive writes with record sizes above and below the historical initial buffer size round-trip.</summary>
     [Fact]
-    public async Task WriteAsyncConsecutiveVaryingRecordSizesRoundTrip()
+    public async Task VaryingRecordSizesRoundTripAsync()
     {
         var writer = new SnapshotWriter(Dir);
         var largeValue = new string('x', 128 * 1024);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -16,7 +16,7 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
 {
     /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>
     [Fact]
-    public async Task RestartShouldNotRestoreValueInEphemeralMode()
+    public async Task EphemeralModeDropsValuesOnRestart()
     {
         await using var node = await EphemeralRestartableSingleNode.StartAsync(DefaultCancellationToken);
         var cache = await node.GetCacheAsync<string>("ephemeral-restart", DefaultCancellationToken);

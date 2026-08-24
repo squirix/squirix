@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +19,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
     [Fact]
-    public async Task SnapshotCutBuildPhaseDoesNotBlockMutationBarrier()
+    public async Task CutBuildDoesNotBlockMutationBarrier()
     {
         var persistence = new PersistenceOptions
         {
@@ -79,7 +79,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
 
     /// <summary>Verifies journal mutation path is usable after a snapshot cut build phase throws.</summary>
     [Fact]
-    public async Task SnapshotCutFailureStillAllowsJournalAppend()
+    public async Task CutFailureStillAllowsJournalAppend()
     {
         var persistence = new PersistenceOptions
         {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -25,7 +25,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production REST route surface.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesProductionRestEndpointSurface()
+    public async Task MatchesProductionRestEndpointSurface()
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");

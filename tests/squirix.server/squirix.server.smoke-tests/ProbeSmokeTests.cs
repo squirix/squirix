@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -10,7 +10,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     [Fact]
-    public async Task HealthProbesRemainAccessibleJwtWhenAuthEnabled()
+    public async Task HealthProbesOpenWithJwtAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var uri = GetNextHttpUri();

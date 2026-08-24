@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -17,7 +17,7 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>
     [Fact]
-    public async Task RemotePeersRejectMatchingPrimaryListenerAsync()
+    public async Task RemotePeersExcludePrimaryListenerAsync()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
@@ -51,7 +51,7 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures PFX and PEM inputs cannot be mixed.</summary>
     [Fact]
-    public async Task RemotePeersRejectMixedPfxAndPemPathsAsync()
+    public async Task MixedPfxAndPemPathsRejectedAsync()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
@@ -69,7 +69,7 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures multi-node topology requires CA, node certificate, and internal listen port.</summary>
     [Fact]
-    public void RemotePeersRequireCaCertificateInternalListenPort()
+    public void RemotePeersRequireCaForListenPort()
     {
         var options = new MtlsOptions();
 
@@ -81,7 +81,7 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures standalone topology does not require cluster mTLS material.</summary>
     [Fact]
-    public void StandaloneTopologyDoesNotRequireCertificatePaths()
+    public void StandaloneTopologyOmitsCertificatePaths()
     {
         var options = new MtlsOptions();
 
@@ -90,7 +90,7 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 
     /// <summary>Ensures startup validation allows standalone topology without mTLS material.</summary>
     [Fact]
-    public void StartupValidatorAllowsTopologyMtlsMaterial()
+    public void ValidatorAcceptsTopologyMtlsMaterial()
     {
         var cluster = new TopologyOptions(new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") })
         {

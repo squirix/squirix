@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -15,7 +15,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 {
     /// <summary>Update on an expired key removes it and returns false.</summary>
     [Fact]
-    public async Task UpdateAsyncRemovesExpiredEntryAndReturnsFalse()
+    public async Task UpdateRemovesExpiredEntryReturnsFalse()
     {
         var time = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(time);

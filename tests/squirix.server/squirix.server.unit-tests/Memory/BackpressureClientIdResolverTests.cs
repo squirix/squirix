@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
@@ -36,7 +36,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 
     /// <summary>Authenticated principals without a subject fall back to the connection id.</summary>
     [Fact]
-    public void ResolveUsesConnectionWhenAuthHasNoSubject()
+    public void ResolverUsesConnectionWithoutSubject()
     {
         var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-no-sub", AuthenticatedWithoutClaims())));
 
@@ -54,7 +54,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 
     /// <summary>Blank NameIdentifier is ignored so a raw subclaim can still scope the client id.</summary>
     [Fact]
-    public void ResolveUsesRawSubWhenNameIdentifierIsWhitespace()
+    public void RawSubUsedWhenNameIdentifierBlank()
     {
         var resolver = new HttpContextClientIdResolver(
             new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject")))));
@@ -64,7 +64,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 
     /// <summary>Raw JWT subclaim is used when NameIdentifier is absent.</summary>
     [Fact]
-    public void ResolveUsesRawSubWhenNameIdentifierMissing()
+    public void RawSubUsedWhenNameIdentifierMissing()
     {
         var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject")))));
 
