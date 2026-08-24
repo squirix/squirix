@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Xunit;

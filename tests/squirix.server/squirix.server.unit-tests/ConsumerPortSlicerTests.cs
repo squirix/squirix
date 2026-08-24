@@ -1,4 +1,4 @@
-﻿using Squirix.Server.TestKit.Networking;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;

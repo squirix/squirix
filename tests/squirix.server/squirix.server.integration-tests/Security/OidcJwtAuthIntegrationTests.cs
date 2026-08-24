@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;

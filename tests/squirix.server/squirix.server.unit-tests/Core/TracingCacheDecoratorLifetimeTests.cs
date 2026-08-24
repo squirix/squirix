@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.App.Decorators;
 using Xunit;

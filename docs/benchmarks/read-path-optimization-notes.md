@@ -1,4 +1,4 @@
-﻿# Squirix read path optimization notes
+# Squirix read path optimization notes
 
 <!-- markdownlint-disable MD013 MD060 -->
 

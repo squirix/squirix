@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

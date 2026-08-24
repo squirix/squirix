@@ -1,4 +1,4 @@
-﻿# Squirix E2E Benchmarks (`Squirix.E2EBenchmarks`)
+# Squirix E2E Benchmarks (`Squirix.E2EBenchmarks`)
 
 The E2E benchmark suite measures the public `ICache<T>` client API against real Squirix server nodes. It is intended
 for diagnostics and regression investigation, not marketing numbers.

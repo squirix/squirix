@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;

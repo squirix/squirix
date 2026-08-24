@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;

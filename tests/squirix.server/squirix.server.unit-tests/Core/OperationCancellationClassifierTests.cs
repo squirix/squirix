@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;

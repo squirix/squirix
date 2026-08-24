@@ -1,4 +1,4 @@
-﻿using Squirix.Server.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
 using Xunit;

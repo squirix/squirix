@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
