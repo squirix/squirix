@@ -4,9 +4,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,7 +36,7 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
             },
             DefaultCancellationToken);
 
-        var gate = new JournalStartupGate(false);
+        var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },

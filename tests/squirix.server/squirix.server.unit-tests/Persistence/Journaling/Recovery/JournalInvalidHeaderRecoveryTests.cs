@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -41,7 +42,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
                          persistence,
                          await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
                          manifestStore,
-                         new JournalStartupGate()))
+                         new AsyncManualResetEvent(true)))
         {
             await journal.AppendPutAsync(CacheKey.Default("k"), BuildPutPayload("v"), DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
@@ -70,7 +71,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
             },
             DefaultCancellationToken);
 
-        var gate = new JournalStartupGate(false);
+        var gate = new AsyncManualResetEvent();
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },

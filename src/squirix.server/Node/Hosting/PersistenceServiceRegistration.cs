@@ -19,6 +19,7 @@ using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -51,7 +52,7 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<PersistenceOptions>(),
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ILocalCacheRecovery<object?>>(),
-                sp.GetRequiredService<JournalStartupGate>(),
+                sp.GetRequiredService<AsyncManualResetEvent>(),
                 sp.GetRequiredService<RpcMutationIdempotencyStore>(),
                 sp.GetRequiredService<ISnapshotReader>()),
             sp.GetService<IHostApplicationLifetime>()));
@@ -98,7 +99,7 @@ internal static class PersistenceServiceRegistration
                     .Add(
                          new HealthCheckRegistration(
                              "journal_recovery",
-                             static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<JournalStartupGate>()),
+                             static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
                              HealthStatus.Unhealthy,
                              ReadyHealthCheckTags)).Add(
                          new HealthCheckRegistration(
@@ -146,11 +147,11 @@ internal static class PersistenceServiceRegistration
         {
             Retention = new RetentionCleanupReadiness(persistence);
             Ledger = new Ledger(persistence, retentionReadiness: Retention, failureMetrics: ManifestRetentionFailureMetrics.Instance);
-            Gate = new JournalStartupGate(false);
+            Gate = new AsyncManualResetEvent();
             JournalCoordinator = new JournalCoordinatorHost();
         }
 
-        internal JournalStartupGate Gate { get; }
+        internal AsyncManualResetEvent Gate { get; }
 
         internal JournalCoordinatorHost JournalCoordinator { get; }
 

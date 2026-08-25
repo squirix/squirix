@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -42,7 +43,7 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var idempotency = new RpcMutationIdempotencyStore();
         var writer = StoreFactory.CreateWriter(persistence);
 

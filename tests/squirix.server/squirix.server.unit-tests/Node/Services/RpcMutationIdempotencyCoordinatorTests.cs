@@ -6,7 +6,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -234,7 +233,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
     private sealed class RecordingGateJournal : IJournalCoordinator
     {
-        private readonly JournalStartupGate _gate = new(false);
+        private readonly AsyncManualResetEvent _gate = new();
         private EventHandler? _onAppended;
 
         public event EventHandler? OnAppended
@@ -298,6 +297,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
 
-        internal void ReleaseStartupGate() => _gate.Open();
+        internal void ReleaseStartupGate() => _gate.Set();
     }
 }

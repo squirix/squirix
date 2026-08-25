@@ -5,6 +5,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -32,7 +33,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var executed = new ExecutionFlag();
         await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, DefaultCancellationToken);
 

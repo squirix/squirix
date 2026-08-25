@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -205,7 +206,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("k");
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -277,7 +278,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
 
         await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), DefaultCancellationToken);
         await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
@@ -309,7 +310,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
 
         try
         {

@@ -4,6 +4,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -35,7 +36,7 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         await journal.WaitForStartupAsync(DefaultCancellationToken);
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
 

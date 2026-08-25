@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -45,7 +46,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         await journal.WaitForStartupAsync(DefaultCancellationToken);
 
         const int iterations = 256;
@@ -83,7 +84,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         const int payloadSize = 16_000;

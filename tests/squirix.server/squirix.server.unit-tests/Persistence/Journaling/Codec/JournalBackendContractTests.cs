@@ -10,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
@@ -84,7 +85,7 @@ public sealed class JournalBackendContractTests
         var dir = new TempDirectory("journal-contract");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
         var manifestStore = new Ledger(options);
-        var gate = new JournalStartupGate();
+        var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
         var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate);
         return new CoordinatorContext(dir, options, manifestStore, coordinator);

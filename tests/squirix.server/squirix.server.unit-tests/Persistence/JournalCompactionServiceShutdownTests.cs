@@ -17,6 +17,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,7 +37,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
             persistence,
             await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             store,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 

@@ -4,6 +4,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -23,7 +24,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         _coordinator = null;
     }
 
-    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, JournalStartupGate gate)
+    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
     {
         if (_coordinator != null)
             return;

@@ -16,6 +16,7 @@ using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -54,7 +55,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
         var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
@@ -74,16 +75,15 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
     private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<object?>();
-        await new RecoveryService<object?>(
-            new RecoveryOptions { BlockOnStart = true },
-            NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(
-                persistence,
-                manifestStore,
-                cache,
-                new JournalStartupGate(false),
-                new RpcMutationIdempotencyStore(),
-                StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
+        var recoveryDependencies = new RecoveryDependencies<object?>(
+            persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(),
+            StoreFactory.CreateReader(persistence));
+        var options = new RecoveryOptions { BlockOnStart = true };
+        await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
 
         Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
         var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
@@ -157,14 +157,16 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes);
     }
 
-    private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key) => JournalFraming.FrameTotalLength(
-        BinaryJournalCodec.ComputeFrameBodyLength(
-            new JournalRecord
-            {
-                Sequence = 1,
-                UnixMs = 1,
-                Operation = JournalOperationKind.Put,
-                Key = key,
-                PutEntryBytes = payload,
-            }));
+    private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
+    {
+        var journalRecord = new JournalRecord
+        {
+            Sequence = 1,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = key,
+            PutEntryBytes = payload,
+        };
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(journalRecord));
+    }
 }

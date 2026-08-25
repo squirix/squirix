@@ -12,6 +12,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -115,7 +116,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);

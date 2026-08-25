@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -29,7 +30,7 @@ internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;
     private readonly RpcMutationIdempotencyStore _idempotency;
-    private readonly JournalStartupGate _journalStartupGate;
+    private readonly AsyncManualResetEvent _asyncManualResetEvent;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
     private readonly Ledger _manifestStore;
@@ -46,7 +47,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _opt = deps.Persistence;
         _manifestStore = deps.Ledger;
         _localCache = deps.LocalCache;
-        _journalStartupGate = deps.JournalStartupGate;
+        _asyncManualResetEvent = deps.AsyncManualResetEvent;
         _idempotency = deps.Idempotency;
         _snapshotReader = deps.SnapshotReader;
         _applicationLifetime = applicationLifetime;
@@ -219,13 +220,18 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         try
         {
+            // The gate starts unset (not ready). Replaying recovery keeps it unset until completion,
+            // then the Set() below opens it so the node begins serving durable writes.
             var context = await LoadReplayContextAsync(cancellationToken).ConfigureAwait(false);
             var replayState = await RestoreSnapshotIfPresentAsync(context, cancellationToken).ConfigureAwait(false);
             LogReplayBoundary(context, replayState.FromSegment);
             await ReplayJournalSegmentsAsync(replayState.FromSegment, replayState.LastAppliedSequence, cancellationToken).ConfigureAwait(false);
 
             LogManager.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
-            _journalStartupGate.Open();
+
+            // Recovery done: open the readiness gate. A failed replay throws before reaching this line,
+            // leaving the node not-ready (writes stay gated) until the host fails fast on the exception.
+            _asyncManualResetEvent.Set();
         }
         catch (IOException)
         {
