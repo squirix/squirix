@@ -10,6 +10,8 @@ internal interface IJournalCoordinatorAppendState
 
     JournalDurabilityCoordinator DurabilityPipeline { get; }
 
+    DurabilityAckRegistry DurabilityAcks { get; }
+
     PersistenceOptions Options { get; }
 
     MutableInt32 QueuedAppendsCounter { get; }
