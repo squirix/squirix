@@ -19,23 +19,19 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
     private const string CacheName = "orders";
     private const string Self = "node-a";
 
-    /// <summary>Large object entries are rejected once projected usage exceeds the configured limit.</summary>
+    /// <summary>Large object entries are rejected once the projected usage exceeds the configured limit.</summary>
     [Fact]
     public async Task OversizedObjectUsageRejectedPastLimit()
     {
-        await using var physical = new PhysicalCache<object?>();
+        var physical = new PhysicalCache<object?>();
         var accounting = new MemoryUsageAccounting();
-        var gate = new PressureGate(
-            new StateEvaluator(
-                Options.Create(
-                    new PressureOptions
-                    {
-                        MaxEstimatedCacheBytes = 400_000,
-                        HighPressureThresholdPercent = 80,
-                        CriticalPressureThresholdPercent = 95,
-                    })),
-            accounting,
-            Self);
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 400_000,
+            HighPressureThresholdPercent = 80,
+            CriticalPressureThresholdPercent = 95,
+        };
+        var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self);
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
         var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);

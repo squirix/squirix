@@ -30,12 +30,11 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var buildStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -77,7 +76,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         Assert.Equal(1, await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken));
     }
 
-    /// <summary>Verifies journal mutation path is usable after a snapshot cut build phase throws.</summary>
+    /// <summary>Verifies a journal mutation path is usable after snapshot-cut-build phase throws.</summary>
     [Fact]
     public async Task CutFailureStillAllowsJournalAppend()
     {
@@ -90,12 +89,11 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("before"), payload, DefaultCancellationToken);
@@ -126,12 +124,11 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         journal.InFlightApplyGate.Enter();

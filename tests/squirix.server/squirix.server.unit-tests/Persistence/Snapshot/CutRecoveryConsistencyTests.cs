@@ -50,12 +50,11 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
         var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
@@ -75,24 +74,21 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
     private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<object?>();
-        await using (cache.ConfigureAwait(false))
-        {
-            await new RecoveryService<object?>(
-                new RecoveryOptions { BlockOnStart = true },
-                NullLogger<RecoveryService<object?>>.Instance,
-                new RecoveryDependencies<object?>(
-                    persistence,
-                    manifestStore,
-                    cache,
-                    new JournalStartupGate(false),
-                    new RpcMutationIdempotencyStore(),
-                    StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
+        await new RecoveryService<object?>(
+            new RecoveryOptions { BlockOnStart = true },
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                manifestStore,
+                cache,
+                new JournalStartupGate(false),
+                new RpcMutationIdempotencyStore(),
+                StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
 
-            Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
-            var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
-            Assert.True(tailEntry.Found);
-            Assert.Equal("tail", tailEntry.Value);
-        }
+        Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
+        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+        Assert.True(tailEntry.Found);
+        Assert.Equal("tail", tailEntry.Value);
     }
 
     private static async Task<SnapshotRef> CutSnapshotDuringSegmentRollAsync(

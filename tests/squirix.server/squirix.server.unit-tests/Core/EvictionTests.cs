@@ -21,7 +21,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Fact]
     public async Task LruPolicyEvictsLeastRecentlyUsed()
     {
-        await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
+        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, DefaultCancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, DefaultCancellationToken);
@@ -45,7 +45,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     [Fact]
     public async Task FifoPolicyEvictsOldestInserted()
     {
-        await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
+        var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
 
         await cache.SetAsync(CacheKey.Default("a"), new NodeCacheEntry<int> { Value = 1 }, DefaultCancellationToken);
         await cache.SetAsync(CacheKey.Default("b"), new NodeCacheEntry<int> { Value = 2 }, DefaultCancellationToken);

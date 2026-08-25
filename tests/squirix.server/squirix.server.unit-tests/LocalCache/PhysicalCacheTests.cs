@@ -18,7 +18,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     public async Task UpdateRemovesExpiredEntryReturnsFalse()
     {
         var time = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(time);
+        var cache = new PhysicalCache<string>(time);
         var key = new CacheKey("ns", "expired");
         await cache.SetAsync(
             key,
@@ -40,7 +40,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Fact]
     public async Task UpdateAsyncReplacesLiveValue()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         var key = new CacheKey("ns", "live");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "a", Version = 1 }, DefaultCancellationToken);
 
@@ -53,7 +53,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Fact]
     public async Task UpdateAsyncSameValueIsNoOpSuccess()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         var key = new CacheKey("ns", "same");
         await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "same", Version = 1 }, DefaultCancellationToken);
 
@@ -64,7 +64,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     [Fact]
     public async Task UpdateAsyncMissingKeyReturnsFalse()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         Assert.False(await cache.UpdateAsync(new CacheKey("ns", "missing"), "v", DefaultCancellationToken));
     }
 }

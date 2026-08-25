@@ -29,7 +29,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task ExpirationSyncTheoryTest(int expirationMs, int sleepMs, bool useAbsoluteExpires)
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         var entry = useAbsoluteExpires ? new NodeCacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
             : new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
@@ -55,7 +55,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task PresenceAfterDelaySyncTheoryTest(int? expirationMs, int? expiresMs, bool shouldStillExist)
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         var entry = new NodeCacheEntry<string>
         {
@@ -76,7 +76,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task RemoveExpiredKeyReturnsFalse()
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken);
 
@@ -91,7 +91,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task TryAddAsyncPreservesAbsoluteExpiration()
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         var expiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddSeconds(5);
         var added = await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc }, DefaultCancellationToken);
@@ -111,7 +111,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     public async Task TryAddSucceedsWhenExistingEntryExpired()
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         Assert.True(
             await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));

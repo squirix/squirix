@@ -20,10 +20,9 @@ public class ManifestPublishBenchmarks
 
     /// <summary>Disposes the manifest store and temporary data directory.</summary>
     [GlobalCleanup]
-    public async Task GlobalCleanupAsync()
+    public void GlobalCleanup()
     {
-        if (_host != null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+        _host?.Dispose();
         _host = null;
     }
 
@@ -42,7 +41,7 @@ public class ManifestPublishBenchmarks
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.
-        // Await the durable publish so the warmup reflects finished work.
+        // Await the durable publication so the warmup reflects finished work.
         var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _host.Ledger.EnqueueRoll(1, _nextSequence++, () => warmup.TrySetResult(), ex => warmup.TrySetException(ex));
         await warmup.Task.ConfigureAwait(false);
@@ -68,7 +67,7 @@ public class ManifestPublishBenchmarks
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>
     [Immutable]
-    private sealed class Host : IAsyncDisposable
+    private sealed class Host : IDisposable
     {
         private readonly TempDirectory _dataDir;
 
@@ -80,11 +79,10 @@ public class ManifestPublishBenchmarks
 
         internal Ledger Ledger { get; }
 
-        public ValueTask DisposeAsync()
+        public void Dispose()
         {
             Ledger.Dispose();
             _dataDir.Dispose();
-            return ValueTask.CompletedTask;
         }
 
         internal static Task<Host> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)

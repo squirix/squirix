@@ -42,7 +42,6 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
             return;
 
         Ledger.Dispose();
-        await Cache.DisposeAsync().ConfigureAwait(false);
         _dataDirectory.Dispose();
     }
 

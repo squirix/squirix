@@ -80,12 +80,7 @@ internal sealed class JournalDurabilityGroupCommit
 
     /// <summary>Fails any pending commit acks during shutdown or journal pipeline failure.</summary>
     /// <param name="reason">Failure reason propagated to pending acks.</param>
-    /// <returns>A completed task once pending acks are failed.</returns>
-    internal ValueTask CancelPendingAsync(Exception reason)
-    {
-        CancelPendingCore(reason);
-        return ValueTask.CompletedTask;
-    }
+    internal void CancelPending(Exception reason) => CancelPendingCore(reason);
 
     internal void CancelPendingCore(Exception reason)
     {

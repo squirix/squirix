@@ -32,18 +32,17 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var store = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             store,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
         var maintenance = new BlockingMaintenanceExecutor();
-        await using var cache = new PhysicalCache<object?>();
+        var cache = new PhysicalCache<object?>();
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var options = Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = TimeSpan.Zero, MinTailBytes = 0, MinTailSegments = 0 });
         var deps = new CoordinatorDependencies(

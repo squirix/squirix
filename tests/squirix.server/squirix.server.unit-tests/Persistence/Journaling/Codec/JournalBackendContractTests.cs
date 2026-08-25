@@ -86,7 +86,7 @@ public sealed class JournalBackendContractTests
         var manifestStore = new Ledger(options);
         var gate = new JournalStartupGate();
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
-        var coordinator = await JournalCoordinatorFactory.CreateAsync(options, manifest, manifestStore, gate, CancellationToken.None);
+        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate);
         return new CoordinatorContext(dir, options, manifestStore, coordinator);
     }
 

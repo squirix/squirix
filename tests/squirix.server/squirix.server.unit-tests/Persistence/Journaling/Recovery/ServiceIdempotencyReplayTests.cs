@@ -85,12 +85,11 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
 
     private static async Task WritePutAndIdempotencyAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence)
     {
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             scenario.Ledger,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         await journal.AppendPutAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
         await journal.AppendIdempotencyOutcomeAsync(

@@ -75,7 +75,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before + 1, harness.Journal.AppendedOps);
     }
 
-    /// <summary>TryAdd skips journal when the key already exists.</summary>
+    /// <summary>TryAdd skips the journal when the key already exists.</summary>
     [Fact]
     public async Task TryAddSkipsJournalWhenKeyExists()
     {
@@ -111,17 +111,16 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);
         var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
-        return new Harness(dir, manifestStore, journal, physical, inner, cache);
+        return new Harness(dir, manifestStore, journal, inner, cache);
     }
 
     [Immutable]
@@ -129,20 +128,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     {
         private readonly TempDirectory _dir;
         private readonly Ledger _manifestStore;
-        private readonly PhysicalCache<string> _physical;
 
-        internal Harness(
-            TempDirectory dir,
-            Ledger manifestStore,
-            IJournalCoordinator journal,
-            PhysicalCache<string> physical,
-            RecordingLogicalCache inner,
-            JournalLoggingCacheDecorator<string> cache)
+        internal Harness(TempDirectory dir, Ledger manifestStore, IJournalCoordinator journal, RecordingLogicalCache inner, JournalLoggingCacheDecorator<string> cache)
         {
             _dir = dir;
             _manifestStore = manifestStore;
             Journal = journal;
-            _physical = physical;
             Inner = inner;
             Cache = cache;
         }
@@ -156,7 +147,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         public async ValueTask DisposeAsync()
         {
             await Journal.DisposeAsync();
-            await _physical.DisposeAsync();
             _manifestStore.Dispose();
             _dir.Dispose();
         }

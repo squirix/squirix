@@ -11,7 +11,7 @@ using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;
 
-internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
+internal sealed class SnapshotBenchmarkHost : IDisposable
 {
     private readonly TempDirectory _dataDir;
     private readonly IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
@@ -28,11 +28,7 @@ internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
 
     internal ISnapshotReader Reader { get; }
 
-    public ValueTask DisposeAsync()
-    {
-        _dataDir.Dispose();
-        return ValueTask.CompletedTask;
-    }
+    public void Dispose() => _dataDir.Dispose();
 
     internal static Task<SnapshotBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options, int entryCount)
     {

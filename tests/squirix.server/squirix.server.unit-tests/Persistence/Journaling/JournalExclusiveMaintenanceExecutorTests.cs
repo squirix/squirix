@@ -28,12 +28,11 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
         };
 
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var executed = new ExecutionFlag();
         await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, DefaultCancellationToken);
 

@@ -72,34 +72,24 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 
     private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, RpcMutationIdempotencyStore idempotencyStore)
     {
-        var recovery = new RecoveryService<object?>(
-            new RecoveryOptions { BlockOnStart = true },
-            NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(
-                persistence,
-                scenario.Ledger,
-                scenario.Cache,
-                new JournalStartupGate(false),
-                idempotencyStore,
-                StoreFactory.CreateReader(persistence)));
+        var deps = new RecoveryDependencies<object?>(
+            persistence,
+            scenario.Ledger,
+            scenario.Cache,
+            new JournalStartupGate(false),
+            idempotencyStore,
+            StoreFactory.CreateReader(persistence));
+        var recovery = new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, deps);
         return recovery.StartAsync(DefaultCancellationToken);
     }
 
     private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore)
     {
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
-
+        var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new JournalStartupGate());
         await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
-        await journal.AppendIdempotencyOutcomeAsync(
-            OperationId,
-            Fingerprint,
-            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
-            DefaultCancellationToken);
+        var bytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }
 }

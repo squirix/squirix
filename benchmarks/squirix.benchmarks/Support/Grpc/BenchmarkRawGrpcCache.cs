@@ -11,7 +11,7 @@ namespace Squirix.Benchmarks.Support.Grpc;
 
 /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
 [Immutable]
-internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
+internal sealed class BenchmarkRawGrpcCache : IDisposable
 {
     private static readonly ISquirixSerializer Serializer = new SystemTextJsonSerializer();
 
@@ -27,13 +27,12 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
         _cacheName = cacheName;
     }
 
-    public ValueTask DisposeAsync()
+    public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return ValueTask.CompletedTask;
+            return;
 
         _channel.Dispose();
-        return ValueTask.CompletedTask;
     }
 
     internal static BenchmarkRawGrpcCache Connect(Uri uri, string cacheName)

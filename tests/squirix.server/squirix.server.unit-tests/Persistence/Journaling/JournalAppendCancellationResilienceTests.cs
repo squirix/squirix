@@ -41,12 +41,11 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         };
 
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         await journal.WaitForStartupAsync(DefaultCancellationToken);
 
         const int iterations = 256;
@@ -80,12 +79,11 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         };
 
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         const int payloadSize = 16_000;

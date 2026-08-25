@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -37,11 +36,10 @@ internal static class JournalSegmentWriterFactory
             }
         }
 
-        public ValueTask DisposeAsync()
+        public void Dispose()
         {
             _handle?.Dispose();
             _handle = null;
-            return ValueTask.CompletedTask;
         }
 
         public void Fsync()

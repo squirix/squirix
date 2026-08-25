@@ -17,7 +17,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Fact]
     public async Task RemoveExpiryClearsOnlyTheExpiryAsync()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         await cache.SetAsync(
             CacheKey.Default("k1"),
             new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMilliseconds(150), Version = 1 },
@@ -44,7 +44,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     public async Task RemoveExpiryWontResurrectExpiredEntry()
     {
         var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
+        var cache = new PhysicalCache<string>(timeProvider);
 
         await cache.SetAsync(
             CacheKey.Default("k"),
@@ -66,7 +66,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Fact]
     public async Task RemoveExpiryNonExpiringFalseKeepsLive()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Version = 1 }, DefaultCancellationToken);
 
         Assert.False(await cache.RemoveExpirationAsync(CacheKey.Default("k"), DefaultCancellationToken));
@@ -80,7 +80,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Fact]
     public async Task RemoveExpiryReturnsFalseForMissingKey()
     {
-        await using var cache = new PhysicalCache<int>();
+        var cache = new PhysicalCache<int>();
         Assert.False(await cache.RemoveExpirationAsync(CacheKey.Default("missing"), DefaultCancellationToken));
     }
 
@@ -88,7 +88,7 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     [Fact]
     public async Task RemoveExpiryReturnsFalseForPersistent()
     {
-        await using var cache = new PhysicalCache<string>();
+        var cache = new PhysicalCache<string>();
         await cache.SetAsync(
             CacheKey.Default("k"),
             new NodeCacheEntry<string>
