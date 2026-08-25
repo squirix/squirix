@@ -11,7 +11,7 @@ internal static class HandleEx
 {
     /// <summary>Reads exactly <paramref name="buffer.Length" /> bytes at <paramref name="offset" />, advancing it.</summary>
     /// <param name="handle">The file handle to read from.</param>
-    /// <param name="buffer">The span to fill completely.</param>
+    /// <param name="buffer">The span to fill.</param>
     /// <param name="offset">The file offset to start reading at; advanced by the number of bytes read.</param>
     /// <returns><see langword="false" /> when the file ends before the buffer is filled.</returns>
     internal static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, ref long offset)
@@ -30,9 +30,24 @@ internal static class HandleEx
         return true;
     }
 
+    internal static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, long offset)
+    {
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = RandomAccess.Read(handle, buffer[total..], offset + total);
+            if (read == 0)
+                return false;
+
+            total += read;
+        }
+
+        return true;
+    }
+
     /// <summary>Asynchronously reads exactly <paramref name="buffer.Length" /> bytes at <paramref name="offset" />.</summary>
     /// <param name="handle">The file handle to read from.</param>
-    /// <param name="buffer">The memory to fill completely.</param>
+    /// <param name="buffer">The memory to fill.</param>
     /// <param name="offset">The file offset to start reading at.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The end offset on success; <see langword="null" /> when the file ends before the buffer is filled.</returns>

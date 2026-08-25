@@ -5,7 +5,6 @@ using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -55,13 +54,7 @@ internal static class JournalRecoveryScan
         if (length == 0)
             return 0;
 
-        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-        long offset = 0;
-        if (!HandleEx.TryReadExact(handle, header, ref offset))
-            throw new InvalidDataException("journal segment has a truncated file header.");
-
-        JournalFraming.EnsureSegmentHeaderSupported(header);
-
+        JournalFraming.ReadAndValidateSegmentHeader(handle, 0);
         long validLength = JournalFraming.FileHeaderSize;
         while (true)
         {

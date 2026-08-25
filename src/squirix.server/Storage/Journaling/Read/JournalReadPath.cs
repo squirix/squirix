@@ -6,7 +6,6 @@ using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
@@ -38,8 +37,8 @@ internal static class JournalReadPath
         private sealed class BinaryJournalSegmentEnumerator : IJournalRecordEnumerator
         {
             private readonly CancellationToken _cancellationToken;
-            private readonly long _length;
             private readonly SafeFileHandle? _handle;
+            private readonly long _length;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
             private int _disposed;
@@ -60,11 +59,7 @@ internal static class JournalReadPath
                         throw JournalFraming.CreateTruncatedHeaderException();
                     default:
                         _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
-                        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-                        if (!HandleEx.TryReadExact(_handle, header, ref _offset))
-                            throw JournalFraming.CreateTruncatedHeaderException();
-
-                        JournalFraming.EnsureSegmentHeaderSupported(header);
+                        JournalFraming.ReadAndValidateSegmentHeader(_handle, _offset);
                         _valid = true;
                         _offset = JournalFraming.FileHeaderSize;
                         return;

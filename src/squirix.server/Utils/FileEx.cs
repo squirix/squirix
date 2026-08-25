@@ -9,10 +9,11 @@ namespace Squirix.Server.Utils;
 /// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
 internal static partial class FileEx
 {
-    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
-    private const int LinuxCloseOnExec = 0x80000;
     private const int DarwinCloseOnExec = 0x1000000;
     private const int FreeBsdCloseOnExec = 0x00100000;
+
+    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
+    private const int LinuxCloseOnExec = 0x80000;
 
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
@@ -35,6 +36,25 @@ internal static partial class FileEx
         return null;
     }
 
+    /// <summary>
+    /// Flushes the parent directory of <paramref name="filePath" /> so a recent directory-entry change
+    /// (create, rename, or delete) survives a crash. A no-op on Windows.
+    /// </summary>
+    /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
+    /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
+    internal static void FlushDirectoryEntry(string filePath)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(directory))
+            return;
+
+        using var handle = OpenDirectoryForFlush(directory);
+        RandomAccess.FlushToDisk(handle);
+    }
+
     /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
     /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
@@ -54,25 +74,6 @@ internal static partial class FileEx
             File.Move(validatedTemp, validatedFinal);
 
         FlushDirectoryEntry(validatedFinal);
-    }
-
-    /// <summary>
-    /// Flushes the parent directory of <paramref name="filePath" /> so a recent directory-entry change
-    /// (create, rename, or delete) survives a crash. A no-op on Windows.
-    /// </summary>
-    /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
-    /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
-    internal static void FlushDirectoryEntry(string filePath)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        var directory = Path.GetDirectoryName(filePath);
-        if (string.IsNullOrEmpty(directory))
-            return;
-
-        using var handle = OpenDirectoryForFlush(directory);
-        RandomAccess.FlushToDisk(handle);
     }
 
     /// <summary>
@@ -106,30 +107,6 @@ internal static partial class FileEx
         }
     }
 
-    private static bool TryDeleteExistingFile(string validatedPath)
-    {
-        try
-        {
-            if (!File.Exists(validatedPath))
-                return true;
-
-            File.Delete(validatedPath);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
-    private static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
-
     /// <summary>Returns the platform-specific <c>O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
     /// <remarks>
     /// Unknown Unix platforms return <c>0</c> (no close-on-exec), preserving the previous behavior rather than
@@ -155,7 +132,7 @@ internal static partial class FileEx
 
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            var descriptor = OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
+            var descriptor = NativeMethods.OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
             if (descriptor >= 0)
                 return new SafeFileHandle(new IntPtr(descriptor), true);
 
@@ -165,5 +142,34 @@ internal static partial class FileEx
         }
 
         throw new IOException($"Failed to open directory '{directory}' for flushing; errno={Marshal.GetLastPInvokeError()}.");
+    }
+
+    private static bool TryDeleteExistingFile(string validatedPath)
+    {
+        try
+        {
+            if (!File.Exists(validatedPath))
+                return true;
+
+            File.Delete(validatedPath);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Platforms invoke methods for unmanaged file-system calls used by <see cref="FileEx" />.</summary>
+    /// <remarks>Declared as a dedicated <c>NativeMethods</c> class per NDepend ND2401.</remarks>
+    private static partial class NativeMethods
+    {
+        [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+        internal static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
     }
 }

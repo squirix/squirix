@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
@@ -55,7 +56,7 @@ internal sealed class FollowerLog : IFollowerLog
         "Reliability",
         "CA2213:Disposable fields should be disposed",
         Justification = "Disposing _gate may throw ObjectDisposedException in synchronous readers blocked on Wait(); idempotent disposal guarded by _disposed.")]
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly AsyncLock _gate = new();
 
     private readonly string _groupDir;
     private readonly string _logPath;
@@ -91,61 +92,49 @@ internal sealed class FollowerLog : IFollowerLog
     /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-                return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-            // Applied index moves only monotonically.
-            if (appliedIndex <= _meta.LastAppliedIndex)
-                return new FollowerLogAppliedResult(true, string.Empty, _meta.LastAppliedIndex);
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
 
-            // Never applied beyond the committed index.
-            if (appliedIndex > _meta.CommitIndex)
-                return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
+        // Applied index moves only monotonically.
+        if (appliedIndex <= _meta.LastAppliedIndex)
+            return new FollowerLogAppliedResult(true, string.Empty, _meta.LastAppliedIndex);
 
-            // The watermark is persisted before the payloads are released; on a crash between the two, restart
-            // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
-            var candidate = _meta with { LastAppliedIndex = appliedIndex };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
-            SetMeta(candidate);
-            FollowerLogRecovery.PruneAppliedEntries(this);
-            return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        // Never applied beyond the committed index.
+        if (appliedIndex > _meta.CommitIndex)
+            return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
+
+        // The watermark is persisted before the payloads are released; on a crash between the two, restart
+        // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
+        var candidate = _meta with { LastAppliedIndex = appliedIndex };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
+        SetMeta(candidate);
+        FollowerLogRecovery.PruneAppliedEntries(this);
+        return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
     }
 
     /// <inheritdoc />
     public async Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-                return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-            // Commit index moves only monotonically.
-            if (commitIndex <= _meta.CommitIndex)
-                return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
-            // Never beyond the locally durable last index.
-            if (commitIndex > _lastLogIndex)
-                return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+        // Commit index moves only monotonically.
+        if (commitIndex <= _meta.CommitIndex)
+            return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
 
-            var candidate = _meta with { CommitIndex = commitIndex };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
-            SetMeta(candidate);
-            _faults.OnCommitAdvanced();
-            return new FollowerLogCommitResult(true, string.Empty, commitIndex);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        // Never beyond the locally durable last index.
+        if (commitIndex > _lastLogIndex)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+
+        var candidate = _meta with { CommitIndex = commitIndex };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, candidate, cancellationToken).ConfigureAwait(false);
+        SetMeta(candidate);
+        _faults.OnCommitAdvanced();
+        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
     }
 
     /// <inheritdoc />
@@ -156,23 +145,17 @@ internal sealed class FollowerLog : IFollowerLog
         // Payload ownership is materialized lazily: the caller is blocked on this append, so validation
         // reads its buffer directly and only entries that will actually hit disk are copied (inside
         // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-                return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-            var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(this, request, cancellationToken).ConfigureAwait(false);
-            if (termError != null)
-                return termError.Value;
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm, _lastLogIndex);
 
-            var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(this, request);
-            return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(this, request, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(this, request, cancellationToken).ConfigureAwait(false);
+        if (termError != null)
+            return termError.Value;
+
+        var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(this, request);
+        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(this, request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -181,91 +164,66 @@ internal sealed class FollowerLog : IFollowerLog
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            _durability.Dispose();
-            _ = FileEx.TryDeleteFile(_metaTempPath);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        using var lockGuard = await _gate.LockAsync(CancellationToken.None).ConfigureAwait(false);
+        _durability.Dispose();
+        _ = FileEx.TryDeleteFile(_metaTempPath);
     }
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        _faults.OnBeforeMemoryApply();
+        var result = new List<FollowerLogEntry>();
+        foreach (var pair in _entries)
         {
-            _faults.OnBeforeMemoryApply();
-            var result = new List<FollowerLogEntry>();
-            foreach (var pair in _entries)
-            {
-                if (pair.Key > _meta.CommitIndex)
-                    break;
+            if (pair.Key > _meta.CommitIndex)
+                break;
 
-                // Applied entries were released from memory; their keys can still be present right after a
-                // restart, so the working set is bounded below by the durable applied watermark.
-                if (pair.Key <= _meta.LastAppliedIndex)
-                    continue;
+            // Applied entries were released from memory; their keys can still be present right after a
+            // restart, so the working set is bounded below by the durable applied watermark.
+            if (pair.Key <= _meta.LastAppliedIndex)
+                continue;
 
-                result.Add(pair.Value);
-            }
-
-            return result;
+            result.Add(pair.Value);
         }
-        finally
-        {
-            _ = _gate.Release();
-        }
+
+        return result;
     }
 
     /// <inheritdoc />
     public async ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return new FollowerLogStatus(
-                GroupId,
-                _meta.TopologyFingerprint,
-                _meta.ConfigurationGeneration,
-                _meta.CurrentTerm,
-                _meta.VotedFor,
-                _lastLogIndex,
-                _meta.CommitIndex,
-                _meta.LastAppliedIndex,
-                Readiness);
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        return new FollowerLogStatus(
+            GroupId,
+            _meta.TopologyFingerprint,
+            _meta.ConfigurationGeneration,
+            _meta.CurrentTerm,
+            _meta.VotedFor,
+            _lastLogIndex,
+            _meta.CommitIndex,
+            _meta.LastAppliedIndex,
+            Readiness);
     }
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var result = new List<FollowerLogEntry>();
-            foreach (var pair in _entries)
-            {
-                if (pair.Key <= _meta.CommitIndex)
-                    continue;
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-                result.Add(pair.Value);
-            }
-
-            return result;
-        }
-        finally
+        var result = new List<FollowerLogEntry>();
+        foreach (var pair in _entries)
         {
-            _ = _gate.Release();
+            if (pair.Key <= _meta.CommitIndex)
+                continue;
+
+            result.Add(pair.Value);
         }
+
+        return result;
     }
 
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
@@ -277,58 +235,52 @@ internal sealed class FollowerLog : IFollowerLog
     /// </exception>
     internal async Task OpenAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!_composition.Contains(GroupId))
+            throw new InvalidOperationException($"Group '{GroupId}' is not part of the local static composition.");
+
+        _ = await DirectoryEx.CreateDirectoryAsync(_groupDir, cancellationToken: cancellationToken).ConfigureAwait(false);
+        _ = FileEx.TryDeleteFile(_metaTempPath);
+
+        var metaExists = File.Exists(_metaPath);
+        var logExists = File.Exists(_logPath);
+
+        if (!metaExists && !logExists)
         {
-            if (!_composition.Contains(GroupId))
-                throw new InvalidOperationException($"Group '{GroupId}' is not part of the local static composition.");
-
-            _ = await DirectoryEx.CreateDirectoryAsync(_groupDir, cancellationToken: cancellationToken).ConfigureAwait(false);
-            _ = FileEx.TryDeleteFile(_metaTempPath);
-
-            var metaExists = File.Exists(_metaPath);
-            var logExists = File.Exists(_logPath);
-
-            if (!metaExists && !logExists)
-            {
-                var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
-                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, fresh, cancellationToken).ConfigureAwait(false);
-                SetMeta(fresh);
-                SetLastLogIndex(0);
-                SetLogLength(0);
-                _durability.Open(_logPath, _logLength);
-                Readiness = FollowerLogReadiness.Ready;
-                return;
-            }
-
-            if (metaExists)
-            {
-                var metaBytes = await File.ReadAllBytesAsync(_metaPath, cancellationToken).ConfigureAwait(false);
-                if (!GroupLogCodec.TryDecodeMeta(metaBytes, out var decoded) || !string.Equals(decoded.GroupId, GroupId, StringComparison.Ordinal))
-                {
-                    Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{GroupId}' metadata is corrupt.");
-                }
-
-                SetMeta(decoded);
-            }
-            else
-            {
-                // The log file exists without its atomically published metadata, so the committed boundary is unknown.
-                // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
-                // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
-                Readiness = FollowerLogReadiness.Failed;
-                throw new InvalidDataException($"Replica group '{GroupId}' metadata is missing while the log file exists; the group requires recovery or repair.");
-            }
-
-            await FollowerLogRecovery.RecoverLogFileAsync(this, cancellationToken).ConfigureAwait(false);
+            var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(this, fresh, cancellationToken).ConfigureAwait(false);
+            SetMeta(fresh);
+            SetLastLogIndex(0);
+            SetLogLength(0);
             _durability.Open(_logPath, _logLength);
             Readiness = FollowerLogReadiness.Ready;
+            return;
         }
-        finally
+
+        if (metaExists)
         {
-            _ = _gate.Release();
+            var metaBytes = await File.ReadAllBytesAsync(_metaPath, cancellationToken).ConfigureAwait(false);
+            if (!GroupLogCodec.TryDecodeMeta(metaBytes, out var decoded) || !string.Equals(decoded.GroupId, GroupId, StringComparison.Ordinal))
+            {
+                Readiness = FollowerLogReadiness.Failed;
+                throw new InvalidDataException($"Replica group '{GroupId}' metadata is corrupt.");
+            }
+
+            SetMeta(decoded);
         }
+        else
+        {
+            // The log file exists without its atomically published metadata, so the committed boundary is unknown.
+            // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
+            // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
+            Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{GroupId}' metadata is missing while the log file exists; the group requires recovery or repair.");
+        }
+
+        await FollowerLogRecovery.RecoverLogFileAsync(this, cancellationToken).ConfigureAwait(false);
+        _durability.Open(_logPath, _logLength);
+        Readiness = FollowerLogReadiness.Ready;
     }
 
     private void SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;

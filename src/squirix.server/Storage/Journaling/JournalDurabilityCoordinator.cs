@@ -12,13 +12,13 @@ namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Durability, maintenance, and failure handling for a journal coordinator.</summary>
 [Immutable]
-internal sealed class JournalCoordinatorDurabilityPipeline
+internal sealed class JournalDurabilityCoordinator
 {
     private readonly IJournalCoordinatorState _owner;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
     private readonly ILogger _logger;
 
-    internal JournalCoordinatorDurabilityPipeline(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger)
+    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _owner = owner;
@@ -154,16 +154,16 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             throw new InvalidOperationException("journal I/O thread failed.", failure);
     }
 
-    internal async ValueTask WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
+    internal async ValueTask<AsyncLockHolder> WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
             await _snapshot.InFlightApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _snapshot.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var gateGuard = await _snapshot.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
             if (!_snapshot.InFlightApplyGate.HasPending)
-                return;
+                return gateGuard;
 
-            _ = _snapshot.MutationGate.Release();
+            gateGuard.Dispose();
         }
     }
 
@@ -205,9 +205,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem
     {
-        private readonly JournalCoordinatorDurabilityPipeline _pipeline;
+        private readonly JournalDurabilityCoordinator _pipeline;
 
-        internal JoinJournalThreadWork(JournalCoordinatorDurabilityPipeline pipeline)
+        internal JoinJournalThreadWork(JournalDurabilityCoordinator pipeline)
         {
             _pipeline = pipeline;
         }
