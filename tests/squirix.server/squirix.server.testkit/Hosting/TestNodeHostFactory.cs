@@ -26,13 +26,11 @@ public static class TestNodeHostFactory
     /// <param name="dataDir">Persistence data directory.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
-    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, string? dataDir, CancellationToken cancellationToken = default) => StartNodeAsync(
-        nodeId,
-        uri,
-        [(nodeId, uri)],
-        dataDir == null ? null : new TestNodeHostStartOptions { DataDir = dataDir },
-        null,
-        cancellationToken);
+    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, string? dataDir, CancellationToken cancellationToken = default)
+    {
+        var options = dataDir == null ? null : new TestNodeHostStartOptions { DataDir = dataDir };
+        return StartNodeAsync(nodeId, uri, [(nodeId, uri)], options, null, cancellationToken);
+    }
 
     /// <summary>Starts a test node with shared cluster mTLS material owned by the caller.</summary>
     /// <param name="nodeId">The node identifier.</param>
@@ -137,26 +135,25 @@ public static class TestNodeHostFactory
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls == null ? (null, null, null)
             : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
-        var app = await NodeHost.StartAsync(
-            clusterConfig,
-            new NodeHostStartOptions
+        var nodeHostStartOptions = new NodeHostStartOptions
+        {
+            ConfigureLogging = static b =>
             {
-                ConfigureLogging = static b =>
-                {
-                    _ = b.ClearProviders();
-                    _ = b.SetMinimumLevel(LogLevel.Warning);
-                    _ = b.AddFilter("Grpc", LogLevel.Warning);
-                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
-                    _ = b.AddFilter("Squirix", LogLevel.Warning);
-                },
-                PersistenceOptions = persistenceOptions,
-                PeerHandlerFactory = peerHandlerFactory,
-                SecurityOptions = options?.Security?.ToServerOptions(),
-                MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
-                FoundationOnly = options?.FoundationOnly ?? false,
+                _ = b.ClearProviders();
+                _ = b.SetMinimumLevel(LogLevel.Warning);
+                _ = b.AddFilter("Grpc", LogLevel.Warning);
+                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
+                _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
-            cancellationToken).ConfigureAwait(false);
+            PersistenceOptions = persistenceOptions,
+            PeerHandlerFactory = peerHandlerFactory,
+            SecurityOptions = options?.Security?.ToServerOptions(),
+            MtlsOptions = mtlsOptions,
+            MtlsMaterial = mtlsMaterial,
+            FoundationOnly = options?.FoundationOnly ?? false,
+            TimeProvider = options?.TimeProvider,
+        };
+        var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
 
         return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null);
     }

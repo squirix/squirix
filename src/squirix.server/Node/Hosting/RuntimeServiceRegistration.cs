@@ -1,3 +1,4 @@
+using System;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -42,15 +43,8 @@ internal static class RuntimeServiceRegistration
             sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
             sp.GetRequiredService<IMemoryUsageAccounting>()));
         _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
+        _ = services.AddLocalCacheServices();
 
-        _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
-            null,
-            new EvictionOptions { Policy = EvictionPolicyType.Lru },
-            sp.GetRequiredService<ILogger<PhysicalCache<object?>>>()));
-        _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-        _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-        _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
-        _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>()));
         _ = services.AddHostedService<MemoryPressureMetricsService>();
         _ = services.AddHostedService<IdempotencyMetricsService>();
@@ -73,6 +67,23 @@ internal static class RuntimeServiceRegistration
         _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp => sp.GetRequiredService<RpcMutationIdempotencyCoordinator>());
         _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
 
+        return services;
+    }
+
+    private static IServiceCollection AddLocalCacheServices(this IServiceCollection services)
+    {
+        // Default server clock. Tests may register a fake TimeProvider that overrides this so cache
+        // expiration can be advanced deterministically instead of relying on real-time delays.
+        _ = services.AddSingleton(TimeProvider.System);
+
+        _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
+            sp.GetService<TimeProvider>(),
+            new EvictionOptions { Policy = EvictionPolicyType.Lru },
+            sp.GetRequiredService<ILogger<PhysicalCache<object?>>>()));
+        _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
+        _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
+        _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
+        _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         return services;
     }
 

@@ -29,7 +29,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, only);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, only);
         var state = new State
         {
             Format = 1,
@@ -46,123 +46,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         Assert.Contains("cannot determine a valid replay start", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>The next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
-    [Fact]
-    public async Task SequenceDerivesActiveManifestJournal()
-    {
-        var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
-        var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
-        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
-        var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, old);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 3, [live, live2]);
-        var manifest = new State
-        {
-            Format = 1,
-            CurrentJournal = 3,
-            NextSequence = 5,
-            LastSnapshot = null,
-        };
-        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        Assert.Equal(7UL, journal.NextSequence);
-    }
-
-    /// <summary>LastAppliedSequence from snapshot metadata raises the sequence floor before scanning the active journal tail.</summary>
-    [Fact]
-    public async Task SequenceRespectsSnapshotScan()
-    {
-        var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
-        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, envelope);
-        var manifest = new State
-        {
-            Format = 1,
-            CurrentJournal = 2,
-            NextSequence = 1,
-            LastSnapshot = new SnapshotRef
-            {
-                Index = 0,
-                CreatedUtc = DateTime.UtcNow,
-                LastAppliedSequence = 50,
-                Path = null,
-                ReplayFromJournalSegment = 1,
-            },
-        };
-        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        Assert.Equal(52UL, journal.NextSequence);
-    }
-
-    /// <summary>Scan start follows the first on-disk segment when it is already above manifest CurrentJournal.</summary>
-    [Fact]
-    public async Task ScanDerivesSequenceManifestJournal()
-    {
-        var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
-        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 5, envelope);
-        var manifest = new State
-        {
-            Format = 1,
-            CurrentJournal = 3,
-            NextSequence = 2,
-            LastSnapshot = null,
-        };
-        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        Assert.Equal(21UL, journal.NextSequence);
-    }
-
-    /// <summary>After a segment roll recorded in the manifest, a new writer continues monotonic allocation without rereading rolled segments.</summary>
-    [Fact]
-    public async Task SequenceMonotonicAcrossSegmentRoll()
-    {
-        var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence);
-
-        var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
-        var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
-        var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 1, s1);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, [s2, s2B]);
-        var manifest = new State
-        {
-            Format = 1,
-            CurrentJournal = 2,
-            NextSequence = 4,
-            LastSnapshot = null,
-        };
-        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        Assert.Equal(4UL, journal.NextSequence);
-        Assert.Equal(2, journal.CurrentSegmentIndex);
-
-        var payload = JournalEntryPayloadKit.EncodePut("after");
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-        Assert.Equal(5UL, journal.NextSequence);
-    }
-
     /// <summary>CRC corruption in a segment below manifest CurrentJournal does not affect sequence initialization.</summary>
     [Fact]
     public async Task ObsoleteSegmentCorruptionIgnored()
@@ -171,13 +54,13 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         using var manifestStore = new Ledger(persistence);
         var obsoletePath = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, stale);
+        BinaryJournalTestSegmentWriter.WriteSegment(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(Dir, 2, live);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, live);
         var manifest = new State
         {
             Format = 1,
@@ -229,6 +112,123 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         Assert.Equal(manifest.CurrentJournal, restartedJournal.CurrentSegmentIndex);
     }
 
+    /// <summary>Scan start follows the first on-disk segment when it is already above manifest CurrentJournal.</summary>
+    [Fact]
+    public async Task ScanDerivesSequenceManifestJournal()
+    {
+        var persistence = NewPersistence(Dir);
+        using var manifestStore = new Ledger(persistence);
+        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 5, envelope);
+        var manifest = new State
+        {
+            Format = 1,
+            CurrentJournal = 3,
+            NextSequence = 2,
+            LastSnapshot = null,
+        };
+        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
+
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        Assert.Equal(21UL, journal.NextSequence);
+    }
+
+    /// <summary>The next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
+    [Fact]
+    public async Task SequenceDerivesActiveManifestJournal()
+    {
+        var persistence = NewPersistence(Dir);
+        using var manifestStore = new Ledger(persistence);
+        var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
+        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
+        var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, old);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 3, [live, live2]);
+        var manifest = new State
+        {
+            Format = 1,
+            CurrentJournal = 3,
+            NextSequence = 5,
+            LastSnapshot = null,
+        };
+        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        Assert.Equal(7UL, journal.NextSequence);
+    }
+
+    /// <summary>After a segment roll recorded in the manifest, a new writer continues monotonic allocation without rereading rolled segments.</summary>
+    [Fact]
+    public async Task SequenceMonotonicAcrossSegmentRoll()
+    {
+        var persistence = NewPersistence(Dir);
+        using var manifestStore = new Ledger(persistence);
+
+        var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
+        var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
+        var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, s1);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, [s2, s2B]);
+        var manifest = new State
+        {
+            Format = 1,
+            CurrentJournal = 2,
+            NextSequence = 4,
+            LastSnapshot = null,
+        };
+        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        Assert.Equal(4UL, journal.NextSequence);
+        Assert.Equal(2, journal.CurrentSegmentIndex);
+
+        var payload = JournalEntryPayloadKit.EncodePut("after");
+        await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        Assert.Equal(5UL, journal.NextSequence);
+    }
+
+    /// <summary>LastAppliedSequence from snapshot metadata raises the sequence floor before scanning the active journal tail.</summary>
+    [Fact]
+    public async Task SequenceRespectsSnapshotScan()
+    {
+        var persistence = NewPersistence(Dir);
+        using var manifestStore = new Ledger(persistence);
+        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, envelope);
+        var manifest = new State
+        {
+            Format = 1,
+            CurrentJournal = 2,
+            NextSequence = 1,
+            LastSnapshot = new SnapshotRef
+            {
+                Index = 0,
+                CreatedUtc = DateTime.UtcNow,
+                LastAppliedSequence = 50,
+                Path = null,
+                ReplayFromJournalSegment = 1,
+            },
+        };
+        await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        Assert.Equal(52UL, journal.NextSequence);
+    }
+
     /// <summary>Truncated tail in the active segment still caps the discovered sequence the same way as full-file replay.</summary>
     [Fact]
     public async Task TruncatedTailBoundsSequence()
@@ -238,7 +238,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);
+        BinaryJournalTestSegmentWriter.WriteSegment(path, [a, b]);
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);
 

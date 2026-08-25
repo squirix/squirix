@@ -35,6 +35,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(ConnectsWithBearerTokenProvider),
             security,
+            timeProvider: TimeProvider.System,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
         var provider = CreateBearerTokenProvider(bearerToken);
@@ -62,6 +63,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(FailsWhenJwtRequiredButUnconfigured),
             security,
+            timeProvider: TimeProvider.System,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
 

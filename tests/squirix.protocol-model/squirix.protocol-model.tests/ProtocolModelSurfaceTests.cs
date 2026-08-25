@@ -29,7 +29,8 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
-    public static void ExploreProfileForCliRejectsUnknownName() => ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
+    public static void ExploreProfileForCliRejectsUnknownName() =>
+        ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
 
     [Fact]
     public static void ExploreReplicaCountProfileRejectsRange()
@@ -57,6 +58,29 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     }
 
     [Fact]
+    public static async Task RunCliBrokenVoteCounterexampleAsync()
+    {
+        var output = CreateTempDir();
+        try
+        {
+            var code = await ExploreRunner.RunCliAsync("small", output, BrokenMode.Vote);
+            Assert.Equal(0, code);
+            Assert.True(File.Exists(Path.Join(output, "summary.json")));
+            Assert.True(File.Exists(Path.Join(output, "counterexample.json")));
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
+            Assert.Contains("\"broken\":\"Vote\"", summary, StringComparison.Ordinal);
+            Assert.Contains("\"invariant\":\"ElectionSafety\"", summary, StringComparison.Ordinal);
+            var counterexample = await File.ReadAllTextAsync(Path.Join(output, "counterexample.json"), DefaultCancellationToken);
+            Assert.Contains("\"invariant\":\"ElectionSafety\"", counterexample, StringComparison.Ordinal);
+            Assert.Contains("\"path\":[", counterexample, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(output, true);
+        }
+    }
+
+    [Fact]
     public static async Task RunCliFormatsCommitAndReadModesAsync()
     {
         var outputCommit = CreateTempDir();
@@ -78,26 +102,6 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         {
             Directory.Delete(outputCommit, true);
             Directory.Delete(outputRead, true);
-        }
-    }
-
-    [Fact]
-    public static async Task RunCliBrokenVoteCounterexampleAsync()
-    {
-        var output = CreateTempDir();
-        try
-        {
-            var code = await ExploreRunner.RunCliAsync("small", output, BrokenMode.Vote);
-            Assert.Equal(0, code);
-            Assert.True(File.Exists(Path.Join(output, "summary.json")));
-            Assert.True(File.Exists(Path.Join(output, "counterexample.json")));
-            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
-            Assert.Contains("\"broken\":\"Vote\"", summary, StringComparison.Ordinal);
-            Assert.Contains("\"invariant\":\"ElectionSafety\"", summary, StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(output, true);
         }
     }
 

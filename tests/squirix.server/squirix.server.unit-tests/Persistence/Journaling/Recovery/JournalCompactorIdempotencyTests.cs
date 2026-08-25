@@ -25,6 +25,24 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private const string Fingerprint = "try-add-entry-async|default|compact-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
 
+    /// <summary>Recovery after compaction must restore idempotency replay from the compacted journal.</summary>
+    [Fact]
+    public async Task CompactedLogReplaysIdempotentOps()
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore();
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
+
+        var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
+        Assert.True(replayed);
+        Assert.NotNull(response);
+        Assert.True(response.Added);
+    }
+
     /// <summary>Compacted journal segments must retain IdempotencyOutcome frames from the pre-compaction tail.</summary>
     [Fact]
     public async Task CompactionKeepsIdempotencyFrames()
@@ -49,24 +67,6 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         }
 
         Assert.True(found);
-    }
-
-    /// <summary>Recovery after compaction must restore idempotency replay from the compacted journal.</summary>
-    [Fact]
-    public async Task CompactedLogReplaysIdempotentOps()
-    {
-        await using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
-        var persistence = CreatePersistence(scenario.DataDir);
-        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
-
-        var idempotencyStore = new RpcMutationIdempotencyStore();
-        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
-
-        var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
-        Assert.True(replayed);
-        Assert.NotNull(response);
-        Assert.True(response.Added);
     }
 
     private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };

@@ -31,7 +31,8 @@ public sealed class MixedMutationStressTests : LoadTestBase
         var token = deadline.Token;
 
         var keys = CreateKeySet(LoadProfiles.ScaleOperations(50));
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsStayConsistent), cancellationToken: token);
+        const string name = nameof(ConcurrentMixedMutationsStayConsistent);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(name, timeProvider: TimeProvider.System, cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);

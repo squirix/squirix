@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -112,13 +113,13 @@ internal static class ServerProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count != 1 || !s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var onlyWrapped))
+            if (s.Fields.Count != 1 || !s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
             return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
-        if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueJson.ScalarEnvelopeKey, out var only))
+        if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
         var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
@@ -267,7 +268,7 @@ internal static class ServerProtoEx
                 boxed = Value.ForNumber(wire.Int32Value);
                 break;
             case CacheValue.KindOneofCase.Int64Value:
-                boxed = ValueJson.CreateNumberEnvelope(ValueJson.NumberEnvelopeInt64Key, wire.Int64Value.ToString(CultureInfo.InvariantCulture));
+                boxed = ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, wire.Int64Value.ToString(CultureInfo.InvariantCulture));
                 break;
             case CacheValue.KindOneofCase.DoubleValue:
                 boxed = Value.ForNumber(wire.DoubleValue);
@@ -283,24 +284,13 @@ internal static class ServerProtoEx
         }
 
         var envelope = new Struct();
-        envelope.Fields.Add(ValueJson.ScalarEnvelopeKey, boxed);
+        envelope.Fields.Add(ValueEnvelope.ScalarEnvelopeKey, boxed);
         return envelope;
     }
 
     /// <summary>JSON ↔ protobuf <see cref="Value" /> helpers owned by <see cref="ServerProtoEx" />.</summary>
     private static class ValueJson
     {
-        internal const string NumberEnvelopeDecimalKey = "\0squirix:decimal";
-        internal const string NumberEnvelopeInt64Key = "\0squirix:int64";
-        internal const string ScalarEnvelopeKey = "\0squirix:scalar";
-
-        internal static Value CreateNumberEnvelope(string markerKey, string numberText)
-        {
-            var s = new Struct();
-            s.Fields.Add(markerKey, Value.ForString(numberText));
-            return Value.ForStruct(s);
-        }
-
         /// <summary>Maps a CLR/cache value into the protobuf struct envelope used on the wire.</summary>
         /// <typeparam name="T">Logical cache value type.</typeparam>
         /// <param name="value">Value to encode.</param>
@@ -366,7 +356,7 @@ internal static class ServerProtoEx
                 JsonValueKind.Object => Value.ForStruct(BuildStructFromJsonObject(element)),
                 JsonValueKind.Array => new Value { ListValue = BuildListValueFromJsonArray(element) },
                 JsonValueKind.String => Value.ForString(element.GetString()),
-                JsonValueKind.Number => ConvertJsonNumber(element),
+                JsonValueKind.Number => ValueEnvelope.ConvertJsonNumberToProtoValue(element),
                 JsonValueKind.True => Value.ForBool(true),
                 JsonValueKind.False => Value.ForBool(false),
                 JsonValueKind.Null or JsonValueKind.Undefined => Value.ForNull(),
@@ -374,25 +364,10 @@ internal static class ServerProtoEx
             };
         }
 
-        private static Value ConvertJsonNumber(JsonElement element)
-        {
-            var asDouble = element.GetDouble();
-            if (Math.Abs(asDouble) <= double.Epsilon && BitConverter.DoubleToInt64Bits(asDouble) != 0)
-                return Value.ForNumber(asDouble);
-
-            if (element.TryGetInt64(out var asInt64))
-                return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
-
-            if (element.TryGetDecimal(out var asDecimal))
-                return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
-
-            return Value.ForNumber(asDouble);
-        }
-
         private static Struct CreateSingleFieldStruct(Value fieldValue)
         {
             var envelope = new Struct();
-            envelope.Fields.Add(ScalarEnvelopeKey, fieldValue);
+            envelope.Fields.Add(ValueEnvelope.ScalarEnvelopeKey, fieldValue);
             return envelope;
         }
 
@@ -405,7 +380,7 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(Value.ForNumber(int32));
 
             if (value is long int64)
-                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture)));
+                return CreateSingleFieldStruct(ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, int64.ToString(CultureInfo.InvariantCulture)));
 
             if (value is double floating)
                 return CreateSingleFieldStruct(Value.ForNumber(floating));
@@ -414,7 +389,7 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(Value.ForBool(flag));
 
             if (value is decimal dec)
-                return CreateSingleFieldStruct(CreateNumberEnvelope(NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
+                return CreateSingleFieldStruct(ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
 
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
             var root = SerializerProvider.Instance.SerializeToElement(value);
@@ -423,31 +398,6 @@ internal static class ServerProtoEx
 
         private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
             : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
-
-        private static bool TryWriteNumberEnvelope(Utf8JsonWriter writer, Struct s)
-        {
-            if (s.Fields.Count != 1)
-                return false;
-
-            if (s.Fields.TryGetValue(NumberEnvelopeInt64Key, out var longField) && longField.KindCase is Value.KindOneofCase.StringValue && long.TryParse(
-                    longField.StringValue,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out var longValue))
-            {
-                writer.WriteNumberValue(longValue);
-                return true;
-            }
-
-            if (!s.Fields.TryGetValue(NumberEnvelopeDecimalKey, out var decimalField) || decimalField.KindCase != Value.KindOneofCase.StringValue || !decimal.TryParse(
-                    decimalField.StringValue,
-                    NumberStyles.Number,
-                    CultureInfo.InvariantCulture,
-                    out var decimalValue))
-                return false;
-            writer.WriteNumberValue(decimalValue);
-            return true;
-        }
 
         /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>
         /// <param name="writer">JSON writer receiving the array.</param>
@@ -483,7 +433,7 @@ internal static class ServerProtoEx
 
         private static void WriteStructValue(Utf8JsonWriter writer, Struct structValue)
         {
-            if (TryWriteNumberEnvelope(writer, structValue))
+            if (ValueEnvelope.TryWriteNumberEnvelope(writer, structValue))
                 return;
 
             WriteStructFields(writer, structValue);

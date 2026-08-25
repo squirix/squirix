@@ -63,6 +63,65 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.False(flag.Value);
     }
 
+    /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
+    [Fact]
+    public async Task ExpiredRecordsAreNotReplayed()
+    {
+        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMilliseconds(50));
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+
+        await Task.Delay(100, DefaultCancellationToken);
+
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
+    /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
+    [Fact]
+    public void FingerprintMismatchThrowsTypedException()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+
+        var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
+            store,
+            static value =>
+            {
+                var replayed = value.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
+                Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
+            });
+
+        Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
+    }
+
+    /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
+    [Fact]
+    public void ReplayAfterSuccessReturnsCachedResponse()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        var original = new TryAddAsyncResponse { Added = true };
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original));
+
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.True(replayed);
+        Assert.NotNull(response);
+        Assert.True(response.Added);
+    }
+
+    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
+    [Fact]
+    public void ReplayReturnsFalseForUnknownOpId()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
     /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
     [Fact]
     public async Task ReplaySkipsHandlerReexecution()
@@ -96,47 +155,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.True(first.Added);
         Assert.True(second.Added);
         Assert.Equal(1, ctx.Value);
-    }
-
-    /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
-    [Fact]
-    public async Task ExpiredRecordsAreNotReplayed()
-    {
-        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMilliseconds(50));
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
-
-        await Task.Delay(100, DefaultCancellationToken);
-
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.False(replayed);
-        Assert.Null(response);
-    }
-
-    /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
-    [Fact]
-    public void ReplayAfterSuccessReturnsCachedResponse()
-    {
-        var store = new RpcMutationIdempotencyStore();
-        var original = new TryAddAsyncResponse { Added = true };
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original));
-
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.True(replayed);
-        Assert.NotNull(response);
-        Assert.True(response.Added);
-    }
-
-    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
-    [Fact]
-    public void ReplayReturnsFalseForUnknownOpId()
-    {
-        var store = new RpcMutationIdempotencyStore();
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.False(replayed);
-        Assert.Null(response);
     }
 
     /// <summary>Ensures conforming operation ids pass validation.</summary>
@@ -203,24 +221,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.Null(response);
     }
 
-    /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
-    [Fact]
-    public void FingerprintMismatchThrowsTypedException()
-    {
-        var store = new RpcMutationIdempotencyStore();
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
-
-        var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
-            store,
-            static value =>
-            {
-                var replayed = value.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
-                Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
-            });
-
-        Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
-    }
-
     private sealed class ExecFlag
     {
         internal bool Value { get; set; }
@@ -234,6 +234,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
     private sealed class RecordingGateJournal : IJournalCoordinator
     {
         private readonly AsyncManualResetEvent _gate = new();
+
         private EventHandler? _onAppended;
 
         public event EventHandler? OnAppended
