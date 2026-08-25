@@ -42,7 +42,7 @@ public static class JournalSegmentLeaseWait
         }
 
         var path = Path.Join(dataDir, ManifestCurrentFileName);
-        if (File.Exists(path) && TryOpenRepairLease(path, cancellationToken))
+        if (File.Exists(path) && !TryOpenRepairLease(path, cancellationToken))
             return false;
 
         // The manifest pointer writer stages each update in man-current.next with an exclusive
