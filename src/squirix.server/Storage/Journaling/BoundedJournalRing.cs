@@ -14,6 +14,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private readonly int[] _published;
     private readonly JournalWorkItem[] _slots;
     private readonly AutoResetEvent _workSignal = new(false);
+    private int _disposed;
     private long _head;
     private long _tail;
 
@@ -30,6 +31,7 @@ internal sealed class BoundedJournalRing : IDisposable
 
     public void Dispose()
     {
+        Volatile.Write(ref _disposed, 1);
         _workSignal.Dispose();
         _availableSlots.Dispose();
     }
@@ -51,7 +53,24 @@ internal sealed class BoundedJournalRing : IDisposable
         }
     }
 
-    internal void NotifyWorkAvailable() => _ = _workSignal.Set();
+    internal void NotifyWorkAvailable()
+    {
+        if (Volatile.Read(ref _disposed) == 1)
+            return;
+
+        // Best-effort: during teardown the signal may already be disposed; a missed wake is
+        // harmless because the journal loop re-evaluates on its next spin or timeout. Letting the
+        // exception escape here would wrongly release the slot for an item that is already published
+        // and corrupt the ring accounting.
+        try
+        {
+            _ = _workSignal.Set();
+        }
+        catch (ObjectDisposedException)
+        {
+            Volatile.Write(ref _disposed, 1);
+        }
+    }
 
     internal bool TryDequeue([NotNullWhen(true)] out JournalWorkItem? item)
     {
