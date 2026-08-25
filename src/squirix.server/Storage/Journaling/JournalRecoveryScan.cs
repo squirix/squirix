@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
@@ -36,23 +35,18 @@ internal static class JournalRecoveryScan
         return next;
     }
 
-    internal static async Task PrepareActiveSegmentForSequenceScanAsync(State manifest, PersistenceOptions options, CancellationToken cancellationToken)
+    internal static void PrepareActiveSegmentForSequenceScan(State manifest, PersistenceOptions options)
     {
         var path = JournalReadPath.BuildSegmentPath(options.DataDir, manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal);
         if (!File.Exists(path))
             return;
 
-        var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
-        await using (writer.ConfigureAwait(false))
-        {
-            writer.OpenSegment(path, true);
-            if (writer.Length == 0)
-                return;
+        using var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        writer.OpenSegment(path, true);
+        if (writer.Length == 0)
+            return;
 
-            await RepairTornTailIfNeededAsync(writer, path, cancellationToken).ConfigureAwait(false);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
+        RepairTornTailIfNeeded(writer, path);
     }
 
     private static long ComputeValidLength(SafeFileHandle handle)
@@ -98,30 +92,17 @@ internal static class JournalRecoveryScan
         return (firstAvailableSegment, lastAvailableSegment);
     }
 
-    private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
+    private static long ReadValidSegmentLength(string path)
     {
-        var handle = File.OpenHandle(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
-            FileOptions.SequentialScan);
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ComputeValidLength(handle);
-        }
-        finally
-        {
-            handle.Dispose();
-        }
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
+        return ComputeValidLength(handle);
     }
 
-    private static async Task RepairTornTailIfNeededAsync(IJournalSegmentWriter writer, string path, CancellationToken cancellationToken)
+    private static void RepairTornTailIfNeeded(IJournalSegmentWriter writer, string path)
     {
         try
         {
-            var length = await ReadValidSegmentLengthAsync(path, cancellationToken).ConfigureAwait(false);
+            var length = ReadValidSegmentLength(path);
             if (length == writer.Length)
                 return;
 

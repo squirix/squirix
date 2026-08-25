@@ -31,12 +31,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
-            options,
-            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            ledger,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken), ledger, new JournalStartupGate());
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -49,17 +44,17 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
         Exception? rollError = null;
-        var firstRollDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ledger.EnqueueRoll(
             1,
             1,
-            () => firstRollDone.TrySetResult(),
+            () => done.TrySetResult(),
             ex =>
             {
                 rollError = ex;
-                _ = firstRollDone.TrySetResult();
+                _ = done.TrySetResult();
             });
-        await firstRollDone.Task;
+        await done.Task;
         rollError.ThrowIfFaulted();
 
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
@@ -80,12 +75,11 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -131,8 +125,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         return false;
     }
 
-    private static int CountManifestDataFiles(string dataDir) =>
-        Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}").Length : 0;
+    private static int CountManifestDataFiles(string dir) => Directory.Exists(dir) ? Directory.GetFiles(dir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}").Length : 0;
 
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
@@ -179,7 +172,5 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }
 
-    private static string SegmentPath(string dataDir, int segmentIndex) => NodePathKit.Combine(
-        dataDir,
-        $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
+    private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
 }

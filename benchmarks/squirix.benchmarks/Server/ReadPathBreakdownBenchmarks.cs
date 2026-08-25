@@ -138,11 +138,8 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_rawGrpc != null)
-        {
-            await _rawGrpc.DisposeAsync().ConfigureAwait(false);
-            _rawGrpc = null;
-        }
+        _rawGrpc?.Dispose();
+        _rawGrpc = null;
 
         if (_publicClient != null)
         {

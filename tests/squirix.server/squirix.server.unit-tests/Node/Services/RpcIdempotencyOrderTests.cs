@@ -45,12 +45,11 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        await using var inner = await JournalCoordinatorFactory.CreateAsync(
+        await using var inner = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         var trace = new OrderingTrace();
         await using var orderingJournal = new OrderingJournal(inner, trace);

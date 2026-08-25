@@ -3,7 +3,7 @@ using System;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Single-writer segment file I/O surface for Pipelined.</summary>
-internal interface IJournalSegmentWriter : IAsyncDisposable
+internal interface IJournalSegmentWriter : IDisposable
 {
     long Length { get; }
 

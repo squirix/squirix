@@ -32,12 +32,11 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         try
         {
@@ -77,12 +76,11 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         try
         {

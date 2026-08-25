@@ -195,12 +195,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             LogManager.JournalBackgroundCancellationDisposedOnDispose(JournalLog);
         }
 
-        if (GroupCommit != null)
-            await GroupCommit.CancelPendingAsync(new ObjectDisposedException(nameof(JournalCoordinator))).ConfigureAwait(false);
-
+        GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
         DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-
-        await _segmentWriter.DisposeAsync().ConfigureAwait(false);
+        _segmentWriter.Dispose();
         Ring.Dispose();
         BackgroundCancellation.Dispose();
         MutationGate.Dispose();

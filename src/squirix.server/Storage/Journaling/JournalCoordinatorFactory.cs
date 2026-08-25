@@ -1,6 +1,4 @@
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 
@@ -9,23 +7,13 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Creates <see cref="IJournalCoordinator" /> instances.</summary>
 internal static class JournalCoordinatorFactory
 {
-    internal static Task<IJournalCoordinator> CreateAsync(
-        PersistenceOptions persistence,
-        State manifest,
-        Ledger store,
-        JournalStartupGate gate,
-        CancellationToken cancellationToken = default) =>
-        CreateCoreAsync(persistence, manifest, store, gate, cancellationToken);
+    internal static IJournalCoordinator Create(PersistenceOptions persistence, State manifest, Ledger store, JournalStartupGate gate) =>
+        CreateCore(persistence, manifest, store, gate);
 
-    private static async Task<IJournalCoordinator> CreateCoreAsync(
-        PersistenceOptions persistence,
-        State manifest,
-        Ledger store,
-        JournalStartupGate gate,
-        CancellationToken cancellationToken)
+    private static JournalCoordinator CreateCore(PersistenceOptions persistence, State manifest, Ledger store, JournalStartupGate gate)
     {
         ArgumentNullException.ThrowIfNull(persistence);
-        await JournalRecoveryScan.PrepareActiveSegmentForSequenceScanAsync(manifest, persistence, cancellationToken).ConfigureAwait(false);
+        JournalRecoveryScan.PrepareActiveSegmentForSequenceScan(manifest, persistence);
         return new JournalCoordinator(persistence, manifest, store, gate);
     }
 }

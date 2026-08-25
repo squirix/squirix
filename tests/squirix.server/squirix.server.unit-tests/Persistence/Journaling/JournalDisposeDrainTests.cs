@@ -34,12 +34,11 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         await journal.WaitForStartupAsync(DefaultCancellationToken);
 
         // Fire-and-forget: no durability waits, disposal must still persist every frame.

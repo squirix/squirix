@@ -12,10 +12,10 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>In-memory cache store (KV + expiration).</summary>
+/// <summary>In-memory cache store (KV and expiration).</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 [Immutable]
-internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>, IAsyncDisposable
+internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
 {
     private readonly LocalEvictionIndex _evictionIndex;
     private readonly ILogger _logger;
@@ -32,8 +32,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     int ILocalCacheStats.EntryCount => _store.Count;
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     public async IAsyncEnumerable<(CacheKey Key, NodeCacheEntry<T> Entry)> EnumerateLiveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {

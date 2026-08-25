@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -24,11 +23,11 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         _coordinator = null;
     }
 
-    internal async Task InitializeAsync(PersistenceOptions persistence, State manifest, Ledger manifestStore, JournalStartupGate gate, CancellationToken cancellationToken)
+    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, JournalStartupGate gate)
     {
         if (_coordinator != null)
             return;
 
-        _coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
+        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
     }
 }

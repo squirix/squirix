@@ -26,12 +26,11 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
         using var manifestStore = new Ledger(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(
+        await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
@@ -59,12 +58,11 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             FlushIntervalMs = 600_000,
         };
         using var manifestStore = new Ledger(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(
+        await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 

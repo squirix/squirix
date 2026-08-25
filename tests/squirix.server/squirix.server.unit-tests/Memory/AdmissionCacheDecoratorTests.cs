@@ -28,7 +28,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task ConcurrentRemoveDeletesLocalKeyOnce()
     {
         const string key = "remove-race";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical);
         var entry = CreateEntry("v");
 
@@ -57,7 +57,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     {
         const string key = "remove-expiration-key";
         var timeProvider = new FakeTimeProvider();
-        await using var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var keyValue = new CacheKey(CacheName, key);
         var entry = new NodeCacheEntry<string>
@@ -81,7 +81,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task ConcurrentSetMissAccountsOneEntry()
     {
         const string key = "set-race";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -99,7 +99,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task SetReplaceAccountsValueDeltaForLocalKey()
     {
         const string key = "set-replace";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
@@ -120,7 +120,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     {
         const string key = "touch-key";
         var timeProvider = new FakeTimeProvider();
-        await using var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var keyValue = new CacheKey(CacheName, key);
         var entry = CreateEntry("v");
@@ -140,7 +140,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     {
         const string key = "retouch-key";
         var timeProvider = new FakeTimeProvider();
-        await using var physical = new PhysicalCache<string>(timeProvider);
+        var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical);
         var entry = new NodeCacheEntry<string>
         {
@@ -162,7 +162,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task ConcurrentTryAddMissAddsSingleEntry()
     {
         const string key = "try-add-race";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
@@ -188,7 +188,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task UpdateAccountsValueDeltaForLocalKey()
     {
         const string key = "update-replace";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var initial = CreateEntry("a");
 
@@ -209,7 +209,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     public async Task ConcurrentUpdateReplacesLocalKeyOnce()
     {
         const string key = "update-race";
-        await using var physical = new PhysicalCache<string>();
+        var physical = new PhysicalCache<string>();
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var initial = CreateEntry("a");
         const string updatedValue = "much-longer-value";

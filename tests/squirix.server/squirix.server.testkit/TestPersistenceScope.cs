@@ -13,7 +13,7 @@ public static class TestPersistenceScope
     /// (including <c>IAsyncLifetime.InitializeAsync</c> and shared helpers) gets a distinct directory.
     /// </summary>
     /// <param name="callerMemberName">
-    /// Optional hint when no test case is active (e.g. ad-hoc hosts), usually from <see cref="CallerMemberNameAttribute" />.
+    /// Optional hint when no test case is active (e.g., ad-hoc hosts), usually from <see cref="CallerMemberNameAttribute" />.
     /// </param>
     /// <returns>A non-empty string safe to embed in a path segment.</returns>
     public static string ResolvePersistenceScopeSegment(string? callerMemberName)

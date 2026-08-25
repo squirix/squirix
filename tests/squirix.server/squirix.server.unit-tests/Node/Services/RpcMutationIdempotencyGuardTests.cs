@@ -34,12 +34,11 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);

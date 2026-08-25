@@ -29,7 +29,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     {
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
@@ -48,7 +48,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(opt);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
         await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
@@ -69,7 +69,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     {
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 

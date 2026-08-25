@@ -35,7 +35,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        await groupCommit.CancelPendingAsync(failure);
+        groupCommit.CancelPending(failure);
         await WaitUntilCompletedAsync(ack);
 
         Assert.True(ack.IsFaulted);
@@ -201,12 +201,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("k");
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -274,12 +273,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), DefaultCancellationToken);
         await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
@@ -307,12 +305,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
 
         try
         {

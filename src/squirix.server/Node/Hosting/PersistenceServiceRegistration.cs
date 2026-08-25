@@ -167,14 +167,11 @@ internal static class PersistenceServiceRegistration
             Ledger.Dispose();
         }
 
-        internal static async Task<PersistenceRuntime> CreateAsync(
-            PersistenceOptions persistence,
-            CancellationToken cancellationToken)
+        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(persistence);
             var runtime = new PersistenceRuntime(persistence);
             var manifest = await runtime.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            await runtime.JournalCoordinator.InitializeAsync(persistence, manifest, runtime.Ledger, runtime.Gate, cancellationToken).ConfigureAwait(false);
+            runtime.JournalCoordinator.Initialize(persistence, manifest, runtime.Ledger, runtime.Gate);
             return runtime;
         }
     }

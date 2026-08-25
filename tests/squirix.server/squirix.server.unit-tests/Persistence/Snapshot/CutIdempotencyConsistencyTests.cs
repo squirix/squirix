@@ -38,12 +38,11 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
         using var manifestStore = new Ledger(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new JournalStartupGate());
         var idempotency = new RpcMutationIdempotencyStore();
         var writer = StoreFactory.CreateWriter(persistence);
 

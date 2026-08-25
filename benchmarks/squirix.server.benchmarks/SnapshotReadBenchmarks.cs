@@ -17,10 +17,9 @@ public class SnapshotReadBenchmarks
 
     /// <summary>Disposes the benchmark host and temporary data directory.</summary>
     [GlobalCleanup]
-    public async Task GlobalCleanupAsync()
+    public void GlobalCleanup()
     {
-        if (_host != null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+        _host?.Dispose();
         _host = null;
         _snapshotPath = null;
     }

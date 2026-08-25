@@ -37,12 +37,11 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
         await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
-        await using (var journal = await JournalCoordinatorFactory.CreateAsync(
+        await using (var journal = JournalCoordinatorFactory.Create(
                          persistence,
                          await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
                          manifestStore,
-                         new JournalStartupGate(),
-                         DefaultCancellationToken))
+                         new JournalStartupGate()))
         {
             await journal.AppendPutAsync(CacheKey.Default("k"), BuildPutPayload("v"), DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
