@@ -265,14 +265,16 @@ internal sealed class JournalEventLoopSegmentWriter
             FailAppendWorkItem(item, ex);
             return;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            ReleaseQueuedAppendResources(item);
+            // Complete the durability ack before rethrowing: the caller awaits this source and
+            // would otherwise hang forever on a journal I/O failure.
+            FailAppendWorkItem(item, ex);
             throw;
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException ex)
         {
-            ReleaseQueuedAppendResources(item);
+            FailAppendWorkItem(item, ex);
             throw;
         }
 
