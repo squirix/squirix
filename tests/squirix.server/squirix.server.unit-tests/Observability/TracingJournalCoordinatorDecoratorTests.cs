@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -30,7 +31,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
@@ -62,7 +63,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 

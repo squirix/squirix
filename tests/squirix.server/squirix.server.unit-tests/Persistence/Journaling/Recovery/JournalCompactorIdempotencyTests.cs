@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -76,7 +77,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
             persistence,
             scenario.Ledger,
             scenario.Cache,
-            new JournalStartupGate(false),
+            new AsyncManualResetEvent(true),
             idempotencyStore,
             StoreFactory.CreateReader(persistence));
         var recovery = new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, deps);
@@ -86,7 +87,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore)
     {
         var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new JournalStartupGate());
+        await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true));
         await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
         var bytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, DefaultCancellationToken);

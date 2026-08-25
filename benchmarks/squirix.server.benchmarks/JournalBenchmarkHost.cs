@@ -7,6 +7,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -41,7 +42,7 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
         var dataDir = new TempDirectory(tempDirectoryPrefix);
         var persistence = options with { DataDir = dataDir.Path };
         var manifestStore = new Ledger(persistence);
-        var gate = new JournalStartupGate();
+        var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
         return new JournalBenchmarkHost(dataDir, coordinator, manifestStore);

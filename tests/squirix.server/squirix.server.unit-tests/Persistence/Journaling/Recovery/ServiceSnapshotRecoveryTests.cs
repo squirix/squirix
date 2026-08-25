@@ -5,12 +5,12 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -102,12 +102,11 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 
     private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
     {
-        var gate = new JournalStartupGate(false);
+        var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-        var recovery = new RecoveryService<object?>(
-            new RecoveryOptions { BlockOnStart = true },
-            NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, new RpcMutationIdempotencyStore(), StoreFactory.CreateReader(persistence)));
+        var store = new RpcMutationIdempotencyStore();
+        var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, StoreFactory.CreateReader(persistence));
+        var recovery = new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, dependencies);
         return recovery.StartAsync(DefaultCancellationToken);
     }
 }

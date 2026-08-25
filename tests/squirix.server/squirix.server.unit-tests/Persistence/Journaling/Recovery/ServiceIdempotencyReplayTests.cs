@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -77,7 +78,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
                 persistence,
                 scenario.Ledger,
                 scenario.Cache,
-                new JournalStartupGate(false),
+                new AsyncManualResetEvent(true),
                 idempotencyStore,
                 StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
@@ -89,7 +90,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
             persistence,
             await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             scenario.Ledger,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
 
         await journal.AppendPutAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
         await journal.AppendIdempotencyOutcomeAsync(

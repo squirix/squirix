@@ -2,9 +2,9 @@ using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -15,21 +15,21 @@ internal sealed class RecoveryDependencies<T>
         PersistenceOptions persistence,
         Ledger manifestStore,
         ILocalCacheRecovery<T> localCache,
-        JournalStartupGate journalStartupGate,
+        AsyncManualResetEvent asyncManualResetEvent,
         RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader)
     {
         Persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
         Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         LocalCache = localCache ?? throw new ArgumentNullException(nameof(localCache));
-        JournalStartupGate = journalStartupGate ?? throw new ArgumentNullException(nameof(journalStartupGate));
+        AsyncManualResetEvent = asyncManualResetEvent ?? throw new ArgumentNullException(nameof(asyncManualResetEvent));
         Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
         SnapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
     }
 
     internal RpcMutationIdempotencyStore Idempotency { get; }
 
-    internal JournalStartupGate JournalStartupGate { get; }
+    internal AsyncManualResetEvent AsyncManualResetEvent { get; }
 
     internal Ledger Ledger { get; }
 

@@ -37,7 +37,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private ulong _nextSequence;
     private long _ops;
 
-    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, JournalStartupGate startupGate)
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate)
     {
         Options = opt;
         Ledger = manifestStore;
@@ -109,7 +109,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public BoundedJournalRing Ring { get; } = new(RingCapacity);
 
-    public JournalStartupGate StartupGate { get; }
+    public AsyncManualResetEvent StartupGate { get; }
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
 

@@ -12,6 +12,7 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -31,7 +32,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken), ledger, new JournalStartupGate());
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken), ledger, new AsyncManualResetEvent(true));
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -79,7 +80,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = new byte[LargePayloadSize];

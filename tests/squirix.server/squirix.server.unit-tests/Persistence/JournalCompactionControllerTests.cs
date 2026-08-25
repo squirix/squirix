@@ -10,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -29,7 +30,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     {
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
-        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
@@ -48,7 +49,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(opt);
-        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
         await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
@@ -69,7 +70,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     {
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new Ledger(opt);
-        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new JournalStartupGate());
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 

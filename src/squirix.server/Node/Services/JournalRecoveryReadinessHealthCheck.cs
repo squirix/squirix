@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -11,11 +11,11 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 {
-    private readonly JournalStartupGate _journalStartupGate;
+    private readonly AsyncManualResetEvent _asyncManualResetEvent;
 
-    internal JournalRecoveryReadinessHealthCheck(JournalStartupGate journalStartupGate)
+    internal JournalRecoveryReadinessHealthCheck(AsyncManualResetEvent asyncManualResetEvent)
     {
-        _journalStartupGate = journalStartupGate ?? throw new ArgumentNullException(nameof(journalStartupGate));
+        _asyncManualResetEvent = asyncManualResetEvent ?? throw new ArgumentNullException(nameof(asyncManualResetEvent));
     }
 
     /// <inheritdoc />
@@ -24,6 +24,6 @@ internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
         _ = context;
         _ = cancellationToken;
         return Task.FromResult(
-            _journalStartupGate.IsReady ? HealthCheckResult.Healthy("journal recovery is complete.") : HealthCheckResult.Unhealthy("journal recovery is still in progress."));
+            _asyncManualResetEvent.IsSet ? HealthCheckResult.Healthy("journal recovery is complete.") : HealthCheckResult.Unhealthy("journal recovery is still in progress."));
     }
 }

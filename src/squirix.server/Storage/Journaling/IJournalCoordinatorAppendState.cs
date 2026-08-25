@@ -1,3 +1,4 @@
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -15,7 +16,7 @@ internal interface IJournalCoordinatorAppendState
 
     BoundedJournalRing Ring { get; }
 
-    JournalStartupGate StartupGate { get; }
+    AsyncManualResetEvent StartupGate { get; }
 
     ulong AllocateSequence();
 

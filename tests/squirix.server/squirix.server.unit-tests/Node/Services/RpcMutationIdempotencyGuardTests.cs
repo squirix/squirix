@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -38,7 +39,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
 
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);

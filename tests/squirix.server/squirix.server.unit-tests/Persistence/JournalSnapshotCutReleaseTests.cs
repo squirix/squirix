@@ -8,6 +8,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -34,7 +35,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var buildStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -93,7 +94,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("before"), payload, DefaultCancellationToken);
@@ -128,7 +129,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate());
+            new AsyncManualResetEvent(true));
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         journal.InFlightApplyGate.Enter();
