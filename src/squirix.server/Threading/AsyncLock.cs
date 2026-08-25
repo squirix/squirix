@@ -7,7 +7,7 @@ namespace Squirix.Server.Threading;
 
 /// <summary>Async mutual-exclusion lock backed by a single-slot <see cref="SemaphoreSlim"/>.</summary>
 /// <remarks>Pair with <see cref="AsyncLockHolder"/> through <see langword="using"/> to release the lock on the scope exit.</remarks>
-[Mutable]
+[ThreadSafe]
 internal sealed class AsyncLock : IDisposable
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
@@ -21,9 +21,21 @@ internal sealed class AsyncLock : IDisposable
         _semaphore.Dispose();
     }
 
-    internal async ValueTask<AsyncLockHolder> LockAsync(CancellationToken cancellationToken = default)
+    internal async ValueTask<AsyncLockHolder> LockAsync(CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new AsyncLockHolder(_semaphore);
+    }
+
+    internal bool TryLock(out AsyncLockHolder holder, CancellationToken cancellationToken)
+    {
+        if (_semaphore.Wait(0, cancellationToken))
+        {
+            holder = new AsyncLockHolder(_semaphore);
+            return true;
+        }
+
+        holder = default;
+        return false;
     }
 }

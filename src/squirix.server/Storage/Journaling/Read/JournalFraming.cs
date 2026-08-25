@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
@@ -21,14 +22,19 @@ internal static class JournalFraming
 
     internal static InvalidDataException CreateTruncatedHeaderException() => new("journal segment has a truncated file header.");
 
-    internal static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
-
     internal static int FrameTotalLength(int bodyLength) => FrameHeaderSize + bodyLength + FrameFooterSize;
 
-    internal static void WriteFileHeader(Stream stream)
+    /// <summary>Reads the segment file header from <paramref name="handle" /> at <paramref name="offset" /> and validates it, advancing the offset past the header.</summary>
+    /// <param name="handle">The segment file handle.</param>
+    /// <param name="offset">The read offset; advanced past the header on success.</param>
+    /// <exception cref="InvalidDataException">Thrown when the header cannot be read completely or is invalid.</exception>
+    internal static void ReadAndValidateSegmentHeader(SafeFileHandle handle, long offset)
     {
-        stream.Write(Magic);
-        stream.WriteByte(Version);
+        Span<byte> header = stackalloc byte[FileHeaderSize];
+        if (!HandleEx.TryReadExact(handle, header, offset))
+            throw CreateTruncatedHeaderException();
+
+        EnsureSegmentHeaderSupported(header);
     }
 
     internal static void WriteFileHeader(Span<byte> destination)
@@ -46,6 +52,8 @@ internal static class JournalFraming
     }
 
     private static InvalidDataException CreateInvalidHeaderException() => new("invalid or missing journal file header");
+
+    private static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
 
     private static bool IsSegmentHeaderValid(ReadOnlySpan<byte> header) => header[..4].SequenceEqual(Magic) && header[4] == Version;
 

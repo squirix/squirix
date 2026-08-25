@@ -19,7 +19,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         var root = RepositoryPaths.FindRepositoryRoot();
         var coordinatorText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), DefaultCancellationToken);
         var durabilityText = await File.ReadAllTextAsync(
-            Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinatorDurabilityPipeline.cs"),
+            Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalDurabilityCoordinator.cs"),
             DefaultCancellationToken);
 
         Assert.Contains("JournalThread.Join(", durabilityText, StringComparison.Ordinal);

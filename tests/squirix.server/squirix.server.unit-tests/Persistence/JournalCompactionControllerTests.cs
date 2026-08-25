@@ -35,7 +35,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerNowAsync" /> returns false without waiting.
+    /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerAsync" /> returns false without waiting.
     /// </summary>
     [Fact]
     public async Task TriggerNowFalseWhenMutexUnavailableAsync()
@@ -54,13 +54,13 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
 
-        var firstTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
-        var secondTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
+        var firstTrigger = controller.TryTriggerAsync(DefaultCancellationToken);
+        var secondTrigger = controller.TryTriggerAsync(DefaultCancellationToken);
         var firstResult = await firstTrigger;
         var secondResult = await secondTrigger;
 
         Assert.True(firstResult ^ secondResult);
-        Assert.True(await controller.TryTriggerNowAsync(DefaultCancellationToken));
+        Assert.True(await controller.TryTriggerAsync(DefaultCancellationToken));
     }
 
     /// <summary>Disposed controller rejects further compaction attempts.</summary>
@@ -73,6 +73,6 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerNowAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerAsync(DefaultCancellationToken));
     }
 }

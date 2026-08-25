@@ -7,7 +7,7 @@ internal interface IJournalCoordinatorAppendState
 {
     JournalDurabilityGroupCommit? GroupCommit { get; }
 
-    JournalCoordinatorDurabilityPipeline DurabilityPipeline { get; }
+    JournalDurabilityCoordinator DurabilityPipeline { get; }
 
     PersistenceOptions Options { get; }
 

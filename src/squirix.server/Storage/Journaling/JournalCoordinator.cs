@@ -44,7 +44,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         StartupGate = startupGate;
         _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
         _appendPipeline = new JournalCoordinatorAppendPipeline(this);
-        DurabilityPipeline = new JournalCoordinatorDurabilityPipeline(this, this, LogManager.GetLogger<JournalCoordinatorDurabilityPipeline>());
+        DurabilityPipeline = new JournalDurabilityCoordinator(this, this, LogManager.GetLogger<JournalDurabilityCoordinator>());
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
@@ -77,7 +77,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public MutableInt32 DurabilityFlushScheduledFlag { get; } = new();
 
-    public JournalCoordinatorDurabilityPipeline DurabilityPipeline { get; }
+    public JournalDurabilityCoordinator DurabilityPipeline { get; }
 
     public JournalEventLoop EventLoop { get; }
 
@@ -97,7 +97,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public long MaxBytes => EventLoop.Policy.MaxTotalBytes;
 
-    public SemaphoreSlim MutationGate { get; } = new(1, 1);
+    public AsyncLock MutationGate { get; } = new();
 
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
@@ -201,7 +201,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         Ring.Dispose();
         BackgroundCancellation.Dispose();
         MutationGate.Dispose();
-        JournalCoordinatorDurabilityPipeline.ThrowDisposeFailures(failures);
+        JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
     }
 
     public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
@@ -209,15 +209,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentNullException.ThrowIfNull(action);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
         await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await DurabilityPipeline.EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = MutationGate.Release();
-        }
+        using var mutationGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+        await DurabilityPipeline.EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
@@ -229,22 +222,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentNullException.ThrowIfNull(captureUnderBarrier);
         ArgumentNullException.ThrowIfNull(buildOutsideBarrier);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
-
         await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        await DurabilityPipeline.WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
-        ulong seqAtFlush;
-        TBarrier barrierState;
-        try
-        {
-            await DurabilityPipeline.FlushAsync(cancellationToken).ConfigureAwait(false);
-            seqAtFlush = NextSequence > 0 ? NextSequence - 1UL : 0UL;
-            barrierState = await captureUnderBarrier(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = MutationGate.Release();
-        }
-
+        var (seqAtFlush, barrierState) = await CaptureSnapshotCutAsync(state, captureUnderBarrier, cancellationToken).ConfigureAwait(false);
         return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 
@@ -259,10 +238,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentNullException.ThrowIfNull(action);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
 
+        AsyncLockHolder gateGuard;
         try
         {
             await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (ObjectDisposedException ex)
         {
@@ -275,7 +255,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
         finally
         {
-            _ = MutationGate.Release();
+            gateGuard.Dispose();
         }
     }
 
@@ -294,6 +274,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public void SetJournalThreadFailure(Exception? value) => _flushLoopFailure.Write(value);
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
+
+    private async ValueTask<(ulong Sequence, TBarrier BarrierState)> CaptureSnapshotCutAsync<TState, TBarrier>(
+        TState state,
+        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        CancellationToken cancellationToken)
+    {
+        using var holder = await DurabilityPipeline.WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
+        await DurabilityPipeline.FlushAsync(cancellationToken).ConfigureAwait(false);
+        var sequence = NextSequence > 0 ? NextSequence - 1UL : 0UL;
+        var barrierState = await captureUnderBarrier(state, sequence, cancellationToken).ConfigureAwait(false);
+        return (sequence, barrierState);
+    }
 
     private void NotifyAppended() => OnAppended?.Invoke(this, EventArgs.Empty);
 
@@ -459,9 +451,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private sealed class JournalEventLoopBridge : IJournalEventLoopHost
     {
         private readonly JournalCoordinator _coordinator;
-        private readonly JournalCoordinatorDurabilityPipeline _durabilityPipeline;
+        private readonly JournalDurabilityCoordinator _durabilityPipeline;
 
-        internal JournalEventLoopBridge(JournalCoordinator coordinator, JournalCoordinatorDurabilityPipeline durabilityPipeline)
+        internal JournalEventLoopBridge(JournalCoordinator coordinator, JournalDurabilityCoordinator durabilityPipeline)
         {
             _coordinator = coordinator;
             _durabilityPipeline = durabilityPipeline;
