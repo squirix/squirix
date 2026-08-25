@@ -119,7 +119,7 @@ internal sealed class JournalEventLoopSegmentWriter
         return true;
     }
 
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
+    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Completion?.TrySetResult();
 
     private void BeginSegmentRollOnJournalThread()
     {
@@ -214,7 +214,7 @@ internal sealed class JournalEventLoopSegmentWriter
     private void FailAppendWorkItem(JournalWorkItem item, Exception error)
     {
         ReleaseQueuedAppendResources(item);
-        _ = item.Ack?.TrySetException(error);
+        _ = item.Completion?.TrySetException(error);
     }
 
     private long GetEffectiveActiveSegmentBytes() => _owner.ActiveSegmentWrittenBytes + _owner.WriteBatch.StagedByteLength;
@@ -253,12 +253,12 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void ProcessAppendWithDurability(JournalWorkItem item)
     {
-        var ack = item.Ack ?? throw new InvalidOperationException("AppendWithDurability work item is missing a durability ack.");
+        var completion = item.Completion ?? throw new InvalidOperationException("AppendWithDurability work item is missing a completion source.");
         try
         {
             WriteAppendFrame(item);
             _owner.FsyncOnJournalThread();
-            _ = ack.TrySetResult();
+            _ = completion.TrySetResult();
         }
         catch (JournalCapacityExceededException ex)
         {

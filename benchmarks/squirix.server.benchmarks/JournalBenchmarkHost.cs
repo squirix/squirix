@@ -40,11 +40,21 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
 
         var dataDir = new TempDirectory(tempDirectoryPrefix);
-        var persistence = options with { DataDir = dataDir.Path };
-        var manifestStore = new Ledger(persistence);
-        var gate = new AsyncManualResetEvent(true);
-        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
-        return new JournalBenchmarkHost(dataDir, coordinator, manifestStore);
+        try
+        {
+            var persistence = options with { DataDir = dataDir.Path };
+            var manifestStore = new Ledger(persistence);
+            var gate = new AsyncManualResetEvent(true);
+            var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
+            return new JournalBenchmarkHost(dataDir, coordinator, manifestStore);
+        }
+        catch
+        {
+            // Only dataDir is guaranteed disposable on every failure path here; benchmark processes
+            // are short-lived, so anything half-built after this point is left to finalizers.
+            dataDir.Dispose();
+            throw;
+        }
     }
 }

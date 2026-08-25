@@ -300,6 +300,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _owner = owner;
         }
 
+        internal static ValueTask AwaitCompletionAsync(TaskCompletionSource completion) =>
+#pragma warning disable VSTHRD003
+            new(completion.Task);
+#pragma warning restore VSTHRD003
+
         internal JournalRecord AllocateIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes)
         {
             var record = JournalRecord.RentForAppend();
@@ -372,17 +377,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
                 JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
                 var startedMs = Environment.TickCount64;
-                var ack = DurabilityAck.Rent();
-                try
-                {
-                    var ackWaitTask = ack.AwaitAsync(CancellationToken.None);
-                    await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
-                    await ackWaitTask.ConfigureAwait(false);
-                }
-                finally
-                {
-                    ack.ReturnToPool();
-                }
+                var completion = DurabilityAckRegistry.NewWait();
+                await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, completion, cancellationToken).ConfigureAwait(false);
 
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
@@ -395,50 +391,56 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
-            var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? DurabilityAck.Rent() : null;
-            var appendWaitTask = appendAck?.AwaitAsync(CancellationToken.None) ?? default;
+            var appendCompletion = _owner.Options.IsJournalGroupCommitEnabled ? DurabilityAckRegistry.NewWait() : null;
             var enqueued = false;
             try
             {
-                var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
+                if (appendCompletion != null)
+                    _owner.DurabilityAcks.Add(appendCompletion);
+
+                var item = JournalWorkItem.Append(frameBytes, frameLength, appendCompletion);
                 await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
                 enqueued = true;
-                if (appendAck != null)
-                {
-                    try
-                    {
-                        await appendWaitTask.ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        appendAck.ReturnToPool();
-                    }
-                }
+                if (appendCompletion != null)
+                    await AwaitCompletionAsync(appendCompletion).ConfigureAwait(false);
             }
             catch when (!enqueued)
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                appendAck?.ReturnToPool();
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
             }
+            finally
+            {
+                // The registration must span the whole wait: a journal-thread failure while this
+                // completion sits in the ring or write batch has to sweep it, or the waiter parks.
+                if (appendCompletion != null)
+                    _ = _owner.DurabilityAcks.Remove(appendCompletion);
+            }
         }
 
-        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, DurabilityAck ack, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, TaskCompletionSource completion, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
             var enqueued = false;
             try
             {
-                var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
+                _owner.DurabilityAcks.Add(completion);
+                var item = JournalWorkItem.AppendWithDurability(completion, frameBytes, frameLength);
                 await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
                 enqueued = true;
+                await AwaitCompletionAsync(completion).ConfigureAwait(false);
             }
             catch when (!enqueued)
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
+            }
+            finally
+            {
+                // Same as EnqueueAppendAsync: stay registered until the wait resolves so failure sweeps cover it.
+                _ = _owner.DurabilityAcks.Remove(completion);
             }
         }
     }

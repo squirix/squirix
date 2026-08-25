@@ -62,54 +62,51 @@ internal sealed class JournalDurabilityCoordinator
 
     internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
     {
-        var ack = item.Ack ?? throw new InvalidOperationException("durability checkpoint work item is missing a durability ack.");
+        var completion = item.Completion ?? throw new InvalidOperationException("durability checkpoint work item is missing a completion source.");
 
-        // Complete only the ack carried by this work item. The ack rides the ring position of its
+        // Complete only the source carried by this work item. The source rides the ring position of its
         // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
-        // it. Completing acks registered later (their checkpoints are still queued behind this item)
-        // would report frames durable before they are written, so foreign acks must stay pending.
-        if (_owner.DurabilityAcks.Remove(ack))
-        {
-            _owner.EventLoop.FsyncOnJournalThread();
-            _ = ack.TrySetResult();
-        }
+        // it. Completing sources registered later (their checkpoints are still queued behind this item)
+        // would report frames durable before they are written, so foreign waits must stay pending.
+        // The fsync runs even when the caller canceled its wait: the checkpoint was admitted, so the
+        // staged frames must reach disk regardless of whether anyone still observes the wait.
+        _owner.EventLoop.FsyncOnJournalThread();
+        _ = completion.TrySetResult();
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
-        var begin = DurabilityAck.Rent();
+        var begin = DurabilityAckRegistry.NewWait();
+        _owner.DurabilityAcks.Add(begin);
         try
         {
-            var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = JournalWorkItem.MaintenanceBegin(begin);
-            await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.MaintenanceBegin(begin), cancellationToken).ConfigureAwait(false);
 
-            await beginWaitTask.ConfigureAwait(false);
+            await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             await action(cancellationToken).ConfigureAwait(false);
 
             var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
             var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
 
-            var end = DurabilityAck.Rent();
+            var end = DurabilityAckRegistry.NewWait();
+            _owner.DurabilityAcks.Add(end);
             try
             {
-                var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
-                await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+                await _owner.Ring.EnqueueAsync(JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence), cancellationToken).ConfigureAwait(false);
 
-                await endWaitTask.ConfigureAwait(false);
+                await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
-                end.ReturnToPool();
+                DetachDurabilityWait(end);
             }
         }
         finally
         {
-            begin.ReturnToPool();
+            DetachDurabilityWait(begin);
         }
     }
 
@@ -125,10 +122,10 @@ internal sealed class JournalDurabilityCoordinator
 
     internal void FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll();
+        var waits = _owner.DurabilityAcks.FailAll(reason);
 
-        for (var i = 0; i < acks.Count; i++)
-            _ = acks[i].TrySetException(reason);
+        for (var i = 0; i < waits.Count; i++)
+            _ = waits[i].TrySetException(reason);
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
@@ -167,40 +164,24 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
-    private void DetachDurabilityAck(DurabilityAck ack) => _ = _owner.DurabilityAcks.Remove(ack);
+    private void DetachDurabilityWait(TaskCompletionSource completion) => _ = _owner.DurabilityAcks.Remove(completion);
 
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var ack = DurabilityAck.Rent();
-        _owner.DurabilityAcks.Add(ack);
+        var completion = DurabilityAckRegistry.NewWait();
+        _owner.DurabilityAcks.Add(completion);
 
         try
         {
-            var ackWaitTask = ack.AwaitAsync(cancellationToken);
-            var item = JournalWorkItem.DurabilityCheckpoint(ack);
-            await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(completion), cancellationToken).ConfigureAwait(false);
 
-            await ackWaitTask.ConfigureAwait(false);
+            await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             ThrowIfJournalThreadFailed();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            RemoveDurabilityAck(ack, cancellationToken);
-            throw;
         }
         finally
         {
-            DetachDurabilityAck(ack);
-            ack.ReturnToPool();
+            DetachDurabilityWait(completion);
         }
-    }
-
-    private void RemoveDurabilityAck(DurabilityAck ack, CancellationToken cancellationToken)
-    {
-        if (!_owner.DurabilityAcks.Remove(ack))
-            return;
-
-        _ = ack.TrySetCanceled(cancellationToken);
     }
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem
