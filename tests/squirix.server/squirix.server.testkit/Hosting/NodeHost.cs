@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -16,15 +17,28 @@ internal static class NodeHost
     internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new NodeHostStartOptions();
+        var diag = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_NODE_START_DIAG"), "1", StringComparison.Ordinal);
+        var sw = Stopwatch.StartNew();
+
         var builder = CreateBuilder(options.ConfigureLogging);
+        var createBuilderMs = sw.ElapsedMilliseconds;
+
         var configureArgs = new CompositionArgsConfigurer(options);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
+        var configureMs = sw.ElapsedMilliseconds - createBuilderMs;
 
         var app = builder.Build();
+        var buildMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs;
+
         _ = ServerHostingComposition.MapServer(app);
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
+        var hostStartMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs - buildMs;
+
+        if (diag)
+            await Console.Error.WriteLineAsync($"[node-start] node={cluster.NodeId} createBuilder={createBuilderMs}ms configure={configureMs}ms build={buildMs}ms hostStart={hostStartMs}ms total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
+
         return app;
     }
 
