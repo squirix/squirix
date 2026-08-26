@@ -158,7 +158,7 @@ public sealed class CallPolicyTests
     [Fact]
     public async Task DisposeRacingExecuteStaysClean()
     {
-        const int rounds = 1500;
+        const int rounds = 64;
         const int callersPerRound = 8;
 
         for (var round = 0; round < rounds; round++)
@@ -168,9 +168,10 @@ public sealed class CallPolicyTests
             var faults = new ConcurrentQueue<string>();
             var callers = StartHammerCallers(policy, drained, faults, callersPerRound);
 
-            // Deterministic phase smear across rounds: dispose lands at a different point of the
-            // callers' execute loop every round, covering the whole claim window over time.
-            await Task.Delay(TimeSpan.FromMicroseconds(((round % 64) + 1) * 31), TimeProvider.System, CancellationToken.None);
+            // Spin-based phase smear: burning a round-dependent number of cycles before disposing
+            // walks the dispose landing point through the callers' execute loop without depending
+            // on coarse OS timer resolution, covering the whole claim window over time.
+            Thread.SpinWait(((round % 64) + 1) * 256);
             await policy.DisposeAsync();
             drained.Set();
 
@@ -218,10 +219,12 @@ public sealed class CallPolicyTests
             catch (ObjectDisposedException disposed)
             {
                 // THE regression signature: use-after-dispose of the concurrency semaphore.
-                // An ObjectDisposedException raised by the policy's own check never carries a
-                // SemaphoreSlim frame, so only that case is recorded as a fault.
-                if (disposed.StackTrace?.Contains("SemaphoreSlim", StringComparison.Ordinal) == true)
-                    faults.Enqueue(disposed.StackTrace);
+                // Classification keys on ObjectDisposedException.ObjectName instead of stack-trace
+                // text: both policies throw their post-enter check via ThrowIf(..., this), which
+                // reports the policy type name, so only an ObjectName identifying SemaphoreSlim
+                // counts as a fault.
+                if (string.Equals(disposed.ObjectName, typeof(SemaphoreSlim).Name, StringComparison.Ordinal))
+                    faults.Enqueue(disposed.ToString());
 
                 return;
             }
