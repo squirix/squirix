@@ -72,13 +72,14 @@ internal sealed class CallPolicy : ICallPolicy
 
     public async ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        ThrowIfDraining();
-
         _activeOperations.Enter();
 
         try
         {
+            // Disposal outranks draining so callers observe the same failure mode as before the
+            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
             var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
@@ -132,14 +133,6 @@ internal sealed class CallPolicy : ICallPolicy
 
         lock (_disposeGate)
             DisposeSemaphoreUnderLockIfIdle();
-    }
-
-    private void ThrowIfDisposed()
-    {
-        if (Volatile.Read(ref _disposed) == 0)
-            return;
-
-        throw new ObjectDisposedException(nameof(CallPolicy));
     }
 
     private void ThrowIfDraining()

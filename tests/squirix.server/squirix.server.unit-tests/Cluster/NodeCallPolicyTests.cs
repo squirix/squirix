@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -160,6 +161,45 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         finally
         {
             await policy.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Dispose racing <see cref="ServerCallPolicy.ExecuteAsync{TState,T}" /> must never surface an
+    /// <see cref="ObjectDisposedException" /> raised from SemaphoreSlim internals: the
+    /// claim-then-recheck ordering makes racing callers observe disposal through the policy's own
+    /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore. See issue #423.
+    /// </summary>
+    [Fact]
+    public async Task DisposeRacingExecuteStaysClean()
+    {
+        const int rounds = 64;
+        const int callersPerRound = 8;
+
+        for (var round = 0; round < rounds; round++)
+        {
+            var policy = CreatePolicy(maxConcurrentPerPeer: 1, peer: $"peer-race-{round}", timeProvider: TimeProvider.System);
+            try
+            {
+                using var drained = new ManualResetEventSlim(false);
+                var faults = new ConcurrentQueue<string>();
+                var callers = StartHammerCallers(policy, drained, faults, callersPerRound);
+
+                // Spin-based phase smear: burning a round-dependent number of cycles before disposing
+                // walks the dispose landing point through the callers' execute loop without depending
+                // on coarse OS timer resolution, covering the whole claim window over time.
+                Thread.SpinWait(((round % 64) + 1) * 256);
+                await policy.DisposeAsync();
+                drained.Set();
+                foreach (var caller in callers)
+                    await caller;
+
+                Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault!}");
+            }
+            finally
+            {
+                await policy.DisposeAsync();
+            }
         }
     }
 
@@ -370,6 +410,55 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         int maxConcurrentPerPeer = 64,
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
+
+    private static Task[] StartHammerCallers(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count)
+    {
+        Task StartCallerAsync()
+        {
+            return Task.Factory.StartNew(
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        }
+
+        var callers = new Task[count];
+        for (var i = 0; i < count; i++)
+            callers[i] = StartCallerAsync();
+
+        return callers;
+    }
+
+    private static async Task HammerExecuteUntilDisposedAsync(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults)
+    {
+        while (!drained.IsSet)
+        {
+            try
+            {
+                _ = await policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), CancellationToken.None);
+            }
+            catch (RpcException)
+            {
+                return; // Drain rejection - legitimate outcome.
+            }
+            catch (OperationCanceledException)
+            {
+                return; // Shutdown cancellation - legitimate outcome.
+            }
+            catch (ObjectDisposedException disposed)
+            {
+                // THE regression signature: use-after-dispose of the concurrency semaphore.
+                // Classification keys on ObjectDisposedException.ObjectName instead of stack-trace
+                // text: both policies throw their post-enter check via ThrowIf(..., this), which
+                // reports the policy type name, so only an ObjectName identifying SemaphoreSlim
+                // counts as a fault.
+                if (string.Equals(disposed.ObjectName, typeof(SemaphoreSlim).Name, StringComparison.Ordinal))
+                    faults.Enqueue(disposed.ToString());
+
+                return;
+            }
+        }
+    }
 
     [Immutable]
     private sealed class CancellationProbeState
