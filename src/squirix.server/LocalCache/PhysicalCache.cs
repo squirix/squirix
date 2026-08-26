@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -67,7 +68,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
         _evictionIndex.TrackNew(key);
         return ValueTask.CompletedTask;
     }
@@ -104,7 +105,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
         _evictionIndex.TrackNew(key);
         EnforceCapacityIfNeeded();
         return ValueTask.CompletedTask;
@@ -140,7 +141,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(false);
 
         var normalized = NormalizeEntry(entry);
-        var added = _store.TryAdd(key, new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version));
+        var added = _store.TryAdd(key, new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags));
         if (!added)
             return ValueTask.FromResult(false);
 
@@ -187,12 +188,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    private static NodeCacheEntry<T> ToEntry(StoredEntry stored) => new()
-    {
-        Value = stored.Value,
-        ExpiresUtc = stored.ExpiresUtc,
-        Version = stored.Version,
-    };
+    private static NodeCacheEntry<T> ToEntry(StoredEntry stored) => new(stored.Value, stored.Version, stored.ExpiresUtc, tags: stored.Tags);
 
     private void EnforceCapacityIfNeeded()
     {
@@ -220,13 +216,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (expires == null && entry.Expiration is { } expiration)
             expires = UtcNow.Add(expiration);
 
-        return new NodeCacheEntry<T>
-        {
-            Value = entry.Value,
-            ExpiresUtc = expires,
-            Expiration = entry.Expiration,
-            Version = version,
-        };
+        return new NodeCacheEntry<T>(entry.Value, version, expires, entry.Expiration, entry.Tags);
     }
 
     private bool TryGetLive(CacheKey key, out StoredEntry stored)
@@ -274,8 +264,17 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return _store.TryUpdate(key, updated, stored);
     }
 
+    /// <summary>Stores a single live entry's value, expiration, version, and extension-facing tags.</summary>
+    /// <param name="Value">The cached value.</param>
+    /// <param name="ExpiresUtc">The absolute UTC expiration, if any.</param>
+    /// <param name="Version">The monotonic entry version.</param>
+    /// <param name="Tags">The immutable tag dictionary shared with the originating entry; may be <see langword="null" />.</param>
+    /// <remarks>
+    /// Carries the tag dictionary so user metadata survives restarts and snapshot recovery.
+    /// Costs one reference per stored entry even when tags are absent.
+    /// </remarks>
     [Immutable]
-    private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version);
+    private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version, FrozenDictionary<string, string>? Tags);
 
     /// <summary>Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).</summary>
     [Immutable]
