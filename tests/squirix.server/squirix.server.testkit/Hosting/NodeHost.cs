@@ -28,21 +28,31 @@ internal static class NodeHost
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
         var configureMs = sw.ElapsedMilliseconds - createBuilderMs;
 
-        var app = builder.Build();
-        var buildMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs;
+        var buildGate = BuildGate.Instance;
+        if (buildGate != null)
+            await buildGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var app = builder.Build();
+            var buildMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs;
 
-        if (diag)
-            await Console.Error.WriteLineAsync($"[node-start] node={cluster.NodeId} createBuilder={createBuilderMs}ms configure={configureMs}ms build={buildMs}ms hostStart pending total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
+            if (diag)
+                await Console.Error.WriteLineAsync($"[node-start] node={cluster.NodeId} createBuilder={createBuilderMs}ms configure={configureMs}ms build={buildMs}ms hostStart pending total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
 
-        _ = ServerHostingComposition.MapServer(app);
+            _ = ServerHostingComposition.MapServer(app);
 
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        var hostStartMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs - buildMs;
+            await app.StartAsync(cancellationToken).ConfigureAwait(false);
+            var hostStartMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs - buildMs;
 
-        if (diag)
-            await Console.Error.WriteLineAsync($"[node-done] node={cluster.NodeId} hostStart={hostStartMs}ms total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
+            if (diag)
+                await Console.Error.WriteLineAsync($"[node-done] node={cluster.NodeId} hostStart={hostStartMs}ms total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
 
-        return app;
+            return app;
+        }
+        finally
+        {
+            _ = buildGate?.Release();
+        }
     }
 
     private static void AddDefaultLogging(ILoggingBuilder b)
@@ -64,6 +74,30 @@ internal static class NodeHost
         _ = builder.Logging.ClearProviders();
         (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
         return builder;
+    }
+
+    /// <summary>
+    /// Caps concurrent node <c>builder.Build()</c> calls: parallel container builds collide on JIT
+    /// compilation and each pays several times its solo cost (#424). Default limit is 4; override with
+    /// SQUIRIX_BUILD_PARALLELISM (a positive integer), or disable the gate entirely with a non-positive value.
+    /// </summary>
+    private static class BuildGate
+    {
+        internal static readonly SemaphoreSlim? Instance = Create();
+
+        private static SemaphoreSlim? Create()
+        {
+            var raw = Environment.GetEnvironmentVariable("SQUIRIX_BUILD_PARALLELISM");
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                return int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var overrideLimit) && overrideLimit > 0
+                    ? new SemaphoreSlim(overrideLimit)
+                    : null;
+            }
+
+            var defaultLimit = Math.Clamp(Environment.ProcessorCount / 6, 2, 4);
+            return new SemaphoreSlim(defaultLimit);
+        }
     }
 
     [Immutable]
