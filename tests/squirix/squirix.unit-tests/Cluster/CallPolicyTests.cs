@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -145,6 +146,86 @@ public sealed class CallPolicyTests
 
         Assert.Equal(8, value);
         Assert.Equal(2, box.Count);
+    }
+
+    /// <summary>
+    /// Dispose racing <see cref="CallPolicy.ExecuteAsync{TState,T}" /> must never surface an
+    /// <see cref="ObjectDisposedException" /> raised from SemaphoreSlim internals: the
+    /// claim-then-recheck ordering makes racing callers observe disposal through the policy's own
+    /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore.
+    /// Mirrors the server-side regression test for issue #423.
+    /// </summary>
+    [Fact]
+    public async Task DisposeRacingExecuteStaysClean()
+    {
+        const int rounds = 1500;
+        const int callersPerRound = 8;
+
+        for (var round = 0; round < rounds; round++)
+        {
+            await using var policy = new CallPolicy(TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, 1, $"c-race-{round}");
+            using var drained = new ManualResetEventSlim(false);
+            var faults = new ConcurrentQueue<string>();
+            var callers = StartHammerCallers(policy, drained, faults, callersPerRound);
+
+            // Deterministic phase smear across rounds: dispose lands at a different point of the
+            // callers' execute loop every round, covering the whole claim window over time.
+            await Task.Delay(TimeSpan.FromMicroseconds(((round % 64) + 1) * 31), TimeProvider.System, CancellationToken.None);
+            await policy.DisposeAsync();
+            drained.Set();
+
+            foreach (var caller in callers)
+                await caller;
+
+            Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault!}");
+        }
+    }
+
+    private static Task[] StartHammerCallers(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count)
+    {
+        Task StartCallerAsync()
+        {
+            return Task.Factory.StartNew(
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        }
+
+        var callers = new Task[count];
+        for (var i = 0; i < count; i++)
+            callers[i] = StartCallerAsync();
+
+        return callers;
+    }
+
+    private static async Task HammerExecuteUntilDisposedAsync(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults)
+    {
+        while (!drained.IsSet)
+        {
+            try
+            {
+                _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
+            }
+            catch (RpcException)
+            {
+                return; // Drain rejection - legitimate outcome.
+            }
+            catch (OperationCanceledException)
+            {
+                return; // Shutdown cancellation - legitimate outcome.
+            }
+            catch (ObjectDisposedException disposed)
+            {
+                // THE regression signature: use-after-dispose of the concurrency semaphore.
+                // An ObjectDisposedException raised by the policy's own check never carries a
+                // SemaphoreSlim frame, so only that case is recorded as a fault.
+                if (disposed.StackTrace?.Contains("SemaphoreSlim", StringComparison.Ordinal) == true)
+                    faults.Enqueue(disposed.StackTrace);
+
+                return;
+            }
+        }
     }
 
     [Immutable]

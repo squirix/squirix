@@ -73,14 +73,14 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     public async ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        ThrowIfDraining();
-
         _activeOperations.Enter();
-
         try
         {
-            cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
+            // Disposal outranks draining so callers observe the same failure mode as before the
+            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfDraining();
+            cancellationToken.ThrowIfCancellationRequested();
 
             var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
             if (budgetRemaining == null)
@@ -130,14 +130,6 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         lock (_disposeGate)
             DisposeSemaphoreUnderLockIfIdle();
-    }
-
-    private void ThrowIfDisposed()
-    {
-        if (Volatile.Read(ref _disposed) == 0)
-            return;
-
-        throw new ObjectDisposedException(nameof(ServerCallPolicy));
     }
 
     private void ThrowIfDraining()
