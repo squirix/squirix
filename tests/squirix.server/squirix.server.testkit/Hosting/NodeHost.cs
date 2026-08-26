@@ -31,13 +31,16 @@ internal static class NodeHost
         var app = builder.Build();
         var buildMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs;
 
+        if (diag)
+            await Console.Error.WriteLineAsync($"[node-start] node={cluster.NodeId} createBuilder={createBuilderMs}ms configure={configureMs}ms build={buildMs}ms hostStart pending total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
+
         _ = ServerHostingComposition.MapServer(app);
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
         var hostStartMs = sw.ElapsedMilliseconds - createBuilderMs - configureMs - buildMs;
 
         if (diag)
-            await Console.Error.WriteLineAsync($"[node-start] node={cluster.NodeId} createBuilder={createBuilderMs}ms configure={configureMs}ms build={buildMs}ms hostStart={hostStartMs}ms total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync($"[node-done] node={cluster.NodeId} hostStart={hostStartMs}ms total={sw.ElapsedMilliseconds}ms").ConfigureAwait(false);
 
         return app;
     }
@@ -53,12 +56,10 @@ internal static class NodeHost
 
     private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                Args = [],
-                ApplicationName = "Squirix.Server",
-            });
+        // Do NOT set ApplicationName here: pointing it at the Squirix.Server assembly switches the host
+        // content root away from the test output directory and makes every builder.Build() pay ~200 ms
+        // in logging/configuration initialization (#424).
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [] });
 
         _ = builder.Logging.ClearProviders();
         (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
