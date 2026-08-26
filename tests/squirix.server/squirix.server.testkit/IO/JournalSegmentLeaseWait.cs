@@ -14,10 +14,14 @@ public static class JournalSegmentLeaseWait
     private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const string ManifestCurrentFileName = "man-current";
     private const string ManifestCurrentStagingFileName = "man-current.next";
+    private const int ProbeIntervalMilliseconds = 25;
+    private const int RequiredCleanProbes = 4;
 
     /// <summary>
     /// Waits until journal segment files, <c>man-current</c>, and <c>man-current.next</c> in
-    /// <paramref name="dataDir" /> are not locked incompatibly by another handle.
+    /// <paramref name="dataDir" /> are not locked incompatibly by another handle. Release must hold across
+    /// several consecutive probes: the staging file only exists mid-roll, so a single clean pass cannot
+    /// distinguish a quiet directory from the gap between a dying writer's rolls.
     /// </summary>
     /// <param name="dataDir">Node data directory containing journal segments and manifest pointer files.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -74,13 +78,22 @@ public static class JournalSegmentLeaseWait
     private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
+        var cleanProbes = 0;
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (CanAcquireRepairLease(dataDir, cancellationToken))
-                return;
+            {
+                cleanProbes++;
+                if (cleanProbes >= RequiredCleanProbes)
+                    return;
+            }
+            else
+            {
+                cleanProbes = 0;
+            }
 
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(ProbeIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
         }
 
         throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
