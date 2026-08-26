@@ -84,6 +84,7 @@ _ReSharper*/
 # Other editors
 **/.vscode/
 **/.fleet/
+**/.claude/
 
 #BenchmarkDotNet
 **/BenchmarkDotNet.Artifacts/*

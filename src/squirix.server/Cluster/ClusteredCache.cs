@@ -31,62 +31,61 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.GetEntryAsync(cacheName, key, cancellationToken)
-            : _remote.GetEntryAsync(owner, cacheName, key, cancellationToken);
+        return IsLocal(owner) ? _local.GetEntryAsync(cacheName, key, cancellationToken) : _remote.GetEntryAsync(owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.GetValueAsync(cacheName, key, cancellationToken)
-            : _remote.GetValueAsync(owner, cacheName, key, cancellationToken);
+        return IsLocal(owner) ? _local.GetValueAsync(cacheName, key, cancellationToken) : _remote.GetValueAsync(owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.RemoveAsync(operationId, cacheName, key, cancellationToken)
-            : _remote.RemoveAsync(operationId, owner, cacheName, key, cancellationToken);
+        return IsLocal(owner) ? _local.RemoveAsync(operationId, cacheName, key, cancellationToken) : _remote.RemoveAsync(operationId, owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
+        return IsLocal(owner) ? _local.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
             : _remote.RemoveExpirationAsync(operationId, owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken)
+        return IsLocal(owner) ? _local.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken)
             : _remote.SetEntryAsync(operationId, owner, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.TouchAsync(operationId, cacheName, key, expiration, cancellationToken)
+        return IsLocal(owner) ? _local.TouchAsync(operationId, cacheName, key, expiration, cancellationToken)
             : _remote.TouchAsync(operationId, owner, cacheName, key, expiration, cancellationToken);
     }
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)
+        return IsLocal(owner) ? _local.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken)
             : _remote.TryAddEntryAsync(operationId, owner, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
-        return string.Equals(owner, _selfId, StringComparison.OrdinalIgnoreCase) ? _local.UpdateAsync(operationId, cacheName, key, value, cancellationToken)
+        return IsLocal(owner) ? _local.UpdateAsync(operationId, cacheName, key, value, cancellationToken)
             : _remote.UpdateAsync(operationId, owner, cacheName, key, value, cancellationToken);
     }
 
+    private bool IsLocal(string owner) => string.Equals(owner, _selfId, StringComparison.Ordinal);
+
     private string OwnerFor(string cacheName, string key) => _locator.GetOwner(cacheName, key);
 
-    /// <summary>Forwards cache operations to the key owner over inter-node gRPC.</summary>
+    /// <summary>Forwards cache operations to the key owner over internode gRPC.</summary>
     [Immutable]
     private sealed class OwnerPeerCacheClient
     {

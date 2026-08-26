@@ -60,6 +60,21 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
             Assert.Same(first, pool.ForNode("n0"));
     }
 
+    /// <summary>Case-distinct node identities require distinct transport resources.</summary>
+    [Fact]
+    public async Task CaseDistinctNodeIdsUseSeparatePools()
+    {
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "node-a", Uri = new Uri("https://localhost:6500") },
+            new() { NodeId = "NODE-A", Uri = new Uri("https://localhost:6501") },
+        ];
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
+
+        Assert.NotSame(pool.ForNode("node-a"), pool.ForNode("NODE-A"));
+        Assert.NotSame(pool.PolicyFor("node-a"), pool.PolicyFor("NODE-A"));
+    }
+
     /// <summary>Ensures NodeIds is a deterministic snapshot of the pool membership.</summary>
     [Fact]
     public async Task NodeIdsReturnsStableSortedSnapshot()
