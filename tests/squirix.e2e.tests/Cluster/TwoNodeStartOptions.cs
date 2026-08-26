@@ -18,6 +18,9 @@ internal sealed class TwoNodeStartOptions
     /// <summary>Gets optional external auth settings applied to both nodes.</summary>
     internal TestNodeSecurityOptions? Security { get; init; }
 
+    /// <summary>Gets the shared node time source applied to every node; null keeps the real system clock.</summary>
+    internal TimeProvider? TimeProvider { get; init; }
+
     internal TestNodeProfile GetProfile(string nodeId) => nodeId switch
     {
         "nodeA" => NodeAProfile,

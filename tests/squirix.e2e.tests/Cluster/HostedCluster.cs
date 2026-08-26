@@ -48,10 +48,15 @@ internal sealed class HostedCluster : IAsyncDisposable
     }
 
     internal static ValueTask<HostedCluster> StartSingleNodeAsync(
-        string? testName = null,
+        string? name = null,
         TestNodeSecurityOptions? security = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(SingleNodeIds, new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+        bool persistence = false,
+        TimeProvider? timeProvider = null,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new TwoNodeStartOptions { Security = security, TimeProvider = timeProvider };
+        return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
+    }
 
     internal static ValueTask<HostedCluster> StartTwoNodeAsync(
         string? testName = null,
@@ -133,25 +138,16 @@ internal sealed class HostedCluster : IAsyncDisposable
                     DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
                     Security = startOptions.Security,
                     MtlsProfile = startOptions.GetProfile(nodeId),
+                    TimeProvider = startOptions.TimeProvider,
                 };
                 nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, mtls, cancellationToken));
             }
 
             return new HostedCluster(nodes, mtls, dataDir);
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
-            // Configuration/startup failures must dispose already-started nodes before rethrowing.
-            foreach (var node in nodes.Values)
-                await node.DisposeAsync();
-
-            mtls?.Dispose();
-            dataDir?.Dispose();
-            throw;
-        }
-        catch (IOException)
-        {
-            // I/O failures during host spin-up use the same rollback path as configuration errors.
+            // Startup failures (configuration or I/O) must dispose already-started nodes before rethrowing.
             foreach (var node in nodes.Values)
                 await node.DisposeAsync();
 

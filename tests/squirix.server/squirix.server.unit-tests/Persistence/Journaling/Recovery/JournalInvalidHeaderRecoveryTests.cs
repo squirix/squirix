@@ -57,7 +57,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     [Fact]
     public async Task RecoveryFailsOnInvalidJournalHeader()
     {
-        await using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
         var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, DefaultCancellationToken);
 

@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -9,7 +8,7 @@ using Squirix.Server.TestKit.IO;
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Owns common recovery test infrastructure for focused journal and manifest scenarios.</summary>
-internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
+internal sealed class RecoveryScenarioBuilder : IDisposable
 {
     private readonly TempDirectory _dataDirectory;
     private int _disposed;
@@ -36,7 +35,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
     private PersistenceOptions Persistence { get; }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;

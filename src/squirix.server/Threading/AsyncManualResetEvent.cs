@@ -9,13 +9,15 @@ namespace Squirix.Server.Threading;
 /// Starts unset (not signaled). <see cref="Set" /> releases all current and future waiters.
 /// Awaiting <see cref="WaitAsync" /> blocks until <see cref="Set" /> is called, then returns immediately for every
 /// subsequent await. <see cref="Set" /> is idempotent.
-/// <para>A fresh event models a node that is not ready until an explicit preparation step (recovery replay)
-/// signals completion, matching the startup-gate contract in production.</para>
+/// <para>
+/// A fresh event models a node that is not ready until an explicit preparation step (recovery replay)
+/// signals completion, matching the startup-gate contract in production.
+/// </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class AsyncManualResetEvent
 {
-    private readonly TaskCompletionSource _tcs = TaskCompletionSourceFactory.Create();
+    private readonly TaskCompletionSource _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal AsyncManualResetEvent(bool initialState = false)
     {
@@ -35,8 +37,6 @@ internal sealed class AsyncManualResetEvent
     internal ValueTask WaitAsync(CancellationToken cancellationToken = default)
     {
         var task = _tcs.Task;
-        return !cancellationToken.CanBeCanceled || task.IsCompleted
-            ? new ValueTask(task)
-            : new ValueTask(task.WaitAsync(cancellationToken));
+        return !cancellationToken.CanBeCanceled || task.IsCompleted ? new ValueTask(task) : new ValueTask(task.WaitAsync(cancellationToken));
     }
 }

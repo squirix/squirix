@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -63,7 +65,7 @@ internal static class NodeHost
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = _options.ServicesConfigure;
+            args.ServicesConfigure = ComposeServices(_options);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
@@ -72,6 +74,25 @@ internal static class NodeHost
             args.MtlsOptions = _options.MtlsOptions;
             args.MtlsMaterial = _options.MtlsMaterial;
             args.FoundationOnly = _options.FoundationOnly;
+        }
+
+        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options)
+        {
+            if (options.TimeProvider == null)
+                return options.ServicesConfigure;
+
+            var timeProvider = options.TimeProvider;
+            var userConfigure = options.ServicesConfigure;
+
+            return services =>
+            {
+                // Register as the base TimeProvider type so the server's PhysicalCache
+                // (which resolves TimeProvider via DI) picks up the controllable fake instead of
+                // the real-time TimeProvider.System default. RemoveAll guarantees the fake wins
+                // over the TryAddSingleton(TimeProvider.System) registered by AddSquirixRuntimeServices.
+                services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+                userConfigure?.Invoke(services);
+            };
         }
     }
 }

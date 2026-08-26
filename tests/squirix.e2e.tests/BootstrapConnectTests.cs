@@ -14,7 +14,10 @@ public sealed class BootstrapConnectTests : EndToEndTestBase
     [Fact]
     public async Task ConnectsViaAnyReachableBootstrapEndpoint()
     {
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConnectsViaAnyReachableBootstrapEndpoint), cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(ConnectsViaAnyReachableBootstrapEndpoint),
+            timeProvider: TimeProvider.System,
+            cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(uri, new Uri("https://127.0.0.1:1"), DefaultCancellationToken);

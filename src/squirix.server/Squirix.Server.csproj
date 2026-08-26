@@ -43,6 +43,7 @@
     <ItemGroup>
         <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\ValueEnvelope.cs" Link="Adapters\Grpc\ValueEnvelope.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
 </Project>

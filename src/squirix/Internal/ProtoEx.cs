@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
@@ -13,8 +14,6 @@ namespace Squirix.Internal;
 /// </summary>
 internal static class ProtoEx
 {
-    private const string ScalarEnvelopeKey = "\0squirix:scalar";
-
     internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -80,11 +79,11 @@ internal static class ProtoEx
         switch (value)
         {
             case null:
-                return ProtoStructCodec.WrapAsStruct(ScalarEnvelopeKey, Value.ForNull());
+                return ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull());
 
             case JsonElement je:
                 return je.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(je)
-                    : ProtoStructCodec.WrapAsStruct(ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(je));
+                    : ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(je));
 
             default:
                 if (ProtoStructCodec.EncodeScalarAsStruct(value) is { } scalar)
@@ -92,7 +91,7 @@ internal static class ProtoEx
 
                 var root = serializer.SerializeToElement(value);
                 return root.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(root)
-                    : ProtoStructCodec.WrapAsStruct(ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
+                    : ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
         }
     }
 
@@ -103,16 +102,16 @@ internal static class ProtoEx
         {
             return value switch
             {
-                string text => WrapAsStruct(ScalarEnvelopeKey, Value.ForString(text)),
-                int number => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number)),
-                long number => WrapAsStruct(
-                    ScalarEnvelopeKey,
-                    ProtoJsonCodec.CreateNumberEnvelope(ProtoJsonCodec.NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture))),
-                double number => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(number)),
-                bool boolean => WrapAsStruct(ScalarEnvelopeKey, Value.ForBool(boolean)),
-                decimal dec => WrapAsStruct(
-                    ScalarEnvelopeKey,
-                    ProtoJsonCodec.CreateNumberEnvelope(ProtoJsonCodec.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture))),
+                string text => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(text)),
+                int number => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                long number => ValueEnvelope.WrapAsStruct(
+                    ValueEnvelope.ScalarEnvelopeKey,
+                    ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture))),
+                double number => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                bool boolean => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(boolean)),
+                decimal dec => ValueEnvelope.WrapAsStruct(
+                    ValueEnvelope.ScalarEnvelopeKey,
+                    ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture))),
                 _ => null,
             };
         }
@@ -122,7 +121,7 @@ internal static class ProtoEx
             ArgumentNullException.ThrowIfNull(value);
             ArgumentNullException.ThrowIfNull(serializer);
 
-            if (value.Fields.Count == 1 && value.Fields.TryGetValue(ScalarEnvelopeKey, out var wrapped))
+            if (value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped))
                 return FromValue<T>(wrapped, serializer);
 
             return Deserialize<T>(Value.ForStruct(value), serializer);
@@ -130,28 +129,17 @@ internal static class ProtoEx
 
         internal static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
         {
-            CacheValue.KindOneofCase.StringValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForString(value.StringValue)),
-            CacheValue.KindOneofCase.BoolValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
-            CacheValue.KindOneofCase.Int32Value => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
-            CacheValue.KindOneofCase.Int64Value => WrapAsStruct(
-                ScalarEnvelopeKey,
-                ProtoJsonCodec.CreateNumberEnvelope(ProtoJsonCodec.NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
-            CacheValue.KindOneofCase.DoubleValue => WrapAsStruct(ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct(ScalarEnvelopeKey, Value.ForNull()),
+            CacheValue.KindOneofCase.StringValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value.StringValue)),
+            CacheValue.KindOneofCase.BoolValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
+            CacheValue.KindOneofCase.Int32Value => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
+            CacheValue.KindOneofCase.Int64Value => ValueEnvelope.WrapAsStruct(
+                ValueEnvelope.ScalarEnvelopeKey,
+                ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
+            CacheValue.KindOneofCase.DoubleValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull()),
             CacheValue.KindOneofCase.StructValue => value.StructValue,
             _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };
-
-        internal static Struct WrapAsStruct(string fieldName, Value v)
-        {
-            return new Struct
-            {
-                Fields =
-                {
-                    [fieldName] = v,
-                },
-            };
-        }
 
         private static T? Deserialize<T>(Value value, ISquirixSerializer serializer)
         {
@@ -200,7 +188,7 @@ internal static class ProtoEx
 
         private static void WriteStructValue(Utf8JsonWriter writer, Struct structValue)
         {
-            if (ProtoJsonCodec.TryWriteNumberEnvelope(writer, structValue))
+            if (ValueEnvelope.TryWriteNumberEnvelope(writer, structValue))
                 return;
 
             writer.WriteStartObject();

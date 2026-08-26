@@ -35,36 +35,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     /// <summary>Verifies an empty frame source is reported as EOF consistently.</summary>
     [Fact]
-    public Task EmptyFrameSourceIsHandledConsistently() =>
-        AssertStatusAsync(EmptyFrameBytes, EmptyFrameBytes.Length, JournalFrameReadStatus.EndOfFile);
-
-    /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
-    [Fact]
-    public Task ValidFramesPreserveOrderAndOffsets()
-    {
-        var first = BuildPayload(1, "first");
-        var second = BuildPayload(2, "second");
-        var bytes = BuildFrameBytes(first, second);
-
-        return WithFrameFileAsync(bytes, bytes.Length, handle =>
-        {
-            var firstRead = JournalFrameReader.ReadNext(handle, 0, out var firstBuffer, out var firstLength);
-            Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
-            Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
-            Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer!, firstLength).Key.Key);
-
-            var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, out var secondBuffer, out var secondLength);
-            Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
-            Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
-            Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer!, secondLength).Key.Key);
-
-            if (firstBuffer != null)
-                ArrayPool<byte>.Shared.Return(firstBuffer);
-
-            if (secondBuffer != null)
-                ArrayPool<byte>.Shared.Return(secondBuffer);
-        });
-    }
+    public Task EmptyFrameSourceIsHandledConsistently() => AssertStatusAsync(EmptyFrameBytes, EmptyFrameBytes.Length, JournalFrameReadStatus.EndOfFile);
 
     /// <summary>Verifies oversized declared payload lengths are rejected consistently.</summary>
     [Fact]
@@ -88,8 +59,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     /// <summary>Verifies truncated frame headers classify consistently.</summary>
     [Fact]
-    public Task TruncatedHeaderIsClassifiedConsistently() =>
-        AssertStatusAsync(TruncatedHeaderBytes, TruncatedHeaderBytes.Length, JournalFrameReadStatus.TruncatedHeader);
+    public Task TruncatedHeaderIsClassifiedConsistently() => AssertStatusAsync(TruncatedHeaderBytes, TruncatedHeaderBytes.Length, JournalFrameReadStatus.TruncatedHeader);
 
     /// <summary>Verifies truncated frame payloads classify consistently.</summary>
     [Fact]
@@ -106,6 +76,37 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         return AssertStatusAsync(bytes, bytes.Length, JournalFrameReadStatus.TruncatedPayload);
     }
 
+    /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
+    [Fact]
+    public Task ValidFramesPreserveOrderAndOffsets()
+    {
+        var first = BuildPayload(1, "first");
+        var second = BuildPayload(2, "second");
+        var bytes = BuildFrameBytes(first, second);
+
+        return WithFrameFileAsync(
+            bytes,
+            bytes.Length,
+            handle =>
+            {
+                var firstRead = JournalFrameReader.ReadNext(handle, 0, out var firstBuffer, out var firstLength);
+                Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
+                Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
+                Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer!, firstLength).Key.Key);
+
+                var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, out var secondBuffer, out var secondLength);
+                Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
+                Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
+                Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer!, secondLength).Key.Key);
+
+                if (firstBuffer != null)
+                    ArrayPool<byte>.Shared.Return(firstBuffer);
+
+                if (secondBuffer != null)
+                    ArrayPool<byte>.Shared.Return(secondBuffer);
+            });
+    }
+
     /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
     [Fact]
     public Task ValidSingleFrameIsReadSuccessfully()
@@ -113,45 +114,31 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         var payload = BuildPayload(1, "single");
         var bytes = BuildFrameBytes(payload);
 
-        return WithFrameFileAsync(bytes, bytes.Length, handle =>
-        {
-            var read = JournalFrameReader.ReadNext(handle, 0, out var rentedBuffer, out var payloadLength);
+        return WithFrameFileAsync(
+            bytes,
+            bytes.Length,
+            handle =>
+            {
+                var read = JournalFrameReader.ReadNext(handle, 0, out var rentedBuffer, out var payloadLength);
 
-            Assert.Equal(JournalFrameReadStatus.Success, read.Status);
-            Assert.Equal(bytes.Length, read.NextFrameOffset);
-            Assert.Equal(payload.Length, payloadLength);
-            Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer!.AsSpan(0, payloadLength)));
+                Assert.Equal(JournalFrameReadStatus.Success, read.Status);
+                Assert.Equal(bytes.Length, read.NextFrameOffset);
+                Assert.Equal(payload.Length, payloadLength);
+                Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer!.AsSpan(0, payloadLength)));
 
-            if (rentedBuffer != null)
-                ArrayPool<byte>.Shared.Return(rentedBuffer);
-        });
+                if (rentedBuffer != null)
+                    ArrayPool<byte>.Shared.Return(rentedBuffer);
+            });
     }
 
-    private static Task AssertStatusAsync(byte[] bytes, int visibleLength, JournalFrameReadStatus expectedStatus) =>
-        WithFrameFileAsync(bytes, visibleLength, handle =>
+    private static Task AssertStatusAsync(byte[] bytes, int visibleLength, JournalFrameReadStatus expectedStatus) => WithFrameFileAsync(
+        bytes,
+        visibleLength,
+        handle =>
         {
             var read = JournalFrameReader.ReadNext(handle, 0, out _, out _);
             Assert.Equal(expectedStatus, read.Status);
         });
-
-    /// <summary>Writes the first <paramref name="visibleLength" /> bytes to a temporary segment file and runs the assertion against an open handle.</summary>
-    /// <param name="bytes">Full file content.</param>
-    /// <param name="visibleLength">Number of leading bytes written to the file (simulates truncation).</param>
-    /// <param name="assertion">Assertion executed against an open read handle.</param>
-    private static async Task WithFrameFileAsync(byte[] bytes, int visibleLength, Action<SafeFileHandle> assertion)
-    {
-        var path = Path.Join(Path.GetTempPath(), "jfr-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            await File.WriteAllBytesAsync(path, bytes[0..visibleLength], CancellationToken.None);
-            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
-            assertion(handle);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
 
     private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
         JournalFraming.FrameTotalLength(payload.Length),
@@ -185,5 +172,24 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
         return BufferKit.ToOwnedBytes(bodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+    }
+
+    /// <summary>Writes the first <paramref name="visibleLength" /> bytes to a temporary segment file and runs the assertion against an open handle.</summary>
+    /// <param name="bytes">Full file content.</param>
+    /// <param name="visibleLength">Number of leading bytes written to the file (simulates truncation).</param>
+    /// <param name="assertion">Assertion executed against an open read handle.</param>
+    private static async Task WithFrameFileAsync(byte[] bytes, int visibleLength, Action<SafeFileHandle> assertion)
+    {
+        var path = Path.Join(Path.GetTempPath(), "jfr-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes[..visibleLength], CancellationToken.None);
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
+            assertion(handle);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

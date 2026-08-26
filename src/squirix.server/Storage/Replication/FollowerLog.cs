@@ -1013,6 +1013,7 @@ internal sealed class FollowerLog : IFollowerLog
         /// <param name="FrameLength">Total length of the frame read; zero when torn.</param>
         /// <param name="NextLogIndex">The log index expected for this frame position.</param>
         /// <param name="Terminal">A torn-tail walk result; non-null when the walk must stop.</param>
+        [Immutable]
         private readonly record struct FrameReadOutcome(byte[] Frame, byte[]? Exhausted, int FrameLength, ulong NextLogIndex, WalkResult? Terminal);
 
         /// <summary>Result of walking the log frames during startup recovery.</summary>

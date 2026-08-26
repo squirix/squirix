@@ -29,19 +29,19 @@ internal static class BinaryJournalTestSegmentWriter
         return Task.FromResult(record);
     }
 
-    internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)
+    internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
     {
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, record);
+        WriteSegment(path, record);
     }
 
-    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
+    internal static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, records);
+        WriteSegment(path, records);
     }
 
-    internal static async Task WriteSegmentAsync(string path, JournalRecord record)
+    internal static void WriteSegment(string path, JournalRecord record)
     {
         using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
         long offset = 0;
@@ -49,7 +49,7 @@ internal static class BinaryJournalTestSegmentWriter
         WriteRecordFrame(handle, ref offset, record);
     }
 
-    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
+    internal static void WriteSegment(string path, IReadOnlyList<JournalRecord> records)
     {
         using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
         long offset = 0;

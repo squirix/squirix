@@ -24,15 +24,18 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     private readonly IGrpcCacheOperations<T> _cacheOperations;
     private readonly MutationHandlers _handlers;
     private readonly IRpcMutationIdempotencyCoordinator _idempotency;
+    private readonly TimeProvider _timeProvider;
 
     public SquirixServiceAdapter(
         IGrpcCacheOperations<T> cacheOperations,
         INodeOwnershipResolver ownershipResolver,
         IRemoteInvocationState invocationState,
-        IRpcMutationIdempotencyCoordinator idempotency)
+        IRpcMutationIdempotencyCoordinator idempotency,
+        TimeProvider timeProvider)
     {
         _cacheOperations = cacheOperations ?? throw new ArgumentNullException(nameof(cacheOperations));
         _idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _handlers = new MutationHandlers(
             cacheOperations,
             ownershipResolver ?? throw new ArgumentNullException(nameof(ownershipResolver)),
@@ -61,7 +64,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             return response;
 
         response.HasExpiration = true;
-        var remaining = expiresUtc - DateTime.UtcNow;
+        var remaining = expiresUtc - _timeProvider.GetUtcNow().UtcDateTime;
         response.Remaining = Duration.FromTimeSpan(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         return response;
     }

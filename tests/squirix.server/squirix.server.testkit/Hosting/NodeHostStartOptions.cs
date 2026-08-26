@@ -22,14 +22,14 @@ internal sealed class NodeHostStartOptions
 
     internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
 
+    /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
+    internal bool FoundationOnly { get; init; }
+
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
     internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
-
-    /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
-    internal bool FoundationOnly { get; init; }
 
     internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
 
@@ -38,6 +38,9 @@ internal sealed class NodeHostStartOptions
     internal SecurityOptions? SecurityOptions { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
+    internal TimeProvider? TimeProvider { get; init; }
 
     internal bool WaitForRecovery { get; init; } = true;
 }

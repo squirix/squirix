@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Mtls;
 
@@ -26,4 +27,11 @@ public sealed class TestNodeHostStartOptions
 
     /// <summary>Gets optional per-node security settings.</summary>
     public TestNodeSecurityOptions? Security { get; init; }
+
+    /// <summary>
+    /// Gets the node time source. When set, cache expiration (and every subsystem resolving
+    /// <see cref="TimeProvider" /> from DI) reads this clock instead of the system time, letting tests
+    /// advance time deterministically; when null, the real system clock is used.
+    /// </summary>
+    public TimeProvider? TimeProvider { get; init; }
 }

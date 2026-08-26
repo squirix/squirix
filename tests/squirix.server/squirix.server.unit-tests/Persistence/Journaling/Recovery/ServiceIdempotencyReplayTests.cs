@@ -31,7 +31,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
     [Fact]
     public async Task ReplayRestoresIdempotencyCreatedUtc()
     {
-        await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-unixms");
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-unixms");
         var persistence = CreatePersistence(scenario.DataDir);
         await WritePutAndIdempotencyAsync(scenario, persistence);
 

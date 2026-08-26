@@ -44,7 +44,7 @@ internal static class StoreFactory
                     AppendRecord(enumerator.Current, skipExpired, entries, idempotencyRecords);
             }
 
-            return new(new LoadResult<T>(entries, idempotencyRecords));
+            return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords));
         }
 
         private static void AppendRecord<T>(object record, bool skipExpired, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
@@ -83,11 +83,11 @@ internal static class StoreFactory
             private readonly long _footerOffset;
             private readonly SafeFileHandle _handle;
             private readonly bool _strict;
-            private long _offset;
             private uint _crc;
             private object? _current;
             private int _disposed;
             private bool _footerValidated;
+            private long _offset;
             private byte[] _scratch = new byte[InitialRecordScratchSize];
 
             internal SnapshotRecordEnumerator(string path, bool strict, CancellationToken cancellationToken)

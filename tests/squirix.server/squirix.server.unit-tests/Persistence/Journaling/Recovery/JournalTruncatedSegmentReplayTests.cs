@@ -22,7 +22,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     {
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
+        BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         var bytes = new byte[original.Length];
@@ -48,7 +48,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     {
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
+        BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
@@ -72,7 +72,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
         var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");
         var second = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "k2", "b");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [first, second]);
+        BinaryJournalTestSegmentWriter.WriteSegment(path, [first, second]);
 
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);

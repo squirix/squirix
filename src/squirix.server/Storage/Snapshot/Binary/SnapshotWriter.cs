@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
+[Immutable]
 internal sealed class SnapshotWriter : ISnapshotWriter
 {
     private readonly string _dataDir;
