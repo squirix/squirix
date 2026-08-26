@@ -124,21 +124,21 @@ internal sealed class RecoveryService<T> : IHostedService
                     break;
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
-                await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                await _localCache.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.Remove:
             {
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-                _ = await _localCache.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+                _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.RemoveExpiration:
             {
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-                _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+                _ = await _localCache.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
@@ -146,7 +146,7 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
-                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
+                _ = await _localCache.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
@@ -169,7 +169,7 @@ internal sealed class RecoveryService<T> : IHostedService
         for (var i = 0; i < snapshot.Entries.Count; i++)
         {
             var (k, entry) = snapshot.Entries[i];
-            await _localCache.InsertForDurableRecoveryAsync(k, entry, cancellationToken).ConfigureAwait(false);
+            await _localCache.InsertRecoveryAsync(k, entry, cancellationToken).ConfigureAwait(false);
         }
     }
 

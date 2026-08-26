@@ -35,28 +35,28 @@ internal static class RecoveryReplayTestRegistration
             _signal = signal ?? throw new ArgumentNullException(nameof(signal));
         }
 
-        public async ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _inner.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> RemoveExpirationForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
+        public async ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
+        public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> TouchExpirationForDurableRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
+        public async ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
+            return await _inner.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
         }
     }
 

@@ -28,7 +28,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
         var missingSnapshotPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(1)}{FileExtensions.Snapshot}");
 
-        var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
+        var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "recovered", "yes");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, record);
 
         var manifest = new State
@@ -66,8 +66,8 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         var path = await writer.WriteAsync(1, readOnlyList, [], DefaultCancellationToken);
 
         const ulong snapshotSequence = 10UL;
-        var baseRecord = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(snapshotSequence, "base", "ignored-by-snapshot");
-        var tailRecord = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(11UL, "tail", "from-journal");
+        var baseRecord = BinaryJournalTestSegmentWriter.BuildPutRecord(snapshotSequence, "base", "ignored-by-snapshot");
+        var tailRecord = BinaryJournalTestSegmentWriter.BuildPutRecord(11UL, "tail", "from-journal");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [baseRecord, tailRecord]);
 
         var manifest = new State

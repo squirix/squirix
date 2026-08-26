@@ -20,7 +20,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     [Fact]
     public async Task MalformedFrameLeavesSegmentFileIntact()
     {
-        var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
+        var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
@@ -46,7 +46,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     [Fact]
     public async Task ReadAllThrowsOnCrcMismatch()
     {
-        var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
+        var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
@@ -69,8 +69,8 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     [Fact]
     public async Task TruncatedSecondCrcYieldsFirstOnly()
     {
-        var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");
-        var second = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "k2", "b");
+        var first = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k1", "a");
+        var second = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "k2", "b");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, [first, second]);
 
