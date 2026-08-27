@@ -49,17 +49,7 @@ internal static class TwoNodeSupport
             var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
             return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, cancellationToken);
         }
-        catch (InvalidOperationException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (IOException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (RpcException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or RpcException)
         {
             await cluster.DisposeAsync();
             throw;

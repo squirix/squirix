@@ -150,17 +150,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
             var clientB = await cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
             return await TwoNodeNamedCaches<object?>.CreateAsync(cluster, clientA, clientB, DefaultCancellationToken);
         }
-        catch (RpcException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (IOException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is RpcException or IOException or InvalidOperationException)
         {
             await cluster.DisposeAsync();
             throw;

@@ -154,11 +154,7 @@ internal static partial class FileEx
             File.Delete(validatedPath);
             return true;
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }

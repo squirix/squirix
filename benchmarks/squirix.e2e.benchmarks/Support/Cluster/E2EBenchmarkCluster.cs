@@ -73,17 +73,9 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
             return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
-            // Partial startup must tear down already-started nodes and the temp data directory.
-            foreach (var node in nodes.Values)
-                await node.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
-            throw;
-        }
-        catch (IOException)
-        {
-            // IO failures during host spin-up use the same rollback path as configuration errors.
+            // Partial startup and IO failures during spin-up share this rollback path.
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
             dataDir?.Dispose();

@@ -82,17 +82,7 @@ internal static class JournalReader
             files = Directory.GetFiles(validatedDataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
             return true;
         }
-        catch (ArgumentException)
-        {
-            files = [];
-            return false;
-        }
-        catch (IOException)
-        {
-            files = [];
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
             files = [];
             return false;
@@ -107,11 +97,7 @@ internal static class JournalReader
             length = new FileInfo(path).Length;
             return true;
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }

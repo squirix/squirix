@@ -134,6 +134,7 @@ dotnet_diagnostic.SQR018.severity = error # multiline embedded if/else-if/else b
 dotnet_diagnostic.SQR009.severity = warning # Squirix rule (SQR009)
 dotnet_diagnostic.SQR011.severity = warning # Squirix rule (SQR011)
 dotnet_diagnostic.SQR019.severity = warning # forbid allocating xUnit Assert.Throws*; use closure-free testkit asserts (currently disabled)
+dotnet_diagnostic.SQR020.severity = warning # merge duplicate catch blocks with identical bodies via a 'when' filter pattern
 
 # ===========================================================================
 # StyleCop analyzers (SA*)

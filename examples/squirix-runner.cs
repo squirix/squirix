@@ -139,11 +139,7 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
                 _ = await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (RpcException)
-        {
-            // Demo load ignores transient failures while the runtime is being exercised.
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is RpcException or IOException)
         {
             // Demo load ignores transient failures while the runtime is being exercised.
         }
@@ -159,11 +155,7 @@ static void TryDeleteDirectory(string path)
         if (Directory.Exists(path))
             Directory.Delete(path, true);
     }
-    catch (IOException)
-    {
-        // Best-effort cleanup for a demo-only temp directory.
-    }
-    catch (UnauthorizedAccessException)
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
         // Best-effort cleanup for a demo-only temp directory.
     }

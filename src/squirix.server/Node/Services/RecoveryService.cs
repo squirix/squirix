@@ -233,22 +233,7 @@ internal sealed class RecoveryService<T> : IHostedService
             // leaving the node not-ready (writes stay gated) until the host fails fast on the exception.
             _asyncManualResetEvent.Set();
         }
-        catch (IOException)
-        {
-            LogManager.JournalRecoveryFailed(_log);
-            throw;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            LogManager.JournalRecoveryFailed(_log);
-            throw;
-        }
-        catch (InvalidDataException)
-        {
-            LogManager.JournalRecoveryFailed(_log);
-            throw;
-        }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
             LogManager.JournalRecoveryFailed(_log);
             throw;
@@ -266,19 +251,7 @@ internal sealed class RecoveryService<T> : IHostedService
             // Host shutdown path.
             LogManager.RecoveryReplayInterrupted(_log, ex);
         }
-        catch (IOException)
-        {
-            _applicationLifetime?.StopApplication();
-        }
-        catch (UnauthorizedAccessException)
-        {
-            _applicationLifetime?.StopApplication();
-        }
-        catch (InvalidDataException)
-        {
-            _applicationLifetime?.StopApplication();
-        }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
             _applicationLifetime?.StopApplication();
         }
@@ -317,19 +290,7 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
-            catch (IOException)
-            {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
-            }
-            catch (InvalidDataException)
-            {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
-            }
-            catch (InvalidOperationException)
-            {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
-            }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
                 HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
             }

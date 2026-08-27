@@ -93,18 +93,9 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
             _ = Directory.CreateSymbolicLink(linkPath, targetPath);
             return Directory.Exists(linkPath);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
             // Symlink privilege may be missing; treat as unavailable.
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Symlink privilege may be missing; treat as unavailable.
-            return false;
-        }
-        catch (PlatformNotSupportedException)
-        {
             return false;
         }
     }

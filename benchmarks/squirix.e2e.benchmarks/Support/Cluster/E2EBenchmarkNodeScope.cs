@@ -79,13 +79,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
 
             return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
         }
-        catch (InvalidOperationException)
-        {
-            await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
-            throw;
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
             dataDir?.Dispose();
