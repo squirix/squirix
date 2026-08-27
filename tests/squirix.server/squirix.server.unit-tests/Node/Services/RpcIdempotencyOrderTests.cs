@@ -188,6 +188,11 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             Func<TState, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+            TState state,
+            Func<TState, CancellationToken, ValueTask> action,
+            CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _inner.WaitForStartupAsync(cancellationToken);
     }
 

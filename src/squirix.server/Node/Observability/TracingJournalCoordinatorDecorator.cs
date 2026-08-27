@@ -141,6 +141,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         return await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(null);
+        using var scope = _tracer.Begin(JournalOperationKind.UnderSnapshotBarrier, in traceContext);
+        await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
