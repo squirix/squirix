@@ -32,7 +32,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var manifest = await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true));
 
-        var snapshotState = Assert.IsAssignableFrom<IJournalCoordinatorSnapshotState>(journal);
+        var snapshotState = Assert.IsType<IJournalCoordinatorSnapshotState>(journal, false);
         var gateGuard = await snapshotState.MutationGate.LockAsync(DefaultCancellationToken);
 
         var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
