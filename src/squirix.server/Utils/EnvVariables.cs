@@ -7,7 +7,7 @@ namespace Squirix.Server.Utils;
 internal static class EnvVariables
 {
     /// <summary>
-    /// Interprets common truthy environment values ( <see langword="true" /> or <c>1</c>, case-insensitive) as <see langword="true" />.
+    /// Interprets common truthy environment values ( <see langword="true" /> or <c language="csharp">1</c>, case-insensitive) as <see langword="true" />.
     /// </summary>
     /// <param name="variableName">The environment variable name.</param>
     /// <returns>Whether the variable is set to a truthy value.</returns>

@@ -8,9 +8,9 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Squirix.Analyzers;
 
 /// <summary>
-/// Forbids direct use of <c>TestContext.Current.CancellationToken</c>.
-/// It may only be written inside a type that declares a <c>DefaultCancellationToken</c> member
-/// (the base test classes), so every other test consumes <c>DefaultCancellationToken</c> instead.
+/// Forbids direct use of <c language="csharp">TestContext.Current.CancellationToken</c>.
+/// It may only be written inside a type that declares a <c language="csharp">DefaultCancellationToken</c> member
+/// (the base test classes), so every other test consumes <c language="csharp">DefaultCancellationToken</c> instead.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class NoDirectTestContextCancellationTokenAnalyzer : DiagnosticAnalyzer

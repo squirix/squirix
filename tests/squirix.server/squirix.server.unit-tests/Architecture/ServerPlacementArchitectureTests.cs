@@ -43,7 +43,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
     private static class Allowlists
     {
         /// <summary>
-        /// Exact namespaces where server <c>*Options</c> types are permitted to reside.
+        /// Exact namespaces where server <c language="csharp">*Options</c> types are permitted to reside.
         /// </summary>
         internal static readonly string[] ServerOptionsTypeNamespaces =
         [
@@ -67,12 +67,12 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
         ];
 
         /// <summary>
-        /// Exact namespaces where <c>*Service</c> types are permitted to reside.
+        /// Exact namespaces where <c language="csharp">*Service</c> types are permitted to reside.
         /// </summary>
         /// <remarks>
-        /// <c>Squirix.Transport.Grpc</c> is intentionally omitted: placement discovery only scans
-        /// <c>src/squirix.server</c> sources under <c>Squirix.Server*</c> namespaces, and the shared
-        /// transport files linked into the server do not declare handwritten <c>*Service</c> types.
+        /// <c language="csharp">Squirix.Transport.Grpc</c> is intentionally omitted: placement discovery only scans
+        /// <c language="csharp">src/squirix.server</c> sources under <c language="csharp">Squirix.Server*</c> namespaces, and the shared
+        /// transport files linked into the server do not declare handwritten <c language="csharp">*Service</c> types.
         /// Proto-generated gRPC service stubs are covered by dedicated gRPC architecture tests instead.
         /// </remarks>
         internal static readonly string[] ServiceTypeNamespaces =

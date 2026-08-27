@@ -2,7 +2,7 @@ namespace Squirix.Server.Cluster;
 
 /// <summary>
 /// Selects the original owner for a cache route key on the vnode consistent-hash ring.
-/// Replica followers are resolved separately via <c>IReplicaGroupLocator</c>.
+/// Replica followers are resolved separately via <c language="csharp">IReplicaGroupLocator</c>.
 /// </summary>
 internal interface INodeLocator
 {

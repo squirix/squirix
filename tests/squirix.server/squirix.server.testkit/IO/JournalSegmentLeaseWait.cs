@@ -7,7 +7,7 @@ namespace Squirix.Server.TestKit.IO;
 
 /// <summary>
 /// Waits until persistence files in a data directory can be opened with the same sharing mode used by
-/// writers (journal segments, the <c>man-current</c> pointer, and its <c>man-current.next</c> staging file).
+/// writers (journal segments, the <c language="csharp">man-current</c> pointer, and its <c language="csharp">man-current.next</c> staging file).
 /// </summary>
 public static class JournalSegmentLeaseWait
 {
@@ -16,7 +16,7 @@ public static class JournalSegmentLeaseWait
     private const string ManifestCurrentStagingFileName = "man-current.next";
 
     /// <summary>
-    /// Waits until journal segment files, <c>man-current</c>, and <c>man-current.next</c> in
+    /// Waits until journal segment files, <c language="csharp">man-current</c>, and <c language="csharp">man-current.next</c> in
     /// <paramref name="dataDir" /> are not locked incompatibly by another handle.
     /// </summary>
     /// <param name="dataDir">Node data directory containing journal segments and manifest pointer files.</param>

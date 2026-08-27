@@ -9,7 +9,7 @@ namespace Squirix.Analyzers;
 
 /// <summary>
 /// Flags braces around a single-line single embedded statement that should be omitted (SQR010).
-/// Complements IDE0011, which does not reliably enforce <c>csharp_prefer_braces = false</c> on build.
+/// Complements IDE0011, which does not reliably enforce <c language="csharp">csharp_prefer_braces = false</c> on build.
 /// Keeps braces when the statement spans multiple lines, or when an if/else chain has a multi-statement branch (SA1520).
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]

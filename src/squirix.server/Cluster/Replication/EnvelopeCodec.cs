@@ -69,7 +69,17 @@ internal static class EnvelopeCodec
             throw new ArgumentException("Replication envelope payload is truncated.", nameof(payload));
 
         var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(payload[offset..]);
-        return new Envelope(header.SchemaVersion, groupId, fingerprint, header.ConfigurationGeneration, header.Term, leaderNodeId, senderNodeId, header.LogIndex, commitIndex, header.PayloadChecksum);
+        return new Envelope(
+            header.SchemaVersion,
+            groupId,
+            fingerprint,
+            header.ConfigurationGeneration,
+            header.Term,
+            leaderNodeId,
+            senderNodeId,
+            header.LogIndex,
+            commitIndex,
+            header.PayloadChecksum);
     }
 
     private static (uint SchemaVersion, uint PayloadChecksum, ulong ConfigurationGeneration, ulong Term, ulong LogIndex) ReadFixedHeader(ReadOnlySpan<byte> payload, ref int offset)
@@ -128,7 +138,7 @@ internal static class EnvelopeCodec
 
     /// <summary>
     /// Exact-size owned byte buffer helpers for envelope encoding.
-    /// Cluster.Replication may not depend on <c>Squirix.Server.Utils</c> (config.nsdepcop), so the
+    /// Cluster.Replication may not depend on <c language="csharp">Squirix.Server.Utils</c> (config.nsdepcop), so the
     /// kernel-owned-buffer escape must be re-hosted here.
     /// </summary>
     private static class OwnedBufferKit

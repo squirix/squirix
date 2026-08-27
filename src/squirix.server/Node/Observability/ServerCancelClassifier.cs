@@ -13,7 +13,7 @@ namespace Squirix.Server.Node.Observability;
 internal static class ServerCancelClassifier
 {
     /// <summary>
-    /// Classifies cancellation for the logical pipeline deadline decorator: caller token plus linked <c>CancelAfter</c> budget token.
+    /// Classifies cancellation for the logical pipeline deadline decorator: caller token plus linked <c language="csharp">CancelAfter</c> budget token.
     /// </summary>
     /// <param name="callerToken">The outer caller cancellation token.</param>
     /// <param name="linkedPipelineToken">The token passed to the inner pipeline (caller linked with the deadline timer).</param>

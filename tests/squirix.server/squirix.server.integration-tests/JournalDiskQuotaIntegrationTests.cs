@@ -18,7 +18,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 {
     /// <summary>
     /// Fills a 1 MiB journal cap until durable appends are rejected without crashing the node,
-    /// and verifies readiness plus <c>journalDisk</c> pressure details remain available.
+    /// and verifies readiness plus <c language="csharp">journalDisk</c> pressure details remain available.
     /// </summary>
     [Fact]
     public async Task WriteAtCapFailsReadyStaysHealthy()

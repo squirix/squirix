@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests.Memory;
 public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Verifies System.Text.Json binds private <c>MemoryPressure</c> section properties
+    /// Verifies System.Text.Json binds private <c language="csharp">MemoryPressure</c> section properties
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]

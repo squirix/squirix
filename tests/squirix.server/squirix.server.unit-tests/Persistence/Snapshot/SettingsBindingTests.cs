@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class SettingsBindingTests : IsolatedStorageTestBase
 {
-    /// <summary>Verifies strict settings validation includes a valid <c>Snapshot</c> section.</summary>
+    /// <summary>Verifies strict settings validation includes a valid <c language="csharp">Snapshot</c> section.</summary>
     [Fact]
     public async Task ValidateFileAcceptsSnapshotSection()
     {

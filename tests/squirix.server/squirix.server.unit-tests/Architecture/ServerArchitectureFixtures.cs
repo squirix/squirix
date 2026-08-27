@@ -50,7 +50,7 @@ internal static class ServerArchitectureFixtures
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
 
     /// <summary>
-    /// Scans repository <c>.cs</c> sources for <c>global using</c> directives or a <c>GlobalUsings.cs</c> file.
+    /// Scans repository <c language="csharp">.cs</c> sources for <c language="csharp">global using</c> directives or a <c language="csharp">GlobalUsings.cs</c> file.
     /// </summary>
     /// <param name="repositoryRoot">Absolute path to the repository root.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -89,7 +89,7 @@ internal static class ServerArchitectureFixtures
     }
 
     /// <summary>
-    /// Scans repository <c>.csproj</c> files for <c>ImplicitUsings</c> set to <c>enable</c>.
+    /// Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.
     /// </summary>
     /// <param name="repositoryRoot">Absolute path to the repository root.</param>
     /// <returns>Sorted repo-relative paths of offending projects.</returns>

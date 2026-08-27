@@ -10,10 +10,10 @@ namespace Squirix.Server.TestKit;
 [Immutable]
 public sealed class TestKeyOwnerHelper
 {
-    /// <summary>Shared ring for smoke tests that label peers <c>A</c> and <c>B</c>.</summary>
+    /// <summary>Shared ring for smoke tests that label peers <c language="csharp">A</c> and <c language="csharp">B</c>.</summary>
     public static readonly TestKeyOwnerHelper SmokeTwoNode = new(["A", "B"]);
 
-    /// <summary>Shared ring for the default two-node topology (<c>node-a</c>, <c>node-b</c>).</summary>
+    /// <summary>Shared ring for the default two-node topology (<c language="csharp">node-a</c>, <c language="csharp">node-b</c>).</summary>
     public static readonly TestKeyOwnerHelper TwoNode = new(["node-a", "node-b"]);
 
     private readonly (ulong Hash, string Node)[] _ring;

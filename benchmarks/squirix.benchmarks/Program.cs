@@ -9,7 +9,7 @@ public static class Program
 {
     /// <summary>Discovers and executes benchmarks in the current assembly.</summary>
     /// <param name="args">
-    /// Command-line arguments passed through to BenchmarkDotNet (e.g., <c>--filter</c>).
+    /// Command-line arguments passed through to BenchmarkDotNet (e.g., <c language="csharp">--filter</c>).
     /// </param>
     public static void Main(string[] args)
     {

@@ -18,7 +18,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
     private const string Scope = "journal-recovery-gate";
 
     /// <summary>
-    /// Ensures non-blocking recovery keeps <c>/health/ready</c> unhealthy until replay completes,
+    /// Ensures non-blocking recovery keeps <c language="csharp">/health/ready</c> unhealthy until replay completes,
     /// cache reads stay empty until replay, and durable writes wait for the startup gate.
     /// </summary>
     [Fact]

@@ -5,12 +5,12 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Enumerates <c>src/squirix.server</c> C# sources for architecture scans.</summary>
+/// <summary>Enumerates <c language="csharp">src/squirix.server</c> C# sources for architecture scans.</summary>
 internal static class ServerSourceFiles
 {
     /// <summary>
-    /// Resolves <c>src/squirix.server</c> (optionally a subdirectory), validates it exists,
-    /// and returns recursive <c>*.cs</c> paths excluding <c>obj</c> trees.
+    /// Resolves <c language="csharp">src/squirix.server</c> (optionally a subdirectory), validates it exists,
+    /// and returns recursive <c language="csharp">*.cs</c> paths excluding <c language="csharp">obj</c> trees.
     /// </summary>
     /// <param name="relativePathSegments">Optional path segments under the server project root.</param>
     /// <returns>Matching source file paths.</returns>

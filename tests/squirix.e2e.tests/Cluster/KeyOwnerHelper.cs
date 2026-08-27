@@ -11,7 +11,7 @@ namespace Squirix.E2ETests.Cluster;
 [Immutable]
 internal sealed class KeyOwnerHelper
 {
-    /// <summary>Shared ring for the default two-node topology (<c>nodeA</c>, <c>nodeB</c>).</summary>
+    /// <summary>Shared ring for the default two-node topology (<c language="csharp">nodeA</c>, <c language="csharp">nodeB</c>).</summary>
     internal static readonly KeyOwnerHelper TwoNode = new(["nodeA", "nodeB"]);
 
     private readonly (ulong Hash, string Node)[] _ring;

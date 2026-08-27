@@ -53,7 +53,7 @@ public sealed class NodeCacheEntry<T>
 
     /// <summary>
     /// Gets optional user-defined tags for extension packages (for example tag invalidation).
-    /// Not part of the v0.1 basic <c>Squirix</c> client contract.
+    /// Not part of the v0.1 basic <c language="csharp">Squirix</c> client contract.
     /// </summary>
     public FrozenDictionary<string, string>? Tags { get; }
 
@@ -64,7 +64,7 @@ public sealed class NodeCacheEntry<T>
 
     /// <summary>
     /// Gets the monotonic entry version used by extension packages for optimistic concurrency.
-    /// Not part of the v0.1 basic <c>Squirix</c> client contract.
+    /// Not part of the v0.1 basic <c language="csharp">Squirix</c> client contract.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is less than 1.</exception>
     public long Version

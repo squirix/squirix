@@ -8,12 +8,12 @@ namespace Squirix.Server.TestKit;
 /// <remarks>
 ///     <para>
 ///     These helpers accept the awaitable itself instead of a delegate, so call sites do not allocate the
-///     display class that <c>Assert.ThrowsAsync</c> requires for its captured state.
+///     display class that <c language="csharp">Assert.ThrowsAsync</c> requires for its captured state.
 ///     </para>
 ///     <para>
 ///     The operation starts before the helper is entered, so only faults captured by the awaitable are
 ///     observed. Assertions on operations that throw synchronously (for example, argument validation in a
-///     non-async method body) must keep using <c>Assert.ThrowsAsync</c>.
+///     non-async method body) must keep using <c language="csharp">Assert.ThrowsAsync</c>.
 ///     </para>
 /// </remarks>
 public static class NodeAsyncAssert

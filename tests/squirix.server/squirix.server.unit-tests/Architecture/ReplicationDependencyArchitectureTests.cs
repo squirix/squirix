@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>
 /// Non-NsDepCop architecture scans for replication composition hygiene.
-/// Namespace DAG edges are enforced by <c>config.nsdepcop</c>, not duplicated here.
+/// Namespace DAG edges are enforced by <c language="csharp">config.nsdepcop</c>, not duplicated here.
 /// </summary>
 [Immutable]
 public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
@@ -55,7 +55,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
 
     /// <summary>
     /// The NsDepCop policy mirrors the replication Namespace DAG without drift: only
-    /// <c>Cluster.Replication → Storage.Replication</c> is allowed, all neighboring edges are rejected.
+    /// <c language="csharp">Cluster.Replication → Storage.Replication</c> is allowed, all neighboring edges are rejected.
     /// </summary>
     [Fact]
     public async Task NsDepCopPolicyMatchesReplicationDag()

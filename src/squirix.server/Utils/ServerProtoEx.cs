@@ -440,7 +440,7 @@ internal static class ServerProtoEx
         }
 
         /// <summary>
-        /// Emits a protobuf <see cref="Value" /> tree as JSON so <c>ISquirixSerializer</c> can deserialize complex cache payloads.
+        /// Emits a protobuf <see cref="Value" /> tree as JSON so <c language="csharp">ISquirixSerializer</c> can deserialize complex cache payloads.
         /// </summary>
         /// <param name="writer">JSON writer receiving the encoded tree.</param>
         /// <param name="value">Protobuf value to encode.</param>

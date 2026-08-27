@@ -16,7 +16,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>Golden snapshot for the gRPC service surface exposed by <c>MapSquirixServer</c>.</summary>
+/// <summary>Golden snapshot for the gRPC service surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
 [Immutable]
 public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
@@ -72,7 +72,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     private static class GrpcEndpointSurfaceCollector
     {
         /// <summary>
-        /// Builds a production-like host and returns sorted gRPC method identities (<c>ServiceName/MethodName</c>).
+        /// Builds a production-like host and returns sorted gRPC method identities (<c language="csharp">ServiceName/MethodName</c>).
         /// </summary>
         /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
         internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()

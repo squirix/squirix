@@ -52,7 +52,7 @@ public sealed class ListenPortPool : IDisposable
     public int AllocatePort() => _allocator.Allocate();
 
     /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
-    /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
+    /// <returns>A URI of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
 
     /// <inheritdoc />
@@ -73,6 +73,6 @@ public sealed class ListenPortPool : IDisposable
     private static string FormatLoopbackHttps(int port) => string.Create(CultureInfo.InvariantCulture, $"https://127.0.0.1:{port}");
 
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
-    /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
+    /// <returns>A URL of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>.</returns>
     private string NextHttpAddress() => FormatLoopbackHttps(AllocatePort());
 }

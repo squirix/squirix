@@ -18,8 +18,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>
 /// Exposes journal on-disk gauges via ObservableGauges:
-/// - <c>squirix_journal_segments{node="..."}</c>: count of journal segment files
-/// - <c>squirix_journal_size_bytes{node="..."}</c>: total size of journal segment files
+/// - <c language="csharp">squirix_journal_segments{node="..."}</c>: count of journal segment files
+/// - <c language="csharp">squirix_journal_size_bytes{node="..."}</c>: total size of journal segment files
 /// The actual filesystem scan is done on a background interval, and the gauges
 /// simply return the latest cached values to keep scrapes cheap.
 /// </summary>

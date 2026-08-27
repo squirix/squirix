@@ -12,7 +12,7 @@ internal static class ClientPoolMetrics
 
     /// <summary>Records that a configured bootstrap peer was unreachable during warm-up while another peer succeeded.</summary>
     /// <param name="nodeId">Bootstrap peer node id.</param>
-    /// <param name="reason">Failure classification (<c>connect_timeout</c> or <c>connect_failed</c>).</param>
+    /// <param name="reason">Failure classification (<c language="csharp">connect_timeout</c> or <c language="csharp">connect_failed</c>).</param>
     internal static void AddBootstrapWarmupSkipped(string nodeId, string reason)
     {
         var tags = new TagList

@@ -56,7 +56,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     public IServiceProvider Services => _app.Services;
 
     /// <summary>
-    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
+    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).
     /// </summary>
     public Uri Uri { get; }
 

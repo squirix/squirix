@@ -142,7 +142,7 @@ public static class Configurator
     }
 
     /// <summary>
-    /// Loads <c>Squirix:Cluster</c> from a settings file and validates the result.
+    /// Loads <c language="csharp">Squirix:Cluster</c> from a settings file and validates the result.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -187,23 +187,23 @@ public static class Configurator
     /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
     /// <param name="dataDirectory">Absolute or relative data directory path.</param>
     /// <returns>Normalized absolute directory path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     public static string ResolveValidatedDataDirectory(string dataDirectory) => FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
     /// <param name="path">Absolute or relative file path.</param>
     /// <returns>Normalized absolute file path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     public static string ResolveValidatedFilePath(string path) => FilePathValidator.ResolveValidatedFilePath(path);
 
     /// <summary>
-    /// Attempts to load <c>Squirix:Cluster</c> from a settings file.
+    /// Attempts to load <c language="csharp">Squirix:Cluster</c> from a settings file.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Success</c> is <see langword="true" /> when loading and validation succeed,
-    /// <c>Options</c> holds the validated options, and <c>Error</c> holds failure text when applicable.
+    /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when loading and validation succeed,
+    /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
     public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(
         string settingsFilePath,
@@ -260,10 +260,10 @@ public static class Configurator
     /// Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
-    /// <param name="strict">When <see langword="true" />, also validates <c>MemoryPressure</c>, <c>Snapshot</c>, and <c>PrometheusMetrics</c> sections.</param>
+    /// <param name="strict">When <see langword="true" />, also validates <c language="csharp">MemoryPressure</c>, <c language="csharp">Snapshot</c>, and <c language="csharp">PrometheusMetrics</c> sections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Success</c> is <see langword="true" /> when validation succeeds and <c>Error</c> holds failure text when applicable.
+    /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when validation succeeds and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
     public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
     {

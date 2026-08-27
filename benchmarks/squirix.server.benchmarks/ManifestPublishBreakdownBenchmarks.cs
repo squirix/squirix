@@ -67,7 +67,7 @@ public class ManifestPublishBreakdownBenchmarks
         }
     }
 
-    /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
+    /// <summary>Creates a new <c language="csharp">.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollDataFileOnly()
@@ -97,7 +97,7 @@ public class ManifestPublishBreakdownBenchmarks
         }
     }
 
-    /// <summary>Overwrites <c>man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
+    /// <summary>Overwrites <c language="csharp">man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollPointerOnly()
@@ -188,7 +188,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         /// <summary>Builds a numbered manifest file path under the session data directory.</summary>
         /// <param name="index">One-based manifest file index.</param>
-        /// <returns>Absolute path to a <c>.bmqx</c> file.</returns>
+        /// <returns>Absolute path to a <c language="csharp">.bmqx</c> file.</returns>
         internal string BuildManifestFilePath(int index) => string.Create(
             ManifestFileNamePrefix.Length + 6 + FileExtensions.Manifest.Length,
             (Prefix: ManifestFileNamePrefix, Index: index),
@@ -210,7 +210,7 @@ public class ManifestPublishBreakdownBenchmarks
             FileCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, SnapshotPathUtf8, _encodeBuffer);
 
         /// <summary>Writes a pre-encoded manifest file and flushes it to disk.</summary>
-        /// <param name="targetPath">Path to a new <c>.bmqx</c> file.</param>
+        /// <param name="targetPath">Path to a new <c language="csharp">.bmqx</c> file.</param>
         /// <param name="encodedLength">Number of valid bytes in the session encode buffer.</param>
         internal void WriteDataFile(string targetPath, int encodedLength) => FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
 

@@ -23,7 +23,7 @@ public sealed class IndexAllocatorTests : ServerUnitTestBase
     /// <summary>
     ///     Two concurrent cold seeds must serialize through the double-checked guard: exactly one establishes the
     ///     next index and the loser observes the inner guard and returns without overwriting. This exercises the
-    ///     inner <c>if (_nextIndexInitialized) return;</c> branch that single-threaded seeds cannot reach.
+    ///     inner <c language="csharp">if (_nextIndexInitialized) return;</c> branch that single-threaded seeds cannot reach.
     /// </summary>
     [Fact]
     public async Task ConcurrentSeedTakesInnerDoubleCheckGuard()

@@ -13,7 +13,7 @@ internal sealed class TestServerCallContext : ServerCallContext
 
     /// <summary>Initializes a new instance of the <see cref="TestServerCallContext" /> class.</summary>
     /// <param name="headers">Optional request headers; empty when omitted.</param>
-    /// <param name="httpContext">Optional HTTP context surfaced through <c>GetHttpContext()</c>; none when omitted.</param>
+    /// <param name="httpContext">Optional HTTP context surfaced through <c language="csharp">GetHttpContext()</c>; none when omitted.</param>
     internal TestServerCallContext(Metadata? headers = null, HttpContext? httpContext = null)
     {
         RequestHeadersCore = headers ?? [];

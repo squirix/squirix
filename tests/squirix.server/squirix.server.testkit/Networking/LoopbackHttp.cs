@@ -13,8 +13,8 @@ public static class LoopbackHttp
     /// <summary>
     /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
     /// On developer machines this expects a trusted ASP.NET Core HTTPS development certificate
-    /// (<c>dotnet dev-certs https --trust</c>). On Windows/macOS CI, interactive trust is unavailable;
-    /// set <c>SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1</c> (see <c>tools/ci/ensure-dev-https-cert.sh</c>).
+    /// (<c language="csharp">dotnet dev-certs https --trust</c>). On Windows/macOS CI, interactive trust is unavailable;
+    /// set <c language="csharp">SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1</c> (see <c language="csharp">tools/ci/ensure-dev-https-cert.sh</c>).
     /// </summary>
     /// <returns>A handler suitable for loopback HTTPS gRPC clients.</returns>
     public static SocketsHttpHandler CreateHandler()
@@ -32,7 +32,7 @@ public static class LoopbackHttp
     }
 
     /// <summary>
-    /// Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c>localhost</c>.
+    /// Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c language="csharp">localhost</c>.
     /// </summary>
     /// <returns>A loopback handler that tolerates certificate name mismatch.</returns>
     public static SocketsHttpHandler CreateHandlerAllowingCertNameMismatch()

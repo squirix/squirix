@@ -4,7 +4,7 @@ using JetBrains.Annotations;
 namespace Squirix;
 
 /// <summary>
-/// Thrown when a mutating cache RPC reuses an <c>operation_id</c> with a different mutation fingerprint.
+/// Thrown when a mutating cache RPC reuses an <c language="csharp">operation_id</c> with a different mutation fingerprint.
 /// </summary>
 [PublicAPI]
 public sealed class OperationIdReuseMismatchException : Exception

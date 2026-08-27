@@ -3,7 +3,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Stable closed refusal markers for the internal replication wire.</summary>
 /// <remarks>
 /// These are the wire-side twin of the storage refusal constants mirrored in
-/// <c>Squirix.Server.Storage.Replication.FollowerLogRefusal</c>. The values must stay identical; a guard
+/// <c language="csharp">Squirix.Server.Storage.Replication.FollowerLogRefusal</c>. The values must stay identical; a guard
 /// test asserts the mirror in both directions.
 /// </remarks>
 internal static class RefusalCodes

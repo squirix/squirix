@@ -8,15 +8,15 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Squirix.Analyzers;
 
 /// <summary>
-/// Enforces the Squirix dispose-flag convention: a disposure guard must be an <c>int</c> flag
+/// Enforces the Squirix dispose-flag convention: a disposure guard must be an <c language="csharp">int</c> flag
 /// toggled through <see cref="System.Threading.Interlocked" /> (or observed through
-/// <see cref="System.Threading.Volatile" />), never a plain <c>bool</c> field.
+/// <see cref="System.Threading.Volatile" />), never a plain <c language="csharp">bool</c> field.
 /// <list type="bullet">
 ///     <item>
-///         <description>SQR015: flags a <c>bool</c> field whose name contains "disposed".</description>
+///         <description>SQR015: flags a <c language="csharp">bool</c> field whose name contains "disposed".</description>
 ///     </item>
 ///     <item>
-///         <description>SQR016: flags an <c>int</c> "disposed" flag accessed outside Interlocked/Volatile.</description>
+///         <description>SQR016: flags an <c language="csharp">int</c> "disposed" flag accessed outside Interlocked/Volatile.</description>
 ///     </item>
 /// </list>
 /// </summary>

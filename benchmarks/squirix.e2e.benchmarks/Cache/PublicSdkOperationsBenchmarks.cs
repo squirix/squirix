@@ -98,7 +98,7 @@ public class PublicSdkOperationsBenchmarks
     }
 
     /// <summary>
-    /// Overwrites existing keys through the public <c>SetAsync</c> API.
+    /// Overwrites existing keys through the public <c language="csharp">SetAsync</c> API.
     /// </summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task OverwriteExistingValueBatchedAsync()
@@ -162,7 +162,7 @@ public class PublicSdkOperationsBenchmarks
     }
 
     /// <summary>
-    /// Writes new unique keys through the public <c>SetAsync</c> API.
+    /// Writes new unique keys through the public <c language="csharp">SetAsync</c> API.
     /// </summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task WriteNewValueBatchedAsync()

@@ -18,7 +18,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
 /// <summary>
-/// Golden snapshot for the REST endpoint surface exposed by <c>MapSquirixServer</c>.
+/// Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServer</c>.
 /// </summary>
 [Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
@@ -135,7 +135,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         }
 
         /// <summary>
-        /// Collects REST route identities (<c>METHOD /pattern</c>) from the host endpoint data sources,
+        /// Collects REST route identities (<c language="csharp">METHOD /pattern</c>) from the host endpoint data sources,
         /// excluding gRPC methods and unimplemented placeholders.
         /// </summary>
         /// <param name="app">Built web application exposing endpoint route data.</param>

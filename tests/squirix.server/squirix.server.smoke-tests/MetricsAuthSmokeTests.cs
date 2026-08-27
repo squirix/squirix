@@ -10,7 +10,7 @@ using Xunit;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>
-/// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c>/metrics</c> endpoint.
+/// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c language="csharp">/metrics</c> endpoint.
 /// </summary>
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
@@ -19,7 +19,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
     /// <summary>
-    /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
+    /// Ensures <c language="csharp">/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
     public async Task MetricsValidatesJwtWhenConfigured()

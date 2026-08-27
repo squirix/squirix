@@ -10,14 +10,14 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// Integration tests for the <c>/health/ready/details</c> endpoint.
+/// Integration tests for the <c language="csharp">/health/ready/details</c> endpoint.
 /// Verifies that readiness reporting includes journal backlog, snapshot status,
 /// compaction state, and client pool configuration.
 /// </summary>
 public sealed class HealthReadinessTests : NodeIntegrationTestBase
 {
     /// <summary>
-    /// Ensures the <c>/health/ready/details</c> endpoint reports all core signals:
+    /// Ensures the <c language="csharp">/health/ready/details</c> endpoint reports all core signals:
     /// <list type="bullet">
     ///     <item>
     ///         <description>journal backlog size is non-zero after writes.</description>

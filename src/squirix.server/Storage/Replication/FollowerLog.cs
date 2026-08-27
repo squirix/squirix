@@ -28,7 +28,7 @@ namespace Squirix.Server.Storage.Replication;
 ///     </para>
 ///     <para>
 ///     Append follows the following half of the consensus AppendEntries rule: previous
-///     <c>(term, log_index)</c> consistency, consecutive append without gaps, idempotent duplicate
+///     <c language="csharp">(term, log_index)</c> consistency, consecutive append without gaps, idempotent duplicate
 ///     acknowledgement, higher-term persistence before response, and committed-prefix conflicts fail readiness.
 ///     An uncommitted entry that conflicts with the leader's batch truncates the divergent tail, which is then
 ///     rewritten with the leader's entries before the appending is acknowledged.

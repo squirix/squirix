@@ -24,7 +24,7 @@ namespace Squirix.Server.Node.Services;
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">
-/// The value type stored in the cache (e.g., <c>object?</c> for untyped payloads or a concrete DTO type).
+/// The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).
 /// </typeparam>
 internal sealed class RecoveryService<T> : IHostedService
 {

@@ -18,10 +18,10 @@ internal static class EndpointExtensions
 {
     /// <summary>
     /// Maps a lightweight Prometheus-compatible metrics endpoint that scrapes <see cref="System.Diagnostics.Metrics" />
-    /// instruments from the <c>Squirix</c> meter.
+    /// instruments from the <c language="csharp">Squirix</c> meter.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
-    /// <param name="path">The request path to expose metrics on. Defaults to <c>/metrics</c>.</param>
+    /// <param name="path">The request path to expose metrics on. Defaults to <c language="csharp">/metrics</c>.</param>
     internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics")
     {
         _ = PrometheusMetricsScraper.Instance;

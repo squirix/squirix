@@ -39,7 +39,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
     }
 
-    /// <summary>On macOS, <c>/tmp</c> may be used as a base despite being a Darwin compatibility symlink.</summary>
+    /// <summary>On macOS, <c language="csharp">/tmp</c> may be used as a base despite being a Darwin compatibility symlink.</summary>
     [Fact]
     public void CreateDirAcceptsMacOsTmpBase()
     {
@@ -61,7 +61,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>When <c>ensureEmpty</c> is true, existing child files are removed.</summary>
+    /// <summary>When <c language="csharp">ensureEmpty</c> is true, existing child files are removed.</summary>
     [Fact]
     public async Task EnsureEmptyRemovesChildrenAsync()
     {
@@ -79,7 +79,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
         Assert.True(Directory.Exists(ready));
     }
 
-    /// <summary>When <c>forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
+    /// <summary>When <c language="csharp">forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
     [Fact]
     public void EnsureEmptyRejectsSymlinkInChain()
     {
@@ -121,7 +121,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
         Assert.Contains("file already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>When <c>forbidSymlinks</c> is true, rejects a directory symlink or junction in the path chain.</summary>
+    /// <summary>When <c language="csharp">forbidSymlinks</c> is true, rejects a directory symlink or junction in the path chain.</summary>
     [Fact]
     public void CreateDirRejectsSymlinkInChain()
     {

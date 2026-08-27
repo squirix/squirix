@@ -7,10 +7,10 @@ namespace Squirix.Server.TestKit;
 /// <summary>Allocation-light builders for entry-tag fixtures used by server tests.</summary>
 public static class EntryTagsKit
 {
-    /// <summary>Gets the cached <c>region=west</c> tag set shared by codec/store fixtures.</summary>
+    /// <summary>Gets the cached <c language="csharp">region=west</c> tag set shared by codec/store fixtures.</summary>
     public static FrozenDictionary<string, string> RegionWest { get; } = One("region", "west");
 
-    /// <summary>Builds <paramref name="count" /> tags with invariant index keys and value <c>v</c>.</summary>
+    /// <summary>Builds <paramref name="count" /> tags with invariant index keys and value <c language="csharp">v</c>.</summary>
     /// <param name="count">Number of tags to create.</param>
     /// <returns>A frozen dictionary with <paramref name="count" /> entries.</returns>
     public static FrozenDictionary<string, string> CreateCount(int count)

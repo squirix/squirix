@@ -6,8 +6,8 @@ namespace Squirix.Benchmarks.Config;
 
 /// <summary>
 /// Common BenchmarkDotNet configuration for CI runs. Builds on <see cref="DefaultConfig" /> so exporters,
-/// memory columns, and diagnosers are not registered twice. Artifacts path can be set via <c>BDN_ARTIFACTS</c>
-/// or <c>--artifacts</c> on the command line.
+/// memory columns, and diagnosers are not registered twice. Artifacts path can be set via <c language="csharp">BDN_ARTIFACTS</c>
+/// or <c language="csharp">--artifacts</c> on the command line.
 /// </summary>
 public static class SquirixBenchmarkConfig
 {

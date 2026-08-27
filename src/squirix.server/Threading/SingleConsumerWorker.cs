@@ -76,7 +76,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     /// <param name="item">The item to process on the dedicated worker thread.</param>
     /// <remarks>
     /// Does not throw synchronously. When the worker is disposed and the item cannot be enqueued, the failure is surfaced
-    /// through <c>onFault</c> rather than thrown to the caller.
+    /// through <c language="csharp">onFault</c> rather than thrown to the caller.
     /// </remarks>
     internal void Post(T item)
     {

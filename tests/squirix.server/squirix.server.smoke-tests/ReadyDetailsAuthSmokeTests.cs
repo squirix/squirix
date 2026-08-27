@@ -10,7 +10,7 @@ using Xunit;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>
-/// Smoke tests verifying JWT auth rules on the <c>/health/ready/details</c> endpoint.
+/// Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.
 /// </summary>
 public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 {
@@ -19,7 +19,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     private static readonly HttpClient RemoteClient = new(RemoteHandler, false);
 
     /// <summary>
-    /// Ensures <c>/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
+    /// Ensures <c language="csharp">/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
     public async Task ReadyDetailsValidatesJwtConfigured()
