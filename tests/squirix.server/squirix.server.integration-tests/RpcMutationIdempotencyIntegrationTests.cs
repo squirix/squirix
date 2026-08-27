@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Core;
@@ -10,11 +11,26 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests;
 
-/// <summary>Integration coverage for mutating gRPC idempotency on the live adapter path.</summary>
-public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTestBase
+/// <summary>
+/// Integration coverage for mutating gRPC idempotency on the live adapter path.
+/// Uses <see cref="IntegrationSingleNodeFixture"/> to share one server across all tests.
+/// </summary>
+public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTestBase, IClassFixture<IntegrationSingleNodeFixture>
 {
     private const string MismatchOperationId = "fedcba9876543210fedcba9876543210";
-    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
+
+    /// <summary>Valid 32-char hex operation id for idempotency replay tests. Same value as <c>IntegrationMutationOpIds.Default</c> but a separate constant for clarity.</summary>
+    private const string ReplayOperationId = "0123456789abcdef0123456789abcdef";
+
+    private readonly Uri _uri;
+
+    /// <summary>Initializes a new instance of the <see cref="RpcMutationIdempotencyIntegrationTests"/> class.</summary>
+    /// <param name="fixture">Shared single-node fixture.</param>
+    public RpcMutationIdempotencyIntegrationTests(IntegrationSingleNodeFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        _uri = fixture.Uri;
+    }
 
     /// <summary>
     /// Verifies mutating RPCs without <c>operation_id</c> are rejected at the adapter.
@@ -22,10 +38,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Fact]
     public async Task EmptyOperationIdReturnsInvalidArgument()
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, "node-a");
-
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(_uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -46,14 +59,11 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Fact]
     public async Task RepeatedOperationIdReplaysResponse()
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, "node-a");
-
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(_uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
-            OperationId = ValidOperationId,
+            OperationId = ReplayOperationId,
             CacheName = "default",
             Key = "replay-key",
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
@@ -70,10 +80,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Fact]
     public async Task BadOperationIdFormatIsInvalidArgument()
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, "node-a");
-
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(_uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -95,10 +102,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Fact]
     public async Task ReuseReturnsFailedPrecondition()
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, "node-a");
-
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(_uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.TryAddEntryAsync(
@@ -130,10 +134,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     [Fact]
     public async Task TooLongOperationIdReturnsInvalidArgument()
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, "node-a");
-
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(_uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
 

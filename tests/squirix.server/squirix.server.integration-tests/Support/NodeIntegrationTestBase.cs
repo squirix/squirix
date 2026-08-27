@@ -74,10 +74,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
-    internal async Task<SocketsHttpHandler> CreateCaTrustingHandlerAsync(
-        string targetPeerNodeId,
-        ServerPeer[] peers,
-        CancellationToken cancellationToken = default)
+    internal async Task<SocketsHttpHandler> CreateCaTrustingHandlerAsync(string targetPeerNodeId, ServerPeer[] peers, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
         var bootstrapPeer = peers[0];
