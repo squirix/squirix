@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -25,8 +26,9 @@ public sealed class MergeDuplicateCatchBlocksAnalyzer : DiagnosticAnalyzer
                                                             "'catch (Exception ex) when (ex is IOException or ObjectDisposedException)', to keep the " +
                                                             "duplicated handler body in one place.";
 
-    private static readonly LocalizableString MessageFormat = "Duplicate catch blocks for '{0}' and '{1}'; combine them with a 'when' filter pattern, e.g. " +
-                                                              "'catch (Exception ex) when (ex is {0} or {1})'";
+    private static readonly LocalizableString MessageFormat =
+        "Consecutive catch blocks for the same body should be combined into one 'when' filter pattern; " +
+        "e.g. 'catch (Exception ex) when (ex is {0})'";
 
     private static readonly LocalizableString Title = "Merge duplicate catch blocks with identical bodies";
 
@@ -50,25 +52,42 @@ public sealed class MergeDuplicateCatchBlocksAnalyzer : DiagnosticAnalyzer
     {
         var tryStatement = (TryStatementSyntax)context.Node;
         var catches = tryStatement.Catches;
+        if (catches.Count < 2)
+            return;
 
-        for (var i = 1; i < catches.Count; i++)
+        for (var start = 0; start < catches.Count; start++)
         {
-            var previous = catches[i - 1];
-            var current = catches[i];
+            context.CancellationToken.ThrowIfCancellationRequested();
 
-            if (!CanMerge(previous) || !CanMerge(current))
+            if (!CanMerge(catches[start]))
                 continue;
 
-            var previousType = GetExceptionTypeName(previous);
-            var currentType = GetExceptionTypeName(current);
-
-            if (previousType == null || currentType == null || previousType == currentType)
+            var firstType = GetExceptionTypeName(catches[start]);
+            if (firstType == null)
                 continue;
 
-            if (!BodiesAreEquivalent(previous, current))
-                continue;
+            var runTypes = new List<string> { firstType };
 
-            context.ReportDiagnostic(Diagnostic.Create(Rule, current.CatchKeyword.GetLocation(), currentType, previousType));
+            var end = start + 1;
+            while (end < catches.Count && CanMerge(catches[end]) && BodiesAreEquivalent(catches[start], catches[end]))
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+
+                var type = GetExceptionTypeName(catches[end]);
+                if (type == null || runTypes.Contains(type))
+                    break;
+
+                runTypes.Add(type);
+                end++;
+            }
+
+            if (runTypes.Count >= 2)
+            {
+                var pattern = string.Join(" or ", runTypes);
+                context.ReportDiagnostic(Diagnostic.Create(Rule, catches[start].CatchKeyword.GetLocation(), pattern));
+            }
+
+            start = end - 1;
         }
     }
 
