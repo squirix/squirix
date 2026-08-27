@@ -1,707 +1,550 @@
 # Top-most EditorConfig file
-root = true
+root = true # top-most EditorConfig; stops parent-dir lookup
 
-# Global settings
+# ===========================================================================
+# Core file settings (apply to every tracked file)
+# ===========================================================================
 [*.{cs,csproj,props,targets,sln,json,md,yml,yaml,editorconfig,xml,txt,proto,ps1,runsettings,config,toml,http,svg,cshtml,razor,sql,sh,cmd,bat,mdc,csx}]
-charset = utf-8
-end_of_line = lf
-insert_final_newline = true
-trim_trailing_whitespace = true
-indent_style = space
-indent_size = 4
-tab_width = 4
-max_line_length = 180
+charset = utf-8 # file encoding
+end_of_line = lf # normalize line endings to LF
+indent_size = 4 # indent width in spaces
+indent_style = space # use spaces, not tabs
+insert_final_newline = true # ensure trailing newline at EOF
+max_line_length = 180 # hard limit for line length
+tab_width = 4 # visual tab width
+trim_trailing_whitespace = true # strip trailing whitespace
 
-# Use latest C# style rules
-csharp_style_var_for_built_in_types = true:warning
-csharp_style_var_when_type_is_apparent = true:suggestion
-csharp_style_var_elsewhere = true:suggestion
-dotnet_diagnostic.IDE0007.severity = warning
-csharp_new_line_before_open_brace = all
-csharp_style_expression_bodied_methods = when_on_single_line:warning
-csharp_style_expression_bodied_properties = when_on_single_line:warning
-csharp_style_expression_bodied_indexers = when_on_single_line:warning
-csharp_style_expression_bodied_accessors = when_on_single_line:warning
-dotnet_diagnostic.IDE0021.severity = warning
-dotnet_diagnostic.IDE0022.severity = warning
-dotnet_diagnostic.IDE0023.severity = warning
-dotnet_diagnostic.IDE0025.severity = warning
-dotnet_diagnostic.IDE0026.severity = warning
-dotnet_diagnostic.IDE0027.severity = warning
-csharp_place_expr_method_on_single_line = if_owner_is_single_line
-csharp_style_prefer_switch_expression = true:warning
-dotnet_diagnostic.IDE0066.severity = warning
-csharp_style_namespace_declarations = file_scoped
-csharp_prefer_static_local_function = true:error
-# Omit braces whenever the body is a single embedded statement (including nested loops):
-#   for (...)
-#       for (...)
-#       {
-#           ...
-#       }
-# Keep braces only when the body has multiple statements (language-required) or an intentional block.
-# Use false (not when_multiline): when_multiline / SA1519 / RCS1001 force braces on outer loops whose
-# nested child spans multiple lines, which fights the nested-loop style above.
-# Multiline embedded bodies keep braces (SQR008 for loops; SQR010 skips multiline if/else/using/lock).
-# IDE0011 does not reliably omit braces when csharp_prefer_braces=false; SQR010 is the build gate
-# for single-line single-statement bodies only.
-csharp_prefer_braces = false
-dotnet_diagnostic.IDE0011.severity = error
-dotnet_diagnostic.SQR010.severity = error
-csharp_style_deconstructed_variable_declaration = true:warning
-csharp_style_expression_bodied_operators = false:warning
-csharp_style_expression_bodied_local_functions = false:warning
-# Prefer omitting redundant this. (IDE0003 warning => TreatWarningsAsErrors fails build).
-# SA1101 PrefixLocalCallsWithThis stays none.
-dotnet_style_qualification_for_field = false:warning
-dotnet_style_qualification_for_property = false:warning
-dotnet_style_qualification_for_method = false:warning
-dotnet_style_qualification_for_event = false:warning
-dotnet_diagnostic.IDE0003.severity = warning
-# Prefer explicit discard when intentionally ignoring a value
-csharp_style_unused_value_expression_statement_preference = discard_variable:warning
-csharp_style_unused_value_assignment_preference = discard_variable:warning
-# LOC-oriented modernizations (warning => TreatWarningsAsErrors)
-csharp_style_implicit_object_creation_when_type_is_apparent = true:warning
-dotnet_diagnostic.IDE0090.severity = warning
-dotnet_style_object_initializer = true:warning
-dotnet_diagnostic.IDE0017.severity = warning
-dotnet_style_collection_initializer = true:warning
-dotnet_diagnostic.IDE0028.severity = warning
-dotnet_style_prefer_collection_expression = when_types_exactly_match:warning
-dotnet_diagnostic.IDE0300.severity = warning
-dotnet_diagnostic.IDE0301.severity = warning
-dotnet_diagnostic.IDE0305.severity = warning
-dotnet_style_coalesce_expression = true:warning
-dotnet_diagnostic.IDE0029.severity = warning
-dotnet_style_null_propagation = true:warning
-dotnet_diagnostic.IDE0031.severity = warning
-dotnet_style_prefer_compound_assignment = true:warning
-dotnet_diagnostic.IDE0074.severity = warning
-csharp_prefer_simple_using_statement = true:warning
-dotnet_diagnostic.IDE0063.severity = warning
-csharp_style_inlined_variable_declaration = true:warning
-dotnet_diagnostic.IDE0018.severity = warning
-csharp_style_pattern_matching_over_as_with_null_check = true:warning
-dotnet_diagnostic.IDE0019.severity = warning
-csharp_style_pattern_matching_over_is_with_cast_check = true:warning
-dotnet_diagnostic.IDE0020.severity = warning
-csharp_style_prefer_pattern_matching = true:warning
-dotnet_diagnostic.IDE0078.severity = none
-csharp_style_prefer_not_pattern = true:warning
-dotnet_diagnostic.IDE0083.severity = warning
-dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
-dotnet_diagnostic.IDE0041.severity = warning
-# Throw helpers instead of multi-line ArgumentNullException / ObjectDisposedException blocks
-dotnet_diagnostic.CA1510.severity = warning
-dotnet_diagnostic.CA1511.severity = warning
-dotnet_diagnostic.CA1512.severity = warning
-dotnet_diagnostic.CA1513.severity = warning
-# Nullable and language are enforced via MSBuild too
-dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
-csharp_space_after_cast = false
+# ===========================================================================
+# C# language style + IDE code-style diagnostics
+# ===========================================================================
+csharp_new_line_before_open_brace = all # place open brace on its own line (Allman)
+csharp_place_expr_method_on_single_line = if_owner_is_single_line # keep expression-bodied method on one line only if owner fits
+csharp_prefer_braces = false # omit braces for single embedded statements (incl nested loops); keep for multi-statement bodies (SQR008). when_multiline/SA1519/RCS1001 would force braces
+csharp_prefer_simple_using_statement = true:warning # prefer using declaration over using block
+csharp_prefer_static_local_function = true:error # prefer static local functions
+csharp_space_after_cast = false # no space after a cast
+csharp_style_deconstructed_variable_declaration = true:warning # prefer deconstructed variable declaration
+csharp_style_expression_bodied_accessors = when_on_single_line:warning # expression body for accessors when single line
+csharp_style_expression_bodied_indexers = when_on_single_line:warning # expression body for indexers when single line
+csharp_style_expression_bodied_local_functions = false:warning # no expression body for local functions
+csharp_style_expression_bodied_methods = when_on_single_line:warning # expression body for methods when single line
+csharp_style_expression_bodied_operators = false:warning # no expression body for operators
+csharp_style_expression_bodied_properties = when_on_single_line:warning # expression body for properties when single line
+csharp_style_inlined_variable_declaration = true:warning # prefer inlined variable declaration
+csharp_style_namespace_declarations = file_scoped # use file-scoped namespaces
+csharp_style_pattern_matching_over_as_with_null_check = true:warning # pattern match over as plus null check
+csharp_style_pattern_matching_over_is_with_cast_check = true:warning # pattern match over is plus cast check
+csharp_style_prefer_not_pattern = true:warning # prefer not pattern
+csharp_style_prefer_pattern_matching = true:warning # prefer pattern matching
+csharp_style_prefer_switch_expression = true:warning # prefer switch expression
+csharp_style_unused_value_assignment_preference = discard_variable:warning # prefer discard for unused assignments
+csharp_style_unused_value_expression_statement_preference = discard_variable:warning # prefer explicit discard when intentionally ignoring a value
+csharp_style_var_elsewhere = true:suggestion # use var where type not apparent
+csharp_style_var_for_built_in_types = true:warning # use latest C# style rules
+csharp_style_var_when_type_is_apparent = true:suggestion # use var when type apparent
 
-# Elevate reliability/security/performance rules
-# Resource leaks and disposal
-# Dispose objects before losing scope
-dotnet_diagnostic.CA2000.severity = error
-# Disposable fields should be disposed
-dotnet_diagnostic.CA2213.severity = error
-# Use ValueTask correctly
-dotnet_diagnostic.CA2012.severity = error
-# Dispose methods should call base
-dotnet_diagnostic.CA1816.severity = error
+dotnet_diagnostic.CA1510.severity = warning # throw helpers instead of multi-line ArgumentNullException/ObjectDisposedException blocks
+dotnet_diagnostic.CA1511.severity = warning # use ArgumentException throw helper
+dotnet_diagnostic.CA1512.severity = warning # use InvalidOperationException throw helper
+dotnet_diagnostic.CA1513.severity = warning # use ObjectDisposedException throw helper
+dotnet_diagnostic.IDE0003.severity = warning # suppresses redundant this. qualification
+dotnet_diagnostic.IDE0005.severity = error # remove unused using directives (fails build via EnforceCodeStyleInBuild)
+dotnet_diagnostic.IDE0007.severity = warning # use implicit type (var) where applicable
+dotnet_diagnostic.IDE0011.severity = error # IDE0011 unreliable at omitting braces when csharp_prefer_braces=false; SQR010 is the build gate for single-line bodies
+dotnet_diagnostic.IDE0017.severity = warning # use object initializers
+dotnet_diagnostic.IDE0018.severity = warning # use inlined variable declaration
+dotnet_diagnostic.IDE0019.severity = warning # pattern match over as with null check
+dotnet_diagnostic.IDE0020.severity = warning # pattern match over is with cast check
+dotnet_diagnostic.IDE0021.severity = warning # use expression body for constructors
+dotnet_diagnostic.IDE0022.severity = warning # use expression body for methods
+dotnet_diagnostic.IDE0023.severity = warning # use expression body for conversion operators
+dotnet_diagnostic.IDE0025.severity = warning # use expression body for properties
+dotnet_diagnostic.IDE0026.severity = warning # use expression body for indexers
+dotnet_diagnostic.IDE0027.severity = warning # use expression body for accessors
+dotnet_diagnostic.IDE0028.severity = warning # use collection initializers
+dotnet_diagnostic.IDE0029.severity = warning # simplify null check with coalesce expression
+dotnet_diagnostic.IDE0031.severity = warning # use null propagation (?.)
+dotnet_diagnostic.IDE0041.severity = warning # use is null / is not null check
+dotnet_diagnostic.IDE0055.severity = error # enforce code-style formatting in build
+dotnet_diagnostic.IDE0063.severity = warning # use simple using statement
+dotnet_diagnostic.IDE0066.severity = warning # use switch expression
+dotnet_diagnostic.IDE0074.severity = warning # use coalesce compound assignment
+dotnet_diagnostic.IDE0078.severity = none # use pattern matching combinators (and/or)
+dotnet_diagnostic.IDE0083.severity = warning # use not pattern
+dotnet_diagnostic.IDE0090.severity = warning # use target-typed new (simplify new expression)
+dotnet_diagnostic.IDE0130.severity = error # namespace should match folder
+dotnet_diagnostic.IDE0160.severity = none # no block-scoped namespace preference
+dotnet_diagnostic.IDE0161.severity = error # use file-scoped namespaces
+dotnet_diagnostic.IDE0290.severity = none # use primary constructor
+dotnet_diagnostic.IDE0300.severity = warning # use collection expression for array
+dotnet_diagnostic.IDE0301.severity = warning # use collection expression for empty
+dotnet_diagnostic.IDE0305.severity = warning # use collection expression for fluent
 
-# Code readability (StyleCop)
-# Each attribute on its own line
-dotnet_diagnostic.SA1134.severity = error
-# Do not use regions
-dotnet_diagnostic.SA1124.severity = error
-# SA1503 always-require-braces / SA1519 multi-line-child braces conflict with nested-loop no-braces style
-dotnet_diagnostic.SA1503.severity = none
-dotnet_diagnostic.SA1519.severity = none
-# SA1520: if/else siblings must use braces consistently (multi-statement if ⇒ braced else).
-# Keep as error; do not strip single-statement else braces when the if branch uses braces.
-dotnet_diagnostic.SA1520.severity = error
-# Roslynator: remove braces from single-line single-statement bodies.
-# RCS1002 fights SA1520 on mixed if/else (multi-statement if + single-statement else) — keep off.
-# RCS1004 is switch sections only. RCS1001/RCS1003/RCS1007 re-add braces around multi-line nested children — keep off.
-dotnet_diagnostic.RCS1001.severity = none
-dotnet_diagnostic.RCS1002.severity = none
-dotnet_diagnostic.RCS1003.severity = none
-dotnet_diagnostic.RCS1004.severity = error
-dotnet_diagnostic.RCS1007.severity = none
-# Squirix.Analyzers: outer for/foreach/while/do must omit braces when the body is only a nested loop.
-dotnet_diagnostic.SQR001.severity = error
-# Squirix.Analyzers: multiline embedded loop bodies (except nested loops) must use braces.
-dotnet_diagnostic.SQR008.severity = error
-# Squirix.Analyzers: multiline embedded if/else-if/else bodies (except nested ifs) must use braces.
-dotnet_diagnostic.SQR018.severity = error
-# Squirix.Analyzers: design/naming limits (SQR002–SQR007) and style (SQR009–SQR011).
-dotnet_diagnostic.SQR002.severity = error
-dotnet_diagnostic.SQR003.severity = error
-dotnet_diagnostic.SQR004.severity = error
-dotnet_diagnostic.SQR005.severity = error
-dotnet_diagnostic.SQR006.severity = error
-dotnet_diagnostic.SQR007.severity = error
-# Forbid direct TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes.
-dotnet_diagnostic.SQR017.severity = error
-# Forbid allocating xUnit Assert.Throws*; use closure-free testkit asserts (ExceptionAssert/NodeExceptionAssert/AsyncAssert/NodeAsyncAssert).
-# dotnet_diagnostic.SQR019.severity = warning
-# Prefer positional args; in-order named arguments fail the build (TreatWarningsAsErrors).
-dotnet_diagnostic.SQR009.severity = warning
-# Omit braces around single-line single-statement if/else/loop/using/lock/fixed bodies (SA1520-safe).
-dotnet_diagnostic.SQR010.severity = error
-# Argument equals parameter default (Rider RedundantArgumentDefaultValue).
-dotnet_diagnostic.SQR011.severity = warning
-# Squirix.Analyzers: prefer '=='/'!=' operators over 'is'/'is not' patterns for null checks
-# and constant-value comparisons (reverses Meziantou MA0142/MA0148/MA0149).
-dotnet_diagnostic.SQR012.severity = error
-dotnet_diagnostic.SQR013.severity = error
-dotnet_diagnostic.SQR014.severity = error
-# Prefix with this - disabled
-dotnet_diagnostic.SA1101.severity = none
-# Allow leading underscore fields
-dotnet_diagnostic.SA1309.severity = none
-# Using directives placement
-dotnet_diagnostic.SA1200.severity = none
-# Missing XML comment for publicly visible type or member
-dotnet_diagnostic.SA1600.severity = none
-# No block-scoped namespace preference
-dotnet_diagnostic.IDE0160.severity = none
-# Use file-scoped namespaces
-dotnet_diagnostic.IDE0161.severity = error
-# Namespace must match folder structure (RootNamespace + relative path)
-dotnet_style_namespace_match_folder = true
-dotnet_diagnostic.IDE0130.severity = error
-# Remove unused using directives (fails build via EnforceCodeStyleInBuild)
-dotnet_diagnostic.IDE0005.severity = error
-# Use primary constructor
-dotnet_diagnostic.IDE0290.severity = none
-# Enforce formatting, including single-line expression members when they fit the line width
-dotnet_diagnostic.IDE0055.severity = error
+dotnet_style_collection_initializer = true:warning # use collection initializer
+dotnet_style_coalesce_expression = true:warning # use coalesce expression
+dotnet_style_null_propagation = true:warning # use null propagation
+dotnet_style_object_initializer = true:warning # use object initializer
+dotnet_style_prefer_collection_expression = when_types_exactly_match:warning # use collection expression when types match
+dotnet_style_prefer_compound_assignment = true:warning # use compound assignment
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning # use is null check over reference equality
+dotnet_style_qualification_for_event = false:warning # do not qualify events with this.
+dotnet_style_qualification_for_field = false:warning # omit redundant this. (IDE0003 warning fails build under TreatWarningsAsErrors); SA1101 stays none
+dotnet_style_qualification_for_method = false:warning # do not qualify methods with this.
+dotnet_style_qualification_for_property = false:warning # do not qualify properties with this.
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion # nullable/language enforced via MSBuild too
 
-# SonarAnalyzer
-# Loops should be simplified with LINQ - intentionally disabled; this codebase prefers explicit loops.
-dotnet_diagnostic.S3267.severity = none
-# Method overloads should be grouped together - conflicts with Rider/ReSharper file layout for object overrides.
-dotnet_diagnostic.S4136.severity = none
-# Prefer string.Create / FormattableString over alternatives - conflicts with BannedSymbols.txt string formatting policy.
-dotnet_diagnostic.S6618.severity = none
+instance_members_qualify_members = none # do not require this. qualification for instance members
+resharper_arrange_this_qualifier_highlighting = error # legacy alias of arrange_this_qualifier (Rider deprecates redundant_this_qualifier)
+resharper_instance_members_qualify_members = none # do not require this. qualification (Rider)
 
-# Performance
-# Mark members as static
-dotnet_diagnostic.CA1822.severity = error
-# Use Span-based string append
-dotnet_diagnostic.CA1834.severity = error
-# Use SearchValues for char search
-dotnet_diagnostic.CA1861.severity = error
-# Unused private fields
-dotnet_diagnostic.CA1823.severity = warning
-# Avoid unnecessary zero-length array allocations
-dotnet_diagnostic.CA1825.severity = warning
-# Use span-based overloads
-dotnet_diagnostic.CA1845.severity = warning
-# Seal types for performance
-dotnet_diagnostic.CA1852.severity = warning
-# Cache and reuse Regex
-dotnet_diagnostic.CA1869.severity = warning
+# ===========================================================================
+# Argument style (positional vs named)
+# ===========================================================================
+# Prefer positional args; in-order named arguments fail the build.
+arguments_literal = positional # use positional args for literals
+arguments_other = positional # use positional args for other args
+arguments_string_literal = positional # use positional args for string literals
+resharper_arguments_literal = positional # Rider: positional args for literals
+resharper_arguments_other = positional # Rider: positional args for other
+resharper_arguments_string_literal = positional # Rider: positional args for string literals
+resharper_arguments_style_anonymous_function_highlighting = error # flag anonymous-function arg style
+resharper_arguments_style_literal_highlighting = error # flag literal arg style
+resharper_arguments_style_named_expression_highlighting = error # flag named-expression arg style
+resharper_arguments_style_other_highlighting = error # flag other arg style
+resharper_arguments_style_string_literal_highlighting = error # flag string-literal arg style
+resharper_redundant_argument_default_value_highlighting = warning # parameter has same default value as another (Rider UI + SQR011 build gate)
 
-# Exceptions/Usage correctness
-# Do not raise reserved exception types
-dotnet_diagnostic.CA2201.severity = warning
-# Instantiate argument exceptions correctly
-dotnet_diagnostic.CA2208.severity = warning
+# ===========================================================================
+# Squirix analyzers (SQR*)
+# ===========================================================================
+dotnet_diagnostic.SQR001.severity = error # outer for/foreach/while/do must omit braces when body is only a nested loop
+dotnet_diagnostic.SQR002.severity = error # design/naming limit (SQR002-SQR007)
+dotnet_diagnostic.SQR003.severity = error # design/naming limit (SQR002-SQR007)
+dotnet_diagnostic.SQR004.severity = error # design/naming limit (SQR002-SQR007)
+dotnet_diagnostic.SQR005.severity = error # design/naming limit (SQR002-SQR007)
+dotnet_diagnostic.SQR006.severity = error # design/naming limit (SQR002-SQR007)
+dotnet_diagnostic.SQR007.severity = error # design / naming limits (SQR002-SQR007)
+dotnet_diagnostic.SQR008.severity = error # multiline embedded loop bodies (except nested loops) must use braces
+dotnet_diagnostic.SQR010.severity = error # skips multiline if/else/using/lock embedded bodies (only single-line bodies gated)
+dotnet_diagnostic.SQR012.severity = error # prefer ==/!= over is/is not patterns for null checks (reverses MA0142/MA0148/MA0149)
+dotnet_diagnostic.SQR013.severity = error # Squirix design/naming rule
+dotnet_diagnostic.SQR014.severity = error # Squirix design/naming rule
+dotnet_diagnostic.SQR017.severity = error # forbid TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes
+dotnet_diagnostic.SQR018.severity = error # multiline embedded if/else-if/else bodies (except nested ifs) must use braces
+dotnet_diagnostic.SQR009.severity = warning # Squirix rule (SQR009)
+dotnet_diagnostic.SQR011.severity = warning # Squirix rule (SQR011)
+dotnet_diagnostic.SQR019.severity = warning # forbid allocating xUnit Assert.Throws*; use closure-free testkit asserts (currently disabled)
 
-# Banned API symbols (BannedSymbols.txt)
+# ===========================================================================
+# StyleCop analyzers (SA*)
+# ===========================================================================
+dotnet_diagnostic.SA1101.severity = none # prefix local calls with this - disabled
+dotnet_diagnostic.SA1124.severity = error # do not use regions
+dotnet_diagnostic.SA1134.severity = error # each attribute on its own line
+dotnet_diagnostic.SA1200.severity = none # using directives placement
+dotnet_diagnostic.SA1201.severity = warning # elements ordering
+dotnet_diagnostic.SA1202.severity = error # elements should be ordered by access (private after public/internal/protected)
+dotnet_diagnostic.SA1309.severity = none # allow leading underscore fields
+dotnet_diagnostic.SA1503.severity = none # always-require-braces conflicts with nested-loop no-braces style
+dotnet_diagnostic.SA1519.severity = none # multi-line-child braces conflict with nested-loop no-braces style
+dotnet_diagnostic.SA1520.severity = error # if/else siblings must use braces consistently (multi-statement if => braced else)
+dotnet_diagnostic.SA1600.severity = none # missing XML comment for publicly visible type/member
+dotnet_diagnostic.SA1633.severity = none # file header
+
+# ===========================================================================
+# Roslynator analyzers (RCS*)
+# ===========================================================================
+dotnet_analyzer_diagnostic.category-roslynator.severity = warning # all rules at warning+ so they appear in dotnet build (TreatWarningsAsErrors => error)
+dotnet_diagnostic.RCS1001.severity = none # brace rules conflict with SA1520 / nested-loop style
+dotnet_diagnostic.RCS1002.severity = none # Roslynator rule disabled (RCS1002)
+dotnet_diagnostic.RCS1003.severity = none # Roslynator rule disabled (RCS1003)
+dotnet_diagnostic.RCS1004.severity = error # Roslynator rule (RCS1004)
+dotnet_diagnostic.RCS1007.severity = none # Roslynator rule disabled (RCS1007)
+dotnet_diagnostic.RCS1021.severity = none # expression-bodied lambda makes XUnit box the value inside an assert
+dotnet_diagnostic.RCS1069.severity = none # remove unnecessary case label conflicts with exhaustive switch style
+dotnet_diagnostic.RCS1134.severity = none # remove redundant statement conflicts with explicit control-flow in some methods
+dotnet_diagnostic.RCS1217.severity = none # convert interpolated string to concatenation
+
+# ===========================================================================
+# Microsoft code analysis (CA*) — reliability / disposal / performance / usage
+# ===========================================================================
+dotnet_diagnostic.CA1816.severity = error # dispose methods should call base
+dotnet_diagnostic.CA1822.severity = error # mark members as static
+dotnet_diagnostic.CA1823.severity = warning # unused private fields
+dotnet_diagnostic.CA1825.severity = warning # avoid unnecessary zero-length array allocations
+dotnet_diagnostic.CA1834.severity = error # use Span-based string append
+dotnet_diagnostic.CA1845.severity = warning # use span-based overloads
+dotnet_diagnostic.CA1852.severity = warning # seal types for performance
+dotnet_diagnostic.CA1861.severity = error # use SearchValues for char search
+dotnet_diagnostic.CA1869.severity = warning # cache and reuse Regex
+dotnet_diagnostic.CA2000.severity = error # dispose objects before losing scope
+dotnet_diagnostic.CA2012.severity = error # use ValueTask correctly
+dotnet_diagnostic.CA2016.severity = warning # forward CancellationToken
+dotnet_diagnostic.CA2201.severity = warning # do not raise reserved exception types
+dotnet_diagnostic.CA2208.severity = warning # instantiate argument exceptions correctly
+dotnet_diagnostic.CA2213.severity = error # disposable fields should be disposed
+
+# ===========================================================================
+# Meziantou analyzers (MA*)
+# ===========================================================================
+dotnet_diagnostic.MA0003.severity = none # require named arguments when passing literals (conflicts with positional preference)
+MA0015.consider_member_access_as_parameter = true # treat member access as a parameter for analyzer heuristics
+dotnet_diagnostic.MA0016.severity = none # prefer collection abstraction over concrete types on public API (conflicts with zero-alloc)
+dotnet_diagnostic.MA0038.severity = none # make instance method static (deprecated; prefer CA1822)
+dotnet_diagnostic.MA0111.severity = none # prefer string.Create over FormattableString (conflicts with BannedSymbols.txt policy)
+dotnet_diagnostic.MA0141.severity = none # reversed by SQR012/SQR013/SQR014: plain ==/!=/is not preferred for null/constant checks
+dotnet_diagnostic.MA0142.severity = none # reversed by SQR012/SQR013/SQR014
+dotnet_diagnostic.MA0148.severity = none # reversed by SQR012/SQR013/SQR014
+dotnet_diagnostic.MA0149.severity = none # reversed by SQR012/SQR013/SQR014
+dotnet_diagnostic.MA0157.severity = none # methods returning IAsyncEnumerable must not use Async suffix
+dotnet_diagnostic.MA0174.severity = none # record declarations should use explicit record class
+dotnet_diagnostic.MA0192.severity = none # use HasFlag instead of bitwise checks (adds allocations)
+dotnet_diagnostic.MA0211.severity = none # require multi-line <summary> (single-line is fine for short members)
+dotnet_diagnostic.MA0214.severity = none # use await instead of returning the task (returning the task is a valid optimization)
+dotnet_diagnostic.MA0215.severity = warning # return the task instead of awaiting it (elide async state machine)
+
+# ===========================================================================
+# SonarAnalyzer (S*)
+# ===========================================================================
+dotnet_diagnostic.S3267.severity = none # loops should be simplified with LINQ (this codebase prefers explicit loops)
+dotnet_diagnostic.S4136.severity = none # method overloads should be grouped (conflicts with Rider file layout for object overrides)
+dotnet_diagnostic.S6618.severity = none # prefer string.Create / FormattableString (conflicts with BannedSymbols.txt policy)
+
+# ===========================================================================
+# Banned API symbols (RS*) — see BannedSymbols.txt
+# ===========================================================================
 # ECMA documentation IDs with full parameter lists are required; partial names are ignored silently.
 # exclude_generated_code is in .globalconfig (EditorConfig does not apply to in-memory source generators).
-# Symbol has been banned
-dotnet_diagnostic.RS0030.severity = error
-# Symbol has been banned for use in declarations
-dotnet_diagnostic.RS0031.severity = error
-# Implicit culture ToString in interpolation - project standard is $"" instead of string.Format / FormattableString.
-dotnet_diagnostic.MA0076.severity = none
+dotnet_diagnostic.MA0076.severity = none # implicit culture ToString in interpolation (project standard: string interpolation)
+dotnet_diagnostic.RS0030.severity = error # symbol has been banned
+dotnet_diagnostic.RS0031.severity = error # symbol has been banned for use in declarations
 
-# Async/Cancellation correctness
-# Forward CancellationToken
-dotnet_diagnostic.CA2016.severity = warning
+# ===========================================================================
+# ErrorProne.NET (EPC / ERP / EPS)
+# ===========================================================================
+# All rules at warning for dotnet build (TreatWarningsAsErrors => error).
+# Per-rule IDs avoid category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc Performance.*).
+dotnet_diagnostic.EPC11.severity = warning # suspicious equality implementation
+dotnet_diagnostic.EPC12.severity = warning # only Message property observed in catch block
+dotnet_diagnostic.EPC13.severity = warning # suspiciously unobserved result
+dotnet_diagnostic.EPC14.severity = warning # ConfigureAwait(false) call is redundant
+dotnet_diagnostic.EPC15.severity = warning # ConfigureAwait(false) must be used
+dotnet_diagnostic.EPC16.severity = warning # awaiting null-conditional expression throws NullReferenceException
+dotnet_diagnostic.EPC17.severity = warning # avoid async-void delegates
+dotnet_diagnostic.EPC18.severity = warning # task implicitly converted to a string
+dotnet_diagnostic.EPC19.severity = warning # dispose CancellationTokenRegistration to avoid memory leaks
+dotnet_diagnostic.EPC20.severity = warning # avoid using default ToString implementation
+dotnet_diagnostic.EPC23.severity = warning # avoid Enumerable.Contains on HashSet
+dotnet_diagnostic.EPC24.severity = warning # hash-table-unfriendly type used as key
+dotnet_diagnostic.EPC25.severity = warning # avoid default Equals/HashCode from structs
+dotnet_diagnostic.EPC26.severity = warning # do not use tasks in using block
+dotnet_diagnostic.EPC27.severity = warning # avoid async void methods
+dotnet_diagnostic.EPC28.severity = warning # no ExcludeFromCodeCoverage on partial classes
+dotnet_diagnostic.EPC29.severity = warning # ExcludeFromCodeCoverage should provide a message
+dotnet_diagnostic.EPC30.severity = warning # method calls itself recursively
+dotnet_diagnostic.EPC31.severity = warning # do not return null for Task-like types
+dotnet_diagnostic.EPC32.severity = warning # TaskCompletionSource should use RunContinuationsAsynchronously
+dotnet_diagnostic.EPC33.severity = warning # do not use Thread.Sleep in async methods
+dotnet_diagnostic.EPC34.severity = warning # MustUseResultAttribute return value must be used
+dotnet_diagnostic.EPC35.severity = warning # do not block unnecessarily in async methods
+dotnet_diagnostic.EPC36.severity = warning # no async delegates with Task.Factory.StartNew + LongRunning
+dotnet_diagnostic.EPC37.severity = warning # do not validate arguments in async methods
+dotnet_diagnostic.EPC38.severity = warning # ErrorProne.NET correctness rule (EPC38)
+dotnet_diagnostic.EPC39.severity = warning # ErrorProne.NET correctness rule (EPC39)
+dotnet_diagnostic.EPC40.severity = warning # ErrorProne.NET correctness rule (EPC40)
+dotnet_diagnostic.EPC41.severity = warning # ErrorProne.NET correctness rule (EPC41)
+dotnet_diagnostic.EPC42.severity = warning # data-contract member is not serializable
+dotnet_diagnostic.ERP021.severity = warning # incorrect exception propagation
+dotnet_diagnostic.ERP022.severity = warning # unobserved exception in generic exception handler
+dotnet_diagnostic.ERP031.severity = warning # the API is not thread-safe
+dotnet_diagnostic.ERP041.severity = warning # EventSource class should be sealed
+dotnet_diagnostic.ERP042.severity = warning # EventSource implementation is not correct
+dotnet_diagnostic.EPS01.severity = warning # struct could be made readonly
+dotnet_diagnostic.EPS02.severity = warning # struct not readonly-friendly passed via in-parameter (defensive copy risk)
+dotnet_diagnostic.EPS03.severity = warning # struct not readonly-friendly returned by ref readonly (defensive copy risk)
+dotnet_diagnostic.EPS04.severity = warning # struct not readonly-friendly stored in ref readonly local (defensive copy risk)
+dotnet_diagnostic.EPS05.severity = warning # struct could be passed using in-modifier for performance
+dotnet_diagnostic.EPS06.severity = warning # compiler emits defensive copy for in-argument
+dotnet_diagnostic.EPS07.severity = warning # hidden defensive copy of a readonly field (>=16-byte struct)
+dotnet_diagnostic.EPS08.severity = warning # hidden defensive copy of an 'in' parameter (>=16-byte struct)
+dotnet_diagnostic.EPS09.severity = warning # hidden copy of a ref readonly local
+dotnet_diagnostic.EPS10.severity = warning # hidden copy of a ref readonly return value
+dotnet_diagnostic.EPS11.severity = warning # hidden copy via extension method on struct (this by value)
+dotnet_diagnostic.EPS12.severity = warning # defensive copy pitfall in readonly context (EPS12)
+dotnet_diagnostic.EPS13.severity = warning # defensive copy pitfall in readonly context (EPS13)
 
-# Spacing/ordering guidelines
-# Elements ordering
-dotnet_diagnostic.SA1201.severity = warning
+# ===========================================================================
+# Microsoft.VisualStudio.Threading (VSTHRD) — promote hidden rule to warning
+dotnet_diagnostic.VSTHRD111.severity = warning # use ConfigureAwait(bool) explicitly (production code only; tests excluded via [tests/**])
 
-# Reduce noise from commonly noisy rules
-# File header
-dotnet_diagnostic.SA1633.severity = none
-
-# Enforce member ordering by access so private members come after public/internal/protected
-# Elements should be ordered by access
-dotnet_diagnostic.SA1202.severity = error
-
-# Rider/ReSharper inspections
-resharper_redundant_empty_switch_section_highlighting = none
-resharper_xmldoc_indent_text = zero_indent
-resharper_arguments_string_literal = positional
-resharper_arguments_other = positional
-resharper_arguments_literal = positional
-# Prefer positional args (Rider). Severity is set under [*.cs] so it overrides IDE defaults.
-# Build enforcement is SQR009 (Roslyn) — Rider inspections alone do not fail dotnet build.
-# Use 'var' (simple / built-in types).
-resharper_suggest_var_or_type_built_in_types = true
-resharper_suggest_var_or_type_built_in_types_highlighting = warning
-# The parameter '…' has the same default value (Rider). Build gate is SQR011.
-resharper_redundant_argument_default_value_highlighting = warning
-# Qualifier 'this.' is redundant (Rider UI). Build gate is IDE0003 under Roslyn.
-# Preference + severity also set under [*.cs] so IDE defaults do not keep it as suggestion.
-resharper_redundant_this_qualifier_highlighting = error
-resharper_arrange_this_qualifier_highlighting = error
-# Method / constructor can be made private (solution-wide analysis).
-resharper_member_can_be_private_global_highlighting = warning
-resharper_member_can_be_private_local_highlighting = warning
-# Code body does not conform: use expression body.
-resharper_convert_to_expression_body_highlighting = warning
-# Align Rider with csharp_prefer_braces=false: omit braces for single embedded statements
-# (including outer nested loops). Do NOT enable braces_redundant — Rider cleanup would strip a
-# single-statement else while leaving a braced multi-statement if, which breaks SA1520.
-resharper_enforce_if_statement_braces_highlighting = none
-resharper_remove_redundant_braces_highlighting = none
-resharper_convert_to_primary_constructor_highlighting = none
-resharper_braces_for_ifelse = not_required
-resharper_braces_for_for = not_required
-resharper_braces_for_foreach = not_required
-resharper_braces_for_while = not_required
-resharper_braces_for_dowhile = not_required
-resharper_braces_for_using = not_required
-resharper_braces_for_lock = not_required
-resharper_braces_for_fixed = not_required
-resharper_braces_redundant = false
-# Keep nested brace-less loops indented (Rider default false flattens them and trips Sonar S3973).
-# using/lock/fixed chains stay flat: they share one braced block, so S3973 does not apply.
-resharper_csharp_indent_nested_foreach_stmt = true
-resharper_csharp_indent_nested_for_stmt = true
-resharper_csharp_indent_nested_while_stmt = true
-resharper_csharp_indent_nested_usings_stmt = false
-resharper_csharp_indent_nested_lock_stmt = false
-resharper_csharp_indent_nested_fixed_stmt = false
-resharper_loop_can_be_converted_to_query_highlighting = none
-resharper_loop_can_be_partly_converted_to_query_highlighting = none
-resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none
-resharper_foreach_can_be_partly_converted_to_query_using_another_get_enumerator_highlighting = none
-resharper_arrange_redundant_parentheses_highlighting = none
-resharper_for_can_be_converted_to_foreach_highlighting = none
-resharper_convert_if_statement_to_return_statement_highlighting = none
-resharper_convert_if_statement_to_switch_statement_highlighting = none
-# Convert 'switch' statement to 'switch' expression.
-resharper_convert_switch_statement_to_switch_expression_highlighting = warning
-# Invert 'if' statement to reduce nesting.
-resharper_invert_if_highlighting = warning
-# Line break is missing / incorrect around parenthesis.
-resharper_bad_parens_line_breaks_highlighting = warning
-# Keep explicit byte[] fixtures; do not nudge collection expressions toward "..."u8.
-resharper_use_utf8_string_literal_highlighting = none
-# Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
-# Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
-resharper_lambda_expression_can_be_made_static_highlighting = error
-resharper_lambda_expression_must_be_static_highlighting = error
-resharper_lambda_should_not_capture_context_highlighting = error
-resharper_redundant_suppress_nullable_warning_expression_highlighting = warning
-resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning
-resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning
-
-# Visual Studio keys (Rider understands them too)
-csharp_indent_switch_labels = true
-csharp_indent_case_contents = true
-csharp_indent_case_contents_when_block = false
-
-# Rider/ReSharper C# formatting
-[*.cs]
-
-# Named vs positional arguments (JetBrains syntax-style keys + inspection severity).
-# Message: "Inconsistent argument style: redundant name identifier"
-arguments_literal = positional
-arguments_other = positional
-arguments_string_literal = positional
-resharper_arguments_literal = positional
-resharper_arguments_other = positional
-resharper_arguments_string_literal = positional
-resharper_arguments_style_other_highlighting = error
-resharper_arguments_style_string_literal_highlighting = error
-resharper_arguments_style_literal_highlighting = error
-resharper_arguments_style_named_expression_highlighting = error
-resharper_arguments_style_anonymous_function_highlighting = error
-# Roslyn build gate for the same style (TreatWarningsAsErrors => fails build).
-dotnet_diagnostic.SQR009.severity = warning
-
-# The parameter '…' has the same default value (Rider UI + SQR011 build gate).
-resharper_redundant_argument_default_value_highlighting = warning
-dotnet_diagnostic.SQR011.severity = warning
-
-# Qualifier 'this.' is redundant (Rider preference + severity; IDE0003 is the build gate).
-instance_members_qualify_members = none
-resharper_instance_members_qualify_members = none
-resharper_redundant_this_qualifier_highlighting = error
-resharper_arrange_this_qualifier_highlighting = error
-dotnet_style_qualification_for_field = false:warning
-dotnet_style_qualification_for_property = false:warning
-dotnet_style_qualification_for_method = false:warning
-dotnet_style_qualification_for_event = false:warning
-dotnet_diagnostic.IDE0003.severity = warning
-
-# Roslynator (RCS): all rules at warning+ so they appear in dotnet build (TreatWarningsAsErrors => error).
-dotnet_analyzer_diagnostic.category-roslynator.severity = warning
-# Remove unnecessary case label — conflicts with exhaustive switch style in this codebase.
-dotnet_diagnostic.RCS1069.severity = none
-# Convert interpolated string to concatenation
-dotnet_diagnostic.RCS1217.severity = none
-# Remove redundant statement — conflicts with explicit control-flow in some methods.
-dotnet_diagnostic.RCS1134.severity = none
-# RCS1021: Use expression-bodied lambda, it makes XUnit box the value inside an assert
-dotnet_diagnostic.RCS1021.severity = none
-
-
-# ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).
+# ===========================================================================
+# ZeroAlloc.Analyzers (ZA) — promote Info rules to warning (TreatWarningsAsErrors => error)
+# ===========================================================================
 # No single category-zeroalloc — rules use Performance.* subcategories (see ZeroAlloc DiagnosticCategories.cs).
 # Do NOT use category-Performance: that also elevates CA18xx/CA186x NetAnalyzers in the same bucket.
-dotnet_analyzer_diagnostic.category-Performance.Collections.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Strings.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Memory.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Logging.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Boxing.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Linq.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Regex.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Enums.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Sealing.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.DataLayout.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Aot.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Aot.severity = warning # ZeroAlloc: AOT allocation pitfalls
+dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning # ZeroAlloc: async allocation pitfalls
+dotnet_analyzer_diagnostic.category-Performance.Boxing.severity = warning # ZeroAlloc: boxing allocations
+dotnet_analyzer_diagnostic.category-Performance.Collections.severity = warning # ZeroAlloc: collection allocations
+dotnet_analyzer_diagnostic.category-Performance.DataLayout.severity = warning # ZeroAlloc: data layout/size pitfalls
+dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning # ZeroAlloc: delegate allocations
+dotnet_analyzer_diagnostic.category-Performance.Enums.severity = warning # ZeroAlloc: enum allocation pitfalls
+dotnet_analyzer_diagnostic.category-Performance.Linq.severity = warning # ZeroAlloc: LINQ allocations
+dotnet_analyzer_diagnostic.category-Performance.Logging.severity = warning # ZeroAlloc: logging allocations
+dotnet_analyzer_diagnostic.category-Performance.Memory.severity = warning # ZeroAlloc: general memory allocations
+dotnet_analyzer_diagnostic.category-Performance.Regex.severity = warning # ZeroAlloc: regex allocation pitfalls
+dotnet_analyzer_diagnostic.category-Performance.Sealing.severity = warning # ZeroAlloc: sealing for JIT devirtualization
+dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning # ZeroAlloc: serialization allocations
+dotnet_analyzer_diagnostic.category-Performance.Strings.severity = warning # ZeroAlloc: string allocations
+dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning # ZeroAlloc: value-type allocation pitfalls
 
-# ErrorProne.NET (EPC/ERP/EPS): all rules at warning for dotnet build (TreatWarningsAsErrors => error).
-# Docs: https://github.com/SergeyTeplyakov/ErrorProne.NET/tree/master/docs/Rules
-# Per-rule IDs avoid category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc Performance.*).
-dotnet_diagnostic.EPC11.severity = warning
-dotnet_diagnostic.EPC12.severity = warning
-dotnet_diagnostic.EPC13.severity = warning
-dotnet_diagnostic.EPC14.severity = warning
-dotnet_diagnostic.EPC15.severity = warning
-dotnet_diagnostic.EPC16.severity = warning
-dotnet_diagnostic.EPC17.severity = warning
-dotnet_diagnostic.EPC18.severity = warning
-dotnet_diagnostic.EPC19.severity = warning
-dotnet_diagnostic.EPC20.severity = warning
-dotnet_diagnostic.EPC23.severity = warning
-dotnet_diagnostic.EPC24.severity = warning
-dotnet_diagnostic.EPC25.severity = warning
-dotnet_diagnostic.EPC26.severity = warning
-dotnet_diagnostic.EPC27.severity = warning
-dotnet_diagnostic.EPC28.severity = warning
-dotnet_diagnostic.EPC29.severity = warning
-dotnet_diagnostic.EPC30.severity = warning
-dotnet_diagnostic.EPC31.severity = warning
-dotnet_diagnostic.EPC32.severity = warning
-dotnet_diagnostic.EPC33.severity = warning
-dotnet_diagnostic.EPC34.severity = warning
-dotnet_diagnostic.EPC35.severity = warning
-dotnet_diagnostic.EPC36.severity = warning
-dotnet_diagnostic.EPC37.severity = warning
-dotnet_diagnostic.EPC38.severity = warning
-dotnet_diagnostic.EPC39.severity = warning
-dotnet_diagnostic.EPC40.severity = warning
-dotnet_diagnostic.EPC41.severity = warning
-dotnet_diagnostic.ERP021.severity = warning
-dotnet_diagnostic.ERP022.severity = warning
-dotnet_diagnostic.ERP031.severity = warning
-dotnet_diagnostic.ERP041.severity = warning
-dotnet_diagnostic.ERP042.severity = warning
-dotnet_diagnostic.EPS01.severity = warning
-dotnet_diagnostic.EPS05.severity = warning
-dotnet_diagnostic.EPS06.severity = warning
-dotnet_diagnostic.EPS09.severity = warning
-dotnet_diagnostic.EPS10.severity = warning
-dotnet_diagnostic.EPS11.severity = warning
-dotnet_diagnostic.EPS12.severity = warning
-dotnet_diagnostic.EPS13.severity = warning
-
-# General line break behavior
-resharper_csharp_keep_existing_linebreaks = false
-resharper_keep_existing_linebreaks = false
-resharper_keep_existing_expr_member_arrangement = false
-# Collapse consecutive blank lines (default is often 2)
-resharper_keep_max_blank_lines_in_code = 1
-resharper_keep_max_blank_lines_in_declarations = 1
-resharper_keep_max_blank_lines_in_declarations_inside_members = 1
-
-# Expression-bodied members
-resharper_csharp_place_expr_method_on_single_line = always
-
-# Braces and embedded statements
-resharper_csharp_new_line_before_while = true
-resharper_csharp_place_simple_embedded_statement_on_same_line = never
-
-# Attributes
-# Keep attributes on separate lines. Full cleanup must not merge [ThreadStatic] onto the field; SA1134.
-csharp_place_field_attribute_on_same_line = false
-csharp_place_attribute_on_same_line = false
-resharper_csharp_place_field_attribute_on_same_line = false
-resharper_csharp_place_attribute_on_same_line = false
-resharper_csharp_keep_existing_attribute_arrangement = false
-
-# Method calls / arguments
-resharper_csharp_wrap_arguments_style = wrap_if_long
-resharper_csharp_wrap_parameters_style = wrap_if_long
-resharper_csharp_wrap_after_invocation_lpar = false
-resharper_csharp_wrap_before_invocation_rpar = false
-resharper_csharp_wrap_after_declaration_lpar = false
-resharper_csharp_wrap_before_declaration_rpar = false
-
-# Chained method calls
-resharper_csharp_wrap_chained_method_calls = wrap_if_long
-resharper_csharp_wrap_before_first_method_call = false
-
-# Object / collection / array initializers
-resharper_csharp_wrap_object_and_collection_initializer_style = wrap_if_long
-resharper_csharp_wrap_array_initializer_style = wrap_if_long
-
-# LINQ / query-like wrapping
-resharper_csharp_wrap_linq_expressions = wrap_if_long
-resharper_csharp_wrap_before_linq_expression = false
-
-# Binary / conditional expressions
-resharper_csharp_wrap_ternary_expr_style = wrap_if_long
-
-# Lambda / anonymous methods
-resharper_csharp_wrap_before_arrow_with_expressions = false
-
-# Base list / generic constraints
-resharper_csharp_wrap_extends_list_style = wrap_if_long
-resharper_csharp_wrap_multiple_type_parameter_constraints_style = chop_always
-resharper_csharp_place_type_constraints_on_same_line = false
-
-# Constructor initializers
-# Keep StyleCop SA1128-compatible formatting.
-resharper_csharp_place_constructor_initializer_on_same_line = false
-resharper_place_constructor_initializer_on_same_line = false
-
-# Meziantou.Analyzer Rules
-# Allow member access expressions (e.g. request.Definition) where the root is a parameter.
-MA0015.consider_member_access_as_parameter = true
-
-# MA0016: Prefer collection abstraction over concrete types on public API — conflicts with zero-allocation and concrete test helpers.
-dotnet_diagnostic.MA0016.severity = none
-# MA0003: Require named arguments when passing literal values to method calls.
-dotnet_diagnostic.MA0003.severity = none
-# MA0157: Methods returning IAsyncEnumerable must not use the Async suffix.
-dotnet_diagnostic.MA0157.severity = none
-# MA0038: Make instance method static (deprecated; prefer CA1822).
-dotnet_diagnostic.MA0038.severity = none
-# MA0111: Prefer string.Create over FormattableString - conflicts with BannedSymbols.txt string formatting policy.
-dotnet_diagnostic.MA0111.severity = none
-# MA0174: Record declarations should use explicit 'record class' keyword.
-dotnet_diagnostic.MA0174.severity = none
-# MA0192: Use HasFlag instead of bitwise checks; it adds extra allocations
-dotnet_diagnostic.MA0192.severity = none
-# MA0211: Require multi-line <summary> XML comments; single-line summaries are fine for short, obvious members.
-dotnet_diagnostic.MA0211.severity = none
-# MA0214: Use 'await' instead of returning the task - intentionally disabled; returning the task is a valid optimization.
-dotnet_diagnostic.MA0214.severity = none
-# MA0215: Return the task instead of awaiting it - opposite of MA0214; prefer returning the task to elide the async state machine.
-dotnet_diagnostic.MA0215.severity = warning
-# MA0141: Use 'is not' instead of '!=' for null checks - reversed by SQR012; plain '!=' is preferred.
-dotnet_diagnostic.MA0141.severity = none
-# MA0142: Use 'is null' instead of '== null' - reversed by SQR012; plain '==' is preferred.
-dotnet_diagnostic.MA0142.severity = none
-# MA0148: Use 'is' patterns instead of '==' for constant values - reversed by SQR013.
-dotnet_diagnostic.MA0148.severity = none
-# MA0149: Use 'is not' patterns instead of '!=' for constant values - reversed by SQR014.
-dotnet_diagnostic.MA0149.severity = none
-
-# xUnit.net analyzers (https://xunit.net/xunit.analyzers/rules/): surface every rule as a warning
-# repo-wide (src, tests, benchmarks, tools) instead of only a subset under [tests/**].
+# ===========================================================================
+# xUnit.net analyzers (https://xunit.net/xunit.analyzers/rules/)
+# ===========================================================================
+# Surface every rule repo-wide (src, tests, benchmarks, tools) as a warning.
 # Exact-match per-ID so it beats any globalconfig/AnalysisMode defaults; Info/Hidden rules become visible.
-[*.cs]
-dotnet_diagnostic.xUnit1000.severity = warning
-dotnet_diagnostic.xUnit1001.severity = warning
-dotnet_diagnostic.xUnit1002.severity = warning
-dotnet_diagnostic.xUnit1003.severity = warning
-dotnet_diagnostic.xUnit1004.severity = warning
-dotnet_diagnostic.xUnit1005.severity = warning
-dotnet_diagnostic.xUnit1006.severity = warning
-dotnet_diagnostic.xUnit1007.severity = warning
-dotnet_diagnostic.xUnit1008.severity = warning
-dotnet_diagnostic.xUnit1009.severity = warning
-dotnet_diagnostic.xUnit1010.severity = warning
-dotnet_diagnostic.xUnit1011.severity = warning
-dotnet_diagnostic.xUnit1012.severity = warning
-dotnet_diagnostic.xUnit1013.severity = warning
-dotnet_diagnostic.xUnit1014.severity = warning
-dotnet_diagnostic.xUnit1015.severity = warning
-dotnet_diagnostic.xUnit1016.severity = warning
-dotnet_diagnostic.xUnit1017.severity = warning
-dotnet_diagnostic.xUnit1018.severity = warning
-dotnet_diagnostic.xUnit1019.severity = warning
-dotnet_diagnostic.xUnit1020.severity = warning
-dotnet_diagnostic.xUnit1021.severity = warning
-dotnet_diagnostic.xUnit1022.severity = warning
-dotnet_diagnostic.xUnit1023.severity = warning
-dotnet_diagnostic.xUnit1024.severity = warning
-dotnet_diagnostic.xUnit1025.severity = warning
-dotnet_diagnostic.xUnit1026.severity = warning
-dotnet_diagnostic.xUnit1027.severity = warning
-dotnet_diagnostic.xUnit1028.severity = warning
-dotnet_diagnostic.xUnit1029.severity = warning
-dotnet_diagnostic.xUnit1030.severity = warning
-dotnet_diagnostic.xUnit1031.severity = warning
-dotnet_diagnostic.xUnit1032.severity = warning
-dotnet_diagnostic.xUnit1033.severity = warning
-dotnet_diagnostic.xUnit1034.severity = warning
-dotnet_diagnostic.xUnit1035.severity = warning
-dotnet_diagnostic.xUnit1036.severity = warning
-dotnet_diagnostic.xUnit1037.severity = warning
-dotnet_diagnostic.xUnit1038.severity = warning
-dotnet_diagnostic.xUnit1039.severity = warning
-dotnet_diagnostic.xUnit1040.severity = warning
-dotnet_diagnostic.xUnit1041.severity = warning
-dotnet_diagnostic.xUnit1042.severity = warning
-dotnet_diagnostic.xUnit1043.severity = warning
-dotnet_diagnostic.xUnit1044.severity = warning
-dotnet_diagnostic.xUnit1045.severity = warning
-dotnet_diagnostic.xUnit1046.severity = warning
-dotnet_diagnostic.xUnit1047.severity = warning
-dotnet_diagnostic.xUnit1048.severity = warning
-dotnet_diagnostic.xUnit1049.severity = warning
-dotnet_diagnostic.xUnit1050.severity = warning
-dotnet_diagnostic.xUnit1051.severity = warning
-dotnet_diagnostic.xUnit1052.severity = warning
-dotnet_diagnostic.xUnit1053.severity = warning
-dotnet_diagnostic.xUnit1054.severity = warning
-dotnet_diagnostic.xUnit1055.severity = warning
-dotnet_diagnostic.xUnit1056.severity = warning
-dotnet_diagnostic.xUnit1057.severity = warning
-dotnet_diagnostic.xUnit1058.severity = warning
-dotnet_diagnostic.xUnit1059.severity = warning
-dotnet_diagnostic.xUnit1060.severity = warning
-dotnet_diagnostic.xUnit1061.severity = warning
-dotnet_diagnostic.xUnit1062.severity = warning
-dotnet_diagnostic.xUnit1063.severity = warning
-dotnet_diagnostic.xUnit1064.severity = warning
-dotnet_diagnostic.xUnit1065.severity = warning
-dotnet_diagnostic.xUnit1066.severity = warning
-dotnet_diagnostic.xUnit1067.severity = warning
-dotnet_diagnostic.xUnit1068.severity = warning
-dotnet_diagnostic.xUnit1069.severity = warning
-dotnet_diagnostic.xUnit2000.severity = warning
-dotnet_diagnostic.xUnit2001.severity = warning
-dotnet_diagnostic.xUnit2002.severity = warning
-dotnet_diagnostic.xUnit2003.severity = warning
-dotnet_diagnostic.xUnit2004.severity = warning
-dotnet_diagnostic.xUnit2005.severity = warning
-dotnet_diagnostic.xUnit2006.severity = warning
-dotnet_diagnostic.xUnit2007.severity = warning
-dotnet_diagnostic.xUnit2008.severity = warning
-dotnet_diagnostic.xUnit2009.severity = warning
-dotnet_diagnostic.xUnit2010.severity = warning
-dotnet_diagnostic.xUnit2011.severity = warning
-dotnet_diagnostic.xUnit2012.severity = warning
-dotnet_diagnostic.xUnit2013.severity = warning
-dotnet_diagnostic.xUnit2014.severity = warning
-dotnet_diagnostic.xUnit2015.severity = warning
-dotnet_diagnostic.xUnit2016.severity = warning
-dotnet_diagnostic.xUnit2017.severity = warning
-dotnet_diagnostic.xUnit2018.severity = warning
-dotnet_diagnostic.xUnit2019.severity = warning
-dotnet_diagnostic.xUnit2020.severity = warning
-dotnet_diagnostic.xUnit2021.severity = warning
-dotnet_diagnostic.xUnit2022.severity = warning
-dotnet_diagnostic.xUnit2023.severity = warning
-dotnet_diagnostic.xUnit2024.severity = warning
-dotnet_diagnostic.xUnit2025.severity = warning
-dotnet_diagnostic.xUnit2026.severity = warning
-dotnet_diagnostic.xUnit2027.severity = warning
-dotnet_diagnostic.xUnit2028.severity = warning
-dotnet_diagnostic.xUnit2029.severity = warning
-dotnet_diagnostic.xUnit2030.severity = warning
-dotnet_diagnostic.xUnit2031.severity = warning
-dotnet_diagnostic.xUnit2032.severity = warning
-dotnet_diagnostic.xUnit2033.severity = warning
-dotnet_diagnostic.xUnit3000.severity = warning
-dotnet_diagnostic.xUnit3001.severity = warning
-dotnet_diagnostic.xUnit3002.severity = warning
-dotnet_diagnostic.xUnit3003.severity = warning
-dotnet_diagnostic.xUnit3004.severity = warning
-dotnet_diagnostic.xUnit3005.severity = warning
-dotnet_diagnostic.xUnit3006.severity = warning
-dotnet_diagnostic.xUnit3007.severity = warning
+# (Warning escalates to error via TreatWarningsAsErrors — these are enforced as build errors.)
+dotnet_diagnostic.xUnit1000.severity = warning # test classes must be public
+dotnet_diagnostic.xUnit1001.severity = warning # fact methods cannot have parameters
+dotnet_diagnostic.xUnit1002.severity = warning # test methods cannot have multiple Fact or Theory attributes
+dotnet_diagnostic.xUnit1003.severity = warning # theory methods must have test data
+dotnet_diagnostic.xUnit1004.severity = warning # test methods should not be skipped
+dotnet_diagnostic.xUnit1005.severity = warning # fact methods should not have test data
+dotnet_diagnostic.xUnit1006.severity = warning # theory methods should have parameters
+dotnet_diagnostic.xUnit1007.severity = warning # ClassData must point at a valid class
+dotnet_diagnostic.xUnit1008.severity = warning # test data attribute should only be used on a Theory
+dotnet_diagnostic.xUnit1009.severity = warning # InlineData values must match parameter count
+dotnet_diagnostic.xUnit1010.severity = warning # value is not convertible to parameter type
+dotnet_diagnostic.xUnit1011.severity = warning # there is no matching method parameter
+dotnet_diagnostic.xUnit1012.severity = warning # null should not be used for value type parameters
+dotnet_diagnostic.xUnit1013.severity = warning # public method should be marked as test
+dotnet_diagnostic.xUnit1014.severity = warning # MemberData should use nameof for member name
+dotnet_diagnostic.xUnit1015.severity = warning # MemberData must reference an existing member
+dotnet_diagnostic.xUnit1016.severity = warning # MemberData must reference a public member
+dotnet_diagnostic.xUnit1017.severity = warning # MemberData must reference a static member
+dotnet_diagnostic.xUnit1018.severity = warning # MemberData must reference a valid member kind
+dotnet_diagnostic.xUnit1019.severity = warning # MemberData must reference a member with valid data type
+dotnet_diagnostic.xUnit1020.severity = warning # MemberData must reference a property with a getter
+dotnet_diagnostic.xUnit1021.severity = warning # MemberData should not have parameters if member is not a method
+dotnet_diagnostic.xUnit1022.severity = warning # theory methods cannot have a parameter array
+dotnet_diagnostic.xUnit1023.severity = warning # theory methods cannot have default parameter values
+dotnet_diagnostic.xUnit1024.severity = warning # test methods cannot have overloads
+dotnet_diagnostic.xUnit1025.severity = warning # InlineData should be unique within its Theory
+dotnet_diagnostic.xUnit1026.severity = warning # theory methods should use all of their parameters
+dotnet_diagnostic.xUnit1027.severity = warning # collection definition classes must be public
+dotnet_diagnostic.xUnit1028.severity = warning # test method must have valid return type
+dotnet_diagnostic.xUnit1029.severity = warning # local functions cannot be test functions
+dotnet_diagnostic.xUnit1030.severity = warning # do not call ConfigureAwait in test method
+dotnet_diagnostic.xUnit1031.severity = warning # do not use blocking task operations in test method
+dotnet_diagnostic.xUnit1032.severity = warning # test classes cannot be nested in a generic class
+dotnet_diagnostic.xUnit1033.severity = warning # class fixture should add constructor argument of type T
+dotnet_diagnostic.xUnit1034.severity = warning # null should only be used for nullable parameters
+dotnet_diagnostic.xUnit1035.severity = warning # value is not convertible to parameter type
+dotnet_diagnostic.xUnit1036.severity = warning # there is no matching method parameter
+dotnet_diagnostic.xUnit1037.severity = warning # fewer theory data type args than parameters
+dotnet_diagnostic.xUnit1038.severity = warning # more theory data type args than parameters
+dotnet_diagnostic.xUnit1039.severity = warning # theory data type arg incompatible with parameter
+dotnet_diagnostic.xUnit1040.severity = warning # theory data type arg is nullable but parameter is not
+dotnet_diagnostic.xUnit1041.severity = warning # fixture arguments must have fixture sources
+dotnet_diagnostic.xUnit1042.severity = warning # MemberData returns untyped data rows
+dotnet_diagnostic.xUnit1043.severity = warning # FactAttribute-derived constructors must be public
+dotnet_diagnostic.xUnit1044.severity = warning # avoid TheoryData type args that are not serializable
+dotnet_diagnostic.xUnit1045.severity = warning # avoid TheoryData type args that might not be serializable
+dotnet_diagnostic.xUnit1046.severity = warning # avoid TheoryDataRow args that are not serializable
+dotnet_diagnostic.xUnit1047.severity = warning # avoid TheoryDataRow args that might not be serializable
+dotnet_diagnostic.xUnit1048.severity = warning # avoid async void for test methods (deprecated in v3)
+dotnet_diagnostic.xUnit1049.severity = warning # do not use async void for test methods (unsupported)
+dotnet_diagnostic.xUnit1050.severity = warning # ClassData returns untyped data rows
+dotnet_diagnostic.xUnit1051.severity = warning # use TestContext.Current.CancellationToken for token-accepting calls
+dotnet_diagnostic.xUnit1052.severity = warning # avoid TheoryData with types implementing ITheoryDataRow
+dotnet_diagnostic.xUnit1053.severity = warning # static theory-data member must be statically initialized
+dotnet_diagnostic.xUnit1054.severity = warning # conditional-skip property must be public static returning bool
+dotnet_diagnostic.xUnit1055.severity = warning # conditional skipping cannot set both SkipUnless and SkipWhen
+dotnet_diagnostic.xUnit1056.severity = warning # type must have a single public non-static constructor
+dotnet_diagnostic.xUnit1057.severity = warning # type must be public or internal
+dotnet_diagnostic.xUnit1058.severity = warning # generic collection definitions unsupported in Native AOT
+dotnet_diagnostic.xUnit1059.severity = warning # test classes may not be decorated with ICollectionFixture
+dotnet_diagnostic.xUnit1060.severity = warning # cultured test methods must have at least one culture
+dotnet_diagnostic.xUnit1061.severity = warning # fact methods cannot be generic
+dotnet_diagnostic.xUnit1062.severity = warning # theory methods cannot be generic in Native AOT
+dotnet_diagnostic.xUnit1063.severity = warning # test class cannot be an open generic type
+dotnet_diagnostic.xUnit1064.severity = warning # theory parameter cannot use params in Native AOT
+dotnet_diagnostic.xUnit1065.severity = warning # MemberData method is ambiguous
+dotnet_diagnostic.xUnit1066.severity = warning # MemberData parameter cannot use params in Native AOT
+dotnet_diagnostic.xUnit1067.severity = warning # no matching MemberData method argument
+dotnet_diagnostic.xUnit1068.severity = warning # MemberData cannot point to an open generic type
+dotnet_diagnostic.xUnit1069.severity = warning # Timeout test should reference TestContext.Current.CancellationToken
+dotnet_diagnostic.xUnit2000.severity = warning # constants/literals should be the expected argument
+dotnet_diagnostic.xUnit2001.severity = warning # do not use invalid equality check
+dotnet_diagnostic.xUnit2002.severity = warning # do not use null check on value type
+dotnet_diagnostic.xUnit2003.severity = warning # do not use equality check to test for null
+dotnet_diagnostic.xUnit2004.severity = warning # do not use equality check for boolean conditions
+dotnet_diagnostic.xUnit2005.severity = warning # do not use identity check on value type
+dotnet_diagnostic.xUnit2006.severity = warning # do not use invalid string equality check
+dotnet_diagnostic.xUnit2007.severity = warning # do not use typeof to check the type
+dotnet_diagnostic.xUnit2008.severity = warning # do not use boolean check to match regex
+dotnet_diagnostic.xUnit2009.severity = warning # do not use boolean check to check for substrings
+dotnet_diagnostic.xUnit2010.severity = warning # do not use boolean check for string equality
+dotnet_diagnostic.xUnit2011.severity = warning # do not use empty collection check
+dotnet_diagnostic.xUnit2012.severity = warning # do not use Enumerable.Any to check value exists
+dotnet_diagnostic.xUnit2013.severity = warning # do not use equality check for collection size
+dotnet_diagnostic.xUnit2014.severity = warning # do not use throws check for async exceptions
+dotnet_diagnostic.xUnit2015.severity = warning # do not use typeof to check exception type
+dotnet_diagnostic.xUnit2016.severity = warning # keep precision in range for double/decimal equality
+dotnet_diagnostic.xUnit2017.severity = warning # do not use Contains to check value exists in collection
+dotnet_diagnostic.xUnit2018.severity = warning # do not compare exact type to abstract class/interface
+dotnet_diagnostic.xUnit2019.severity = warning # do not use obsolete throws check for async exceptions
+dotnet_diagnostic.xUnit2020.severity = warning # do not use always-failing boolean assertion
+dotnet_diagnostic.xUnit2021.severity = warning # async assertions should be awaited
+dotnet_diagnostic.xUnit2022.severity = warning # boolean assertions should not be negated
+dotnet_diagnostic.xUnit2023.severity = warning # do not use collection methods for single-item collections
+dotnet_diagnostic.xUnit2024.severity = warning # do not use boolean asserts for simple equality
+dotnet_diagnostic.xUnit2025.severity = warning # boolean assertion can be simplified
+dotnet_diagnostic.xUnit2026.severity = warning # set comparison must use IEqualityComparer
+dotnet_diagnostic.xUnit2027.severity = warning # set vs linear container comparison is undefined
+dotnet_diagnostic.xUnit2028.severity = warning # do not use Assert.Empty/NotEmpty with problematic types
+dotnet_diagnostic.xUnit2029.severity = warning # do not use Assert.Empty to check value absent
+dotnet_diagnostic.xUnit2030.severity = warning # do not use Assert.NotEmpty to check value exists
+dotnet_diagnostic.xUnit2031.severity = warning # do not use Where clause with Assert.Single
+dotnet_diagnostic.xUnit2032.severity = warning # assignable-from type assertions are confusingly named
+dotnet_diagnostic.xUnit2033.severity = warning # use assertion return value instead of re-deriving it
+dotnet_diagnostic.xUnit3000.severity = warning # cross-AppDomain types must derive from LongLivedMarshalByRefObject
+dotnet_diagnostic.xUnit3001.severity = warning # serializable runtime types need public parameterless ctor
+dotnet_diagnostic.xUnit3002.severity = warning # JSON-serializable classes should not test concrete type
+dotnet_diagnostic.xUnit3003.severity = warning # FactAttribute-derived types need public ctor for source info
+dotnet_diagnostic.xUnit3004.severity = warning # type must implement appropriate interface
+dotnet_diagnostic.xUnit3005.severity = warning # type must have non-obsolete public constructor
+dotnet_diagnostic.xUnit3006.severity = warning # test case implementation must be serializable
+dotnet_diagnostic.xUnit3007.severity = warning # test case implementation might not be serializable
 
+# ===========================================================================
+# Rider / ReSharper inspection severities (UI hints; do not fail dotnet build)
+# ===========================================================================
+resharper_arrange_redundant_parentheses_highlighting = none # do not flag redundant parentheses
+resharper_bad_parens_line_breaks_highlighting = warning # flag bad parenthesis line breaks
+resharper_braces_for_dowhile = not_required # do not require braces for do-while
+resharper_braces_for_fixed = not_required # do not require braces for fixed
+resharper_braces_for_for = not_required # do not require braces for for
+resharper_braces_for_foreach = not_required # do not require braces for foreach
+resharper_braces_for_ifelse = not_required # align with csharp_prefer_braces=false (omit braces for single embedded statements)
+resharper_braces_for_lock = not_required # do not require braces for lock
+resharper_braces_for_using = not_required # do not require braces for using
+resharper_braces_for_while = not_required # do not require braces for while
+resharper_braces_redundant = false # do not enable: would strip single-statement else, breaking SA1520
+resharper_convert_if_statement_to_return_statement_highlighting = none # do not suggest if-to-return
+resharper_convert_if_statement_to_switch_statement_highlighting = warning # suggest if-to-switch
+resharper_convert_switch_statement_to_switch_expression_highlighting = warning # suggest switch-to-expression
+resharper_convert_to_primary_constructor_highlighting = none # convert to expression body enforced via csharp_style_expression_bodied_*; ReSharper alias unsupported in Rider
+resharper_enforce_if_statement_braces_highlighting = none # do not enforce if braces
+resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none # do not suggest foreach-to-query
+resharper_foreach_can_be_partly_converted_to_query_using_another_get_enumerator_highlighting = none # do not suggest partial foreach-to-query
+resharper_for_can_be_converted_to_foreach_highlighting = none # do not suggest for-to-foreach
+resharper_invert_if_highlighting = warning # suggest invert if
+resharper_lambda_expression_can_be_made_static_highlighting = error # suggest static lambda
+resharper_lambda_expression_must_be_static_highlighting = error # require static lambda
+resharper_lambda_should_not_capture_context_highlighting = error # alloc-free delegates: static + RequireStaticDelegate
+resharper_loop_can_be_converted_to_query_highlighting = none # do not suggest loop-to-query
+resharper_loop_can_be_partly_converted_to_query_highlighting = none # do not suggest partial loop-to-query
+resharper_member_can_be_private_global_highlighting = warning # suggest member can be private (global)
+resharper_member_can_be_private_local_highlighting = warning # suggest member can be private (local)
+resharper_redundant_empty_switch_section_highlighting = none # do not flag redundant empty switch
+resharper_redundant_suppress_nullable_warning_expression_highlighting = warning # flag redundant nullable suppress
+resharper_remove_redundant_braces_highlighting = none # do not remove redundant braces
+resharper_suggest_var_or_type_built_in_types_highlighting = warning # var for built-in types via csharp_style_var_for_built_in_types; ReSharper alias unsupported in Rider
+resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
+resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
+resharper_use_utf8_string_literal_highlighting = none # do not suggest utf8 literals
+resharper_xmldoc_indent_text = zero_indent # no extra indent in XML doc
+
+# ===========================================================================
+# Visual Studio formatting keys (Rider understands them too)
+# ===========================================================================
+csharp_indent_case_contents = true # indent case contents
+csharp_indent_case_contents_when_block = false # do not indent case block contents
+csharp_indent_switch_labels = true # indent switch labels
+
+# ===========================================================================
+# Rider / ReSharper C# formatting
+# ===========================================================================
+csharp_place_attribute_on_same_line = false # attributes on separate lines
+csharp_place_field_attribute_on_same_line = false # attributes on separate lines (SA1134); cleanup must not merge [ThreadStatic] onto field
+resharper_csharp_indent_nested_fixed_stmt = false # do not indent nested fixed
+resharper_csharp_indent_nested_for_stmt = true # indent nested for
+resharper_csharp_indent_nested_foreach_stmt = true # keep nested brace-less loops indented (Rider default false flattens them, trips Sonar S3973); using/lock/fixed chains stay flat
+resharper_csharp_indent_nested_lock_stmt = false # do not indent nested lock
+resharper_csharp_indent_nested_usings_stmt = false # do not indent nested using
+resharper_csharp_indent_nested_while_stmt = true # indent nested while
+resharper_csharp_keep_blank_lines_in_code = 1 # collapse consecutive blank lines (default is often 2)
+resharper_csharp_keep_blank_lines_in_declarations = 1 # collapse consecutive blank lines in declarations
+resharper_csharp_keep_existing_attribute_arrangement = false # reformat attribute arrangement
+resharper_csharp_keep_existing_expr_member_arrangement = false # reformat expression-member arrangement
+resharper_csharp_keep_existing_linebreaks = false # reformat line breaks
+resharper_csharp_new_line_before_while = true # new line before while in do-while
+resharper_csharp_place_attribute_on_same_line = false # attributes on separate lines
+resharper_csharp_place_constructor_initializer_on_same_line = false # constructor initializer on own line
+resharper_csharp_place_expr_method_on_single_line = always # expression-bodied methods on one line
+resharper_csharp_place_field_attribute_on_same_line = false # field attributes on separate lines
+resharper_csharp_place_simple_embedded_statement_on_same_line = never # embedded statement on own line
+resharper_csharp_place_type_constraints_on_same_line = false # type constraints on own line
+resharper_csharp_wrap_after_declaration_lpar = false # no wrap after declaration lpar
+resharper_csharp_wrap_after_invocation_lpar = false # no wrap after invocation lpar
+resharper_csharp_wrap_arguments_style = wrap_if_long # wrap arguments if long
+resharper_csharp_wrap_array_initializer_style = wrap_if_long # wrap array initializer if long
+resharper_csharp_wrap_before_arrow_with_expressions = false # no wrap before arrow with expressions
+resharper_csharp_wrap_before_declaration_rpar = false # no wrap before declaration rpar
+resharper_csharp_wrap_before_first_method_call = false # no wrap before first method call
+resharper_csharp_wrap_before_invocation_rpar = false # no wrap before invocation rpar
+resharper_csharp_wrap_before_linq_expression = false # no wrap before LINQ expression
+resharper_csharp_wrap_chained_method_calls = wrap_if_long # wrap chained calls if long
+resharper_csharp_wrap_extends_list_style = wrap_if_long # wrap extends list if long
+resharper_csharp_wrap_linq_expressions = wrap_if_long # wrap LINQ expressions if long
+resharper_csharp_wrap_multiple_type_parameter_constraints_style = chop_always # always chop multiple constraints
+resharper_csharp_wrap_object_and_collection_initializer_style = wrap_if_long # wrap initializer if long
+resharper_csharp_wrap_parameters_style = wrap_if_long # wrap parameters if long
+resharper_csharp_wrap_ternary_expr_style = wrap_if_long # wrap ternary if long
+resharper_keep_existing_linebreaks = false # reformat line breaks
+resharper_place_constructor_initializer_on_same_line = false # constructor initializer on own line
+
+# ===========================================================================
+# Scoped overrides
+# ===========================================================================
 [tools/**]
-# MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).
-dotnet_diagnostic.MA0047.severity = none
-# MA0048: File name must match the primary type name (script file names differ from inline types).
-dotnet_diagnostic.MA0048.severity = none
-# MA0051: Method exceeds configured line/statement limits (verify/pack scripts are intentionally long).
-dotnet_diagnostic.MA0051.severity = none
-# RCS1110: Declare type inside namespace (inline helper types in file-based scripts).
-dotnet_diagnostic.RCS1110.severity = none
-# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
-dotnet_diagnostic.ZA0901.severity = none
+dotnet_diagnostic.MA0047.severity = none # Types must be declared inside a namespace (file-based scripts use top-level statements)
+dotnet_diagnostic.MA0048.severity = none # File name must match the primary type name (script file names differ from inline types)
+dotnet_diagnostic.MA0051.severity = none # Method exceeds configured line/statement limits (verify/pack scripts are intentionally long)
+dotnet_diagnostic.RCS1110.severity = none # Declare type inside namespace (inline helper types in file-based scripts)
+dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed)
 
 [examples/**]
-# MA0048: File name must match the primary type name (script file names differ from inline types).
-dotnet_diagnostic.MA0048.severity = none
-# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
-dotnet_diagnostic.ZA0901.severity = none
+dotnet_diagnostic.MA0048.severity = none # File name must match the primary type name (script file names differ from inline types)
+dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed)
 
 [{tests,benchmarks}/**]
-# SA1615: Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant).
-# Other paths (for example src/**) keep the default SA1615 severity when a member is already documented.
-dotnet_diagnostic.SA1615.severity = none
+dotnet_diagnostic.SA1615.severity = none # Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant)
 
 [tests/**]
-# xUnit.net: dotnet build prints warning+ only. Info/Hidden rules stay silent until elevated.
-# These fire only on violations — clean tests => 0 xUnit lines in build output.
-dotnet_diagnostic.xUnit1030.severity = warning
-dotnet_diagnostic.xUnit1031.severity = warning
-dotnet_diagnostic.xUnit1049.severity = warning
-dotnet_diagnostic.xUnit1051.severity = warning
-dotnet_diagnostic.xUnit2000.severity = warning
-dotnet_diagnostic.xUnit2002.severity = warning
-dotnet_diagnostic.xUnit2003.severity = warning
-dotnet_diagnostic.xUnit2004.severity = warning
-dotnet_diagnostic.xUnit2006.severity = warning
-dotnet_diagnostic.xUnit2012.severity = warning
-dotnet_diagnostic.xUnit2017.severity = warning
-dotnet_diagnostic.xUnit2021.severity = warning
+dotnet_diagnostic.VSTHRD111.severity = none # VSTHRD111 (ConfigureAwait(bool)) targets production code; test classes with [Fact] are excluded
 
 [benchmarks/**]
-# BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig.
-dotnet_diagnostic.BDN1400.severity = error
-dotnet_diagnostic.BDN1500.severity = error
+dotnet_diagnostic.BDN1400.severity = error # BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig
+dotnet_diagnostic.BDN1500.severity = error # BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig
 
 [**/{AsyncAssert,NodeAsyncAssert}.cs]
-# VSTHRD003: The closure-free exception assertions exist to observe an operation the caller already started.
-dotnet_diagnostic.VSTHRD003.severity = none
+dotnet_diagnostic.VSTHRD003.severity = none # The closure-free exception assertions exist to observe an operation the caller already started
 
 [**/*Grpc.cs]
-dotnet_diagnostic.SA1518.severity = none
+dotnet_diagnostic.SA1518.severity = none # StyleCop: line endings at EOF must match settings (disabled for generated gRPC files)
 
 [**/XunitAutoGeneratedEntryPoint.cs]
-dotnet_diagnostic.RS0030.severity = none
-dotnet_diagnostic.RS0031.severity = none
+dotnet_diagnostic.RS0030.severity = none # generated entry point may call banned APIs
+dotnet_diagnostic.RS0031.severity = none # generated entry point may call banned APIs (declarations)
 
 [**/*.g.cs]
-# Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format.
-dotnet_diagnostic.RS0030.severity = none
-dotnet_diagnostic.RS0031.severity = none
-# Generated sources often use bare [ExcludeFromCodeCoverage] without justification.
-dotnet_diagnostic.EPC29.severity = none
+dotnet_diagnostic.EPC29.severity = none # Generated sources often use bare [ExcludeFromCodeCoverage] without justification
+dotnet_diagnostic.RS0030.severity = none # Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format
+dotnet_diagnostic.RS0031.severity = none # source generators may call banned APIs such as String.Format
 
 [**/obj/**]
-# MSBuild intermediate output (source generators, gRPC, JSON context, etc.).
-dotnet_diagnostic.RS0030.severity = none
-dotnet_diagnostic.RS0031.severity = none
-dotnet_diagnostic.EPC29.severity = none
-
-# Analyzer execution settings
-# Enable concurrent execution and generated code handling are set via MSBuild props
+dotnet_diagnostic.EPC29.severity = none # MSBuild intermediate output (source generators, gRPC, JSON context, etc.)
+dotnet_diagnostic.RS0030.severity = none # source generators may call banned APIs such as String.Format
+dotnet_diagnostic.RS0031.severity = none # source generators may call banned APIs such as String.Format
