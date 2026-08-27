@@ -111,6 +111,35 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
+    /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
+    [Fact]
+    public async Task UpdateExistingKeyAppendsAndApplies()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+
+        var updated = await harness.Inner.GetValueAsync(CacheName, "k", DefaultCancellationToken);
+        Assert.True(updated.Found);
+        Assert.Equal("v2", updated.Value);
+    }
+
+    /// <summary>JournalPayloadPrepareCacheDecorator.UpdateAsync delegates to the journal decorator for an existing key.</summary>
+    [Fact]
+    public async Task PayloadPrepareUpdateDelegatesToJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, new FixedOwnerLocator(Self), harness.Cache);
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+    }
+
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     private static async Task<Harness> CreateHarnessAsync(string owner)
