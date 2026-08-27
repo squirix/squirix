@@ -99,6 +99,47 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
+    /// <summary>Update skips the journal when the key vanishes between the public existence check and the durable apply, so replay cannot resurrect it.</summary>
+    [Fact]
+    public async Task UpdateSkipsJournalWhenKeyVanishes()
+    {
+        await using var harness = await CreateHarnessWithRaceInnerAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.False(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before, harness.Journal.AppendedOps);
+    }
+
+    /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
+    [Fact]
+    public async Task UpdateExistingKeyAppendsAndApplies()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+
+        var updated = await harness.Inner.GetValueAsync(CacheName, "k", DefaultCancellationToken);
+        Assert.True(updated.Found);
+        Assert.Equal("v2", updated.Value);
+    }
+
+    /// <summary>JournalPayloadPrepareCacheDecorator.UpdateAsync delegates to the journal decorator for an existing key.</summary>
+    [Fact]
+    public async Task PayloadPrepareUpdateDelegatesToJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, new FixedOwnerLocator(Self), harness.Cache);
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+    }
+
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     private static async Task<Harness> CreateHarnessAsync(string owner)
@@ -119,6 +160,29 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             new AsyncManualResetEvent(true));
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
+        var executor = new DurableMutationExecutor(journal);
+        var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
+        return new Harness(dir, manifestStore, journal, inner, cache);
+    }
+
+    private static async Task<Harness> CreateHarnessWithRaceInnerAsync(string owner)
+    {
+        var dir = new TempDirectory("squirix-journal-logging-decorator");
+        var options = new PersistenceOptions
+        {
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 5,
+            ManifestRetentionCount = 1,
+        };
+        var manifestStore = new Ledger(options);
+        var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var physical = new PhysicalCache<string>();
+        var inner = new RaceSimulatingInnerCache(physical);
         var executor = new DurableMutationExecutor(journal);
         var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, inner, cache);
@@ -153,7 +217,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
-    private sealed class RecordingLogicalCache : ILogicalNamespacedCache<string>
+    private class RecordingLogicalCache : ILogicalNamespacedCache<string>
     {
         private readonly ClientCache<string> _inner;
 
@@ -169,7 +233,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public virtual ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
 
         public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
@@ -195,5 +259,16 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>
             _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+    }
+
+    private sealed class RaceSimulatingInnerCache : RecordingLogicalCache
+    {
+        internal RaceSimulatingInnerCache(PhysicalCache<string> physical)
+            : base(physical)
+        {
+        }
+
+        public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<string>(false, default));
     }
 }
