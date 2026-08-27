@@ -40,7 +40,7 @@ public static class PathKit
     /// the target-framework and process-id segments.
     /// </param>
     /// <returns>
-    /// A path of the form <c>&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
+    /// A path of the form <c language="csharp">&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
     /// </returns>
     public static string GetProcTempPath(string subdirectory = "")
     {
@@ -254,11 +254,11 @@ public static class PathKit
     /// <summary>
     /// Replaces all characters in a file name that are invalid for the current platform
     /// (as returned by <see cref="Path.GetInvalidFileNameChars" />)
-    /// with an underscore (<c>_</c>).
+    /// with an underscore (<c language="csharp">_</c>).
     /// </summary>
     /// <param name="s">The candidate file name to sanitize.</param>
     /// <returns>
-    /// A new string in which every invalid file-name character has been replaced by <c>_</c>.
+    /// A new string in which every invalid file-name character has been replaced by <c language="csharp">_</c>.
     /// If <paramref name="s" /> contains no invalid characters, the original string is returned unchanged.
     /// </returns>
     /// <remarks>
@@ -266,7 +266,7 @@ public static class PathKit
     /// for file <em>names</em> only. It also preserves character casing and length.
     /// </remarks>
     /// <example>
-    ///     <code>
+    ///     <code language="csharp">
     /// var raw = "report:Q3*final?.txt";
     /// var safe = PathKit.SanitizePath(raw); // "report_Q3_final_.txt"
     /// </code>

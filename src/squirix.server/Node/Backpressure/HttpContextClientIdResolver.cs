@@ -8,7 +8,7 @@ namespace Squirix.Server.Node.Backpressure;
 /// <summary>
 /// Derives backpressure client ids from the JWT subject when authenticated, otherwise from the
 /// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
-/// <c>runtime</c> bucket.
+/// <c language="csharp">runtime</c> bucket.
 /// </summary>
 [Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver

@@ -8,11 +8,11 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Squirix.Analyzers;
 
 /// <summary>
-/// Forbids xUnit <c>Assert.Throws</c>, <c>Assert.ThrowsAny</c>, <c>Assert.ThrowsAsync</c>,
-/// and <c>Assert.ThrowsAnyAsync</c>. These assertions capture the operation in a delegate
+/// Forbids xUnit <c language="csharp">Assert.Throws</c>, <c language="csharp">Assert.ThrowsAny</c>, <c language="csharp">Assert.ThrowsAsync</c>,
+/// and <c language="csharp">Assert.ThrowsAnyAsync</c>. These assertions capture the operation in a delegate
 /// display class and allocate it on every call; use the closure-free testkit assertions instead
-/// (<c>ExceptionAssert.For&lt;T&gt;().Throws</c> / <c>NodeExceptionAssert.For&lt;T&gt;().Throws</c>
-/// for synchronous throws, <c>AsyncAssert.ThrowsAsync</c> / <c>NodeAsyncAssert.ThrowsAsync</c>
+/// (<c language="csharp">ExceptionAssert.For&lt;T&gt;().Throws</c> / <c language="csharp">NodeExceptionAssert.For&lt;T&gt;().Throws</c>
+/// for synchronous throws, <c language="csharp">AsyncAssert.ThrowsAsync</c> / <c language="csharp">NodeAsyncAssert.ThrowsAsync</c>
 /// for in-flight operations).
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]

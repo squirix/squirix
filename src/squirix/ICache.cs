@@ -9,7 +9,7 @@ namespace Squirix;
 /// <remarks>
 /// Application code should consume <see cref="ICache{T}" /> rather than implement it directly.
 /// Expired entries are treated as absent by all read and mutation methods.
-/// When <c>options</c> is <see langword="null" />, or <see cref="CacheEntryOptions" /> specifies neither
+/// When <c language="csharp">options</c> is <see langword="null" />, or <see cref="CacheEntryOptions" /> specifies neither
 /// <see cref="CacheEntryOptions.Expiration" /> nor <see cref="CacheEntryOptions.ExpiresAt" />, the write stores the entry
 /// without expiration metadata and the entry does not expire by TTL.
 /// </remarks>

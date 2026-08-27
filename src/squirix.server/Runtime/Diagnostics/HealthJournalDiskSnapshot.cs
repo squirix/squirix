@@ -3,7 +3,7 @@ using Squirix.Server.Attributes;
 namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>On-disk journal capacity subsection of health-ready diagnostics.</summary>
-/// <param name="State">Current journal disk pressure state label (<c>normal</c>, <c>high</c>, or <c>critical</c>).</param>
+/// <param name="State">Current journal disk pressure state label (<c language="csharp">normal</c>, <c language="csharp">high</c>, or <c language="csharp">critical</c>).</param>
 /// <param name="MaxBytes">Configured journal total byte cap.</param>
 /// <param name="UsedBytes">Current on-disk journal total bytes.</param>
 /// <param name="HighWaterBytes">Soft high-water mark bytes (80% of <paramref name="MaxBytes" />).</param>

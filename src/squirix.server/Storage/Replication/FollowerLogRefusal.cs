@@ -3,7 +3,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Stable refusal markers returned by the follower log before any journal mutation.</summary>
 /// <remarks>
 /// These strings are the storage-side twin of the closed wire refusal codes. The values must stay identical
-/// to <c>Squirix.Server.Cluster.Replication.RefusalCodes</c>; the storage layer may not reference the cluster
+/// to <c language="csharp">Squirix.Server.Cluster.Replication.RefusalCodes</c>; the storage layer may not reference the cluster
 /// namespace, so the constants are mirrored here and the transport adapter maps them through.
 /// </remarks>
 internal static class FollowerLogRefusal

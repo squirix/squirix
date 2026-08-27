@@ -19,7 +19,7 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class CorrelationClientInterceptorTests
 {
     /// <summary>
-    /// Verifies an active activity id is written to gRPC metadata as <c>traceparent</c>.
+    /// Verifies an active activity id is written to gRPC metadata as <c language="csharp">traceparent</c>.
     /// </summary>
     [Fact]
     public void InterceptorAddsTraceParentFromActivity()
@@ -42,7 +42,7 @@ public sealed class CorrelationClientInterceptorTests
     }
 
     /// <summary>
-    /// Verifies an existing <c>traceparent</c> entry is replaced when the current activity supplies a different id.
+    /// Verifies an existing <c language="csharp">traceparent</c> entry is replaced when the current activity supplies a different id.
     /// </summary>
     [Fact]
     public void InterceptorReplacesTraceParentHeader()
@@ -68,7 +68,7 @@ public sealed class CorrelationClientInterceptorTests
     }
 
     /// <summary>
-    /// Verifies an existing <c>tracestate</c> entry is replaced from the current activity state.
+    /// Verifies an existing <c language="csharp">tracestate</c> entry is replaced from the current activity state.
     /// </summary>
     [Fact]
     public void InterceptorReplacesTraceStateHeader()

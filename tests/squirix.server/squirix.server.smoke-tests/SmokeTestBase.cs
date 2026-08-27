@@ -117,7 +117,7 @@ public abstract class SmokeTestBase : IDisposable
         });
 
     /// <summary>
-    /// Gets listen URLs for a node bound on all interfaces (<c>0.0.0.0</c>) and scraped via loopback.
+    /// Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.
     /// </summary>
     /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
@@ -154,7 +154,7 @@ public abstract class SmokeTestBase : IDisposable
     /// Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.
     /// </param>
     /// <param name="version">
-    /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
+    /// The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.
     /// </param>
     /// <param name="tags">
     /// Optional set of user-defined tags. When provided, the collection is defensively copied
@@ -163,7 +163,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>
     /// A new <see cref="NodeCacheEntry{T}" /> containing the provided <paramref name="value" />,
     /// <paramref name="expiresUtc" />, <paramref name="version" />, and <paramref name="tags" /> (if any).
-    /// The <c>Expiration</c> property is set to <see langword="null" />.
+    /// The <c language="csharp">Expiration</c> property is set to <see langword="null" />.
     /// </returns>
     private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {

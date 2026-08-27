@@ -11,8 +11,8 @@ using Xunit;
 namespace Squirix.UnitTests;
 
 /// <summary>
-/// v0.1: golden snapshot of exported public API identities for the main <c>Squirix</c> assembly.
-/// When the public surface changes intentionally, update <c>ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
+/// v0.1: golden snapshot of exported public API identities for the main <c language="csharp">Squirix</c> assembly.
+/// When the public surface changes intentionally, update <c language="csharp">ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
 /// </summary>
 [Immutable]
 public sealed class PublicApiGoldenSnapshotTests : UnitTestBase

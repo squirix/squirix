@@ -17,13 +17,13 @@ internal static class PrometheusMetricsBootstrap
         return found ? merged : baseline;
     }
 
-    /// <summary>Merges <c>PrometheusMetrics</c> from a specific settings file path.</summary>
+    /// <summary>Merges <c language="csharp">PrometheusMetrics</c> from a specific settings file path.</summary>
     /// <param name="file">Full path to a JSON settings file.</param>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Found</c> is <see langword="true" /> when the file exists and defines a <c>PrometheusMetrics</c> object,
-    /// and <c>Merged</c> is the merged result.
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the file exists and defines a <c language="csharp">PrometheusMetrics</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
     internal static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergeFromSettingsFilePathAsync(
         string file,
@@ -51,13 +51,13 @@ internal static class PrometheusMetricsBootstrap
     private static PrometheusMetricsEndpointOptions Default() => new();
 
     /// <summary>
-    /// Merges the <c>PrometheusMetrics</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
+    /// Merges the <c language="csharp">PrometheusMetrics</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
     /// </summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>PrometheusMetrics</c> object,
-    /// and <c>Merged</c> is the merged result.
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">PrometheusMetrics</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
     private static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergeFromFileAsync(
         PrometheusMetricsEndpointOptions baseline,

@@ -13,7 +13,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// <para><b>CRITICAL: Cache isolation.</b> All tests sharing this fixture see the same in-memory cache
 /// on each node. Every test MUST use unique cache keys to prevent cross-test interference.
 /// The idempotency store is also shared — operation ids must be unique across tests
-/// (use <c>RpcOperationIdentity.New()</c> per test).
+/// (use <c language="csharp">RpcOperationIdentity.New()</c> per test).
 /// </para>
 /// </remarks>
 public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncLifetime

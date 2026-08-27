@@ -11,7 +11,7 @@ namespace Squirix.Server.Threading;
 /// </summary>
 /// <remarks>
 /// This is a volatile value holder, a synchronization primitive in the spirit of Java's
-/// <c>AtomicReference&lt;T&gt;</c> or a .NET atomic field wrapper. Centralizing the acquire/release
+/// <c language="csharp">AtomicReference&lt;T&gt;</c> or a .NET atomic field wrapper. Centralizing the acquire/release
 /// barriers at one point (1) documents the memory-visibility contract for the held value and
 /// (2) keeps volatile access out of property getters, which satisfies analyzers that flag
 /// volatile reads inside property accessors (for example NDepend ND1904).

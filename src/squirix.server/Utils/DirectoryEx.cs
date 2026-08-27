@@ -41,7 +41,7 @@ internal static class DirectoryEx
     ///     The method performs the following steps:
     ///     (1) validates inputs; (2) resolves an absolute path (combining with <paramref name="baseDir" /> or current working directory
     ///     for relative inputs); (3) ensures the target is within <paramref name="baseDir" /> if provided;
-    ///     (4) validates path segments (e.g., on Windows: reserved names like <c>CON</c>, <c>PRN</c>, trailing dot/space);
+    ///     (4) validates path segments (e.g., on Windows: reserved names like <c language="csharp">CON</c>, <c language="csharp">PRN</c>, trailing dot/space);
     ///     (5) optionally checks for symlinks/junctions; (6) creates the directory when it does not exist.
     ///     </para>
     ///     <para>

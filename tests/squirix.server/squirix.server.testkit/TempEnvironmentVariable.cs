@@ -21,7 +21,7 @@ namespace Squirix.Server.TestKit;
 ///     </para>
 /// </remarks>
 /// <example>
-///     <code>
+///     <code language="csharp">
 /// using var _ = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", "squirix-test");
 /// // Run code that relies on SQUIRIX_JWT_AUDIENCE=squirix-test
 /// </code>

@@ -9,13 +9,13 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>
-/// Safety tests for <see cref="Ledger.WriteAsync" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
+/// Safety tests for <see cref="Ledger.WriteAsync" /> when <c language="csharp">CURRENT</c> or on-disk manifests are corrupt.
 /// </summary>
 [Immutable]
 public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
 {
     /// <summary>
-    /// Verifies monotonic manifest writes advance the index when <c>CURRENT</c> is valid.
+    /// Verifies monotonic manifest writes advance the index when <c language="csharp">CURRENT</c> is valid.
     /// </summary>
     [Fact]
     public async Task WriteAdvancesIndexForValidCurrent()

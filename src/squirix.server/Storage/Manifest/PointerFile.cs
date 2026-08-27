@@ -5,12 +5,12 @@ using Microsoft.Win32.SafeHandles;
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>
-/// Shared-friendly reads for the fixed-size <c>man-current</c> pointer.
+/// Shared-friendly reads for the fixed-size <c language="csharp">man-current</c> pointer.
 /// </summary>
 /// <remarks>
-/// The journal-roll writer opens <c>man-current</c> with
+/// The journal-roll writer opens <c language="csharp">man-current</c> with
 /// <see cref="FileShare.ReadWrite" /> | <see cref="FileShare.Delete" />. Readers must use a compatible
-/// share mode: <c>File.ReadAllBytesAsync</c> defaults to
+/// share mode: <c language="csharp">File.ReadAllBytesAsync</c> defaults to
 /// <see cref="FileShare.Read" />, which can fail on Windows with <see cref="IOException" /> when a
 /// writer handle is still draining after abrupt host disposal.
 /// </remarks>
@@ -19,7 +19,7 @@ internal static class PointerFile
     internal const FileShare CompatibleShare = FileShare.ReadWrite | FileShare.Delete;
 
     /// <summary>Reads and validates the SQMC pointer at <paramref name="path" />, returning the manifest index.</summary>
-    /// <param name="path">Absolute path to <c>man-current</c>.</param>
+    /// <param name="path">Absolute path to <c language="csharp">man-current</c>.</param>
     /// <returns>Manifest index encoded in the pointer.</returns>
     /// <exception cref="InvalidDataException">Thrown when the pointer is truncated or fails validation.</exception>
     internal static int ReadIndex(string path)

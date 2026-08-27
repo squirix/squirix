@@ -5,20 +5,20 @@ namespace Squirix.Server.Utils;
 
 /// <summary>
 /// Validates operator-supplied file and directory paths before I/O.
-/// Rejects <c>.</c> / <c>..</c> segments and invalid characters, then returns a canonical absolute path.
+/// Rejects <c language="csharp">.</c> / <c language="csharp">..</c> segments and invalid characters, then returns a canonical absolute path.
 /// </summary>
 internal static class FilePathValidator
 {
     /// <summary>Validates and canonicalizes an operator-supplied directory path.</summary>
     /// <param name="path">Absolute or relative directory path.</param>
     /// <returns>Normalized absolute path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     internal static string ResolveValidatedDirectoryPath(string path) => ResolveValidatedPath(path, nameof(path));
 
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
     /// <param name="path">Absolute or relative file path.</param>
     /// <returns>Normalized absolute path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     internal static string ResolveValidatedFilePath(string path) => ResolveValidatedPath(path, nameof(path));
 
     private static string ResolveValidatedPath(string path, string paramName)

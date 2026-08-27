@@ -10,7 +10,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
+/// <summary>Manifest store (<c language="csharp">.bmqx</c> files and fixed-size <c language="csharp">man-current</c> pointer).</summary>
 [Mutable]
 internal sealed class Ledger : IDisposable
 {

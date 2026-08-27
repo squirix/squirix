@@ -16,7 +16,7 @@ internal static class FileDurability
     internal static FileOptions GetPointerFileOptions() => FileOptions.None;
 
     /// <summary>Overwrites the fixed-size SQMC pointer in place.</summary>
-    /// <param name="writer">Pointer writer with an open or reusable <c>man-current</c> handle.</param>
+    /// <param name="writer">Pointer writer with an open or reusable <c language="csharp">man-current</c> handle.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="pointerBuffer" /> is not exactly 12 bytes.</exception>
     internal static void WriteCurrentPointerBlocking(IManifestPointerWriter writer, ReadOnlySpan<byte> pointerBuffer)
@@ -41,9 +41,9 @@ internal static class FileDurability
     }
 
     /// <summary>Durably publishes a segment-roll manifest update (data file then pointer).</summary>
-    /// <param name="targetPath">Path to a new numbered <c>.bmqx</c> file.</param>
+    /// <param name="targetPath">Path to a new numbered <c language="csharp">.bmqx</c> file.</param>
     /// <param name="encoded">Encoded manifest bytes.</param>
-    /// <param name="pointerWriter">Reusable pointer writer for <c>man-current</c>.</param>
+    /// <param name="pointerWriter">Reusable pointer writer for <c language="csharp">man-current</c>.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
     internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer)
     {

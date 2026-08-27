@@ -16,7 +16,7 @@ public static class AspNetCoreExtensions
     /// <param name="builder">The ASP.NET Core application builder.</param>
     /// <param name="configure">Optional node configuration callback applied after any loaded settings baseline.</param>
     /// <param name="settingsPath">Optional explicit settings file path.</param>
-    /// <param name="loadDiscoveredSettings">When <see langword="true" />, loads a discovered <c>Squirix.settings.json</c> file before <paramref name="configure" />.</param>
+    /// <param name="loadDiscoveredSettings">When <see langword="true" />, loads a discovered <c language="csharp">Squirix.settings.json</c> file before <paramref name="configure" />.</param>
     /// <param name="configureExtensions">Optional package extension configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application builder.</returns>

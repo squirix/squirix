@@ -8,7 +8,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Resolves safe on-disk paths for replica-group storage under the persistence root.</summary>
 /// <remarks>
 /// Each group lives in its own directory whose segment is a stable hexadecimal encoding of the UTF-8
-/// <c>group_id</c>. Raw <c>NodeId</c>, cache name, and cache keys are never used as path segments. All paths
+/// <c language="csharp">group_id</c>. Raw <c language="csharp">NodeId</c>, cache name, and cache keys are never used as path segments. All paths
 /// are validated to remain under the storage root.
 /// </remarks>
 internal static class GroupStoragePaths
@@ -24,7 +24,7 @@ internal static class GroupStoragePaths
     /// <returns>The replication storage root path.</returns>
     internal static string GetRoot(string persistenceRoot) => PathEx.Combine(persistenceRoot, RootSegment);
 
-    /// <summary>Encodes a <c>group_id</c> into a stable, path-safe directory segment.</summary>
+    /// <summary>Encodes a <c language="csharp">group_id</c> into a stable, path-safe directory segment.</summary>
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns>A hexadecimal directory segment.</returns>
     internal static string EncodeGroupSegment(string groupId)

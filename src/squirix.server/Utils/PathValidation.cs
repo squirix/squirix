@@ -10,7 +10,7 @@ internal static class PathValidation
     private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
     private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
 
-    /// <summary>Returns whether <paramref name="segment" /> is <c>.</c> or <c>..</c>.</summary>
+    /// <summary>Returns whether <paramref name="segment" /> is <c language="csharp">.</c> or <c language="csharp">..</c>.</summary>
     /// <param name="segment">Path segment to test.</param>
     /// <returns><see langword="true" /> when the segment is a current- or parent-directory token.</returns>
     internal static bool IsDotOrDotDot(ReadOnlySpan<char> segment) => segment is ['.'] or ['.', '.'];
@@ -28,15 +28,15 @@ internal static class PathValidation
             throw new ArgumentException("Path must not contain wildcards (* or ?).", paramName);
     }
 
-    /// <summary>Validates a single path segment for emptiness, optional <c>.</c>/<c>..</c>, Windows rules, and file-name characters.</summary>
+    /// <summary>Validates a single path segment for emptiness, optional <c language="csharp">.</c>/<c language="csharp">..</c>, Windows rules, and file-name characters.</summary>
     /// <param name="segment">Path segment.</param>
     /// <param name="paramName">Argument name for exceptions.</param>
-    /// <param name="rejectDotOrDotDot">When <see langword="true" />, rejects <c>.</c> and <c>..</c> segments.</param>
+    /// <param name="rejectDotOrDotDot">When <see langword="true" />, rejects <c language="csharp">.</c> and <c language="csharp">..</c> segments.</param>
     /// <param name="applyWindowsRules">
     /// When set, forces Windows reserved-name and trailing space/dot checks on or off;
     /// when <see langword="null" />, uses <see cref="OperatingSystem.IsWindows()" />.
     /// </param>
-    /// <exception cref="ArgumentException">Thrown when the segment is empty, is <c>.</c>/<c>..</c> when rejected, violates Windows naming rules, or contains invalid file-name characters.</exception>
+    /// <exception cref="ArgumentException">Thrown when the segment is empty, is <c language="csharp">.</c>/<c language="csharp">..</c> when rejected, violates Windows naming rules, or contains invalid file-name characters.</exception>
     internal static void ValidateSegment(ReadOnlySpan<char> segment, string paramName, bool rejectDotOrDotDot, bool? applyWindowsRules = null)
     {
         ThrowIfEmpty(segment, paramName);

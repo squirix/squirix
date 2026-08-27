@@ -224,12 +224,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have an absolute expiry.
     /// </param>
     /// <param name="version">
-    /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
+    /// The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.
     /// </param>
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
     /// A new <see cref="NodeCacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
-    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null" />.
+    /// <paramref name="version" />, and <paramref name="tags" />; <c language="csharp">Expiration</c> is set to <see langword="null" />.
     /// </returns>
     private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {

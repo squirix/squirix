@@ -48,7 +48,7 @@ internal static class InvariantDigitStrings
         return value.ToString("D6", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">https://{host}:{port}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
     /// <returns>An absolute HTTPS origin string.</returns>

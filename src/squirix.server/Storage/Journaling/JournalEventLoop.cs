@@ -10,7 +10,7 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>
 /// Single-threaded journal I/O event loop: drains the ring, coalesces and writes frames, performs
 /// segment rolls, and services group-commit durability deadlines. All members run on the dedicated
-/// <c>squirix-journal-io</c> thread except the roll-completion signals invoked from the manifest-roll
+/// <c language="csharp">squirix-journal-io</c> thread except the roll-completion signals invoked from the manifest-roll
 /// thread and the property reads observed by callers.
 /// </summary>
 internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLoopDrainState, IJournalEventLoopRollState

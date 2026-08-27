@@ -4,7 +4,7 @@ using JetBrains.Annotations;
 namespace Squirix.Server.Errors;
 
 /// <summary>
-/// Thrown when a mutating RPC reuses an <c>operation_id</c> with a different mutation fingerprint.
+/// Thrown when a mutating RPC reuses an <c language="csharp">operation_id</c> with a different mutation fingerprint.
 /// </summary>
 public sealed class ServerOpIdMismatchException : Exception
 {

@@ -69,13 +69,13 @@ public static class NodeInvariantIndexStrings
         return index.ToString("D8", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Builds <c>https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
-    /// <param name="absolutePath">Absolute path beginning with <c>/</c>.</param>
+    /// <param name="absolutePath">Absolute path beginning with <c language="csharp">/</c>.</param>
     /// <returns>An absolute HTTPS URL.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="host" /> or <paramref name="absolutePath" /> is <see langword="null" />.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="absolutePath" /> is empty or does not begin with <c>/</c>.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="absolutePath" /> is empty or does not begin with <c language="csharp">/</c>.</exception>
     public static string FormatHttpsAbsolute(string host, int port, string absolutePath)
     {
         ArgumentNullException.ThrowIfNull(host);
@@ -98,16 +98,16 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">https://{host}:{port}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
     /// <returns>An absolute HTTPS origin string.</returns>
     public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
 
-    /// <summary>Builds <c>/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
     /// <param name="linkPath">Junction link path.</param>
     /// <param name="targetPath">Junction target path.</param>
-    /// <returns>cmd.exe arguments for <c>mklink /J</c>.</returns>
+    /// <returns>cmd.exe arguments for <c language="csharp">mklink /J</c>.</returns>
     public static string FormatMklinkJunctionArguments(string linkPath, string targetPath)
     {
         ArgumentNullException.ThrowIfNull(linkPath);
@@ -133,8 +133,8 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
-    /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
+    /// <summary>Builds <c language="csharp">{scheme}://{host}:{port}</c> in a single allocation.</summary>
+    /// <param name="scheme">URI scheme such as <c language="csharp">https</c> or <c language="csharp">http</c>.</param>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
     /// <returns>An absolute origin string.</returns>
@@ -159,7 +159,7 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>{prefix}:{index}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">{prefix}:{index}</c> in a single allocation.</summary>
     /// <param name="prefix">Key prefix.</param>
     /// <param name="index">Numeric suffix.</param>
     /// <returns>The composed key.</returns>
@@ -179,7 +179,7 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>{prefix}{guid:N}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">{prefix}{guid:N}</c> in a single allocation.</summary>
     /// <param name="prefix">Literal prefix.</param>
     /// <returns>The composed name.</returns>
     public static string FormatPrefixedGuidN(string prefix)
@@ -197,7 +197,7 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>{prefix}{middle}{suffix}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">{prefix}{middle}{suffix}</c> in a single allocation.</summary>
     /// <param name="prefix">Literal prefix.</param>
     /// <param name="middle">Middle segment (for example a random file name).</param>
     /// <param name="suffix">Literal suffix.</param>
@@ -219,10 +219,10 @@ public static class NodeInvariantIndexStrings
             });
     }
 
-    /// <summary>Builds <c>{prefix}:{index}</c> with a fixed pad format in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">{prefix}:{index}</c> with a fixed pad format in a single allocation.</summary>
     /// <param name="prefix">Key prefix.</param>
     /// <param name="index">Numeric suffix.</param>
-    /// <param name="format">A standard numeric format such as <c>D5</c> or <c>D10</c>.</param>
+    /// <param name="format">A standard numeric format such as <c language="csharp">D5</c> or <c language="csharp">D10</c>.</param>
     /// <param name="width">Zero-pad width matching <paramref name="format" />.</param>
     /// <returns>The composed key.</returns>
     public static string FormatPrefixedPadded(string prefix, int index, string format, int width)

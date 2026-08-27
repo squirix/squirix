@@ -28,7 +28,7 @@ public class ComparisonBenchmarks
     private ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
 
     /// <summary>
-    /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
+    /// Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.
     /// </summary>
     [Benchmark]
     public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);

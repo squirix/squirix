@@ -106,7 +106,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }
 
-    /// <summary>Loads snapshot trigger settings from <c>Squirix.settings.json</c>.</summary>
+    /// <summary>Loads snapshot trigger settings from <c language="csharp">Squirix.settings.json</c>.</summary>
     private static class SnapshotBootstrap
     {
         /// <summary>Loads snapshot trigger settings using the same settings file discovery as cluster bootstrap.</summary>

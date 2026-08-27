@@ -9,7 +9,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>
-/// Loads unresolved memory pressure settings from <c>Squirix.settings.json</c> and environment variables.
+/// Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.
 /// </summary>
 internal static class PressureBootstrap
 {
@@ -23,13 +23,13 @@ internal static class PressureBootstrap
         return ApplyEnvironment(fileMerged);
     }
 
-    /// <summary>Merges <c>MemoryPressure</c> from a specific settings file path.</summary>
+    /// <summary>Merges <c language="csharp">MemoryPressure</c> from a specific settings file path.</summary>
     /// <param name="path">Full path to a JSON settings file.</param>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Found</c> is <see langword="true" /> when the file exists and defines a <c>MemoryPressure</c> object,
-    /// and <c>Merged</c> is the merged result.
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the file exists and defines a <c language="csharp">MemoryPressure</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
     internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeFromSettingsFilePathAsync(
         string path,
@@ -74,13 +74,13 @@ internal static class PressureBootstrap
     }
 
     /// <summary>
-    /// Merges the <c>MemoryPressure</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
+    /// Merges the <c language="csharp">MemoryPressure</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
     /// </summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>MemoryPressure</c> object,
-    /// and <c>Merged</c> is the merged result.
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">MemoryPressure</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
     private static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeFromFileAsync(
         UnresolvedMemoryPressureOptions baseline,

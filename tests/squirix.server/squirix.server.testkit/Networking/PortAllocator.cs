@@ -35,7 +35,7 @@ public sealed class PortAllocator : IDisposable
     /// Thrown if <paramref name="endPortInclusive" /> is less than <paramref name="startPort" />.
     /// </exception>
     /// <remarks>
-    /// The allocator will hand out ports within <c>[startPort, endPortInclusive]</c> on later allocation calls.
+    /// The allocator will hand out ports within <c language="csharp">[startPort, endPortInclusive]</c> on later allocation calls.
     /// This constructor only validates numeric bounds; it does not probe the OS for port availability.
     /// </remarks>
     public PortAllocator(int startPort, int endPortInclusive)
@@ -74,7 +74,7 @@ public sealed class PortAllocator : IDisposable
     ///     </para>
     /// </remarks>
     /// <example>
-    ///     <code>
+    ///     <code language="csharp">
     /// var port = allocator.Allocate();
     /// using var listener = new TcpListener(IPAddress.Loopback, port);
     /// listener.Start();

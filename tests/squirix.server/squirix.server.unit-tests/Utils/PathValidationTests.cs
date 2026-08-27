@@ -69,7 +69,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
     [Fact]
     public static void SegmentAllowsReservedWithoutRules() => PathValidation.ValidateSegment("CON".AsSpan(), "path", false, false);
 
-    /// <summary>Rejects <c>.</c> and <c>..</c> when requested.</summary>
+    /// <summary>Rejects <c language="csharp">.</c> and <c language="csharp">..</c> when requested.</summary>
     /// <param name="segment">Dot segment text.</param>
     [Theory]
     [InlineData(".")]

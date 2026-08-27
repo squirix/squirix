@@ -19,7 +19,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 {
     private const string MismatchOperationId = "fedcba9876543210fedcba9876543210";
 
-    /// <summary>Valid 32-char hex operation id for idempotency replay tests. Same value as <c>IntegrationMutationOpIds.Default</c> but a separate constant for clarity.</summary>
+    /// <summary>Valid 32-char hex operation id for idempotency replay tests. Same value as <c language="csharp">IntegrationMutationOpIds.Default</c> but a separate constant for clarity.</summary>
     private const string ReplayOperationId = "0123456789abcdef0123456789abcdef";
 
     private readonly Uri _uri;
@@ -33,7 +33,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
     }
 
     /// <summary>
-    /// Verifies mutating RPCs without <c>operation_id</c> are rejected at the adapter.
+    /// Verifies mutating RPCs without <c language="csharp">operation_id</c> are rejected at the adapter.
     /// </summary>
     [Fact]
     public async Task EmptyOperationIdReturnsInvalidArgument()

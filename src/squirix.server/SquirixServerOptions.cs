@@ -30,7 +30,7 @@ public sealed class SquirixServerOptions
 
     /// <summary>
     /// Gets or sets the replica factor including the original owner.
-    /// Default is <c>1</c>. Values greater than one are planning-only until replication activation.
+    /// Default is <c language="csharp">1</c>. Values greater than one are planning-only until replication activation.
     /// </summary>
     public int ReplicaCount { get; set; } = 1;
 

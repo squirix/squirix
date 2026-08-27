@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Utils;
 public sealed class FilePathValidatorTests : IsolatedStorageTestBase
 {
     /// <summary>Rejects parent-directory segments in operator paths.</summary>
-    /// <param name="path">Path containing <c>.</c> or <c>..</c> segments.</param>
+    /// <param name="path">Path containing <c language="csharp">.</c> or <c language="csharp">..</c> segments.</param>
     [Theory]
     [InlineData("..")]
     [InlineData("../Squirix.settings.json")]

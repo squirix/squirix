@@ -4,7 +4,7 @@ using JetBrains.Annotations;
 namespace Squirix;
 
 /// <summary>
-/// Thrown when a mutating cache RPC is missing a required <c>operation_id</c>.
+/// Thrown when a mutating cache RPC is missing a required <c language="csharp">operation_id</c>.
 /// </summary>
 [PublicAPI]
 public sealed class OperationIdRequiredException : Exception

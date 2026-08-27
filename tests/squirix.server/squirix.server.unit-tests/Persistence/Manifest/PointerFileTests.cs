@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
-/// <summary>Coverage for shared <c>man-current</c> pointer reads used after abrupt shutdown.</summary>
+/// <summary>Coverage for shared <c language="csharp">man-current</c> pointer reads used after abrupt shutdown.</summary>
 [Immutable]
 public sealed class PointerFileTests : IsolatedStorageTestBase
 {
@@ -29,8 +29,8 @@ public sealed class PointerFileTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// The post-abrupt-shutdown lease wait must cover the <c>man-current.next</c> staging file, not only
-    /// <c>man-current</c>: a draining writer handle on the staging file is what blocks offline compact and
+    /// The post-abrupt-shutdown lease wait must cover the <c language="csharp">man-current.next</c> staging file, not only
+    /// <c language="csharp">man-current</c>: a draining writer handle on the staging file is what blocks offline compact and
     /// recovery on Windows after a force-kill style shutdown (issue #396).
     /// </summary>
     [Fact]

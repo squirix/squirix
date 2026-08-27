@@ -5,10 +5,10 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Durable writer for the fixed-size SQMC <c>man-current</c> pointer.</summary>
+/// <summary>Durable writer for the fixed-size SQMC <c language="csharp">man-current</c> pointer.</summary>
 /// <remarks>
-/// Each write is staged to a fixed temporary file (<c>man-current.next</c>) in the same directory and then
-/// atomically replaced into <c>man-current</c>. A concurrent reader can therefore only ever observe a fully
+/// Each write is staged to a fixed temporary file (<c language="csharp">man-current.next</c>) in the same directory and then
+/// atomically replaced into <c language="csharp">man-current</c>. A concurrent reader can therefore only ever observe a fully
 /// written, valid pointer (or the previous valid one) — never a torn or zeroed file left mid-update. The stage
 /// file is opened with <see cref="FileMode.Create" />, so a leftover from a previous failed write is safely
 /// overwritten; <see cref="Write" /> is only ever called serially by the manifest roll worker.

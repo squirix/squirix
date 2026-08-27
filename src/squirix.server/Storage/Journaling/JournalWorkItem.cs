@@ -35,7 +35,7 @@ internal sealed record JournalWorkItem
     internal ulong ResetSequence { get; }
 
     /// <summary>Creates an append item whose frame is staged into the write batch by the journal thread.</summary>
-    /// <param name="frameBytes">Encoded frame buffer rented from <c>ArrayPool&lt;byte&gt;</c>.</param>
+    /// <param name="frameBytes">Encoded frame buffer rented from <c language="csharp">ArrayPool&lt;byte&gt;</c>.</param>
     /// <param name="frameLength">Exact length of the framed payload inside <paramref name="frameBytes" />.</param>
     /// <param name="ack">Optional ack resolving group-commit append completion.</param>
     /// <returns>A new append work item for the journal ring.</returns>
@@ -43,7 +43,7 @@ internal sealed record JournalWorkItem
 
     /// <summary>Creates an append item whose ack resolves after the frame is written and fsynced.</summary>
     /// <param name="ack">Ack resolved once this item's frame reaches the segment file. Required.</param>
-    /// <param name="frameBytes">Encoded frame buffer rented from <c>ArrayPool&lt;byte&gt;</c>.</param>
+    /// <param name="frameBytes">Encoded frame buffer rented from <c language="csharp">ArrayPool&lt;byte&gt;</c>.</param>
     /// <param name="frameLength">Exact length of the framed payload inside <paramref name="frameBytes" />.</param>
     /// <returns>A new durable append work item for the journal ring.</returns>
     internal static JournalWorkItem AppendWithDurability(DurabilityAck ack, byte[] frameBytes, int frameLength)

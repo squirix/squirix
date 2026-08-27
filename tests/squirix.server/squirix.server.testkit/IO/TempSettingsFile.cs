@@ -28,7 +28,7 @@ public sealed class TempSettingsFile : IDisposable
     }
 
     /// <summary>Writes JSON to a unique temp settings file under the system temp directory.</summary>
-    /// <param name="prefix">Filename prefix (for example <c>squirix-mp-</c>).</param>
+    /// <param name="prefix">Filename prefix (for example <c language="csharp">squirix-mp-</c>).</param>
     /// <param name="json">Settings JSON payload.</param>
     /// <param name="cancellationToken">Cancellation token for the write.</param>
     /// <returns>A disposable handle to the temp file path.</returns>

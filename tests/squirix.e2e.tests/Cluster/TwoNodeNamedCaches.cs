@@ -27,22 +27,22 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets the node A <c>orders</c> cache facade.
+    /// Gets the node A <c language="csharp">orders</c> cache facade.
     /// </summary>
     public ICache<T> CacheA { get; }
 
     /// <summary>
-    /// Gets the node B <c>orders</c> cache facade.
+    /// Gets the node B <c language="csharp">orders</c> cache facade.
     /// </summary>
     public ICache<T> CacheB { get; }
 
     /// <summary>
-    /// Gets the node A <c>customers</c> cache facade.
+    /// Gets the node A <c language="csharp">customers</c> cache facade.
     /// </summary>
     public ICache<T> CustomerCacheA { get; }
 
     /// <summary>
-    /// Gets the node B <c>customers</c> cache facade.
+    /// Gets the node B <c language="csharp">customers</c> cache facade.
     /// </summary>
     public ICache<T> CustomerCacheB { get; }
 

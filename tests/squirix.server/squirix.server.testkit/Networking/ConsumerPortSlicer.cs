@@ -7,7 +7,7 @@ namespace Squirix.Server.TestKit.Networking;
 /// <summary>Assigns each test process an exclusive slice of shared host-port regions.</summary>
 /// <remarks>
 ///     <para>
-///     Test assemblies run in separate processes when <c>parallelizeAssembly</c> is enabled.
+///     Test assemblies run in separate processes when <c language="csharp">parallelizeAssembly</c> is enabled.
 ///     <see cref="PortAllocator" /> only coordinates allocations within a single process, so
 ///     separate processes could otherwise select the same port from shared regions.
 ///     </para>

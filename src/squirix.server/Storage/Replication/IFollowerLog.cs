@@ -51,7 +51,7 @@ internal interface IFollowerLog : IAsyncDisposable
     Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns the committed entries in the exclusive <c>LastAppliedIndex</c> to inclusive <c>CommitIndex</c>
+    /// Returns the committed entries in the exclusive <c language="csharp">LastAppliedIndex</c> to inclusive <c language="csharp">CommitIndex</c>
     /// range, rather than the full committed prefix, because applied payloads are released from memory.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

@@ -2,7 +2,7 @@ namespace Squirix.Server.Errors;
 
 /// <summary>
 /// Stable contract classification for cache-operation transport faults that must stay aligned across
-/// gRPC adapters, remote cluster helpers, health/metrics HTTP mappings, and <c>DomainTransportErrorMapper</c>.
+/// gRPC adapters, remote cluster helpers, health/metrics HTTP mappings, and <c language="csharp">DomainTransportErrorMapper</c>.
 /// </summary>
 internal enum ServerFailedPreconditionKind
 {

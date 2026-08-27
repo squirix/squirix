@@ -9,7 +9,7 @@ namespace Squirix.Server.SmokeTests;
 public sealed class ServerMetricsSmokeTests : SmokeTestBase
 {
     /// <summary>
-    /// Verifies that the server host exposes <c>/metrics</c> and that basic cache operations appear in the scrape output.
+    /// Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.
     /// </summary>
     [Fact]
     public async Task MetricsExposeCountersAfterOperations()

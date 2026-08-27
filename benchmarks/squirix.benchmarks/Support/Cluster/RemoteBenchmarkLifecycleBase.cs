@@ -46,7 +46,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>
-    /// Starts the in-process benchmark node. Safe to call from workload methods before class <c>[GlobalSetup]</c> runs.
+    /// Starts the in-process benchmark node. Safe to call from workload methods before class <c language="csharp">[GlobalSetup]</c> runs.
     /// </summary>
     /// <returns>A task that completes after the node is started.</returns>
     protected async Task StartNodeAsync()
@@ -67,7 +67,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>
-    /// Stops the in-process benchmark node. Call from each benchmark class <c>[GlobalCleanup]</c>.
+    /// Stops the in-process benchmark node. Call from each benchmark class <c language="csharp">[GlobalCleanup]</c>.
     /// </summary>
     /// <returns>A task that completes after the node is stopped.</returns>
     protected async Task StopNodeAsync()

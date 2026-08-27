@@ -366,7 +366,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
             /// <summary>
             /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
-            /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
+            /// distinct from CAS <c language="csharp">Version mismatch</c> and routing <c language="csharp">StaleOwner</c> texts.
             /// </summary>
             /// <param name="detail">The gRPC status detail string.</param>
             /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter-increment type mismatch.</returns>
@@ -398,7 +398,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             /// <summary>
             /// Stable contract classification for cache-operation transport faults that must stay aligned across
-            /// gRPC adapters, remote cluster helpers, and <c>DomainTransportErrorMapper</c>.
+            /// gRPC adapters, remote cluster helpers, and <c language="csharp">DomainTransportErrorMapper</c>.
             /// </summary>
             private enum CacheOperationFailedPreconditionKind
             {

@@ -25,7 +25,7 @@ public sealed class SquirixClientOptions
     ///     <para>
     ///     Connect succeeds when at least one endpoint is reachable (in list order).
     ///     After connect, single-RPC operations fail over to the next bootstrap endpoint on transport-level errors
-    ///     (for example gRPC <c>Unavailable</c>).
+    ///     (for example gRPC <c language="csharp">Unavailable</c>).
     ///     </para>
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
@@ -41,7 +41,7 @@ public sealed class SquirixClientOptions
     ///     process-wide serializer state.
     ///     </para>
     ///     <para>
-    ///     This property uses a <c>set</c> accessor (not <c>init</c>) because
+    ///     This property uses a <c language="csharp">set</c> accessor (not <c language="csharp">init</c>) because
     ///     <see cref="SquirixClient.ConnectAsync(Action{SquirixClientOptions}, CancellationToken)" /> constructs options first,
     ///     then invokes a configure delegate that assigns members after construction.
     ///     </para>

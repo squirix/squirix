@@ -9,7 +9,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Source-scan helpers for <c>Squirix.Server</c> type placement architecture rules.</summary>
+/// <summary>Source-scan helpers for <c language="csharp">Squirix.Server</c> type placement architecture rules.</summary>
 internal static class ServerTypeCatalog
 {
     private static readonly FrozenSet<string> DeclarationModifiers = FrozenSet.ToFrozenSet(
@@ -81,11 +81,11 @@ internal static class ServerTypeCatalog
     }
 
     /// <summary>
-    /// Collects declared types under <c>src/squirix.server</c> whose simple name ends with <paramref name="suffix" />.
+    /// Collects declared types under <c language="csharp">src/squirix.server</c> whose simple name ends with <paramref name="suffix" />.
     /// </summary>
     /// <param name="suffix">Required simple-name suffix.</param>
     /// <param name="includeInterfaces">When <see langword="false" />, interface declarations are omitted.</param>
-    /// <param name="excludeFullNames">Exact <c>namespace.type</c> names to skip.</param>
+    /// <param name="excludeFullNames">Exact <c language="csharp">namespace.type</c> names to skip.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Matching type descriptors.</returns>
     internal static async Task<List<DeclaredType>> TypesWithNameEndingWithAsync(

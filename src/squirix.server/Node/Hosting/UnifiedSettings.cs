@@ -19,13 +19,13 @@ namespace Squirix.Server.Node.Hosting;
 internal static class UnifiedSettings
 {
     /// <summary>
-    /// Merges the <c>Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
+    /// Merges the <c language="csharp">Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
     /// </summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>Snapshot</c> object,
-    /// and <c>Merged</c> is the merged result.
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">Snapshot</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
     internal static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromFileAsync(TriggerOptions baseline, CancellationToken cancellationToken = default)
     {
@@ -34,7 +34,7 @@ internal static class UnifiedSettings
     }
 
     /// <summary>
-    /// Validates optional <c>MemoryPressure</c>, <c>Snapshot</c>, and <c>PrometheusMetrics</c> sections when present.
+    /// Validates optional <c language="csharp">MemoryPressure</c>, <c language="csharp">Snapshot</c>, and <c language="csharp">PrometheusMetrics</c> sections when present.
     /// </summary>
     /// <param name="settingsFilePath">Settings JSON path.</param>
     /// <param name="failures">Collected validation failures.</param>

@@ -11,12 +11,12 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 ///     <para>On-disk layout is little-endian throughout.</para>
 ///     <para>
-///     Metadata file: <c>magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
+///     Metadata file: <c language="csharp">magic(4) | version(1) | payload | crc32c(payload)(4)</c> where payload carries the
 ///     fixed-width term/commit fields followed by length-prefixed UTF-8 strings and the topology fingerprint.
 ///     </para>
 ///     <para>
-///     Log frame: <c>bodyLength(4) | body | crc32c(body)(4)</c> where body carries
-///     <c>logIndex(8) | term(8) | payloadLength(4) | payload</c>. Frames are append-only; a torn tail frame is
+///     Log frame: <c language="csharp">bodyLength(4) | body | crc32c(body)(4)</c> where body carries
+///     <c language="csharp">logIndex(8) | term(8) | payloadLength(4) | payload</c>. Frames are append-only; a torn tail frame is
 ///     detected by truncation or CRC mismatch.
 ///     </para>
 /// </remarks>
@@ -26,7 +26,7 @@ internal static class GroupLogCodec
 
     private const int FrameHeaderByteCount = 4 + 1;
 
-    /// <summary>Log frame magic bytes, <c>"SQRL"</c>.</summary>
+    /// <summary>Log frame magic bytes, <c language="csharp">"SQRL"</c>.</summary>
     private const uint FrameMagic = 0x4C525153u;
 
     /// <summary>Log format version.</summary>
@@ -35,7 +35,7 @@ internal static class GroupLogCodec
     /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
     private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
 
-    /// <summary>Metadata file magic bytes, <c>"SQRM"</c>.</summary>
+    /// <summary>Metadata file magic bytes, <c language="csharp">"SQRM"</c>.</summary>
     private const uint MetaMagic = 0x4D525153u;
 
     /// <summary>Metadata format version.</summary>

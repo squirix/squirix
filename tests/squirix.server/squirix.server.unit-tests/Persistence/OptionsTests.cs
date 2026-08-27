@@ -9,7 +9,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>
 /// Unit tests for <see cref="PersistenceOptions" /> verifying default values,
-/// record equality semantics, and behavior of <c>with</c>-expressions.
+/// record equality semantics, and behavior of <c language="csharp">with</c>-expressions.
 /// </summary>
 [Immutable]
 public sealed class OptionsTests
@@ -97,7 +97,7 @@ public sealed class OptionsTests
     }
 
     /// <summary>
-    /// Checks that using a <c>with</c>-expression overrides only the specified properties
+    /// Checks that using a <c language="csharp">with</c>-expression overrides only the specified properties
     /// while leaving all other properties unchanged from the source instance.
     /// </summary>
     [Fact]

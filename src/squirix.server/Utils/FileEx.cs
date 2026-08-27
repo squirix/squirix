@@ -107,9 +107,9 @@ internal static partial class FileEx
         }
     }
 
-    /// <summary>Returns the platform-specific <c>O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
+    /// <summary>Returns the platform-specific <c language="csharp">O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
     /// <remarks>
-    /// Unknown Unix platforms return <c>0</c> (no close-on-exec), preserving the previous behavior rather than
+    /// Unknown Unix platforms return <c language="csharp">0</c> (no close-on-exec), preserving the previous behavior rather than
     /// risking an invalid flag. This path only runs on Unix; <see cref="FlushDirectoryEntry" /> no-ops on Windows.
     /// </remarks>
     private static int CloseOnExecFlag()
@@ -165,7 +165,7 @@ internal static partial class FileEx
     }
 
     /// <summary>Platforms invoke methods for unmanaged file-system calls used by <see cref="FileEx" />.</summary>
-    /// <remarks>Declared as a dedicated <c>NativeMethods</c> class per NDepend ND2401.</remarks>
+    /// <remarks>Declared as a dedicated <c language="csharp">NativeMethods</c> class per NDepend ND2401.</remarks>
     private static partial class NativeMethods
     {
         [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]

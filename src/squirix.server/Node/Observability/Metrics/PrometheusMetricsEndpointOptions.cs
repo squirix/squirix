@@ -7,7 +7,7 @@ internal sealed class PrometheusMetricsEndpointOptions
     internal bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets the request path for metrics scraping. Defaults to <c>/metrics</c>.
+    /// Gets or sets the request path for metrics scraping. Defaults to <c language="csharp">/metrics</c>.
     /// </summary>
     internal string Path { get; set; } = "/metrics";
 }

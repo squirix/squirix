@@ -119,7 +119,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
     }
 
     /// <summary>
-    /// Named stress workloads. Operation counts scale with <c>SQUIRIX_STRESS_SCALE</c> so the repeat runner can dial
+    /// Named stress workloads. Operation counts scale with <c language="csharp">SQUIRIX_STRESS_SCALE</c> so the repeat runner can dial
     /// intensity without recompiling; DEBUG builds default to a low scale to keep local runs fast.
     /// </summary>
     private static class LoadProfiles

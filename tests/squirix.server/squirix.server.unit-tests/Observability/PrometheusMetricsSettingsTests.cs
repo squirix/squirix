@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Verifies System.Text.Json binds private <c>path</c>/<c>enabled</c> properties
+    /// Verifies System.Text.Json binds private <c language="csharp">path</c>/<c language="csharp">enabled</c> properties
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]

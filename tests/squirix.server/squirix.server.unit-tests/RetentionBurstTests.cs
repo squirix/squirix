@@ -18,7 +18,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
     /// <summary>
     /// A cold disk read overlapping a publishing burst must not rewind the cached current state (or the roll
     /// baseline) with an older manifest it loaded from disk. The seeder writes a large manifest at index 5 so the
-    /// cold <c>ReadCurrentOrDefaultAsync</c> genuinely awaits the file read and yields to the publishing burst, which
+    /// cold <c language="csharp">ReadCurrentOrDefaultAsync</c> genuinely awaits the file read and yields to the publishing burst, which
     /// installs index 20 before the resolved stale bytes would be installed into the cache. The assertion targets the
     /// final cached/allocator state (not the overlapping read's captured result, which is timing dependent): without
     /// the fix the load would overwrite the newer cached state with index 5 and rewind the allocator.
