@@ -28,7 +28,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
+        var only = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "only", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, only);
         var state = new State
         {
@@ -53,13 +53,13 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var obsoletePath = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
+        var stale = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "stale", "x");
         BinaryJournalTestSegmentWriter.WriteSegment(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
-        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
+        var live = BinaryJournalTestSegmentWriter.BuildPutRecord(10UL, "live", "y");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, live);
         var manifest = new State
         {
@@ -118,7 +118,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
+        var envelope = BinaryJournalTestSegmentWriter.BuildPutRecord(20UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 5, envelope);
         var manifest = new State
         {
@@ -143,9 +143,9 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
-        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
-        var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
+        var old = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "old", "a");
+        var live = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "live", "b");
+        var live2 = BinaryJournalTestSegmentWriter.BuildPutRecord(6UL, "live2", "c");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, old);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 3, [live, live2]);
         var manifest = new State
@@ -171,9 +171,9 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
 
-        var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
-        var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
-        var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
+        var s1 = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "s1", "a");
+        var s2 = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "s2", "b");
+        var s2B = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "s2b", "c");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, s1);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, [s2, s2B]);
         var manifest = new State
@@ -204,7 +204,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
-        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
+        var envelope = BinaryJournalTestSegmentWriter.BuildPutRecord(51UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, envelope);
         var manifest = new State
         {
@@ -236,8 +236,8 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence);
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
-        var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
-        var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
+        var a = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "a", "x");
+        var b = BinaryJournalTestSegmentWriter.BuildPutRecord(6UL, "b", "y");
         BinaryJournalTestSegmentWriter.WriteSegment(path, [a, b]);
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);

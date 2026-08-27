@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -15,10 +14,36 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
+    internal static JournalRecord BuildBrokenPutRecord(ulong seq, string key)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = new byte[] { 1, 2, 3 },
+        };
+    }
+
+    internal static JournalRecord BuildIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs, ulong seq)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = unixMs,
+            Operation = JournalOperationKind.IdempotencyOutcome,
+            Key = CacheKey.Default(operationId),
+            IdempotencyOperationId = operationId,
+            IdempotencyFingerprint = fingerprint,
+            IdempotencyResponseBytes = responseBytes,
+        };
+    }
+
+    internal static JournalRecord BuildPutRecord(ulong seq, string key, string value)
     {
         var body = JournalEntryPayloadKit.EncodePut(value);
-        var record = new JournalRecord
+        return new JournalRecord
         {
             Sequence = seq,
             UnixMs = 1,
@@ -26,7 +51,53 @@ internal static class BinaryJournalTestSegmentWriter
             Key = CacheKey.Default(key),
             PutEntryBytes = body,
         };
-        return Task.FromResult(record);
+    }
+
+    internal static JournalRecord BuildPutRecord(ulong seq, string key, NodeCacheEntry<object?> entry)
+    {
+        var body = JournalEntryPayloadKit.Encode(entry);
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = body,
+        };
+    }
+
+    internal static JournalRecord BuildRemoveExpirationRecord(ulong seq, string key)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.RemoveExpiration,
+            Key = CacheKey.Default(key),
+        };
+    }
+
+    internal static JournalRecord BuildRemoveRecord(ulong seq, string key)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Remove,
+            Key = CacheKey.Default(key),
+        };
+    }
+
+    internal static JournalRecord BuildTouchExpirationRecord(ulong seq, string key, DateTime expiresUtc)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.TouchExpiration,
+            Key = CacheKey.Default(key),
+            TouchExpirationUtc = expiresUtc,
+        };
     }
 
     internal static void WriteJournalSegment(string dir, int index, JournalRecord record)

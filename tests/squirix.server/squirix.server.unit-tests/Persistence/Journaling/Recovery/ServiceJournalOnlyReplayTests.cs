@@ -21,9 +21,9 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
     public async Task RecoveryReplaysClosedCurrentJournal()
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
-        var seg1A = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "seg1-a", "a");
-        var seg1B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "seg1-b", "b");
-        var seg2C = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "seg2-c", "c");
+        var seg1A = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "seg1-a", "a");
+        var seg1B = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "seg1-b", "b");
+        var seg2C = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "seg2-c", "c");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [seg1A, seg1B]);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, seg2C);
         await scenario.Ledger.WriteAsync(

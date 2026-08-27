@@ -64,7 +64,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
-    public ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
@@ -92,13 +92,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!TryGetLive(key, out var stored) || stored.ExpiresUtc == null)
             return ValueTask.FromResult(false);
 
-        _store[key] = stored with { ExpiresUtc = null };
-        return ValueTask.FromResult(true);
+        var updated = stored with { ExpiresUtc = null };
+        return ValueTask.FromResult(_store.TryUpdate(key, updated, stored));
     }
 
-    public ValueTask<bool> RemoveExpirationForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) => RemoveExpirationAsync(key, cancellationToken);
+    public ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken) => RemoveExpirationAsync(key, cancellationToken);
 
-    public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) =>
+    public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken) =>
         (await RemoveAsync(key, cancellationToken).ConfigureAwait(false)).Removed;
 
     public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
@@ -118,18 +118,24 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(false);
 
         var expires = UtcNow.Add(expiration);
-        _store[key] = stored with { ExpiresUtc = expires };
+        var updated = stored with { ExpiresUtc = expires };
+        if (!_store.TryUpdate(key, updated, stored))
+            return ValueTask.FromResult(false);
+
         _evictionIndex.TouchExisting(key);
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask<bool> TouchExpirationForDurableRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
+    public ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!TryGetLive(key, out var stored))
             return ValueTask.FromResult(false);
 
-        _store[key] = stored with { ExpiresUtc = DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc) };
+        var updated = stored with { ExpiresUtc = DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc) };
+        if (!_store.TryUpdate(key, updated, stored))
+            return ValueTask.FromResult(false);
+
         _evictionIndex.TouchExisting(key);
         return ValueTask.FromResult(true);
     }
