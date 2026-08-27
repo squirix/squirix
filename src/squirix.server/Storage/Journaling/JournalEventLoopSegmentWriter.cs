@@ -232,12 +232,7 @@ internal sealed class JournalEventLoopSegmentWriter
             FailAppendWorkItem(item, ex);
             return;
         }
-        catch (IOException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-        catch (ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             ReleaseQueuedAppendResources(item);
             throw;
@@ -265,12 +260,7 @@ internal sealed class JournalEventLoopSegmentWriter
             FailAppendWorkItem(item, ex);
             return;
         }
-        catch (IOException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-        catch (ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             ReleaseQueuedAppendResources(item);
             throw;
@@ -316,12 +306,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(frameBytes.AsSpan(0, item.FrameLength), offset);
         }
-        catch (IOException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-        catch (ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -338,12 +323,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(span, offset);
         }
-        catch (IOException)
-        {
-            TruncateActiveSegmentAfterFailedFrame(offset);
-            throw;
-        }
-        catch (ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;

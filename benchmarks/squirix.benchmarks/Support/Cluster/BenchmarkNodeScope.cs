@@ -76,13 +76,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
             return new BenchmarkNodeScope(host, host.Uri, dataDir);
         }
-        catch (InvalidOperationException)
-        {
-            await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
-            throw;
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
             dataDir?.Dispose();

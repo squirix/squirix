@@ -224,11 +224,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
 
             return false;
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (Win32Exception)
+        catch (Exception ex) when (ex is IOException or Win32Exception)
         {
             return false;
         }

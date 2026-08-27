@@ -208,13 +208,9 @@ public sealed class CallPolicyTests
             {
                 _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
             }
-            catch (RpcException)
+            catch (Exception ex) when (ex is RpcException or OperationCanceledException)
             {
-                return; // Drain rejection - legitimate outcome.
-            }
-            catch (OperationCanceledException)
-            {
-                return; // Shutdown cancellation - legitimate outcome.
+                return; // Drain rejection or shutdown cancellation - legitimate outcome.
             }
             catch (ObjectDisposedException disposed)
             {

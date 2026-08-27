@@ -43,12 +43,7 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
             var cache = await clientLease.Client.GetCacheAsync<object?>(cacheName, cancellationToken).ConfigureAwait(false);
             return new BenchmarkCacheSession(clientLease, cache);
         }
-        catch (InvalidOperationException)
-        {
-            await clientLease.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await clientLease.DisposeAsync().ConfigureAwait(false);
             throw;

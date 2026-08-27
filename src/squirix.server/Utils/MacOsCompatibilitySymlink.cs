@@ -122,15 +122,7 @@ internal static class MacOsCompatibilitySymlink
             // returnFinalTarget: true — multi-hop links cannot bypass the /private/{name} check.
             target = directory.ResolveLinkTarget(true);
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-        catch (NotSupportedException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             return false;
         }
