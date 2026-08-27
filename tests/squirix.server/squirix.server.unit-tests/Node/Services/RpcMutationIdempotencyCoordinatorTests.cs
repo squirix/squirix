@@ -296,6 +296,8 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
             Func<TState, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => default;
 
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
 
         internal void ReleaseStartupGate() => _gate.Set();

@@ -134,8 +134,24 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(responseBytes);
 
-        var record = _appendPipeline.AllocateIdempotencyRecord(operationId, fingerprint, responseBytes);
-        return _appendPipeline.AppendRecordCoreAsync(record, cancellationToken);
+        return ExecuteUnderSnapshotBarrierAsync(
+            (Journal: this, Pipeline: _appendPipeline, OperationId: operationId, Fingerprint: fingerprint, ResponseBytes: responseBytes),
+            static async (state, ct) =>
+            {
+                // Entered after the mutation gate is held, mirroring DurableMutationExecutor: lets snapshot-cut
+                // quiesce idempotency outcomes alongside cache mutations without risking a gate deadlock.
+                state.Journal.InFlightApplyGate.Enter();
+                try
+                {
+                    var record = state.Pipeline.AllocateIdempotencyRecord(state.OperationId, state.Fingerprint, state.ResponseBytes);
+                    await state.Pipeline.AppendRecordCoreAsync(record, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    state.Journal.InFlightApplyGate.Exit();
+                }
+            },
+            cancellationToken);
     }
 
     public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
@@ -252,6 +268,35 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         try
         {
             return await action(state, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            gateGuard.Dispose();
+        }
+    }
+
+    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+        TState state,
+        Func<TState, CancellationToken, ValueTask> action,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        DurabilityPipeline.ThrowIfJournalThreadFailed();
+
+        AsyncLockHolder gateGuard;
+        try
+        {
+            await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("journal coordinator is disposed.", ex);
+        }
+
+        try
+        {
+            await action(state, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
