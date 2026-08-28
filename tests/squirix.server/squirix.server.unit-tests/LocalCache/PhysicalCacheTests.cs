@@ -28,6 +28,17 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await st.Cache.RemoveAsync(st.Key, st.Ct);
     };
 
+    private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
+    {
+        var st = s as RaceState ?? throw new InvalidOperationException();
+        for (var i = 0; i < 10000; i++)
+        {
+            await st.Cache.SetAsync(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);
+            if (await st.Cache.UpdateAsync(st.Key, "v", st.Ct) && (await st.Cache.GetEntryAsync(st.Key, st.Ct)) == null)
+                st.FalsePositives++;
+        }
+    };
+
     private static readonly Func<object?, Task> TouchOp = static async s =>
     {
         var st = s as RaceState ?? throw new InvalidOperationException();
@@ -267,6 +278,30 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         Assert.Null(await cache.GetEntryAsync(key, DefaultCancellationToken));
     }
 
+    /// <summary>UpdateAsync must not report success on a key that is concurrently reclaimed.</summary>
+    [Fact]
+    [Trait(StressTrait.TraitName, StressTrait.TraitValue)]
+    public async Task UpdateNoFalseSuccessWhenReclaimed()
+    {
+        var cache = new PhysicalCache<string>();
+        var key = new CacheKey("ns", "race438");
+        var st = new RaceState(cache, key, DefaultCancellationToken);
+
+        // Seed the key before either concurrent task starts so the reclaimer races against a present
+        // entry from the first iteration instead of finishing before the updater writes the key.
+        await cache.SetAsync(key, new NodeCacheEntry<string> { Value = "v" }, DefaultCancellationToken);
+
+        var updater = Task.Factory.StartNew(UpdateRaceOp, st, DefaultCancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var reclaimer = Task.Factory.StartNew(RemoveOp, st, DefaultCancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+
+        await Task.WhenAll(updater, reclaimer);
+
+        // A correct implementation reports success only when the entry is genuinely present at the CAS, so
+        // false positives stay at ~0; the small tolerance absorbs the rare legitimate post-update reclaim
+        // window on the fixed code path (the buggy equals fast-path yields dozens-to-hundreds).
+        Assert.True(st.FalsePositives <= 3, $"UpdateAsync reported success on a concurrently reclaimed key {st.FalsePositives} time(s).");
+    }
+
     private static void AssertTagsEqual(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
     {
         Assert.NotNull(actual);
@@ -313,5 +348,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         public CancellationToken Ct { get; }
 
         public CacheKey Key { get; }
+
+        public int FalsePositives { get; set; }
     }
 }

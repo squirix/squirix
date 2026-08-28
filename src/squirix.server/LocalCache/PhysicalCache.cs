@@ -179,12 +179,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (TryRemoveExpired(updateKey, stored, out var removedAndRetry))
                 return !removedAndRetry;
 
-            if (EqualityComparer<T?>.Default.Equals(stored.Value, updateValue))
-            {
-                completed = true;
-                return true;
-            }
-
+            // TryReplaceValue performs a CAS that confirms the entry is still present; a concurrent
+            // expiry reclaim or capacity eviction makes it fail so we retry instead of reporting a
+            // successful update on an absent key (issue #438). The eviction index is touched only
+            // after the CAS succeeds.
             if (!TryReplaceValue(updateKey, stored, updateValue))
                 return false;
 
