@@ -85,7 +85,7 @@ internal static class ServerHostingComposition
     }
 
     /// <summary>
-    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Registers cluster locator, internode transport, and replication planning services.
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
     /// <param name="services">DI service collection.</param>
@@ -131,11 +131,11 @@ internal static class ServerHostingComposition
         AddSquirixClusterStack(builder.Services, cluster, args);
         if (persistenceEnabled)
         {
-            _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+            _ = builder.Services.AddPersistenceServices(persistence!, args.WaitForRecovery);
 
             // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
             // materialized; group membership is derived in a later milestone. Registered only when persistence is
-            // enabled because the factory resolves PersistenceOptions, which is not registered otherwise.
+            // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
             // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
             // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
             // together with group-membership derivation (see the durable ordered follower log specification, M8-05).

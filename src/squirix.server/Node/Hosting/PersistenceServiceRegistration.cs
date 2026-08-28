@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,18 +26,14 @@ internal static class PersistenceServiceRegistration
 {
     private static readonly string[] ReadyHealthCheckTags = ["ready"];
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "PersistenceRuntime lifetime is transferred to the DI container.")]
-    internal static async Task<IServiceCollection> AddPersistenceServicesAsync(
-        this IServiceCollection services,
-        PersistenceOptions persistence,
-        bool waitForRecovery,
-        CancellationToken cancellationToken = default)
+    internal static IServiceCollection AddPersistenceServices(this IServiceCollection services, PersistenceOptions options, bool wait)
     {
-        ArgumentNullException.ThrowIfNull(persistence);
-
-        RegisterPersistenceRuntime(services, await PersistenceRuntime.CreateAsync(persistence, cancellationToken).ConfigureAwait(false));
-        RegisterPersistenceHostedServices(services, waitForRecovery);
-
+        ArgumentNullException.ThrowIfNull(options);
+        _ = services.AddSingleton<Lazy<IJournalCoordinator>>(static sp => new Lazy<IJournalCoordinator>(() => sp.GetRequiredService<IJournalCoordinator>()));
+        _ = services.AddSingleton<Lazy<IExclusiveMaintenanceExecutor>>(static sp => new Lazy<IExclusiveMaintenanceExecutor>(() => sp.GetRequiredService<IExclusiveMaintenanceExecutor>()));
+        _ = services.AddSingleton<Lazy<Coordinator>>(static sp => new Lazy<Coordinator>(() => sp.GetRequiredService<Coordinator>()));
+        RegisterPersistenceRuntime(services, new PersistenceRuntime(options));
+        RegisterPersistenceHostedServices(services, wait);
         return services;
     }
 
@@ -63,8 +58,8 @@ internal static class PersistenceServiceRegistration
             sp.GetRequiredService<ILogger<JournalCompactionService<object?>>>(),
             sp.GetRequiredService<IOptions<JournalCompactionOptions>>(),
             new JournalCompactionDependencies(
-                sp.GetRequiredService<Coordinator>(),
-                sp.GetRequiredService<IExclusiveMaintenanceExecutor>(),
+                sp.GetRequiredService<Lazy<Coordinator>>(),
+                sp.GetRequiredService<Lazy<IExclusiveMaintenanceExecutor>>(),
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ISnapshotReader>(),
                 sp.GetRequiredService<PersistenceOptions>(),
@@ -75,13 +70,14 @@ internal static class PersistenceServiceRegistration
             sp.GetRequiredService<PersistenceOptions>(),
             sp.GetRequiredService<Ledger>(),
             sp.GetRequiredService<ISnapshotReader>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<Lazy<IJournalCoordinator>>(),
             sp.GetRequiredService<ILogger<JournalCompactionController>>()));
         _ = services.AddHostedService<JournalMetricsExporterService>();
     }
 
     private static void RegisterPersistenceRuntime(IServiceCollection services, PersistenceRuntime runtime)
     {
+        _ = services.AddHostedService<PersistenceRuntime>(static sp => sp.GetRequiredService<PersistenceRuntime>());
         _ = services.AddSingleton(runtime);
         _ = services.AddSingleton(runtime.Retention);
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
@@ -94,7 +90,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
         _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
 
-        // Factories keep internal health-check constructors usable with MS.DI activation.
+        // Factories keep internal health check constructors usable with MS.DI activation.
         _ = services.AddHealthChecks()
                     .Add(
                          new HealthCheckRegistration(
@@ -139,12 +135,14 @@ internal static class PersistenceServiceRegistration
 
     /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
     [Mutable]
-    private sealed class PersistenceRuntime : IDisposable
+    private sealed class PersistenceRuntime : IHostedService
     {
+        private readonly PersistenceOptions _options;
         private int _disposed;
 
-        private PersistenceRuntime(PersistenceOptions persistence)
+        public PersistenceRuntime(PersistenceOptions persistence)
         {
+            _options = persistence;
             Retention = new RetentionCleanupReadiness(persistence);
             Ledger = new Ledger(persistence, retentionReadiness: Retention, failureMetrics: ManifestRetentionFailureMetrics.Instance);
             Gate = new AsyncManualResetEvent();
@@ -159,21 +157,18 @@ internal static class PersistenceServiceRegistration
 
         internal RetentionCleanupReadiness Retention { get; }
 
-        /// <inheritdoc />
-        public void Dispose()
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
-
-            Ledger.Dispose();
+            var manifest = await Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            JournalCoordinator.Initialize(_options, manifest, Ledger, Gate);
         }
 
-        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)
+        public Task StopAsync(CancellationToken cancellationToken)
         {
-            var runtime = new PersistenceRuntime(persistence);
-            var manifest = await runtime.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            runtime.JournalCoordinator.Initialize(persistence, manifest, runtime.Ledger, runtime.Gate);
-            return runtime;
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                Ledger.Dispose();
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -12,8 +12,8 @@ namespace Squirix.Server.Node.Services;
 internal sealed class JournalCompactionDependencies
 {
     internal JournalCompactionDependencies(
-        Coordinator snapshot,
-        IExclusiveMaintenanceExecutor journalMaintenance,
+        Lazy<Coordinator> snapshot,
+        Lazy<IExclusiveMaintenanceExecutor> journalMaintenance,
         Ledger manifest,
         ISnapshotReader snapshotReader,
         PersistenceOptions persistence,
@@ -31,13 +31,13 @@ internal sealed class JournalCompactionDependencies
 
     internal TopologyOptions Cluster { get; }
 
-    internal IExclusiveMaintenanceExecutor JournalMaintenance { get; }
+    internal Lazy<IExclusiveMaintenanceExecutor> JournalMaintenance { get; }
 
     internal Ledger Manifest { get; }
 
     internal PersistenceOptions Persistence { get; }
 
-    internal Coordinator Snapshot { get; }
+    internal Lazy<Coordinator> Snapshot { get; }
 
     internal ISnapshotReader SnapshotReader { get; }
 
