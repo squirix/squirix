@@ -15,6 +15,5 @@
 
   <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.Server.Host" />
   <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.ProtocolModel" />
-  <DisallowedAssembly From="Squirix.Benchmarks" To="Squirix.Analyzers" />
 
 </NsDepCopConfig>

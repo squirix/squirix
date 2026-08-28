@@ -16,7 +16,6 @@
   <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Server.Host" />
   <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Server.TestKit" />
   <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.ProtocolModel" />
-  <DisallowedAssembly From="ExternalPackageSmoke" To="Squirix.Analyzers" />
 
   <!-- Third-party consumers see the exported bootstrap facade (root Squirix.Server
        namespace) only; server implementation namespaces are out of scope. -->

@@ -16,6 +16,5 @@
   <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Server.Host" />
   <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Server.TestKit" />
   <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.ProtocolModel" />
-  <DisallowedAssembly From="Squirix.UnitTests" To="Squirix.Analyzers" />
 
 </NsDepCopConfig>

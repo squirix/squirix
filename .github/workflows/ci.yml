@@ -1149,7 +1149,7 @@ jobs:
                       "/d:sonar.token=${SONAR_TOKEN}"
                       "/d:sonar.host.url=https://sonarcloud.io"
                       "/d:sonar.qualitygate.wait=false"
-                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
+                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/src/squirix.protocol-model/Program.cs,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.cs.cobertura.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.cobertura.xml"
                     )
@@ -1165,7 +1165,6 @@ jobs:
                     fi
 
                     .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
-                    dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
                     dotnet build squirix.slnx --configuration Release --no-restore
                     .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
 
@@ -1246,8 +1245,7 @@ jobs:
                       src/squirix/Squirix.csproj \
                       src/squirix.server/Squirix.Server.csproj \
                       src/squirix.server.host/Squirix.Server.Host.csproj \
-                      src/squirix.protocol-model/Squirix.ProtocolModel.csproj \
-                      src/squirix.analyzers/Squirix.Analyzers.csproj; do
+                      src/squirix.protocol-model/Squirix.ProtocolModel.csproj; do
                       dotnet restore "$p"
                     done
 
@@ -1275,13 +1273,12 @@ jobs:
                       -t src/squirix.server/Squirix.Server.csproj \
                       -t src/squirix.server.host/Squirix.Server.Host.csproj \
                       -t src/squirix.protocol-model/Squirix.ProtocolModel.csproj \
-                      -t src/squirix.analyzers/Squirix.Analyzers.csproj \
                       -o pvs-studio-out/pvs-studio-report.json \
                       -c Release \
                       -C .pvsconfig \
                       -r \
                       --disableLicenseExpirationCheck \
-                      --selectProjects "Squirix;Squirix.Server;Squirix.Server.Host;Squirix.ProtocolModel;Squirix.Analyzers" \
+                      --selectProjects "Squirix;Squirix.Server;Squirix.Server.Host;Squirix.ProtocolModel" \
                       || exit_code=$?
 
                     echo "pvs-studio-dotnet exit_code=${exit_code}"
@@ -1459,9 +1456,6 @@ jobs:
 
             -   name: Restore
                 run: dotnet restore squirix.slnx
-
-            -   name: Build in-repo analyzers
-                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
 
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
@@ -1650,9 +1644,6 @@ jobs:
 
             -   name: Restore
                 run: dotnet restore squirix.slnx
-
-            -   name: Build in-repo analyzers
-                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
 
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
