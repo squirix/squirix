@@ -19,7 +19,7 @@ trim_trailing_whitespace = true # strip trailing whitespace
 # ===========================================================================
 csharp_new_line_before_open_brace = all # place open brace on its own line (Allman)
 csharp_place_expr_method_on_single_line = if_owner_is_single_line # keep expression-bodied method on one line only if owner fits
-csharp_prefer_braces = false # omit braces for single embedded statements (incl nested loops); keep for multi-statement bodies (SQR008). when_multiline/SA1519/RCS1001 would force braces
+csharp_prefer_braces = false # omit braces for single embedded statements (incl nested loops); keep for multi-statement bodies (SQR0008). when_multiline/SA1519/RCS1001 would force braces
 csharp_prefer_simple_using_statement = true:warning # prefer using declaration over using block
 csharp_prefer_static_local_function = true:error # prefer static local functions
 csharp_space_after_cast = false # no space after a cast
@@ -50,7 +50,7 @@ dotnet_diagnostic.CA1513.severity = warning # use ObjectDisposedException throw 
 dotnet_diagnostic.IDE0003.severity = warning # suppresses redundant this. qualification
 dotnet_diagnostic.IDE0005.severity = error # remove unused using directives (fails build via EnforceCodeStyleInBuild)
 dotnet_diagnostic.IDE0007.severity = warning # use implicit type (var) where applicable
-dotnet_diagnostic.IDE0011.severity = error # IDE0011 unreliable at omitting braces when csharp_prefer_braces=false; SQR010 is the build gate for single-line bodies
+dotnet_diagnostic.IDE0011.severity = error # IDE0011 unreliable at omitting braces when csharp_prefer_braces=false; SQR0010 is the build gate for single-line bodies
 dotnet_diagnostic.IDE0017.severity = warning # use object initializers
 dotnet_diagnostic.IDE0018.severity = warning # use inlined variable declaration
 dotnet_diagnostic.IDE0019.severity = warning # pattern match over as with null check
@@ -117,24 +117,24 @@ resharper_redundant_argument_default_value_highlighting = warning # parameter ha
 # ===========================================================================
 # Squirix analyzers (SQR*)
 # ===========================================================================
-dotnet_diagnostic.SQR001.severity = error # outer for/foreach/while/do must omit braces when body is only a nested loop
-dotnet_diagnostic.SQR002.severity = error # design/naming limit (SQR002-SQR007)
-dotnet_diagnostic.SQR003.severity = error # design/naming limit (SQR002-SQR007)
-dotnet_diagnostic.SQR004.severity = error # design/naming limit (SQR002-SQR007)
-dotnet_diagnostic.SQR005.severity = error # design/naming limit (SQR002-SQR007)
-dotnet_diagnostic.SQR006.severity = error # design/naming limit (SQR002-SQR007)
-dotnet_diagnostic.SQR007.severity = error # design / naming limits (SQR002-SQR007)
-dotnet_diagnostic.SQR008.severity = error # multiline embedded loop bodies (except nested loops) must use braces
-dotnet_diagnostic.SQR010.severity = error # skips multiline if/else/using/lock embedded bodies (only single-line bodies gated)
-dotnet_diagnostic.SQR012.severity = error # prefer ==/!= over is/is not patterns for null checks (reverses MA0142/MA0148/MA0149)
-dotnet_diagnostic.SQR013.severity = error # Squirix design/naming rule
-dotnet_diagnostic.SQR014.severity = error # Squirix design/naming rule
-dotnet_diagnostic.SQR017.severity = error # forbid TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes
-dotnet_diagnostic.SQR018.severity = error # multiline embedded if/else-if/else bodies (except nested ifs) must use braces
-dotnet_diagnostic.SQR009.severity = warning # Squirix rule (SQR009)
-dotnet_diagnostic.SQR011.severity = warning # Squirix rule (SQR011)
-dotnet_diagnostic.SQR019.severity = warning # forbid allocating xUnit Assert.Throws*; use closure-free testkit asserts (currently disabled)
-dotnet_diagnostic.SQR020.severity = warning # merge duplicate catch blocks with identical bodies via a 'when' filter pattern
+dotnet_diagnostic.SQR0001.severity = error # outer for/foreach/while/do must omit braces when body is only a nested loop
+dotnet_diagnostic.SQR0002.severity = error # design/naming limit (SQR0002-SQR0007); threshold via SQR0002.max_methods_per_type (default 20)
+dotnet_diagnostic.SQR0003.severity = error # design/naming limit (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0004.severity = error # design/naming limit (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0005.severity = error # design/naming limit (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0006.severity = error # design/naming limit (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0007.severity = error # design / naming limits (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0008.severity = error # multiline embedded loop bodies (except nested loops) must use braces
+dotnet_diagnostic.SQR0010.severity = error # skips multiline if/else/using/lock embedded bodies (only single-line bodies gated)
+dotnet_diagnostic.SQR0012.severity = error # prefer ==/!= over is/is not patterns for null checks (reverses MA0142/MA0148/MA0149)
+dotnet_diagnostic.SQR0013.severity = error # Squirix design/naming rule
+dotnet_diagnostic.SQR0014.severity = error # Squirix design/naming rule
+dotnet_diagnostic.SQR0017.severity = error # forbid TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes
+dotnet_diagnostic.SQR0018.severity = error # multiline embedded if/else-if/else bodies (except nested ifs) must use braces
+dotnet_diagnostic.SQR0009.severity = warning # Squirix rule (SQR0009)
+dotnet_diagnostic.SQR0011.severity = warning # Squirix rule (SQR0011)
+dotnet_diagnostic.SQR0019.severity = warning # forbid allocating xUnit Assert.Throws*; use closure-free testkit asserts (currently disabled)
+dotnet_diagnostic.SQR0020.severity = warning # merge duplicate catch blocks with identical bodies via a 'when' filter pattern
 
 # ===========================================================================
 # StyleCop analyzers (SA*)
@@ -193,10 +193,10 @@ MA0015.consider_member_access_as_parameter = true # treat member access as a par
 dotnet_diagnostic.MA0016.severity = none # prefer collection abstraction over concrete types on public API (conflicts with zero-alloc)
 dotnet_diagnostic.MA0038.severity = none # make instance method static (deprecated; prefer CA1822)
 dotnet_diagnostic.MA0111.severity = none # prefer string.Create over FormattableString (conflicts with BannedSymbols.txt policy)
-dotnet_diagnostic.MA0141.severity = none # reversed by SQR012/SQR013/SQR014: plain ==/!=/is not preferred for null/constant checks
-dotnet_diagnostic.MA0142.severity = none # reversed by SQR012/SQR013/SQR014
-dotnet_diagnostic.MA0148.severity = none # reversed by SQR012/SQR013/SQR014
-dotnet_diagnostic.MA0149.severity = none # reversed by SQR012/SQR013/SQR014
+dotnet_diagnostic.MA0141.severity = none # reversed by SQR0012/SQR0013/SQR0014: plain ==/!=/is not preferred for null/constant checks
+dotnet_diagnostic.MA0142.severity = none # reversed by SQR0012/SQR0013/SQR0014
+dotnet_diagnostic.MA0148.severity = none # reversed by SQR0012/SQR0013/SQR0014
+dotnet_diagnostic.MA0149.severity = none # reversed by SQR0012/SQR0013/SQR0014
 dotnet_diagnostic.MA0157.severity = none # methods returning IAsyncEnumerable must not use Async suffix
 dotnet_diagnostic.MA0174.severity = none # record declarations should use explicit record class
 dotnet_diagnostic.MA0192.severity = none # use HasFlag instead of bitwise checks (adds allocations)
