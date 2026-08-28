@@ -141,6 +141,9 @@ internal static class BinaryJournalCodec
         var fpLen = Encoding.UTF8.GetByteCount(fingerprint);
         var respBytes = record.IdempotencyResponseBytes.Span;
 
+        if (opIdLen > ushort.MaxValue || fpLen > ushort.MaxValue)
+            throw new InvalidDataException("Idempotency outcome operation id or fingerprint exceeds maximum encoded length.");
+
         BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(opIdLen));
         offset += 2;
         offset += Encoding.UTF8.GetBytes(opId, destination[offset..]);
