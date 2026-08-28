@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -37,6 +38,79 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
         Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
+
+    /// <summary>An oversized frame body length in the committed group log is rejected during recovery instead of renting a multi-GB buffer.</summary>
+    [Fact]
+    public async Task RejectsOversizedFrameBodyLength()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-oversized");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        var path = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+
+        // Frame header follows the 5-byte file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.
+        const int bodyLengthOffset = 5 + 4 + 1;
+        bytes[bodyLengthOffset] = 0xFF;
+        bytes[bodyLengthOffset + 1] = 0xFF;
+        bytes[bodyLengthOffset + 2] = 0xFF;
+        bytes[bodyLengthOffset + 3] = 0x7F;
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
+    /// <summary>A frame header declaring a body shorter than the fixed fields is rejected without allocating.</summary>
+    [Fact]
+    public void GroupLogRejectsHeaderBodyTooShort()
+    {
+        Span<byte> header = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
+        Assert.False(GroupLogCodec.TryReadFrameHeaderLength(header, out _));
+    }
+
+    /// <summary>A frame body declared larger than the maximum bound is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTooLarge()
+    {
+        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0xFF, 0xFF, 0xFF, 0x7F];
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>A frame whose declared body cannot fit the available buffer is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTruncated()
+    {
+        Span<byte> buffer = stackalloc byte[15];
+        buffer[0] = 0x53;
+        buffer[1] = 0x51;
+        buffer[2] = 0x52;
+        buffer[3] = 0x4C;
+        buffer[4] = 0x01;
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[5..], 20);
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>A frame body declared shorter than the fixed fields is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTooShort()
+    {
+        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>An oversized payload is rejected while sizing the encoded buffer, before any pool rent.</summary>
+    [Fact]
+    public void GroupLogRejectsOversizedPayloadLength() =>
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(static () => GroupLogCodec.ComputeFrameEncodedLength(int.MaxValue));
 
     /// <summary>A stale batch replaying already-durable entries within the local tail is still acknowledged idempotently.</summary>
     [Fact]

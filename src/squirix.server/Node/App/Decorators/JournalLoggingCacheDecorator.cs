@@ -163,26 +163,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken).ConfigureAwait(false);
     }
 
-    internal async ValueTask<bool> UpdateWithPreparedPayloadAsync(
-        string operationId,
-        string cacheName,
-        string key,
-        T? value,
-        PreparedJournalEntry prepared,
-        CancellationToken cancellationToken)
-    {
-        using var payload = JournalEntryPayload.Encode(in prepared);
-        var cacheKey = new CacheKey(cacheName, key);
-        return await _executor.ExecuteAsync(
-            cacheKey,
-            ct => EvaluateUpdatePreconditionAsync(this, cacheName, key, ct),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, UpdateMemoryArgs Memory), bool>(
-                (this, new PutJournalArgs(cacheKey, payload.Memory), new UpdateMemoryArgs(operationId, cacheName, key, value)),
-                static (s, ct) => s.Self._journal.AppendPutAsync(s.Journal.CacheKey, s.Journal.Payload, ct),
-                static (s, ct) => s.Self._inner.UpdateAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, s.Memory.Value, ct)),
-            cancellationToken).ConfigureAwait(false);
-    }
-
     private static NodeCacheEntry<T> CreateUpdateReplacement(NodeCacheEntry<T> existing, T? value) => new()
     {
         Value = value,
@@ -217,6 +197,26 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     }
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
+
+    private async ValueTask<bool> UpdateWithPreparedPayloadAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        T? value,
+        PreparedJournalEntry prepared,
+        CancellationToken cancellationToken)
+    {
+        using var payload = JournalEntryPayload.Encode(in prepared);
+        var cacheKey = new CacheKey(cacheName, key);
+        return await _executor.ExecuteAsync(
+            cacheKey,
+            ct => EvaluateUpdatePreconditionAsync(this, cacheName, key, ct),
+            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, UpdateMemoryArgs Memory), bool>(
+                (this, new PutJournalArgs(cacheKey, payload.Memory), new UpdateMemoryArgs(operationId, cacheName, key, value)),
+                static (s, ct) => s.Self._journal.AppendPutAsync(s.Journal.CacheKey, s.Journal.Payload, ct),
+                static (s, ct) => s.Self._inner.UpdateAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, s.Memory.Value, ct)),
+            cancellationToken).ConfigureAwait(false);
+    }
 
     [Immutable]
     private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);

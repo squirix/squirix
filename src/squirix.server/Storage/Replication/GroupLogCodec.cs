@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Attributes;
@@ -26,6 +27,9 @@ internal static class GroupLogCodec
 
     private const int FrameHeaderByteCount = 4 + 1;
 
+    /// <summary>Maximum accepted log frame body length; mirrors the journal frame payload cap so a corrupt header cannot force a multi-GB pool rent.</summary>
+    private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);
+
     /// <summary>Log frame magic bytes, <c language="csharp">"SQRL"</c>.</summary>
     private const uint FrameMagic = 0x4C525153u;
 
@@ -51,7 +55,14 @@ internal static class GroupLogCodec
     /// <summary>Computes the exact encoded length of a log frame.</summary>
     /// <param name="payloadLength">The entry payload length in bytes.</param>
     /// <returns>The encoded frame length in bytes.</returns>
-    internal static int ComputeFrameEncodedLength(int payloadLength) => FrameHeaderByteCount + 4 + FrameFixedByteCount + payloadLength + 4;
+    /// <exception cref="InvalidDataException">Thrown when the entry payload exceeds the maximum allowed frame body length.</exception>
+    internal static int ComputeFrameEncodedLength(int payloadLength)
+    {
+        if (payloadLength > MaxFrameBodyLength - FrameFixedByteCount)
+            throw new InvalidDataException("Log frame payload exceeds the maximum allowed length and cannot be restored on read.");
+
+        return FrameHeaderByteCount + 4 + FrameFixedByteCount + payloadLength + 4;
+    }
 
     /// <summary>Computes the encoded length of a metadata payload.</summary>
     /// <param name="meta">The metadata to encode.</param>
@@ -67,9 +78,13 @@ internal static class GroupLogCodec
     /// <summary>Encodes a single log frame (header + body + CRC) into a caller-provided buffer.</summary>
     /// <param name="buffer">The destination buffer of at least <see cref="ComputeFrameEncodedLength" /> bytes.</param>
     /// <param name="entry">The entry to encode.</param>
+    /// <exception cref="InvalidDataException">Thrown when the entry payload exceeds the maximum allowed frame body length.</exception>
     internal static void EncodeFrame(Span<byte> buffer, FollowerLogEntry entry)
     {
         var payload = entry.PayloadSpan;
+        if (payload.Length > MaxFrameBodyLength - FrameFixedByteCount)
+            throw new InvalidDataException("Log frame payload exceeds the maximum allowed length and cannot be restored on read.");
+
         var bodyLength = FrameFixedByteCount + payload.Length;
         var offset = 0;
         BinaryPrimitives.WriteUInt32LittleEndian(buffer[offset..], FrameMagic);
@@ -195,7 +210,7 @@ internal static class GroupLogCodec
             return false;
 
         var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(header.Slice(5, 4));
-        if (bodyLength is not (>= FrameFixedByteCount and <= int.MaxValue - FrameHeaderByteCount - 4 - 4))
+        if (bodyLength is not (>= FrameFixedByteCount and <= MaxFrameBodyLength))
             return false;
 
         frameLength = FrameHeaderByteCount + 4 + bodyLength + 4;
@@ -239,6 +254,13 @@ internal static class GroupLogCodec
         return true;
     }
 
+    private static bool IsFrameBodyLengthWithinBounds(int bodyLength, int bufferLength, int bodyStart)
+    {
+        return bodyLength >= FrameFixedByteCount
+            && bodyLength <= MaxFrameBodyLength
+            && bodyLength <= bufferLength - bodyStart - 4;
+    }
+
     /// <summary>Validates a CRC-complete log frame and reads its index, term and payload extent without copying the payload.</summary>
     /// <param name="buffer">The buffer containing the frame.</param>
     /// <param name="logIndex">The decoded entry index when the frame is valid.</param>
@@ -266,11 +288,12 @@ internal static class GroupLogCodec
 
         var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
 
-        // The declared body must hold the fixed fields yet stay inside the available buffer before the trailing crc.
-        if (bodyLength < FrameFixedByteCount || bodyLength > buffer.Length - 4 - 1 - 4 - 4)
+        const int bodyStart = FrameHeaderByteCount + 4;
+
+        // The declared body must hold the fixed fields, stay within the maximum bound, and leave room for the trailing crc inside the buffer.
+        if (!IsFrameBodyLengthWithinBounds(bodyLength, buffer.Length, bodyStart))
             return false;
 
-        const int bodyStart = FrameHeaderByteCount + 4;
         var crcOffset = bodyStart + bodyLength;
         var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(crcOffset, 4));
 

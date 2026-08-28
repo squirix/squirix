@@ -48,6 +48,17 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         return AssertStatusAsync(length, length.Length, JournalFrameReadStatus.OversizedFrame);
     }
 
+    /// <summary>Verifies a large positive declared length (corrupt header) is rejected as oversized before any buffer is rented.</summary>
+    [Fact]
+    public Task LargePositiveFrameLengthIsOversized()
+    {
+        var length = BufferKit.ToOwnedBytes(
+            JournalFraming.FrameHeaderSize,
+            0x7FFF_FFF0u,
+            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
+        return AssertStatusAsync(length, length.Length, JournalFrameReadStatus.OversizedFrame);
+    }
+
     /// <summary>Verifies truncated frame checksum footers classify consistently.</summary>
     [Fact]
     public Task TruncatedChecksumClassifiedStably()

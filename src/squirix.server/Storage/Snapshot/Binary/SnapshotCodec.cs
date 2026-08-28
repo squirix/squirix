@@ -18,6 +18,9 @@ internal static class SnapshotCodec
 
     internal const int RecordHeaderSize = 5;
 
+    /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
+    internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
+
     internal const byte Version = 1;
 
     private const int RecordFooterSize = 4;
@@ -65,6 +68,9 @@ internal static class SnapshotCodec
             return false;
 
         var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
+        if (bodyLength > MaxRecordBodyLength)
+            return false;
+
         var bodyLengthInt = int.CreateChecked(bodyLength);
         var total = RecordHeaderSize + bodyLengthInt + RecordFooterSize;
         if (source.Length < total)
@@ -123,6 +129,9 @@ internal static class SnapshotCodec
 
     internal static void WriteRecord(Span<byte> destination, RecordKind kind, ReadOnlySpan<byte> body)
     {
+        if (body.Length > MaxRecordBodyLength)
+            throw new InvalidDataException("Snapshot record body exceeds the maximum allowed length and cannot be restored on read.");
+
         if (destination.Length < ComputeRecordLength(body.Length))
             throw new ArgumentException("Destination span is too small for the encoded record.", nameof(destination));
 

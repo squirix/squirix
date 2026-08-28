@@ -216,8 +216,25 @@ internal static class StoreFactory
                     return false;
                 }
 
+                var recordStart = _offset - SnapshotCodec.RecordHeaderSize;
                 var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
+                if (bodyLength > SnapshotCodec.MaxRecordBodyLength)
+                {
+                    if (_strict)
+                        throw new InvalidDataException("Binary snapshot record body exceeds the maximum allowed length.");
+
+                    return false;
+                }
+
                 var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
+                if (recordLength > _footerOffset - recordStart)
+                {
+                    if (_strict)
+                        throw new InvalidDataException("Binary snapshot record extends past the file footer.");
+
+                    return false;
+                }
+
                 if (_scratch.Length < recordLength)
                     _scratch = new byte[recordLength];
 

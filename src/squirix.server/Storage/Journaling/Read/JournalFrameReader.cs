@@ -72,10 +72,13 @@ internal static class JournalFrameReader
         payloadLength = 0;
 
         var declaredPayloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
-        if (declaredPayloadLength < 0)
+        if (declaredPayloadLength < 0 || declaredPayloadLength > JournalSegmentLimits.MaxFramePayloadBytes)
             return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
 
         payloadLength = declaredPayloadLength;
+        if (frameOffset + JournalFrameEnvelope.HeaderSize + payloadLength > RandomAccess.GetLength(handle))
+            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
+
         var rented = ArrayPool<byte>.Shared.Rent(Math.Max(payloadLength, 1));
         try
         {
