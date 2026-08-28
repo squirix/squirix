@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using System.IO;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -26,8 +26,9 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     /// </param>
     internal SingleConsumerWorker(Action<T> handler, Action<T, Exception> onFault)
     {
-        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(onFault);
+        _handler = handler;
         _onFault = onFault;
         var thread = new Thread(Run) { IsBackground = true, Name = $"SingleConsumerWorker<{typeof(T).Name}>" };
         thread.Start();
@@ -64,9 +65,9 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         {
             _queue.Add(new QueuedItem(completion, item), CancellationToken.None);
         }
-        catch (InvalidOperationException)
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
         {
-            _ = completion.TrySetException(new ObjectDisposedException(GetType().FullName));
+            _ = completion.TrySetException(exception as ObjectDisposedException ?? new ObjectDisposedException(GetType().FullName));
         }
 
         return completion.Task;
@@ -91,16 +92,29 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         {
             _queue.Add(work, CancellationToken.None);
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
             InvokeOnFault(item, ex);
         }
     }
 
-    private static bool IsNonFatalHandlerException(Exception ex) =>
-        ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or InvalidDataException;
-
-    private void InvokeOnFault(T item, Exception ex) => _onFault.Invoke(item, ex);
+    private void InvokeOnFault(T item, Exception ex)
+    {
+        try
+        {
+            _onFault(item, ex);
+        }
+#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            // The onFault callback is the last reporting channel for a fire-and-forget fault. If it throws,
+            // the fault has nowhere else to go, so surface both the original handler exception and the onFault
+            // failure via an error trace to keep the loss observable in production. A debug assertion is
+            // deliberately avoided here: this degraded path must be logged and the worker continue, not crash.
+            Trace.TraceError($"SingleConsumerWorker: onFault threw while reporting {typeof(T).Name} fault (original: {ex.GetType().Name}). {exception}");
+        }
+    }
 
     private void Run()
     {
@@ -131,9 +145,11 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             _handler(work.Item);
             _ = completion.TrySetResult();
         }
-        catch (Exception ex) when (IsNonFatalHandlerException(ex))
+#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
+        catch (Exception exception)
+#pragma warning restore CA1031
         {
-            _ = completion.TrySetException(ex);
+            _ = completion.TrySetException(exception);
         }
     }
 
@@ -143,9 +159,11 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         {
             _handler(item);
         }
-        catch (Exception ex) when (IsNonFatalHandlerException(ex))
+#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
+        catch (Exception exception)
+#pragma warning restore CA1031
         {
-            InvokeOnFault(item, ex);
+            InvokeOnFault(item, exception);
         }
     }
 
