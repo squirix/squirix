@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
@@ -12,6 +13,7 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -39,6 +41,61 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+    }
+
+    /// <summary>An oversized snapshot record body length is rejected during load instead of allocating multiple GB for the scratch buffer.</summary>
+    [Fact]
+    public async Task LoadStrictAsyncRejectsOversizedRecord()
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-oversized");
+        var options = new PersistenceOptions { DataDir = dir.Path };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
+
+        // Patch the first record's declared body length to a multi-GB value, then re-stamp the file CRC so validation reaches the record reader.
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var originalBodyLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5 + 1));
+        var recordLength = SnapshotCodec.ComputeRecordLength(originalBodyLength);
+        const uint oversized = 0x7FFFFFFF;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), oversized);
+
+        var recordMemory = bytes.AsMemory(5, recordLength);
+        var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
+        crc = Crc32C.Append(crc, recordMemory.Span);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4), Crc32C.Finalize(crc));
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+    }
+
+    /// <summary>A record declaring a body that extends past the file footer is rejected instead of reading out of bounds.</summary>
+    [Fact]
+    public async Task LoadStrictAsyncRejectsPastFooter()
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-past-footer");
+        var options = new PersistenceOptions { DataDir = dir.Path };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
+
+        // Patch the first record's declared body length to a moderate value that still exceeds the remaining file extent.
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        const int patchedBodyLength = 1000;
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(5 + 1), patchedBodyLength);
         await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());

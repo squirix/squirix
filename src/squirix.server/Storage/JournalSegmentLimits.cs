@@ -16,4 +16,13 @@ internal static class JournalSegmentLimits
 
     /// <summary>Soft high-water mark as a percent of <see cref="DefaultMaxTotalBytesMb" /> / configured max (details only).</summary>
     public const int HighWaterPercent = 80;
+
+    /// <summary>Hard upper bound on a single journal frame payload length, in bytes.</summary>
+    /// <remarks>
+    /// A frame can never exceed its segment. The bound is kept safely below the ~2&#160;GB that would make
+    /// ArrayPool&lt;T&gt;.Shared.Rent attempt an OOM-sized allocation, while remaining far above any
+    /// legitimate journal record payload. The on-disk length field is a signed 32-bit integer, so a stored
+    /// value larger than this can never be a real frame and is treated as a corrupt header.
+    /// </remarks>
+    public const int MaxFramePayloadBytes = 512 * 1024 * 1024;
 }
