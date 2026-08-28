@@ -58,7 +58,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance, store, StoreFactory.CreateReader(persistence), persistence, cluster));
+            new JournalCompactionDependencies(new Lazy<Coordinator>(() => snapshots), new Lazy<IExclusiveMaintenanceExecutor>(() => maintenance), store, StoreFactory.CreateReader(persistence), persistence, cluster));
 
         await compaction.StartAsync(DefaultCancellationToken);
         await snapshots.TrySnapshotAsync(journal, DefaultCancellationToken);

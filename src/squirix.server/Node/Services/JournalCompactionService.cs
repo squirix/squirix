@@ -20,14 +20,14 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class JournalCompactionService<T> : BackgroundService, IJournalCompactionStatus
 {
-    private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
+    private readonly Lazy<IExclusiveMaintenanceExecutor> _journalMaintenance;
     private readonly ILogger<JournalCompactionService<T>> _log;
     private readonly Ledger _manifest;
     private readonly string _nodeId;
     private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
-    private readonly Coordinator _snap;
+    private readonly Lazy<Coordinator> _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
     private readonly VolatileField<TaskCompletionSource> _wake = new();
@@ -169,7 +169,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         var resultLabel = "failure";
         try
         {
-            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
+            await _journalMaintenance.Value.ExecuteMaintenanceExclusiveAsync(
                 ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, ct)),
                 cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
@@ -234,7 +234,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) != 0)
             return;
 
-        _snap.SnapshotCompleted += _onSnapshotCompleted;
+        _snap.Value.SnapshotCompleted += _onSnapshotCompleted;
     }
 
     private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
@@ -248,7 +248,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) == 0)
             return;
 
-        _snap.SnapshotCompleted -= _onSnapshotCompleted;
+        _snap.Value.SnapshotCompleted -= _onSnapshotCompleted;
     }
 
     private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)

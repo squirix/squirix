@@ -16,7 +16,7 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal sealed class JournalCompactionController : IDisposable
 {
-    private readonly IJournalCoordinator _journalWriter;
+    private readonly Lazy<IJournalCoordinator> _journalWriter;
     private readonly AsyncLock _lock = new();
     private readonly ILogger<JournalCompactionController> _log;
     private readonly PersistenceOptions _opt;
@@ -24,7 +24,7 @@ internal sealed class JournalCompactionController : IDisposable
     private readonly Ledger _store;
     private int _disposed;
 
-    internal JournalCompactionController(PersistenceOptions opt, Ledger store, ISnapshotReader reader, IJournalCoordinator journalWriter, ILogger<JournalCompactionController> log)
+    internal JournalCompactionController(PersistenceOptions opt, Ledger store, ISnapshotReader reader, Lazy<IJournalCoordinator> journalWriter, ILogger<JournalCompactionController> log)
     {
         _opt = opt;
         _store = store;
@@ -50,7 +50,7 @@ internal sealed class JournalCompactionController : IDisposable
         {
             var manifest = await _store.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             LogManager.ManualCompactionStart(_log, manifest.LastSnapshot?.Index ?? 0);
-            await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _store, _reader, ct)), cancellationToken)
+            await _journalWriter.Value.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _store, _reader, ct)), cancellationToken)
                                 .ConfigureAwait(false);
             LogManager.ManualCompactionFinished(_log);
             return true;

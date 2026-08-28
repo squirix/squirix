@@ -13,9 +13,9 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotReadinessStatus
 {
-    private readonly Coordinator _coordinator;
+    private readonly Lazy<Coordinator> _coordinator;
 
-    private readonly IJournalCoordinator _journal;
+    private readonly Lazy<IJournalCoordinator> _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
 
     private readonly EventHandler _onJournalAppended;
@@ -32,7 +32,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
+    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Lazy<Coordinator> coordinator, Lazy<IJournalCoordinator> journal, TimeProvider? timeProvider = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -45,7 +45,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _journal.OnAppended += _onJournalAppended;
+        _journal.Value.OnAppended += _onJournalAppended;
         LogManager.SnapshotTriggerStarted(_log, 1);
 
         try
@@ -63,7 +63,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         finally
         {
-            _journal.OnAppended -= _onJournalAppended;
+            _journal.Value.OnAppended -= _onJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
             LogManager.SnapshotTriggerStopped(_log);
         }
@@ -105,7 +105,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             if (_log.IsEnabled(LogLevel.Trace))
                 LogManager.SnapshotTriggerTick(_log);
 
-            await _coordinator.TrySnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
+            await _coordinator.Value.TrySnapshotAsync(_journal.Value, stoppingToken).ConfigureAwait(false);
         }
     }
 }
