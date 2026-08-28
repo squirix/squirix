@@ -87,6 +87,30 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Fact]
     public void PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.TouchExpiration);
 
+    /// <summary>Encode rejects an idempotency fingerprint that cannot fit the on-disk length prefix rather than silently truncating it.</summary>
+    [Fact]
+    public void EncodeRejectsOversizedFingerprint()
+    {
+        var record = new JournalRecord
+        {
+            Sequence = 6,
+            UnixMs = 123,
+            Operation = JournalOperationKind.IdempotencyOutcome,
+            Key = new CacheKey(string.Empty, string.Empty),
+            IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
+            IdempotencyFingerprint = new string('x', ushort.MaxValue + 1),
+            IdempotencyResponseBytes = IdempotencyResponseFixture,
+        };
+
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws((record, prepared), static ctx =>
+        {
+            var body = new byte[ctx.prepared.BodyLength];
+            _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared);
+        });
+        Assert.Contains("maximum encoded length", ex.Message, StringComparison.Ordinal);
+    }
+
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
         var key = new CacheKey("ns", "codec-key");
