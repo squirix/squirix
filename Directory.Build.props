@@ -31,24 +31,13 @@
         <IsSquirixTestProject>false</IsSquirixTestProject>
         <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
         <IsSquirixProductionProject>false</IsSquirixProductionProject>
-        <IsSquirixAnalyzerProject>false</IsSquirixAnalyzerProject>
         <IsSquirixProtocolModelProject>false</IsSquirixProtocolModelProject>
-    </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.analyzers'))">
-        <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
-        <!-- Skip Sonar.NET on the Roslyn analyzer project itself. -->
-        <SonarQubeExclude>true</SonarQubeExclude>
-        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; shared obj/ races under parallel solution builds. -->
-        <GenerateDependencyFile>false</GenerateDependencyFile>
-        <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
-        <!-- Avoid MSB3491 on AssemblyInfoInputs.cache when many ProjectReferences build this project in parallel. -->
-        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.protocol-model'))">
         <!-- Design-time Raft safety explorer; not a shipped product package. -->
         <IsSquirixProtocolModelProject>true</IsSquirixProtocolModelProject>
     </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true' And '$(IsSquirixProtocolModelProject)' != 'true'">
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixProtocolModelProject)' != 'true'">
         <IsSquirixProductionProject>true</IsSquirixProductionProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
@@ -89,18 +78,13 @@
              arrays for clarity; pooling would only complicate setup and teardown. -->
     </PropertyGroup>
 
-    <!-- In-repo Roslyn analyzers (skip the analyzer project itself). -->
-    <ItemGroup Label="SquirixAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
-        <ProjectReference Include="$(MSBuildThisFileDirectory)src\squirix.analyzers\Squirix.Analyzers.csproj"
-                          ReferenceOutputAssembly="false"
-                          OutputItemType="Analyzer"
-                          PrivateAssets="all"
-                          SetTargetFramework="TargetFramework=netstandard2.1"
-                          GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishAot;PublishTrimmed;PublishSingleFile;PublishReadyToRun"/>
+    <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
+    <ItemGroup Label="SquirixAnalyzers">
+        <PackageReference Include="squirix.analyzers" PrivateAssets="all" />
     </ItemGroup>
 
-    <!-- Solution-wide Roslyn analyzers (all projects except Squirix.Analyzers). -->
-    <ItemGroup Label="GlobalAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
+    <!-- Solution-wide third-party Roslyn analyzers. -->
+    <ItemGroup Label="GlobalAnalyzers">
         <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
@@ -117,7 +101,7 @@
     <!-- Namespace dependency rules for production packages under src/**, analyzers, protocol-model,
          all client-bucket tests/benchmarks, e2e harnesses, protocol-model tests, samples, and server
          tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixAnalyzerProject)' == 'true' Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
@@ -145,7 +129,7 @@
     <!-- PVS-Studio project-level rules for every analyzed project (incl. tests).
          .pvsconfig itself excludes **/tests/**,**/samples/**,**/benchmarks/** so those
          trees stay out of findings; without this link, test projects had no rules file. -->
-    <ItemGroup Label="PvsStudioConfig" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
+    <ItemGroup Label="PvsStudioConfig">
         <None Include="$(MSBuildThisFileDirectory).pvsconfig" Link=".pvsconfig"/>
         <!-- Solution-root suppress baseline; VS/plugin discovery needs a project item. -->
         <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>

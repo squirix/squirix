@@ -19,6 +19,7 @@
     <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.0" />
     <PackageVersion Include="NsDepCop" Version="3.1.0" />
+    <PackageVersion Include="squirix.analyzers" Version="0.1.0" />
   </ItemGroup>
   <!-- Library-specific analyzers (see Directory.Build.props / TestAnalyzers). -->
   <ItemGroup Label="TestAnalyzers">

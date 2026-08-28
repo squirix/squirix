@@ -17,7 +17,6 @@
        still restricts actual usage to TestKit.* namespaces only. -->
   <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.Server.Host" />
   <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.ProtocolModel" />
-  <DisallowedAssembly From="Squirix.E2ETests" To="Squirix.Analyzers" />
 
   <!-- Server surface is reachable only via TestKit.* namespaces. -->
   <Disallowed From="/^Squirix\.E2ETests(?:\.|$)/" To="/^Squirix\.Server(?:\.(?!TestKit(?:\.|$)).*)?$/" />

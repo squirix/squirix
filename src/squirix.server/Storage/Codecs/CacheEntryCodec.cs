@@ -238,29 +238,29 @@ internal static class CacheEntryCodec
 
             return source[0] switch
             {
-                ValueKind.Null => TryReadNullValue(out value, out bytesRead),
-                ValueKind.Bool => TryReadBoolValue(source, out value, out bytesRead),
-                ValueKind.String => TryReadStringValue(source, out value, out bytesRead),
-                ValueKind.Bytes => TryReadBytesValue(source, out value, out bytesRead),
-                ValueKind.Int64 => TryReadInt64Value(source, out value, out bytesRead),
-                ValueKind.Double => TryReadDoubleValue(source, out value, out bytesRead),
-                ValueKind.Decimal => TryReadDecimalValue(source, out value, out bytesRead),
-                ValueKind.Object or ValueKind.Array => TryReadJsonTreeValue(source, out value, out bytesRead),
+                ValueKind.Null => CacheEntryValueReadCodec.TryReadNullValue(out value, out bytesRead),
+                ValueKind.Bool => CacheEntryValueReadCodec.TryReadBoolValue(source, out value, out bytesRead),
+                ValueKind.String => CacheEntryValueReadCodec.TryReadStringValue(source, out value, out bytesRead),
+                ValueKind.Bytes => CacheEntryValueReadCodec.TryReadBytesValue(source, out value, out bytesRead),
+                ValueKind.Int64 => CacheEntryValueReadCodec.TryReadInt64Value(source, out value, out bytesRead),
+                ValueKind.Double => CacheEntryValueReadCodec.TryReadDoubleValue(source, out value, out bytesRead),
+                ValueKind.Decimal => CacheEntryValueReadCodec.TryReadDecimalValue(source, out value, out bytesRead),
+                ValueKind.Object or ValueKind.Array => CacheEntryValueReadCodec.TryReadJsonTreeValue(source, out value, out bytesRead),
                 _ => false,
             };
         }
 
         internal static int WriteInternal(object? value, Span<byte> destination) => value switch
         {
-            null => WriteNull(destination),
-            bool b => WriteBool(b, destination),
-            string s => WriteString(s, destination),
-            byte[] bytes => WriteBytes(bytes, destination),
-            sbyte or byte or short or ushort or int or uint or long => WriteInt64(value, destination),
-            float or double => WriteDouble(value, destination),
-            decimal m => WriteDecimal(m, destination),
+            null => CacheEntryValueWriteCodec.WriteNull(destination),
+            bool b => CacheEntryValueWriteCodec.WriteBool(b, destination),
+            string s => CacheEntryValueWriteCodec.WriteString(s, destination),
+            byte[] bytes => CacheEntryValueWriteCodec.WriteBytes(bytes, destination),
+            sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
+            float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
+            decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
             JsonElement je => JsonTreeCodec.WriteInternal(je, destination),
-            _ => WriteSerializedObject(value, destination),
+            _ => CacheEntryValueWriteCodec.WriteSerializedObject(value, destination),
         };
 
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
@@ -328,8 +328,12 @@ internal static class CacheEntryCodec
             result = default;
             return false;
         }
+    }
 
-        private static bool TryReadBoolValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    /// <summary>Read-side value decoding helpers for <see cref="CacheEntryCodec" />.</summary>
+    private static class CacheEntryValueReadCodec
+    {
+        internal static bool TryReadBoolValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -341,7 +345,7 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadBytesValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadBytesValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -353,7 +357,7 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadDecimalValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadDecimalValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -368,7 +372,7 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadDoubleValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadDoubleValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -380,7 +384,7 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadInt64Value(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadInt64Value(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -392,7 +396,7 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadJsonTreeValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadJsonTreeValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -403,14 +407,14 @@ internal static class CacheEntryCodec
             return true;
         }
 
-        private static bool TryReadNullValue(out object? value, out int bytesRead)
+        internal static bool TryReadNullValue(out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 1;
             return true;
         }
 
-        private static bool TryReadStringValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadStringValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
@@ -421,8 +425,12 @@ internal static class CacheEntryCodec
             bytesRead = 1 + stringBytesRead;
             return true;
         }
+    }
 
-        private static int WriteBool(bool value, Span<byte> destination)
+    /// <summary>Write-side value encoding helpers for <see cref="CacheEntryCodec" />.</summary>
+    private static class CacheEntryValueWriteCodec
+    {
+        internal static int WriteBool(bool value, Span<byte> destination)
         {
             destination[0] = ValueKind.Bool;
             destination[1] = value ? True : False;
@@ -430,42 +438,42 @@ internal static class CacheEntryCodec
             return 2;
         }
 
-        private static int WriteBytes(byte[] bytes, Span<byte> destination)
+        internal static int WriteBytes(byte[] bytes, Span<byte> destination)
         {
             destination[0] = ValueKind.Bytes;
             return 1 + TagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
         }
 
-        private static int WriteDecimal(decimal value, Span<byte> destination)
+        internal static int WriteDecimal(decimal value, Span<byte> destination)
         {
             destination[0] = ValueKind.Decimal;
             return 1 + TagEncoding.WriteUtf8Prefixed(value.ToString(CultureInfo.InvariantCulture), destination[1..]);
         }
 
-        private static int WriteDouble(object value, Span<byte> destination)
+        internal static int WriteDouble(object value, Span<byte> destination)
         {
             destination[0] = ValueKind.Double;
             BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], Convert.ToDouble(value, CultureInfo.InvariantCulture));
             return 1 + 8;
         }
 
-        private static int WriteInt64(object value, Span<byte> destination)
+        internal static int WriteInt64(object value, Span<byte> destination)
         {
             destination[0] = ValueKind.Int64;
             BinaryPrimitives.WriteInt64LittleEndian(destination[1..], Convert.ToInt64(value, CultureInfo.InvariantCulture));
             return 1 + 8;
         }
 
-        private static int WriteNull(Span<byte> destination)
+        internal static int WriteNull(Span<byte> destination)
         {
             destination[0] = ValueKind.Null;
             return 1;
         }
 
-        private static int WriteSerializedObject(object value, Span<byte> destination) =>
+        internal static int WriteSerializedObject(object value, Span<byte> destination) =>
             JsonTreeCodec.WriteInternal(SerializerProvider.Instance.SerializeToElement(value), destination);
 
-        private static int WriteString(string value, Span<byte> destination)
+        internal static int WriteString(string value, Span<byte> destination)
         {
             destination[0] = ValueKind.String;
             return 1 + TagEncoding.WriteUtf32PrefixedString(value, destination[1..]);

@@ -30,6 +30,10 @@ runs:
         restore-keys: |
           ${{ runner.os }}-dotnet10-nuget-
 
+    - name: Ensure Local Package Feed Exists
+      shell: bash
+      run: mkdir -p artifacts/packages
+
     - name: Restore
       shell: bash
       run: dotnet restore squirix.slnx
@@ -37,10 +41,6 @@ runs:
     - name: Verify Whitespace
       shell: bash
       run: git diff --check
-
-    - name: Build in-repo analyzers
-      shell: bash
-      run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
 
     - name: Build
       shell: bash

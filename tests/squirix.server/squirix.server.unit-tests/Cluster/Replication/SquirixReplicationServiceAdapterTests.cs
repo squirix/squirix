@@ -15,6 +15,8 @@ using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
+using static Squirix.Server.UnitTests.Cluster.Replication.SquirixReplicationAdapterTestHelpers;
+
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>
@@ -369,28 +371,8 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
     }
 
-    private static async Task<AdapterFixture> CreateAdapterAsync(CancellationToken cancellationToken)
-    {
-        var topology = CreateTopology();
-        var mtls = new MtlsOptions { InternalListenPort = 6001 };
-        var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
-        return new AdapterFixture(new SquirixReplicationServiceAdapter(topology, mtls, material), mtls, bundle, peerCertificate, material);
-    }
-
-    private static TopologyOptions CreateTopology() => new(new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") });
-
-    private static ReplicationEnvelopeHeader CreateValidHeader(string? senderNodeId = "node-a") => new()
-    {
-        SchemaVersion = EnvelopeCodec.SchemaVersion,
-        SenderNodeId = senderNodeId,
-        LeaderNodeId = senderNodeId,
-        Term = 7,
-    };
-
     [Immutable]
-    private sealed class AdapterFixture : IDisposable
+    internal sealed class AdapterFixture : IDisposable
     {
         private readonly MtlsTestCertificateBundle _bundle;
         private readonly IDisposable _material;

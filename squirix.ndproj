@@ -1648,7 +1648,6 @@ warnif count > 0
 from m in JustMyCode.Methods
 where (m.ReadsMutableObjectState || m.ReadsMutableTypeState) &&
       m.ParentType != null &&
-      m.ParentType.ParentAssembly.Name != "Squirix.Analyzers" &&
       !m.ParentType.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
       !m.ParentType.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
       !m.ParentType.IsGeneratedByCompiler &&
@@ -2057,10 +2056,6 @@ select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" 
 notmycode
 from a in Application.Assemblies.WithNameIn(
       "ExternalPackageSmoke")
-select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard analyzers assembly from multi-version / cohesion noise</Name>
-// Analyzers ship Roslyn packages that intentionally differ from app TFM analysis graphs.
-notmycode
-from a in Application.Assemblies.WithNameIn("Squirix.Analyzers")
 select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
 // Test harness cohesion and transitive SCA hits are not product-layer debt.
 notmycode
