@@ -94,6 +94,48 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         Assert.Equal([2], handled);
     }
 
+    /// <summary>A non-curated handler exception is isolated and does not kill the worker thread, so later items still run.</summary>
+    [Fact]
+    public async Task IsolatesNonCuratedHandlerExceptions()
+    {
+        var handled = new List<int>();
+        using var worker = new SingleConsumerWorker<int>(
+            value =>
+            {
+                if (value == 1)
+                    throw new ArgumentOutOfRangeException(nameof(value), "expected");
+
+                handled.Add(value);
+            },
+            static (_, _) => { });
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(worker.EnqueueAsync(1));
+        await worker.EnqueueAsync(2);
+
+        Assert.Equal([2], handled);
+    }
+
+    /// <summary>A faulting onFault callback does not kill the worker thread, so later items still run.</summary>
+    [Fact]
+    public async Task FaultingOnFaultCallbackDoesNotKillWorker()
+    {
+        var handled = new List<int>();
+        using var worker = new SingleConsumerWorker<int>(
+            value =>
+            {
+                if (value == 1)
+                    throw new IOException("expected");
+
+                handled.Add(value);
+            },
+            static (_, _) => throw new InvalidOperationException("onFault failed"));
+
+        worker.Post(1);
+        await worker.EnqueueAsync(2);
+
+        Assert.Equal([2], handled);
+    }
+
     /// <summary>A fire-and-forget Post routes a handler failure to onFault without throwing to the caller.</summary>
     [Fact]
     public async Task PostSurfacesHandlerFailureThroughOnFault()
@@ -125,6 +167,20 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         worker.Dispose();
         worker.Post(1);
         _ = Assert.IsType<ObjectDisposedException>(failure.Value);
+    }
+
+    /// <summary>An EnqueueAsync after Dispose returns a faulted task with ObjectDisposedException and does not throw to the caller.</summary>
+    [Fact]
+    public void EnqueueAfterDisposeFaults()
+    {
+        var worker = new SingleConsumerWorker<int>(static _ => { }, static (_, _) => { });
+
+        // ReSharper disable once DisposeOnUsingVariable
+        worker.Dispose();
+        var task = worker.EnqueueAsync(1);
+
+        Assert.False(task.IsCompletedSuccessfully);
+        _ = Assert.IsType<ObjectDisposedException>(task.Exception?.InnerException);
     }
 
     /// <summary>Disposal drains items queued before completion.</summary>
