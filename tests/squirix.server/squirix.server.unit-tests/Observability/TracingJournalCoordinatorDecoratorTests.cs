@@ -25,7 +25,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Fact]
     public async Task AppendPutAsyncCreatesJournalPutSpan()
     {
-        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
         using var manifestStore = new Ledger(options);
         await using var core = JournalCoordinatorFactory.Create(
             options,
@@ -56,7 +56,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             DataDir = Dir,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
         };
         using var manifestStore = new Ledger(options);
         await using var core = JournalCoordinatorFactory.Create(

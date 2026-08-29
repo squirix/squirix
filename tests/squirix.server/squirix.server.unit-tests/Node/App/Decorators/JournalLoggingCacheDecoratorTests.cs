@@ -149,7 +149,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options);
@@ -172,7 +172,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
         var manifestStore = new Ledger(options);

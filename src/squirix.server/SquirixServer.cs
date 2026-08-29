@@ -42,13 +42,12 @@ public sealed class SquirixServer : IAsyncDisposable
         Configurator.ApplyRuntimeDefaults(options);
         options.Validate();
 
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                Args = [],
-                ApplicationName = ApplicationAssemblyName,
-            });
-
+        var applicationOptions = new WebApplicationOptions
+        {
+            Args = [],
+            ApplicationName = ApplicationAssemblyName,
+        };
+        var builder = WebApplication.CreateBuilder(applicationOptions);
         _ = builder.Logging.ClearProviders();
         _ = builder.Logging.AddConsole();
         _ = builder.Logging.AddDebug();

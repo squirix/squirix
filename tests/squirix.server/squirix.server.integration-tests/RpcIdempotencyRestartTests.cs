@@ -47,7 +47,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
 
-        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence);
         await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
@@ -140,7 +140,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir)
     {
-        var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var sawPut = false;

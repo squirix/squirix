@@ -31,7 +31,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         Ring = ring;
         SegmentWriter = segmentWriter;
         Options = opt;
-        WriteBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatchBytes);
+        WriteBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatch);
         Policy = new JournalSegmentPolicy(opt);
         CurrentSegmentIndex = startup.CurrentSegmentIndex;
         JournalTotalBytes = startup.JournalTotalBytes;

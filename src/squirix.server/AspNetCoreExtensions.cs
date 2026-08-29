@@ -52,13 +52,14 @@ public static class AspNetCoreExtensions
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
         var extensions = new ExtensionOptions();
         configureExtensions?.Invoke(extensions);
+        var persistenceOptions = ResolvePersistenceOptions(options);
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
             Configurator.ToClusterConfig(options),
             args =>
             {
                 args.WaitForRecovery = options.WaitForRecovery;
-                args.PersistenceOptions = ResolvePersistenceOptions(options);
+                args.PersistenceOptions = persistenceOptions;
                 args.Extensions = extensions;
             },
             cancellationToken).ConfigureAwait(false);
@@ -70,11 +71,7 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var persistenceOptions = new PersistenceOptions
-        {
-            JournalMaxSegmentMb = 64,
-            FlushIntervalMs = 10,
-        };
+        var persistenceOptions = new PersistenceOptions();
         if (string.IsNullOrWhiteSpace(options.DataDirectory))
             return persistenceOptions;
 

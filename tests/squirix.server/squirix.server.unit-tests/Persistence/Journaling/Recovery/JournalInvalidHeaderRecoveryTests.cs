@@ -32,7 +32,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     public async Task HeaderRewrittenAfterSegmentRepair()
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
-        var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
@@ -72,7 +72,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         var gate = new AsyncManualResetEvent();
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
