@@ -18,7 +18,7 @@ public sealed class OptionsTests
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
     [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
-    [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
+    [InlineData(nameof(PersistenceOptions.FlushInterval))]
     [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
     public static void ValidateRejectsNonPositiveScalars(string propertyName)
@@ -43,7 +43,7 @@ public sealed class OptionsTests
         Assert.Equal(32, o.JournalMaxSegmentCount);
         Assert.Equal(2048, o.JournalMaxTotalBytesMb);
         Assert.Equal(JournalPlatformBackend.Auto, o.JournalPlatformBackend);
-        Assert.Equal(10, o.FlushIntervalMs);
+        Assert.Equal(10, o.FlushInterval);
         Assert.Equal(3, o.ManifestRetentionCount);
         Assert.Equal(TimeSpan.Zero, o.JournalGroupCommitMaxWait);
         Assert.Equal(32, o.JournalGroupCommitMaxBatch);
@@ -71,13 +71,13 @@ public sealed class OptionsTests
         var options = new PersistenceOptions
         {
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 1,
+            FlushInterval = 1,
             ManifestRetentionCount = 1,
             SnapshotRetentionCount = 1,
         };
 
         Assert.Equal(1, options.JournalMaxSegmentMb);
-        Assert.Equal(1, options.FlushIntervalMs);
+        Assert.Equal(1, options.FlushInterval);
         Assert.Equal(1, options.ManifestRetentionCount);
         Assert.Equal(1, options.SnapshotRetentionCount);
     }
@@ -86,12 +86,12 @@ public sealed class OptionsTests
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushInterval":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
         Assert.Equal(64, options.JournalMaxSegmentMb);
-        Assert.Equal(20, options.FlushIntervalMs);
+        Assert.Equal(20, options.FlushInterval);
         Assert.Equal(2, options.ManifestRetentionCount);
         Assert.Equal(4, options.SnapshotRetentionCount);
     }
@@ -117,13 +117,13 @@ public sealed class OptionsTests
 
         // Unchanged defaults
         Assert.Equal(defaults.JournalMaxSegmentMb, overridden.JournalMaxSegmentMb);
-        Assert.Equal(defaults.FlushIntervalMs, overridden.FlushIntervalMs);
+        Assert.Equal(defaults.FlushInterval, overridden.FlushInterval);
     }
 
     private static PersistenceOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
         nameof(PersistenceOptions.JournalMaxSegmentMb) => new PersistenceOptions { JournalMaxSegmentMb = 0 },
-        nameof(PersistenceOptions.FlushIntervalMs) => new PersistenceOptions { FlushIntervalMs = 0 },
+        nameof(PersistenceOptions.FlushInterval) => new PersistenceOptions { FlushInterval = 0 },
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),

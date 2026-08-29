@@ -54,7 +54,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
         Assert.True(response.Added);
     }
 
-    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
 
     private static long ReadIdempotencyOutcomeUnixMs(string dataDir)
     {

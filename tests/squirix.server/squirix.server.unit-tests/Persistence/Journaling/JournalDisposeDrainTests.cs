@@ -30,7 +30,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
         };
 

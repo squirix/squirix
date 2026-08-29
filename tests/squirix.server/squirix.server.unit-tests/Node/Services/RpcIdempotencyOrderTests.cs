@@ -39,7 +39,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };

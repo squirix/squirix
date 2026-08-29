@@ -28,7 +28,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
     public async Task DisposeIsIdempotent()
     {
-        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
@@ -45,7 +45,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 16,
-            FlushIntervalMs = 1000,
+            FlushInterval = 1000,
         };
 
         using var manifestStore = new Ledger(opt);
@@ -68,7 +68,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     [Fact]
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
-        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);

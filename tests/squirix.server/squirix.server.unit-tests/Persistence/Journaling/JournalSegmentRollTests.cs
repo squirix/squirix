@@ -132,7 +132,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
-        FlushIntervalMs = 600_000,
+        FlushInterval = 600_000,
         ManifestRetentionCount = 3,
     };
 

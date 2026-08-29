@@ -28,7 +28,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 
@@ -72,7 +72,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 

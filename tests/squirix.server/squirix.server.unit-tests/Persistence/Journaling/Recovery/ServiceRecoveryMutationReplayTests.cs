@@ -92,7 +92,7 @@ public sealed class ServiceRecoveryMutationReplayTests : ServerUnitTestBase
 
     private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
     {
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         var reader = StoreFactory.CreateReader(persistence);
         var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), store, reader);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);

@@ -35,7 +35,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
@@ -73,7 +73,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
             JournalGroupCommitMaxBatch = 8,

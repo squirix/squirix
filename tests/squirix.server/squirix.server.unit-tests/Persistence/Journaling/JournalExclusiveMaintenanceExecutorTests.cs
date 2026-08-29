@@ -25,7 +25,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTe
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 100,
+            FlushInterval = 100,
         };
 
         using var manifestStore = new Ledger(persistence);

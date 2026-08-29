@@ -30,7 +30,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
 

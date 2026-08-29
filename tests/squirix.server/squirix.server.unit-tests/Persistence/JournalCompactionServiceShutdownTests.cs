@@ -31,7 +31,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
     [Fact]
     public async Task ShutdownClearsSnapshotCompactionFlight()
     {
-        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
+        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var store = new Ledger(persistence);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
