@@ -43,7 +43,7 @@ internal static class EndpointExtensions
     }
 
     [Immutable]
-    private sealed class PrometheusMetricsScraper : IDisposable
+    internal sealed class PrometheusMetricsScraper : IDisposable
     {
         internal static readonly PrometheusMetricsScraper Instance = new(false);
         private readonly Dictionary<string, Dictionary<string, double>> _last = new(StringComparer.Ordinal);
@@ -136,7 +136,7 @@ internal static class EndpointExtensions
 
                 if (!_last.TryGetValue(metric, out var lastByLabels))
                     _last[metric] = lastByLabels = new Dictionary<string, double>(StringComparer.Ordinal);
-                lastByLabels[exportLabels] = Math.Max(lastByLabels.GetValueOrDefault(exportLabels), value);
+                lastByLabels[exportLabels] = value;
             }
         }
 
