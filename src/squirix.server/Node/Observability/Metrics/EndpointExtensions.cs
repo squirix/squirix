@@ -136,7 +136,7 @@ internal static class EndpointExtensions
 
                 if (!_last.TryGetValue(metric, out var lastByLabels))
                     _last[metric] = lastByLabels = new Dictionary<string, double>(StringComparer.Ordinal);
-                lastByLabels[exportLabels] = Math.Max(lastByLabels.GetValueOrDefault(exportLabels), value);
+                lastByLabels[exportLabels] = value;
             }
         }
 
