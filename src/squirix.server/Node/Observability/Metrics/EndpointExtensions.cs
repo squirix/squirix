@@ -43,7 +43,7 @@ internal static class EndpointExtensions
     }
 
     [Immutable]
-    private sealed class PrometheusMetricsScraper : IDisposable
+    internal sealed class PrometheusMetricsScraper : IDisposable
     {
         internal static readonly PrometheusMetricsScraper Instance = new(false);
         private readonly Dictionary<string, Dictionary<string, double>> _last = new(StringComparer.Ordinal);
