@@ -13,7 +13,6 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -61,17 +60,31 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 
         var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
 
-        // Patch the first record's declared body length to a multi-GB value, then re-stamp the file CRC so validation reaches the record reader.
+        // Patch the first record's declared body length to a multi-GB value. The body-length clamp throws before the footer CRC is ever reached, so the file CRC stays at the writer's original fixed value.
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-        var originalBodyLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5 + 1));
-        var recordLength = SnapshotCodec.ComputeRecordLength(originalBodyLength);
         const uint oversized = 0x7FFFFFFF;
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), oversized);
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
-        var recordMemory = bytes.AsMemory(5, recordLength);
-        var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
-        crc = Crc32C.Append(crc, recordMemory.Span);
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4), Crc32C.Finalize(crc));
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+    }
+
+    /// <summary>A record declaring a near-uint.MaxValue body length surfaces InvalidDataException instead of an OverflowException or a multi-GB scratch allocation.</summary>
+    [Fact]
+    public async Task LoadStrictAsyncRejectsNearMaxBodyLength()
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-near-max");
+        var options = new PersistenceOptions { DataDir = dir.Path };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), uint.MaxValue);
         await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
@@ -92,7 +105,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 
         var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
 
-        // Patch the first record's declared body length to a moderate value that still exceeds the remaining file extent.
+        // Patch the first record's declared body length to a moderate value that still exceeds the remaining file extent. The extent check throws before the footer CRC is ever reached, so the file CRC stays at the writer's original fixed value.
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         const int patchedBodyLength = 1000;
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(5 + 1), patchedBodyLength);
