@@ -121,4 +121,40 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         Assert.True(await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "new" }, DefaultCancellationToken));
         Assert.Equal("new", (await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Value);
     }
+
+    /// <summary>Both relative and absolute expiration are respected; the earlier deadline wins (issue #445).</summary>
+    [Fact]
+    public async Task EarliestDeadlineWins()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(timeProvider);
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1), ExpiresUtc = now.AddMinutes(5) }, DefaultCancellationToken);
+
+        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(now.AddMinutes(1), stored.ExpiresUtc);
+
+        timeProvider.Advance(TimeSpan.FromMinutes(2));
+        Assert.False((await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Found);
+    }
+
+    /// <summary>When the absolute deadline is earlier than the relative one, the absolute one wins (issue #445).</summary>
+    [Fact]
+    public async Task EarliestAbsoluteDeadlineWins()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(timeProvider);
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = now.AddMinutes(1) }, DefaultCancellationToken);
+
+        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(now.AddMinutes(1), stored.ExpiresUtc);
+
+        timeProvider.Advance(TimeSpan.FromMinutes(2));
+        Assert.False((await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Found);
+    }
 }

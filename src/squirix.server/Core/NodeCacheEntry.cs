@@ -41,13 +41,14 @@ public sealed class NodeCacheEntry<T>
     }
 
     /// <summary>
-    /// Gets the relative expiration. If provided, it takes precedence over <see cref="ExpiresUtc" />.
+    /// Gets the relative expiration, measured from the entry write time. The entry expires at the earliest of this
+    /// deadline and <see cref="ExpiresUtc" />, so the two combine instead of overriding each other.
     /// </summary>
     public TimeSpan? Expiration { get; init; }
 
     /// <summary>
-    /// Gets the absolute UTC expiration time. If set and reached, the entry is considered expired.
-    /// Ignored if <see cref="Expiration" /> is provided.
+    /// Gets the absolute UTC expiration time. The entry expires at the earliest of this time and the
+    /// <see cref="Expiration" /> deadline.
     /// </summary>
     public DateTime? ExpiresUtc { get; init; }
 

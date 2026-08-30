@@ -24,6 +24,21 @@ public sealed class JournalEntryExpirationMaterializerTests
         Assert.InRange(expiresUtc.Value, before, after);
     }
 
+    /// <summary>ForJournalWrite keeps the earliest of the relative and absolute deadlines (issue #445).</summary>
+    [Fact]
+    public void WriteMaterializesEarliestDeadline()
+    {
+        var start = DateTime.UtcNow;
+
+        var (relativeDeadline, relativeExpiration) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddHours(1), TimeSpan.FromMilliseconds(100));
+        Assert.Null(relativeExpiration);
+        _ = Assert.NotNull(relativeDeadline);
+        Assert.InRange(relativeDeadline.Value, start.AddMilliseconds(100), start.AddSeconds(1));
+
+        var (absoluteDeadline, _) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddMilliseconds(-1000), TimeSpan.FromMinutes(5));
+        Assert.Equal(start.AddMilliseconds(-1000), absoluteDeadline);
+    }
+
     /// <summary>Verifies recovery insert converts legacy relative TTL payloads to absolute expiry.</summary>
     [Fact]
     public void RecoveryInsertSetsExpiryFromTimestamp()
@@ -36,6 +51,25 @@ public sealed class JournalEntryExpirationMaterializerTests
         Assert.Null(restored.Expiration);
         var memory = DateTime.Parse("2020-01-01T00:00:30Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
         Assert.Equal(memory, restored.ExpiresUtc);
+    }
+
+    /// <summary>Recovery insert uses the earliest of the absolute and relative deadlines (issue #445).</summary>
+    [Fact]
+    public void RecoveryInsertUsesEarliestDeadline()
+    {
+        var writtenUnixMs = DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
+        var write = DateTime.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+
+        var relativeWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30), ExpiresUtc = write.AddMinutes(5) };
+        var restoredRelative = JournalEntryExpirationMaterializer.ForRecoveryInsert(relativeWins, writtenUnixMs);
+
+        Assert.Null(restoredRelative.Expiration);
+        Assert.Equal(write.AddSeconds(30), restoredRelative.ExpiresUtc);
+
+        var absoluteWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = write.AddSeconds(10) };
+        var restoredAbsolute = JournalEntryExpirationMaterializer.ForRecoveryInsert(absoluteWins, writtenUnixMs);
+
+        Assert.Equal(write.AddSeconds(10), restoredAbsolute.ExpiresUtc);
     }
 
     /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
