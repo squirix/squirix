@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Core;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -8,19 +9,23 @@ internal static class JournalEntryExpirationMaterializer
 {
     internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
     {
-        if (expiresUtc != null || expiration == null)
-            return (expiresUtc, expiration);
+        if (expiration is not { } relative)
+            return (expiresUtc, null);
 
-        return (DateTime.UtcNow.Add(expiration.Value), null);
+        var relativeDeadline = DateTime.UtcNow.SaturatedAdd(relative);
+        var effective = expiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
+        return (effective, null);
     }
 
     internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
     {
-        if (entry.ExpiresUtc != null || entry.Expiration == null || writtenUnixMs <= 0)
+        if (entry.Expiration is not { } relative || writtenUnixMs <= 0)
             return entry;
 
         var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return new NodeCacheEntry<T>(entry.Value, entry.Version, time.Add(entry.Expiration.Value), tags: entry.Tags);
+        var relativeDeadline = time.SaturatedAdd(relative);
+        var effective = entry.ExpiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
+        return new NodeCacheEntry<T>(entry.Value, entry.Version, effective, tags: entry.Tags);
     }
 
     internal static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
@@ -38,6 +43,6 @@ internal static class JournalEntryExpirationMaterializer
             return false;
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return writtenAt.Add(relative) <= DateTime.UtcNow;
+        return writtenAt.SaturatedAdd(relative) <= DateTime.UtcNow;
     }
 }

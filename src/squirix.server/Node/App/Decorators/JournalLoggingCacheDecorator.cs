@@ -7,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -87,7 +88,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
         var cacheKey = new CacheKey(cacheName, key);
-        var expiresUtc = DateTime.UtcNow.Add(expiration);
+        var expiresUtc = DateTime.UtcNow.SaturatedAdd(expiration);
         return _executor.ExecuteAsync(
             cacheKey,
             static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),

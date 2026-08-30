@@ -117,7 +117,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!TryGetLive(key, out var stored))
             return ValueTask.FromResult(false);
 
-        var expires = UtcNow.Add(expiration);
+        var expires = UtcNow.SaturatedAdd(expiration);
         var updated = stored with { ExpiresUtc = expires };
         if (!_store.TryUpdate(key, updated, stored))
             return ValueTask.FromResult(false);
@@ -217,8 +217,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         var version = entry.Version > 0 ? entry.Version : 1;
         var expires = entry.ExpiresUtc;
-        if (expires == null && entry.Expiration is { } expiration)
-            expires = UtcNow.Add(expiration);
+        if (entry.Expiration is { } expiration)
+        {
+            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+            if (expires == null || relativeDeadline < expires)
+                expires = relativeDeadline;
+        }
 
         return new NodeCacheEntry<T>(entry.Value, version, expires, entry.Expiration, entry.Tags);
     }
