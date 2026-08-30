@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -19,8 +21,10 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Recovery with binary snapshots and missing snapshot path fallbacks.</summary>
 [Immutable]
-public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
+public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Manifest pointing at a missing snapshot path falls back to journal-only recovery.</summary>
     [Fact]
     public async Task MissingSnapshotFallsBackToJournal()
@@ -97,11 +101,14 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
         Assert.Equal("from-journal", tailEntry.Value);
     }
 
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
     {
         var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        var store = new RpcMutationIdempotencyStore();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var reader = StoreFactory.CreateReader(persistence);
         var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader);
         var options = new RecoveryOptions { BlockOnStart = true };

@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
@@ -14,10 +15,12 @@ namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Admission tests for object cache entries with complex payloads.</summary>
 [Immutable]
-public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
+public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
 {
     private const string CacheName = "orders";
     private const string Self = "node-a";
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Large object entries are rejected once the projected usage exceeds the configured limit.</summary>
     [Fact]
@@ -31,7 +34,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
             HighPressureThresholdPercent = 80,
             CriticalPressureThresholdPercent = 95,
         };
-        var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self);
+        var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self, _testMeter);
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
         var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
@@ -41,4 +44,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, DefaultCancellationToken));
         Assert.Equal(1, accounting.ReadEntryCount());
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 }

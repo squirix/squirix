@@ -18,9 +18,12 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner)
+    private readonly CacheMetrics _metrics;
+
+    internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner, CacheMetrics metrics)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        _metrics = metrics;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
@@ -85,12 +88,6 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         new UpdateArgs(operationId, cacheName, key, value),
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
-
-    private static void Record(string cacheName, string operation, string result, long startTimestamp) => CacheMetrics.RecordOperation(
-        ServerCacheName.NormalizeUnvalidated(cacheName),
-        operation,
-        result,
-        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
 
     private async ValueTask ObserveAsync<TState>(
         string cacheName,
@@ -187,6 +184,12 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw;
         }
     }
+
+    private void Record(string cacheName, string operation, string result, long startTimestamp) => _metrics.RecordOperation(
+        ServerCacheName.NormalizeUnvalidated(cacheName),
+        operation,
+        result,
+        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
 
     [Immutable]
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);

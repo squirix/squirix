@@ -21,10 +21,11 @@ public sealed class ItemsGaugeReporterServiceTests
     [Fact]
     public async Task ObservableGaugeReflectsStatsAsync()
     {
+        using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink();
         using var listener = CreateListener(sink);
 
-        using (var service = new ItemsGaugeReporterService(new StubStats(9)))
+        using (var service = new ItemsGaugeReporterService(new StubStats(9), meter))
         {
             await service.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
@@ -32,7 +33,7 @@ public sealed class ItemsGaugeReporterServiceTests
             await service.StopAsync(CancellationToken.None);
         }
 
-        using (var empty = new ItemsGaugeReporterService(new StubStats(0)))
+        using (var empty = new ItemsGaugeReporterService(new StubStats(0), meter))
         {
             await empty.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
@@ -40,7 +41,7 @@ public sealed class ItemsGaugeReporterServiceTests
             await empty.StopAsync(CancellationToken.None);
         }
 
-        using var faulting = new ItemsGaugeReporterService(new FaultingStats());
+        using var faulting = new ItemsGaugeReporterService(new FaultingStats(), meter);
         await faulting.StartAsync(CancellationToken.None);
         var aggregate = NodeExceptionAssert.For<AggregateException>().Throws(listener, static value => value.RecordObservableInstruments());
         var inner = Assert.Single(aggregate.InnerExceptions);

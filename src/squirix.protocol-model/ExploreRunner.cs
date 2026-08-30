@@ -342,19 +342,28 @@ internal static class ExploreRunner
 
             if (allSame)
             {
-                // Isolate each replica — permutation-invariant under symmetry reduction.
-                for (var isolated = 0; isolated < parts.Count; isolated++)
-                {
-                    var split = ModelTransitionUtil.CloneInts(parts);
-                    for (var i = 0; i < split.Length; i++)
-                        split[i] = i == isolated ? 1 : 0;
-
-                    output.Add(state.WithPartitions(split));
-                }
-
+                AddIsolationPartitions(state, parts, output);
                 return;
             }
 
+            AddHealedPartition(state, parts, output);
+        }
+
+        private static void AddIsolationPartitions(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
+        {
+            // Isolate each replica — permutation-invariant under symmetry reduction.
+            for (var isolated = 0; isolated < parts.Count; isolated++)
+            {
+                var split = ModelTransitionUtil.CloneInts(parts);
+                for (var i = 0; i < split.Length; i++)
+                    split[i] = i == isolated ? 1 : 0;
+
+                output.Add(state.WithPartitions(split));
+            }
+        }
+
+        private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
+        {
             var healed = ModelTransitionUtil.CloneInts(parts);
             for (var i = 0; i < healed.Length; i++)
                 healed[i] = 0;

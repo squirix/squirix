@@ -37,11 +37,9 @@ internal static class ServiceRegistration
                     CopyPeers(cluster),
                     new ServerClientPoolArgs
                     {
-                        PolicyFactory = callPolicyFactory ?? (static _ => new ServerCallPolicy(
-                            TimeSpan.FromSeconds(3),
-                            3,
-                            TimeSpan.FromMilliseconds(60),
-                            TimeSpan.FromMilliseconds(600))),
+                        PolicyFactory = callPolicyFactory ?? (_ => new ServerCallPolicy(
+                            sp.GetRequiredService<ServerCallPolicyInstrumentation>(),
+                            timeouts: new CallPolicyTimeouts(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600)))),
                         PeerHandlerFactory = peerHandlerFactory,
                         Logger = sp.GetService<ILogger<ServerClientPool>>(),
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
@@ -49,7 +47,8 @@ internal static class ServiceRegistration
                         MtlsMaterial = material,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
                         InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<InternalOwnerClientInterceptor>() : null,
-                    });
+                    },
+                    sp.GetRequiredService<ServerClientPoolMetrics>());
             });
 
             return services;
@@ -67,7 +66,7 @@ internal static class ServiceRegistration
         return copy;
     }
 
-    /// <summary>Marks outbound cluster owner-routing gRPC calls for trusted inter-node authentication.</summary>
+    /// <summary>Marks outbound cluster owner-routing gRPC calls for trusted internode authentication.</summary>
     private sealed class InternalOwnerClientInterceptor : Interceptor
     {
         public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(

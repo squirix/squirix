@@ -9,7 +9,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
@@ -27,8 +26,9 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 {
     private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
 
-    private readonly string _nodeId;
     private readonly ILogger<JournalMetricsExporterService> _log;
+
+    private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
 
     private readonly IOptionsMonitor<JournalMetricsExporterOptions> _options;
@@ -37,19 +37,21 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, TopologyOptions cluster, ILogger<JournalMetricsExporterService> log)
+    public JournalMetricsExporterService(
+        PersistenceOptions opt,
+        IOptionsMonitor<JournalMetricsExporterOptions> options,
+        TopologyOptions cluster,
+        ILogger<JournalMetricsExporterService> log,
+        Meter meter)
     {
         _opt = opt;
         _options = options;
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _nodeId = cluster.NodeId;
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
+        _ = meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_journal_size_bytes",
-            ObserveSize,
-            description: "Total size of journal segment files currently present on disk");
+        _ = meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -1,7 +1,9 @@
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -22,6 +24,8 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Execute with a journal must append an IdempotencyOutcome frame.</summary>
     [Fact]
     public async Task JournaledCoordinatorPersistsOutcome()
@@ -41,7 +45,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true));
 
-        var store = new RpcMutationIdempotencyStore();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var key = CacheKey.Default("guard-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -79,5 +83,12 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         }
 
         Assert.True(found);
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+        _testMeter.Dispose();
     }
 }

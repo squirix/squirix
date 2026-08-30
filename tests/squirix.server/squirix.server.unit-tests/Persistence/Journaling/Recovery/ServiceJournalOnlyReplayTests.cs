@@ -1,7 +1,9 @@
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -14,8 +16,10 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Journal-only recovery must replay from the first on-disk segment, not manifest CurrentJournal.</summary>
 [Immutable]
-public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
+public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>
     [Fact]
     public async Task RecoveryReplaysClosedCurrentJournal()
@@ -41,11 +45,20 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, new RpcMutationIdempotencyStore(), StoreFactory.CreateReader(persistence)));
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.Ledger,
+                scenario.Cache,
+                gate,
+                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+                StoreFactory.CreateReader(persistence)));
         await recovery.StartAsync(DefaultCancellationToken);
 
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), DefaultCancellationToken)).Found);
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-b"), DefaultCancellationToken)).Found);
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg2-c"), DefaultCancellationToken)).Found);
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 }

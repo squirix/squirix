@@ -11,6 +11,7 @@ namespace Squirix.Server.Node.Backpressure;
 internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 {
     private readonly ConcurrentDictionary<string, ClientState> _clients = new(StringComparer.Ordinal);
+    private readonly BackpressureMetrics _metrics;
     private readonly RateLimiter? _nodeRateLimiter;
     private readonly IDisposable _observerRegistration;
     private readonly AdmissionOptions _options;
@@ -20,14 +21,15 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private int _inFlight;
     private int _queueDepth;
 
-    internal AdmissionGate(AdmissionOptions options, TimeProvider? timeProvider = null)
+    internal AdmissionGate(AdmissionOptions options, BackpressureMetrics metrics, TimeProvider? timeProvider = null)
     {
+        _metrics = metrics;
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
         _slots = new SemaphoreSlim(_options.MaxInFlight, _options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
-        _observerRegistration = BackpressureMetrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
+        _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
@@ -114,7 +116,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (delay <= TimeSpan.Zero)
             return;
 
-        BackpressureMetrics.AddSlowdown(transport, operation);
+        _metrics.AddSlowdown(transport, operation);
         await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
     }
 
@@ -123,7 +125,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_options.Enabled)
             return null;
 
-        BackpressureMetrics.AddBypass(transport, operation);
+        _metrics.AddBypass(transport, operation);
         return (Decision.Accepted(), Lease.Empty);
     }
 
@@ -138,8 +140,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (!_options.Enabled || client.TryAcquire())
             return null;
 
-        BackpressureMetrics.AddRateLimitReject(transport, operation, "client");
-        BackpressureMetrics.AddReject(transport, operation, "client_rate_limit");
+        _metrics.AddRateLimitReject(transport, operation, "client");
+        _metrics.AddReject(transport, operation, "client_rate_limit");
         return (Decision.Rejected("client_rate_limit"), Lease.Empty);
     }
 
@@ -148,7 +150,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (inFlight < _options.RejectThreshold || queueDepth <= 0)
             return null;
 
-        BackpressureMetrics.AddReject(transport, operation, "hard_threshold");
+        _metrics.AddReject(transport, operation, "hard_threshold");
         return (Decision.Rejected("hard_threshold"), Lease.Empty);
     }
 
@@ -157,8 +159,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_nodeRateLimiter?.TryAcquire() != false)
             return null;
 
-        BackpressureMetrics.AddRateLimitReject(transport, operation, "node");
-        BackpressureMetrics.AddReject(transport, operation, "node_rate_limit");
+        _metrics.AddRateLimitReject(transport, operation, "node");
+        _metrics.AddReject(transport, operation, "node_rate_limit");
         return (Decision.Rejected("node_rate_limit"), Lease.Empty);
     }
 
@@ -173,11 +175,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             var maxClientQueue = _options.PerClientMaxQueue ?? _options.MaxQueue;
             if (queuedForClient > maxClientQueue)
             {
-                BackpressureMetrics.AddReject(transport, operation, "client_queue_full");
+                _metrics.AddReject(transport, operation, "client_queue_full");
                 return (Decision.Rejected("client_queue_full"), Lease.Empty);
             }
 
-            BackpressureMetrics.AddReject(transport, operation, "client_concurrency_limit");
+            _metrics.AddReject(transport, operation, "client_concurrency_limit");
             return (Decision.Rejected("client_concurrency_limit"), Lease.Empty);
         }
         finally
@@ -216,7 +218,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (queued > _options.MaxQueue)
         {
             _ = Interlocked.Decrement(ref _queueDepth);
-            BackpressureMetrics.AddReject(transport, operation, "queue_full");
+            _metrics.AddReject(transport, operation, "queue_full");
             return (Decision.Rejected("queue_full"), Lease.Empty);
         }
 
@@ -232,18 +234,18 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                BackpressureMetrics.AddQueueTimeout(transport, operation);
-                BackpressureMetrics.AddReject(transport, operation, "queue_wait_timeout");
+                _metrics.AddQueueTimeout(transport, operation);
+                _metrics.AddReject(transport, operation, "queue_wait_timeout");
                 return (Decision.Rejected("queue_wait_timeout"), Lease.Empty);
             }
 
             var queueWait = Stopwatch.GetElapsedTime(started);
-            BackpressureMetrics.RecordQueueWait(queueWait, transport, operation);
+            _metrics.RecordQueueWait(queueWait, transport, operation);
             return (Decision.Accepted(), AcquireLease(clientId, client));
         }
         catch (OperationCanceledException)
         {
-            BackpressureMetrics.AddQueueCancellation(transport, operation);
+            _metrics.AddQueueCancellation(transport, operation);
             throw;
         }
         finally

@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -10,16 +12,21 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Capacity and eviction tests for <see cref="RpcMutationIdempotencyStore" />.</summary>
 [Immutable]
-public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
+public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTestBase
 {
     private static readonly byte[] ResponseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Expired records are removed before capacity enforcement on new inserts.</summary>
     [Fact]
     public void ExpiredRecordsPrunedBeforeCapCheck()
     {
         const int cap = 2;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMinutes(15) }, "test-node");
+        var store = new RpcMutationIdempotencyStore(
+            new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMinutes(15) },
+            "test-node",
+            new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes);
         store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-20));
@@ -31,25 +38,15 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
         Assert.True(store.TryReplay("op-3", "fp-3", TryAddAsyncResponse.Parser, out _));
     }
 
-    /// <summary>Flooding unique operation ids keeps the in-memory record count within the configured cap.</summary>
-    [Fact]
-    public void UniqueOpIdFloodStaysWithinRecordCap()
-    {
-        const int cap = 8;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
-
-        for (var i = 0; i < cap * 3; i++)
-            store.RecordSuccess($"op-{NodeInvariantIndexStrings.FormatD4(i)}", $"fp-{NodeInvariantIndexStrings.FormatD4(i)}", ResponseBytes);
-
-        Assert.Equal(cap, store.RecordCount);
-    }
-
     /// <summary>Evicting the oldest record allows a new operation id to be stored at capacity.</summary>
     [Fact]
     public void NewOpEvictsOldestRecordAtCapacity()
     {
         const int cap = 2;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
+        var store = new RpcMutationIdempotencyStore(
+            new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) },
+            "test-node",
+            new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes);
 
@@ -67,7 +64,10 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
     public void SuccessReplaceKeepsRecordCountFlat()
     {
         const int cap = 2;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
+        var store = new RpcMutationIdempotencyStore(
+            new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) },
+            "test-node",
+            new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes);
 
@@ -82,11 +82,30 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
     [Fact]
     public void SweepExpiredRemovesWithoutReadAccess()
     {
-        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMilliseconds(50));
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
 
         store.SweepExpired(DateTime.UtcNow.AddMinutes(1));
 
         Assert.Equal(0, store.RecordCount);
     }
+
+    /// <summary>Flooding unique operation ids keeps the in-memory record count within the configured cap.</summary>
+    [Fact]
+    public void UniqueOpIdFloodStaysWithinRecordCap()
+    {
+        const int cap = 8;
+        var store = new RpcMutationIdempotencyStore(
+            new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) },
+            "test-node",
+            new IdempotencyMetrics(_testMeter));
+
+        for (var i = 0; i < cap * 3; i++)
+            store.RecordSuccess($"op-{NodeInvariantIndexStrings.FormatD4(i)}", $"fp-{NodeInvariantIndexStrings.FormatD4(i)}", ResponseBytes);
+
+        Assert.Equal(cap, store.RecordCount);
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 }

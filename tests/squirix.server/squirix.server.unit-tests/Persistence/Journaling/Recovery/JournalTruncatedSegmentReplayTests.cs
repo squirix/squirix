@@ -67,7 +67,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
 
     /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>
     [Fact]
-    public async Task TruncatedSecondCrcYieldsFirstOnly()
+    public void TruncatedSecondCrcYieldsFirstOnly()
     {
         var first = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k1", "a");
         var second = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "k2", "b");

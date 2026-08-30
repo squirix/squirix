@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -24,7 +26,7 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for snapshot cut recovery metadata consistency (plan step 1).</summary>
 [Immutable]
-public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
+public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
 {
     private const int FillChunkChars = 8_192;
     private const int RollOverflowChars = 16_000;
@@ -33,6 +35,8 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
 
     private static readonly CacheKey OverflowKey = CacheKey.Default("overflow");
     private static readonly CacheKey TailKey = CacheKey.Default("tail");
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>
     /// When a segment roll happens during the slow snapshot build phase, recovery must still replay journal tail
@@ -72,24 +76,8 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
     }
 
-    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
-    {
-        var cache = new PhysicalCache<object?>();
-        var recoveryDependencies = new RecoveryDependencies<object?>(
-            persistence,
-            manifestStore,
-            cache,
-            new AsyncManualResetEvent(true),
-            new RpcMutationIdempotencyStore(),
-            StoreFactory.CreateReader(persistence));
-        var options = new RecoveryOptions { BlockOnStart = true };
-        await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
-
-        Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
-        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
-        Assert.True(tailEntry.Found);
-        Assert.Equal("tail", tailEntry.Value);
-    }
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static async Task<SnapshotRef> CutSnapshotDuringSegmentRollAsync(
         JournalCoordinator journal,
@@ -168,5 +156,24 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
             PutEntryBytes = payload,
         };
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(journalRecord));
+    }
+
+    private async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<object?>();
+        var recoveryDependencies = new RecoveryDependencies<object?>(
+            persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            StoreFactory.CreateReader(persistence));
+        var options = new RecoveryOptions { BlockOnStart = true };
+        await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
+
+        Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
+        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+        Assert.True(tailEntry.Found);
+        Assert.Equal("tail", tailEntry.Value);
     }
 }

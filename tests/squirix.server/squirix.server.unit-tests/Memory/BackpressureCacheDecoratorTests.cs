@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -6,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -15,8 +17,10 @@ namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Covers per-client isolation through <see cref="BackpressureCacheDecorator{T}" />.</summary>
 [Immutable]
-public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
+public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Two client ids keep independent PerClientMaxInFlight budgets.</summary>
     [Fact]
     public async Task TwoClientIdsGetIndependentLimits()
@@ -32,7 +36,8 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
                 RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", DefaultCancellationToken)).Lease;
 
@@ -63,7 +68,8 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
                 RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", DefaultCancellationToken)).Lease;
 
@@ -79,6 +85,9 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
         await cacheB.SetEntryAsync("op-2", "c", "k", entry, DefaultCancellationToken);
         Assert.Equal(1, inner.SetEntryCalls);
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private sealed class CompletingLogicalCache : ILogicalNamespacedCache<string>
     {

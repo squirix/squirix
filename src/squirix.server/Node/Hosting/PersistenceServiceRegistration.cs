@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,17 +28,21 @@ internal static class PersistenceServiceRegistration
 {
     private static readonly string[] ReadyHealthCheckTags = ["ready"];
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "PersistenceRuntime ownership is transferred to the DI container.")]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The PersistenceRuntime singleton is owned by the DI container.")]
     internal static async Task<IServiceCollection> AddPersistenceServicesAsync(
         this IServiceCollection services,
         PersistenceOptions options,
+        Meter meter,
         bool waitForRecovery,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
         _ = services.AddSingleton(options);
 
-        var runtime = await PersistenceRuntime.CreateAsync(options, cancellationToken).ConfigureAwait(false);
+        var failureMetrics = new ManifestRetentionFailureMetrics(meter);
+        _ = services.AddSingleton(failureMetrics);
+
+        var runtime = await PersistenceRuntime.CreateAsync(options, failureMetrics, cancellationToken).ConfigureAwait(false);
         _ = services.AddSingleton<PersistenceRuntime>(_ => runtime);
 
         RegisterPersistenceHostedServices(services, waitForRecovery);
@@ -79,7 +84,8 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<ISnapshotReader>(),
                 sp.GetRequiredService<PersistenceOptions>(),
-                sp.GetRequiredService<TopologyOptions>())));
+                sp.GetRequiredService<TopologyOptions>()),
+            sp.GetRequiredService<CompactionMetrics>()));
 
         _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
@@ -109,28 +115,11 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
         _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
 
-        var journalRecovery = new HealthCheckRegistration(
-            "journal_recovery",
-            static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        var journalMaintenance = new HealthCheckRegistration(
-            "journal_maintenance",
-            static sp => new JournalMaintenanceReadinessHealthCheck(
-                sp.GetRequiredService<IJournalCoordinator>(),
-                sp.GetRequiredService<IJournalCompactionStatus>(),
-                sp.GetRequiredService<ISnapshotReadinessStatus>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        var storageRetentionCleanup = new HealthCheckRegistration(
-            "storage_retention_cleanup",
-            static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()),
-            HealthStatus.Unhealthy,
-            ReadyHealthCheckTags);
-        _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
+        RegisterRuntimeHealthChecks(services);
 
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton<ISnapshotTelemetry, OpenTelemetrySnapshotTelemetry>();
+        _ = services.AddSingleton(static sp => new OpenTelemetrySnapshotTelemetry(sp.GetRequiredService<Meter>()));
+        _ = services.AddSingleton<ISnapshotTelemetry>(static sp => sp.GetRequiredService<OpenTelemetrySnapshotTelemetry>());
 
         _ = services.AddSingleton(static sp =>
         {
@@ -152,15 +141,38 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<ISnapshotTelemetry>())));
     }
 
+    private static void RegisterRuntimeHealthChecks(IServiceCollection services)
+    {
+        var journalRecovery = new HealthCheckRegistration(
+            "journal_recovery",
+            static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
+            HealthStatus.Unhealthy,
+            ReadyHealthCheckTags);
+        var journalMaintenance = new HealthCheckRegistration(
+            "journal_maintenance",
+            static sp => new JournalMaintenanceReadinessHealthCheck(
+                sp.GetRequiredService<IJournalCoordinator>(),
+                sp.GetRequiredService<IJournalCompactionStatus>(),
+                sp.GetRequiredService<ISnapshotReadinessStatus>()),
+            HealthStatus.Unhealthy,
+            ReadyHealthCheckTags);
+        var storageRetentionCleanup = new HealthCheckRegistration(
+            "storage_retention_cleanup",
+            static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()),
+            HealthStatus.Unhealthy,
+            ReadyHealthCheckTags);
+        _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
+    }
+
     [Mutable]
     private sealed class PersistenceRuntime : IAsyncDisposable
     {
         private int _disposed;
 
-        private PersistenceRuntime(PersistenceOptions options)
+        private PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics)
         {
             Retention = new RetentionCleanupReadiness(options);
-            Ledger = new Ledger(options, retentionReadiness: Retention, failureMetrics: ManifestRetentionFailureMetrics.Instance);
+            Ledger = new Ledger(options, retentionReadiness: Retention, failureMetrics: failureMetrics);
             Gate = new AsyncManualResetEvent();
             JournalCoordinator = new JournalCoordinatorHost();
         }
@@ -182,9 +194,9 @@ internal static class PersistenceServiceRegistration
             Ledger.Dispose();
         }
 
-        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions options, CancellationToken cancellationToken)
+        internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics, CancellationToken cancellationToken)
         {
-            var runtime = new PersistenceRuntime(options);
+            var runtime = new PersistenceRuntime(options, failureMetrics);
             try
             {
                 var manifest = await runtime.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);

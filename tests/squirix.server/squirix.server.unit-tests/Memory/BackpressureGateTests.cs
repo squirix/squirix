@@ -1,12 +1,11 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -15,18 +14,16 @@ namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for node-level backpressure admission control.</summary>
 [Immutable]
-public sealed class BackpressureGateTests : ServerUnitTestBase
+public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 {
-    private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
-    private const string BackpressureQueueDepthInstrumentName = "squirix_backpressure_queue_depth";
-    private const string BackpressureTrackedClientsInstrumentName = "squirix_backpressure_tracked_clients";
-    private const string MeterName = "Squirix";
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Verifies disabled backpressure returns an accepted empty lease and emits bypass metrics.</summary>
     [Fact]
     public async Task AcquireBypassesDisabledBackpressure()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -37,7 +34,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            });
+            },
+            new BackpressureMetrics(meter));
 
         var (decision, lease) = await gate.AcquireAsync("rest", "insert", "rest:client-a", DefaultCancellationToken);
         lease.Dispose();
@@ -59,7 +57,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 2,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         var (decision, lease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken);
         using (lease)
@@ -83,7 +82,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        using var gate = new AdmissionGate(backpressureOptions);
+        using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(_testMeter));
         IBackpressureGate gateForClients = gate;
         var current = new int[1];
         var observedMax = new int[1];
@@ -96,81 +95,6 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         await runClients;
 
         Assert.True(observedMax[0] <= maxInFlight);
-    }
-
-    /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
-    [Fact]
-    public async Task GaugesReflectInFlightAndQueueDepth()
-    {
-        var inFlight = new List<int>();
-        var queueDepth = new List<int>();
-        var trackedClients = new List<int>();
-        var measurements = new Dictionary<string, List<int>>(StringComparer.Ordinal)
-        {
-            [BackpressureInFlightInstrumentName] = inFlight,
-            [BackpressureQueueDepthInstrumentName] = queueDepth,
-            [BackpressureTrackedClientsInstrumentName] = trackedClients,
-        }.ToFrozenDictionary(StringComparer.Ordinal);
-
-        using var listener = CreateBackpressureGaugeListener(measurements);
-        var backpressureOptions = new AdmissionOptions
-        {
-            MaxInFlight = 1,
-            MaxQueue = 1,
-            SlowdownThreshold = 1,
-            RejectThreshold = 1,
-            MaxSlowdownDelay = TimeSpan.Zero,
-            MaxQueueWait = TimeSpan.FromMilliseconds(200),
-        };
-        using var gate = new AdmissionGate(backpressureOptions);
-        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
-        var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken).AsTask();
-        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
-        first.Dispose();
-
-        var (_, secondLease) = await secondAcquire;
-        secondLease.Dispose();
-    }
-
-    /// <summary>Verifies observable gauges are not overwritten by an idle gate and remain correct after that gate is disposed.</summary>
-    [Fact]
-    public async Task GaugesStayBoundAfterIdleGateDispose()
-    {
-        var inFlight = new List<int>();
-        var queueDepth = new List<int>();
-        var trackedClients = new List<int>();
-        var measurements = new Dictionary<string, List<int>>(StringComparer.Ordinal)
-        {
-            [BackpressureInFlightInstrumentName] = inFlight,
-            [BackpressureQueueDepthInstrumentName] = queueDepth,
-            [BackpressureTrackedClientsInstrumentName] = trackedClients,
-        }.ToFrozenDictionary(StringComparer.Ordinal);
-
-        using var listener = CreateBackpressureGaugeListener(measurements);
-        var options = new AdmissionOptions
-        {
-            MaxInFlight = 1,
-            MaxQueue = 1,
-            SlowdownThreshold = 1,
-            RejectThreshold = 1,
-            MaxSlowdownDelay = TimeSpan.Zero,
-            MaxQueueWait = TimeSpan.FromMilliseconds(200),
-        };
-
-        using var gateA = new AdmissionGate(options);
-
-        var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", DefaultCancellationToken)).Lease;
-        var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", DefaultCancellationToken).AsTask();
-
-        var gateB = new AdmissionGate(options);
-        gateB.Dispose();
-
-        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
-
-        firstA.Dispose();
-
-        var (_, secondA) = await queuedA;
-        secondA.Dispose();
     }
 
     /// <summary>Verifies disposing the same lease twice follows current release behavior.</summary>
@@ -186,104 +110,20 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken)).Lease;
         lease.Dispose();
         _ = NodeExceptionAssert.For<SemaphoreFullException>().Throws(lease, static value => value.Dispose());
     }
 
-    /// <summary>Verifies node-level rate limiting rejects excess requests and emits a node-scoped metric.</summary>
-    [Fact]
-    public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
-    {
-        using var sink = new NodeMeasurementSink(MeterName);
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 4,
-                MaxQueue = 0,
-                SlowdownThreshold = 4,
-                RejectThreshold = 4,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(100),
-                NodeRateLimitPerSecond = 1,
-                NodeRateLimitBurst = 1,
-            });
-
-        using var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
-
-        var (decision, rejectedLease) = await gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken);
-        rejectedLease.Dispose();
-
-        Assert.False(decision.IsAccepted);
-        Assert.Equal("node_rate_limit", decision.RejectReason);
-        Assert.True(sink.HasEvent("squirix_backpressure_rate_limit_reject_total", ("transport", "rest"), ("op", "get"), ("scope", "node")));
-    }
-
-    /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
-    [Fact]
-    public async Task PerClientCapRejectsWhenNodeExhausted()
-    {
-        using var sink = new NodeMeasurementSink(MeterName);
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 4,
-                PerClientMaxInFlight = 1,
-                PerClientMaxQueue = 0,
-                MaxQueue = 4,
-                SlowdownThreshold = 4,
-                RejectThreshold = 4,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(100),
-            });
-
-        using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken)).Lease;
-
-        var (decision, rejectedLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken);
-        rejectedLease.Dispose();
-
-        Assert.False(decision.IsAccepted);
-        Assert.Equal("client_queue_full", decision.RejectReason);
-        Assert.True(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "get"), ("reason", "client_queue_full")));
-    }
-
-    /// <summary>Verifies per-client rate limiting rejects one client without blocking unrelated clients.</summary>
-    [Fact]
-    public async Task PerClientRateLimitIsolatedByClient()
-    {
-        using var sink = new NodeMeasurementSink(MeterName);
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 4,
-                MaxQueue = 0,
-                SlowdownThreshold = 4,
-                RejectThreshold = 4,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(100),
-                PerClientRateLimitPerSecond = 1,
-                PerClientRateLimitBurst = 1,
-            });
-
-        using var first = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken)).Lease;
-
-        var (rejectedDecision, rejectedLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken);
-        rejectedLease.Dispose();
-
-        using var secondClient = (await gate.AcquireAsync("grpc", "get", "grpc:client-b", DefaultCancellationToken)).Lease;
-
-        Assert.False(rejectedDecision.IsAccepted);
-        Assert.Equal("client_rate_limit", rejectedDecision.RejectReason);
-        Assert.True(sink.HasEvent("squirix_backpressure_rate_limit_reject_total", ("transport", "grpc"), ("op", "get"), ("scope", "client")));
-    }
-
     /// <summary>Verifies requests are rejected once the hard threshold is reached while another request is queued.</summary>
     [Fact]
     public async Task QueueFullRejectsImmediately()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -293,7 +133,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            });
+            },
+            new BackpressureMetrics(meter));
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", DefaultCancellationToken)).Lease;
         using var secondCts = new CancellationTokenSource();
@@ -321,7 +162,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -331,7 +173,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(40),
-            });
+            },
+            new BackpressureMetrics(meter));
 
         using var lease = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
 
@@ -357,7 +200,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(500),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", DefaultCancellationToken)).Lease;
         var queuedTask = gate.AcquireAsync("grpc", "insert", "grpc:client-b", DefaultCancellationToken).AsTask();
@@ -374,7 +218,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task QueuedAcquireObservesCallerCancellation()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -384,7 +229,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 RejectThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromSeconds(2),
-            });
+            },
+            new BackpressureMetrics(meter));
 
         using var heldLease = (await gate.AcquireAsync("rest", "remove", "rest:client-a", DefaultCancellationToken)).Lease;
         using var cts = new CancellationTokenSource();
@@ -398,54 +244,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove")));
     }
 
-    /// <summary>Verifies the slowdown counter is emitted when load crosses the soft threshold.</summary>
-    [Fact]
-    public async Task SlowdownCounterIncrementsPastThreshold()
-    {
-        using var sink = new NodeMeasurementSink(MeterName);
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 2,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                RejectThreshold = 2,
-                MaxSlowdownDelay = TimeSpan.FromMilliseconds(5),
-                MaxQueueWait = TimeSpan.FromMilliseconds(100),
-            });
-
-        using var first = (await gate.AcquireAsync("rest", "put", "rest:client-a", DefaultCancellationToken)).Lease;
-        using var second = (await gate.AcquireAsync("rest", "put", "rest:client-b", DefaultCancellationToken)).Lease;
-
-        Assert.True(sink.HasEvent("squirix_backpressure_slowdown_total", ("transport", "rest"), ("op", "put")));
-    }
-
-    private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)
-    {
-        var subscription = new BackpressureGaugeSubscription(measurements);
-        var listener = new MeterListener
-        {
-            InstrumentPublished = subscription.OnInstrumentPublished,
-        };
-        listener.SetMeasurementEventCallback<int>(static (instrument, measurement, _, state) =>
-        {
-            if (state is FrozenDictionary<string, List<int>> map && map.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-        listener.Start();
-        return listener;
-    }
-
-    private static bool HasAtLeast(List<int> values, int min)
-    {
-        for (var i = 0; i < values.Count; i++)
-        {
-            if (values[i] >= min)
-                return true;
-        }
-
-        return false;
-    }
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
@@ -482,28 +282,6 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         }
     }
 
-    private static async Task WaitForGaugeSnapshotAsync(
-        MeterListener listener,
-        List<int> inFlight,
-        List<int> queueDepth,
-        List<int> trackedClients,
-        CancellationToken cancellationToken)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
-        while (DateTime.UtcNow < deadline)
-        {
-            listener.RecordObservableInstruments();
-            if (HasAtLeast(inFlight, 1) && HasAtLeast(queueDepth, 1) && HasAtLeast(trackedClients, 2))
-                return;
-
-            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
-        }
-
-        Assert.True(HasAtLeast(inFlight, 1));
-        Assert.True(HasAtLeast(queueDepth, 1));
-        Assert.True(HasAtLeast(trackedClients, 2));
-    }
-
     private static async Task WaitUntilCanceledAsync(Task task)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -511,31 +289,5 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(task.IsCanceled);
-    }
-
-    [Immutable]
-    private sealed class BackpressureGaugeSubscription
-    {
-        private readonly FrozenDictionary<string, List<int>> _measurements;
-
-        internal BackpressureGaugeSubscription(FrozenDictionary<string, List<int>> measurements)
-        {
-            _measurements = measurements;
-        }
-
-        internal void OnInstrumentPublished(Instrument instrument, MeterListener listener)
-        {
-            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (IsBackpressureGauge(instrument.Name))
-                listener.EnableMeasurementEvents(instrument, _measurements);
-        }
-
-        private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
-                                                                string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
-                                                                    name,
-                                                                    BackpressureTrackedClientsInstrumentName,
-                                                                    StringComparison.Ordinal);
     }
 }

@@ -28,7 +28,7 @@ internal static class JournalFrameReader
     /// <param name="handle">The file handle to read from.</param>
     /// <param name="buffer">The span to fill partially.</param>
     /// <param name="offset">The file offset to start reading at.</param>
-    /// <returns>The number of bytes read; zero at end of file.</returns>
+    /// <returns>The number of bytes read; zero at the end of the file.</returns>
     private static int ReadAtMost(SafeFileHandle handle, Span<byte> buffer, long offset)
     {
         var total = 0;
@@ -61,49 +61,41 @@ internal static class JournalFrameReader
 
     private static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, long offset) => ReadAtMost(handle, buffer, offset) == buffer.Length;
 
-    private static JournalFrameReadResult ReadNextFromValidStreamHeader(
-        SafeFileHandle handle,
-        long frameOffset,
-        ReadOnlySpan<byte> lengthBytes,
-        out byte[]? rentedBuffer,
-        out int payloadLength)
+    private static JournalFrameReadResult ReadNextFromValidStreamHeader(SafeFileHandle handle, long offset, ReadOnlySpan<byte> lengthBytes, out byte[]? buffer, out int length)
     {
-        rentedBuffer = null;
-        payloadLength = 0;
+        buffer = null;
+        length = 0;
 
         var declaredPayloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
         if (declaredPayloadLength < 0 || declaredPayloadLength > JournalSegmentLimits.MaxFramePayloadBytes)
-            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
+            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, offset);
 
-        payloadLength = declaredPayloadLength;
-        if (frameOffset + JournalFrameEnvelope.HeaderSize + payloadLength > RandomAccess.GetLength(handle))
-            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
+        length = declaredPayloadLength;
+        if (offset + JournalFrameEnvelope.HeaderSize + length > RandomAccess.GetLength(handle))
+            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, offset);
 
-        var rented = ArrayPool<byte>.Shared.Rent(Math.Max(payloadLength, 1));
+        var rented = ArrayPool<byte>.Shared.Rent(Math.Max(length, 1));
         try
         {
-            var payload = rented.AsSpan(0, payloadLength);
-            if (!TryReadExact(handle, payload, frameOffset + JournalFrameEnvelope.HeaderSize))
-                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
+            var payload = rented.AsSpan(0, length);
+            if (!TryReadExact(handle, payload, offset + JournalFrameEnvelope.HeaderSize))
+                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, offset);
 
             Span<byte> checksumBytes = stackalloc byte[JournalFrameEnvelope.FooterSize];
-            var checksumOffset = frameOffset + JournalFrameEnvelope.HeaderSize + payloadLength;
-            if (!TryReadExact(handle, checksumBytes, checksumOffset))
-                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
+            if (!TryReadExact(handle, checksumBytes, offset + JournalFrameEnvelope.HeaderSize + length))
+                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, offset);
 
             var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes);
             var actualChecksum = Crc32C.Compute(payload);
             if (actualChecksum != expectedChecksum)
-                return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
+                return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, offset);
 
-            rentedBuffer = rented;
-            ArgumentNullException.ThrowIfNull(rentedBuffer);
-            var nextFrameOffset = frameOffset + JournalFrameEnvelope.TotalLength(payloadLength);
-            return new JournalFrameReadResult(JournalFrameReadStatus.Success, nextFrameOffset);
+            buffer = rented;
+            return new JournalFrameReadResult(JournalFrameReadStatus.Success, offset + JournalFrameEnvelope.TotalLength(length));
         }
         finally
         {
-            if (rentedBuffer == null)
+            if (buffer == null)
                 ArrayPool<byte>.Shared.ReturnCleared(rented);
         }
     }

@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -22,10 +24,12 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>journal segment header validation during recovery and coordinator repair.</summary>
 [Immutable]
-public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
+public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTestBase
 {
     private static readonly byte[] InvalidJournalHeaderBad = [0x42, 0x41, 0x44, 0x21, 0x21];
     private static readonly byte[] InvalidJournalHeaderNope = [0x4E, 0x4F, 0x50, 0x45, 0x21];
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Appending to a segment with an invalid header rewrites a valid file header before new frames.</summary>
     [Fact]
@@ -76,7 +80,13 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, new RpcMutationIdempotencyStore(), StoreFactory.CreateReader(persistence)));
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.Ledger,
+                scenario.Cache,
+                gate,
+                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+                StoreFactory.CreateReader(persistence)));
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(DefaultCancellationToken));
 
@@ -85,6 +95,9 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token));
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static byte[] BuildPutPayload(string value) => JournalEntryPayloadKit.EncodePut(value);
 }

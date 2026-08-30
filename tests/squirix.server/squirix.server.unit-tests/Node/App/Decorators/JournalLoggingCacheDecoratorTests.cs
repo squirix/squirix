@@ -26,17 +26,16 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     private const string Remote = "node-b";
     private const string Self = "node-a";
 
-    /// <summary>Local-owner remove appends a journal record then applies memory.</summary>
+    /// <summary>JournalPayloadPrepareCacheDecorator.UpdateAsync delegates to the journal decorator for an existing key.</summary>
     [Fact]
-    public async Task RemoveAsyncLocalOwnerAppendsJournal()
+    public async Task PayloadPrepareUpdateDelegatesToJournal()
     {
         await using var harness = await CreateHarnessAsync(Self);
-        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), DefaultCancellationToken));
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, new FixedOwnerLocator(Self), harness.Cache);
         var before = harness.Journal.AppendedOps;
 
-        var removed = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
-
-        Assert.True(removed.Removed);
+        Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
         Assert.Equal(before + 1, harness.Journal.AppendedOps);
     }
 
@@ -49,6 +48,20 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
         Assert.Equal(before, harness.Journal.AppendedOps);
         Assert.Equal(1, harness.Inner.RemoveCalls);
+    }
+
+    /// <summary>Local-owner remove appends a journal record then applies memory.</summary>
+    [Fact]
+    public async Task RemoveAsyncLocalOwnerAppendsJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        var removed = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
+
+        Assert.True(removed.Removed);
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
     }
 
     /// <summary>Local-owner set appends a put journal record.</summary>
@@ -88,6 +101,22 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
+    /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
+    [Fact]
+    public async Task UpdateExistingKeyAppendsAndApplies()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+
+        var updated = await harness.Inner.GetValueAsync(CacheName, "k", DefaultCancellationToken);
+        Assert.True(updated.Found);
+        Assert.Equal("v2", updated.Value);
+    }
+
     /// <summary>Update returns false without journaling when the key is missing.</summary>
     [Fact]
     public async Task UpdateMissingKeyAppendsNoJournal()
@@ -109,35 +138,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         Assert.False(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
         Assert.Equal(before, harness.Journal.AppendedOps);
-    }
-
-    /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
-    [Fact]
-    public async Task UpdateExistingKeyAppendsAndApplies()
-    {
-        await using var harness = await CreateHarnessAsync(Self);
-        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
-        var before = harness.Journal.AppendedOps;
-
-        Assert.True(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
-        Assert.Equal(before + 1, harness.Journal.AppendedOps);
-
-        var updated = await harness.Inner.GetValueAsync(CacheName, "k", DefaultCancellationToken);
-        Assert.True(updated.Found);
-        Assert.Equal("v2", updated.Value);
-    }
-
-    /// <summary>JournalPayloadPrepareCacheDecorator.UpdateAsync delegates to the journal decorator for an existing key.</summary>
-    [Fact]
-    public async Task PayloadPrepareUpdateDelegatesToJournal()
-    {
-        await using var harness = await CreateHarnessAsync(Self);
-        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
-        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, new FixedOwnerLocator(Self), harness.Cache);
-        var before = harness.Journal.AppendedOps;
-
-        Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
-        Assert.Equal(before + 1, harness.Journal.AppendedOps);
     }
 
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
@@ -217,6 +217,17 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
+    private sealed class RaceSimulatingInnerCache : RecordingLogicalCache
+    {
+        internal RaceSimulatingInnerCache(PhysicalCache<string> physical)
+            : base(physical)
+        {
+        }
+
+        public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
+    }
+
     private class RecordingLogicalCache : ILogicalNamespacedCache<string>
     {
         private readonly ClientCache<string> _inner;
@@ -259,16 +270,5 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>
             _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
-    }
-
-    private sealed class RaceSimulatingInnerCache : RecordingLogicalCache
-    {
-        internal RaceSimulatingInnerCache(PhysicalCache<string> physical)
-            : base(physical)
-        {
-        }
-
-        public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<string>(false, default));
     }
 }

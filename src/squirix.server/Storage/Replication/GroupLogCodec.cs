@@ -27,14 +27,14 @@ internal static class GroupLogCodec
 
     private const int FrameHeaderByteCount = 4 + 1;
 
-    /// <summary>Maximum accepted log frame body length; mirrors the journal frame payload cap so a corrupt header cannot force a multi-GB pool rent.</summary>
-    private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);
-
     /// <summary>Log frame magic bytes, <c language="csharp">"SQRL"</c>.</summary>
     private const uint FrameMagic = 0x4C525153u;
 
     /// <summary>Log format version.</summary>
     private const byte FrameVersion = 1;
+
+    /// <summary>Maximum accepted log frame body length; mirrors the journal frame payload cap so a corrupt header cannot force a multi-GB pool rent.</summary>
+    private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);
 
     /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
     private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
@@ -217,6 +217,9 @@ internal static class GroupLogCodec
         return true;
     }
 
+    private static bool IsFrameBodyLengthWithinBounds(int length, int bufferLength, int bodyStart) =>
+        length is >= FrameFixedByteCount and <= MaxFrameBodyLength && length <= bufferLength - bodyStart - 4;
+
     private static bool TryReadBytes(ReadOnlySpan<byte> buffer, ref int offset, out ReadOnlyMemory<byte> value)
     {
         value = default;
@@ -252,13 +255,6 @@ internal static class GroupLogCodec
 
         fields = new MetaFixedFields(generation, term, lastLogIndex, commitIndex, lastAppliedIndex);
         return true;
-    }
-
-    private static bool IsFrameBodyLengthWithinBounds(int bodyLength, int bufferLength, int bodyStart)
-    {
-        return bodyLength >= FrameFixedByteCount
-            && bodyLength <= MaxFrameBodyLength
-            && bodyLength <= bufferLength - bodyStart - 4;
     }
 
     /// <summary>Validates a CRC-complete log frame and reads its index, term and payload extent without copying the payload.</summary>

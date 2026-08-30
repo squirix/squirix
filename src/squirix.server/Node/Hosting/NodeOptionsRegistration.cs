@@ -66,7 +66,11 @@ internal static class NodeOptionsRegistration
         _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
             sp.GetRequiredService<IOptions<MtlsOptions>>(),
             sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
-        _ = args.MtlsMaterial != null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
+
+        // Register through the factory overload so the DI container owns and disposes the certificate material on
+        // host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI, which would
+        // leak the loaded X509 certificates.
+        _ = args.MtlsMaterial != null ? services.AddSingleton(_ => args.MtlsMaterial) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
             var options = provider.GetRequiredService<MtlsOptions>();

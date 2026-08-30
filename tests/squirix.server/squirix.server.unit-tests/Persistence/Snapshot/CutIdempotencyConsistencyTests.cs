@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -19,11 +21,13 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for idempotency export timing during snapshot cut (plan step 2).</summary>
 [Immutable]
-public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
+public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBase
 {
     private const string AfterFlushOperationId = "after-flush";
     private const string AtFlushOperationId = "at-flush";
     private static readonly byte[] IdempotencyResponseBytes = [1];
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Snapshot idempotency must match the flush watermark, not outcomes recorded after the mutation gate opens.</summary>
     [Fact]
@@ -44,7 +48,7 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var idempotency = new RpcMutationIdempotencyStore();
+        var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);
 
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
@@ -56,6 +60,9 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
         var record = Assert.Single(loaded.IdempotencyRecords);
         Assert.Equal(AtFlushOperationId, record.OperationId);
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static async Task<string> CutDuringPostFlushIdempotencyAsync(
         IJournalCoordinator journal,
