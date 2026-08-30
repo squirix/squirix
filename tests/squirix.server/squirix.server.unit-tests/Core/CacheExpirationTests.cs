@@ -157,4 +157,33 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         timeProvider.Advance(TimeSpan.FromMinutes(2));
         Assert.False((await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Found);
     }
+
+    /// <summary>Relative expiration exceeding the DateTime range saturates instead of throwing.</summary>
+    [Fact]
+    public async Task SetAsyncSaturatesHugeRelativeExpiration()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(timeProvider);
+
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue }, DefaultCancellationToken);
+
+        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(DateTime.MaxValue, stored.ExpiresUtc);
+    }
+
+    /// <summary>TouchAsync with relative expiration exceeding the DateTime range saturates instead of throwing.</summary>
+    [Fact]
+    public async Task TouchAsyncSaturatesHugeExpiration()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(timeProvider);
+
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(1) }, DefaultCancellationToken);
+        Assert.True(await cache.TouchAsync(CacheKey.Default("k"), TimeSpan.MaxValue, DefaultCancellationToken));
+
+        var stored = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(DateTime.MaxValue, stored.ExpiresUtc);
+    }
 }

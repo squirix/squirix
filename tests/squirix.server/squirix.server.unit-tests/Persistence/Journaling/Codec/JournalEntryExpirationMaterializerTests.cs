@@ -81,4 +81,35 @@ public sealed class JournalEntryExpirationMaterializerTests
         Assert.True(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs));
         Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs));
     }
+
+    /// <summary>ForJournalWrite saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
+    [Fact]
+    public void WriteMaterializesSaturatedDeadline()
+    {
+        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.MaxValue);
+
+        Assert.Null(expiration);
+        Assert.Equal(DateTime.MaxValue, expiresUtc);
+    }
+
+    /// <summary>Recovery insert saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
+    [Fact]
+    public void RecoveryInsertSaturatesHugeDeadline()
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue };
+
+        var restored = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        Assert.Null(restored.Expiration);
+        Assert.Equal(DateTime.MaxValue, restored.ExpiresUtc);
+    }
+
+    /// <summary>Recovery expiry check treats a saturated relative deadline as not expired instead of throwing.</summary>
+    [Fact]
+    public void RecoveryNotExpiredForSaturatedDeadline()
+    {
+        var writtenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs));
+    }
 }

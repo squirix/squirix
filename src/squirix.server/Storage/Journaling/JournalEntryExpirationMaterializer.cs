@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Core;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -11,7 +12,7 @@ internal static class JournalEntryExpirationMaterializer
         if (expiration is not { } relative)
             return (expiresUtc, null);
 
-        var relativeDeadline = DateTime.UtcNow.Add(relative);
+        var relativeDeadline = DateTime.UtcNow.SaturatedAdd(relative);
         var effective = expiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
         return (effective, null);
     }
@@ -22,7 +23,7 @@ internal static class JournalEntryExpirationMaterializer
             return entry;
 
         var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        var relativeDeadline = time.Add(relative);
+        var relativeDeadline = time.SaturatedAdd(relative);
         var effective = entry.ExpiresUtc is { } absolute && absolute < relativeDeadline ? absolute : relativeDeadline;
         return new NodeCacheEntry<T>(entry.Value, entry.Version, effective, tags: entry.Tags);
     }
@@ -42,6 +43,6 @@ internal static class JournalEntryExpirationMaterializer
             return false;
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return writtenAt.Add(relative) <= DateTime.UtcNow;
+        return writtenAt.SaturatedAdd(relative) <= DateTime.UtcNow;
     }
 }
