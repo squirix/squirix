@@ -37,6 +37,9 @@ public sealed class InvariantDigitStringsTests : ServerUnitTestBase
         Assert.Equal("https://localhost:5001", InvariantDigitStrings.FormatHttpsOrigin("localhost", 5001));
         Assert.Equal("https://127.0.0.1:0", InvariantDigitStrings.FormatHttpsOrigin("127.0.0.1", 0));
         Assert.Equal("https://host:-1", InvariantDigitStrings.FormatHttpsOrigin("host", -1));
+        Assert.Equal("https://[::1]:443", InvariantDigitStrings.FormatHttpsOrigin("::1", 443));
+        Assert.Equal("https://[2001:db8::1]:8443", InvariantDigitStrings.FormatHttpsOrigin("2001:db8::1", 8443));
+        Assert.Equal(new Uri("https://[::1]:443").AbsoluteUri, new Uri(InvariantDigitStrings.FormatHttpsOrigin("::1", 443)).AbsoluteUri);
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(default(string?), static host => _ = InvariantDigitStrings.FormatHttpsOrigin(host!, 80));
     }
 
