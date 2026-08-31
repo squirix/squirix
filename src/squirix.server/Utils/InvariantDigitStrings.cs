@@ -56,16 +56,23 @@ internal static class InvariantDigitStrings
     {
         ArgumentNullException.ThrowIfNull(host);
 
+        var ipv6 = host.Contains(':', StringComparison.Ordinal);
         var digitLength = CountDigits(port);
         return string.Create(
-            8 + host.Length + 1 + digitLength,
-            (host, port),
+            8 + (ipv6 ? host.Length + 2 : host.Length) + 1 + digitLength,
+            (host, port, ipv6),
             static (span, state) =>
             {
                 "https://".AsSpan().CopyTo(span);
-                state.host.AsSpan().CopyTo(span[8..]);
-                span[8 + state.host.Length] = ':';
-                _ = state.port.TryFormat(span[(9 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
+                var offset = 8;
+                if (state.ipv6)
+                    span[offset++] = '[';
+                state.host.AsSpan().CopyTo(span[offset..]);
+                offset += state.host.Length;
+                if (state.ipv6)
+                    span[offset++] = ']';
+                span[offset] = ':';
+                _ = state.port.TryFormat(span[(offset + 1)..], out _, provider: CultureInfo.InvariantCulture);
             });
     }
 
