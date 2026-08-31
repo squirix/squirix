@@ -130,6 +130,7 @@ message GetOrAddAsyncRequest {
 message GetOrAddAsyncResponse {
     bool added = 1;
     CacheValue value = 2;
+    bool found = 3;
 }
 
 service SquirixCacheService {
