@@ -392,8 +392,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
-                _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
-                JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                try
+                {
+                    _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
+                    JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                }
+                catch
+                {
+                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                    throw;
+                }
+
                 var startedMs = Environment.TickCount64;
                 await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
                 _owner.RecordAppendMetrics(frameLen, startedMs);
@@ -414,8 +423,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
-                _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
-                JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                try
+                {
+                    _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
+                    JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                }
+                catch
+                {
+                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                    throw;
+                }
+
                 var startedMs = Environment.TickCount64;
                 var ack = DurabilityAck.Rent();
                 try
