@@ -1,5 +1,6 @@
 using System;
-using System.Threading;
+using System.IO;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.TestKit.Diagnostics;
 
 namespace Squirix.Server.TestKit.Networking;
@@ -12,9 +13,11 @@ namespace Squirix.Server.TestKit.Networking;
 ///     separate processes could otherwise select the same port from shared regions.
 ///     </para>
 ///     <para>
-///     Each process claims one of <see cref="SliceCount" /> slices using a named system
-///     <see cref="Mutex" />. The mutex remains owned for the lifetime of the process, ensuring
-///     that no two concurrent test processes use the same slice.
+///     Each process claims one of <see cref="SliceCount" /> slices by holding a slicing lock file
+///     open with <see cref="FileShare.None" /> for the lifetime of the process. On Linux this is an
+///     advisory <c language="csharp">flock</c> exclusive lock, which is reliable across processes
+///     (unlike named <c language="csharp">Mutex</c> instances, which are not). The operating system
+///     releases the lock automatically if the claiming process exits or crashes.
 ///     </para>
 ///     <para>
 ///     If all slices are already claimed, the last slice is reused. This means cross-process
@@ -26,7 +29,7 @@ internal static class ConsumerPortSlicer
 {
     internal const int SliceCount = 8;
 
-    private static readonly (int Index, Mutex? Mutex) SliceClaim = ClaimSlice();
+    private static readonly (int Index, SafeFileHandle? Lock) SliceClaim = ClaimSlice();
 
     private static readonly int SliceIndex = SliceClaim.Index;
 
@@ -57,34 +60,43 @@ internal static class ConsumerPortSlicer
         return (start, end);
     }
 
-    private static (int Index, Mutex? Mutex) ClaimSlice()
+    private static (int Index, SafeFileHandle? Lock) ClaimSlice()
     {
         for (var index = 0; index < SliceCount; index++)
         {
-            Mutex? mutex = null;
-            try
-            {
-                mutex = new Mutex(true, $"squirix-test-port-slice-{index}", out var createdNew);
-
-                if (createdNew)
-                    return (index, mutex);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                TestLog.Suppressed($"Port slice {index} cannot be claimed (unauthorized); trying next.", ex);
-            }
-            catch (WaitHandleCannotBeOpenedException ex)
-            {
-                TestLog.Suppressed($"Port slice {index} cannot be claimed (already open); trying next.", ex);
-            }
-
-            // Slice already owned by another process (or claim failed): release our handle.
-            mutex?.Dispose();
+            var lockStream = TryOpenSliceLock(index);
+            if (lockStream != null)
+                return (index, lockStream);
         }
 
         // More than SliceCount test processes are running concurrently.
         // Reuse the last slice; PortAllocator still guarantees uniqueness within
         // this process, but cross-process collisions are possible.
         return (SliceCount - 1, null);
+    }
+
+    /// <summary>Attempts to claim a slice by opening its lock file with exclusive sharing.</summary>
+    /// <param name="sliceIndex">Index of the slice to claim.</param>
+    /// <returns>The held lock handle, or <see langword="null" /> when another process owns the slice.</returns>
+    private static SafeFileHandle? TryOpenSliceLock(int sliceIndex)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "squirix-testkit-port-slices");
+        _ = Directory.CreateDirectory(directory);
+
+        try
+        {
+            var path = Path.Join(directory, $"squirix-test-port-slice-{sliceIndex}.lock");
+            return File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} cannot be claimed (unauthorized); trying next.", ex);
+        }
+        catch (IOException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} cannot be claimed (already open); trying next.", ex);
+        }
+
+        return null;
     }
 }

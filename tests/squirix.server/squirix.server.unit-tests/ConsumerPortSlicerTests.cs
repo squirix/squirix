@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
 
@@ -52,6 +55,31 @@ public sealed class ConsumerPortSlicerTests
         var regionEndInclusive = HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1;
         var (start, end) = ConsumerPortSlicer.Slice(HostPortRegion.MtlsInternal);
         Assert.True(start >= regionStart && end <= regionEndInclusive, $"Runtime slice [{start}..{end}] left region [{regionStart}..{regionEndInclusive}].");
+    }
+
+    /// <summary>A held exclusive slice lock must reject a second claim, restoring the cross-process guarantee the unreliable named mutex failed to provide on Linux.</summary>
+    [Fact]
+    public void SliceLockFileExcludesConcurrentClaim()
+    {
+        var lockPath = Path.Join(Path.GetTempPath(), $"squirix-testkit-slice-lock-{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            var held = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+            try
+            {
+                _ = NodeExceptionAssert.For<IOException>().Throws(lockPath, static path => _ = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+            }
+            finally
+            {
+                held.Dispose();
+            }
+        }
+        finally
+        {
+            File.Delete(lockPath);
+        }
     }
 
     private static void AssertSlicesDisjoint(HostPortRegion region)
