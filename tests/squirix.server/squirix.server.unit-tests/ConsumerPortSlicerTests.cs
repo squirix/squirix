@@ -65,16 +65,8 @@ public sealed class ConsumerPortSlicerTests
 
         try
         {
-            var held = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-
-            try
-            {
-                _ = NodeExceptionAssert.For<IOException>().Throws(lockPath, static path => _ = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
-            }
-            finally
-            {
-                held.Dispose();
-            }
+            using var held = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            _ = NodeExceptionAssert.For<IOException>().Throws(lockPath, static path => _ = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
         }
         finally
         {

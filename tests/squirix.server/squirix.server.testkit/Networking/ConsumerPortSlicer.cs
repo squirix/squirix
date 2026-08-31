@@ -20,16 +20,15 @@ namespace Squirix.Server.TestKit.Networking;
 ///     releases the lock automatically if the claiming process exits or crashes.
 ///     </para>
 ///     <para>
-///     If all slices are already claimed, the last slice is reused. This means cross-process
-///     port collisions are possible when more than <see cref="SliceCount" /> test processes
-///     run concurrently.
+///     If all slices are already claimed, the process fails with an explicit capacity error
+///     instead of silently reusing an unlocked slice, preserving disjoint port ownership.
 ///     </para>
 /// </remarks>
 internal static class ConsumerPortSlicer
 {
     internal const int SliceCount = 8;
 
-    private static readonly (int Index, SafeFileHandle? Lock) SliceClaim = ClaimSlice();
+    private static readonly (int Index, SafeFileHandle Lock) SliceClaim = ClaimSlice();
 
     private static readonly int SliceIndex = SliceClaim.Index;
 
@@ -60,7 +59,7 @@ internal static class ConsumerPortSlicer
         return (start, end);
     }
 
-    private static (int Index, SafeFileHandle? Lock) ClaimSlice()
+    private static (int Index, SafeFileHandle Lock) ClaimSlice()
     {
         for (var index = 0; index < SliceCount; index++)
         {
@@ -69,10 +68,11 @@ internal static class ConsumerPortSlicer
                 return (index, lockStream);
         }
 
-        // More than SliceCount test processes are running concurrently.
-        // Reuse the last slice; PortAllocator still guarantees uniqueness within
-        // this process, but cross-process collisions are possible.
-        return (SliceCount - 1, null);
+        // More than SliceCount test processes are running concurrently. Do not reuse a locked
+        // slice: that would let two processes collide on the same ports. Fail loud instead.
+        throw new InvalidOperationException(
+            $"All {SliceCount} test port slices are claimed by concurrent processes. Reduce test " +
+            $"parallelism to {SliceCount} or fewer concurrent test processes.");
     }
 
     /// <summary>Attempts to claim a slice by opening its lock file with exclusive sharing.</summary>
@@ -80,13 +80,13 @@ internal static class ConsumerPortSlicer
     /// <returns>The held lock handle, or <see langword="null" /> when another process owns the slice.</returns>
     private static SafeFileHandle? TryOpenSliceLock(int sliceIndex)
     {
-        var directory = Path.Join(Path.GetTempPath(), "squirix-testkit-port-slices");
-        _ = Directory.CreateDirectory(directory);
-
         try
         {
-            var path = Path.Join(directory, $"squirix-test-port-slice-{sliceIndex}.lock");
-            return File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var lockDirectory = Path.Join(Path.GetTempPath(), "squirix-testkit-port-slices");
+            _ = Directory.CreateDirectory(lockDirectory);
+
+            var lockFilePath = Path.Join(lockDirectory, $"squirix-test-port-slice-{sliceIndex}.lock");
+            return File.OpenHandle(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         }
         catch (UnauthorizedAccessException ex)
         {
