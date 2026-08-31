@@ -249,6 +249,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
                 return new GetOrAddAsyncResponse
                 {
                     Added = false,
+                    Found = true,
                     Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value),
                 };
             }
@@ -259,15 +260,26 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
                 return new GetOrAddAsyncResponse
                 {
                     Added = true,
+                    Found = true,
                     Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
                 };
             }
 
             var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            if (afterRace.Found)
+            {
+                return new GetOrAddAsyncResponse
+                {
+                    Added = false,
+                    Found = true,
+                    Value = ServerProtoEx.CacheValueToGrpcValue(afterRace.Value),
+                };
+            }
+
             return new GetOrAddAsyncResponse
             {
                 Added = false,
-                Value = ServerProtoEx.CacheValueToGrpcValue(afterRace.Value),
+                Found = false,
             };
         }
 

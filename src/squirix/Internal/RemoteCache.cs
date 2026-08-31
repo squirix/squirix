@@ -233,7 +233,9 @@ internal sealed class RemoteCache<T> : ICache<T>
             request,
             cancellationToken).ConfigureAwait(false);
 
-        return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false));
+        return response.Found
+            ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false))
+            : new CacheValueResult<T>(false, default);
     }
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
