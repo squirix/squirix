@@ -10,6 +10,7 @@ namespace Squirix.Server.Utils;
 internal static partial class FileEx
 {
     private const int DarwinCloseOnExec = 0x1000000;
+
     private const int FreeBsdCloseOnExec = 0x00100000;
 
     /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
@@ -38,9 +39,16 @@ internal static partial class FileEx
 
     /// <summary>
     /// Flushes the parent directory of <paramref name="filePath" /> so a recent directory-entry change
-    /// (create, rename, or delete) survives a crash. A no-op on Windows.
+    /// (create, rename, or delete) survives a crash.
     /// </summary>
     /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
+    /// <remarks>
+    /// On Unix, opens the parent directory and calls <c language="csharp">fsync(2)</c> to guarantee directory-entry durability.
+    /// On Windows, this is a no-op: Microsoft does not document <c language="csharp">FlushFileBuffers</c> as a
+    /// directory-entry durability primitive, and NTFS metadata journaling provides implicit directory-entry
+    /// durability without an explicit flush. This matches upstream SQLite behavior (<c language="csharp">os_win.c</c>),
+    /// which never fsyncs directories on Windows.
+    /// </remarks>
     /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
     internal static void FlushDirectoryEntry(string filePath)
     {
@@ -68,12 +76,36 @@ internal static partial class FileEx
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
         var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
+
         if (File.Exists(validatedFinal))
             File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
         else
             File.Move(validatedTemp, validatedFinal);
 
-        FlushDirectoryEntry(validatedFinal);
+        Exception? firstFlushError = null;
+
+        CaptureFlushError(validatedTemp);
+        CaptureFlushError(validatedFinal);
+
+        if (validatedBackup != null)
+            CaptureFlushError(validatedBackup);
+
+        if (firstFlushError != null)
+            throw firstFlushError;
+
+        return;
+
+        void CaptureFlushError(string path)
+        {
+            try
+            {
+                FlushDirectoryEntry(path);
+            }
+            catch (Exception ex) when (firstFlushError == null)
+            {
+                firstFlushError = ex;
+            }
+        }
     }
 
     /// <summary>
