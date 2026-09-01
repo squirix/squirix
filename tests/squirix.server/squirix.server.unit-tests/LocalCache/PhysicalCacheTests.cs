@@ -28,17 +28,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await st.Cache.RemoveAsync(st.Key, st.Ct);
     };
 
-    private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
-    {
-        var st = s as RaceState ?? throw new InvalidOperationException();
-        for (var i = 0; i < 10000; i++)
-        {
-            await st.Cache.SetAsync(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);
-            if (await st.Cache.UpdateAsync(st.Key, "v", st.Ct) && (await st.Cache.GetEntryAsync(st.Key, st.Ct)) == null)
-                st.FalsePositives++;
-        }
-    };
-
     private static readonly Func<object?, Task> TouchOp = static async s =>
     {
         var st = s as RaceState ?? throw new InvalidOperationException();
@@ -49,6 +38,17 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     {
         var st = s as RaceState ?? throw new InvalidOperationException();
         _ = await st.Cache.TouchExpirationRecoveryAsync(st.Key, DateTime.UtcNow.AddHours(1), st.Ct);
+    };
+
+    private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
+    {
+        var st = s as RaceState ?? throw new InvalidOperationException();
+        for (var i = 0; i < 10000; i++)
+        {
+            await st.Cache.SetAsync(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);
+            if (await st.Cache.UpdateAsync(st.Key, "v", st.Ct) && await st.Cache.GetEntryAsync(st.Key, st.Ct) == null)
+                st.FalsePositives++;
+        }
     };
 
     private static FrozenDictionary<string, string> TestTags { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -255,29 +255,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         AssertTagsEqual(TestTags, entry.Tags);
     }
 
-    /// <summary>Update on an expired key removes it and returns false.</summary>
-    [Fact]
-    public async Task UpdateRemovesExpiredEntryReturnsFalse()
-    {
-        var time = new FakeTimeProvider();
-        var cache = new PhysicalCache<string>(time);
-        var key = new CacheKey("ns", "expired");
-        await cache.SetAsync(
-            key,
-            new NodeCacheEntry<string>
-            {
-                Value = "old",
-                Version = 1,
-                ExpiresUtc = time.GetUtcNow().UtcDateTime.AddMinutes(1),
-            },
-            DefaultCancellationToken);
-
-        time.Advance(TimeSpan.FromMinutes(2));
-
-        Assert.False(await cache.UpdateAsync(key, "new", DefaultCancellationToken));
-        Assert.Null(await cache.GetEntryAsync(key, DefaultCancellationToken));
-    }
-
     /// <summary>UpdateAsync must not report success on a key that is concurrently reclaimed.</summary>
     [Fact]
     [Trait(StressTrait.TraitName, StressTrait.TraitValue)]
@@ -300,6 +277,29 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         // false positives stay at ~0; the small tolerance absorbs the rare legitimate post-update reclaim
         // window on the fixed code path (the buggy equals fast-path yields dozens-to-hundreds).
         Assert.True(st.FalsePositives <= 3, $"UpdateAsync reported success on a concurrently reclaimed key {st.FalsePositives} time(s).");
+    }
+
+    /// <summary>Update on an expired key removes it and returns false.</summary>
+    [Fact]
+    public async Task UpdateRemovesExpiredEntryReturnsFalse()
+    {
+        var time = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(time);
+        var key = new CacheKey("ns", "expired");
+        await cache.SetAsync(
+            key,
+            new NodeCacheEntry<string>
+            {
+                Value = "old",
+                Version = 1,
+                ExpiresUtc = time.GetUtcNow().UtcDateTime.AddMinutes(1),
+            },
+            DefaultCancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        Assert.False(await cache.UpdateAsync(key, "new", DefaultCancellationToken));
+        Assert.Null(await cache.GetEntryAsync(key, DefaultCancellationToken));
     }
 
     private static void AssertTagsEqual(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
@@ -347,8 +347,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         public CancellationToken Ct { get; }
 
-        public CacheKey Key { get; }
-
         public int FalsePositives { get; set; }
+
+        public CacheKey Key { get; }
     }
 }

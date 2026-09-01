@@ -1,9 +1,11 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -23,6 +25,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
+
+    private readonly Meter _testMeter = new("test");
 
     private enum OrderingStep
     {
@@ -54,7 +58,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         var trace = new OrderingTrace();
         await using var orderingJournal = new OrderingJournal(inner, trace);
         IJournalCoordinator journal = orderingJournal;
-        var store = new RpcMutationIdempotencyStore();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("durability-order-key");
@@ -80,6 +84,13 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         trace.AssertExpected();
         await JournalHasPutAndIdempotencyRecordsAsync(options.DataDir, manifestStore);
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+        _testMeter.Dispose();
     }
 
     private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir, Ledger manifestStore)
@@ -188,10 +199,8 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             Func<TState, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
-            TState state,
-            Func<TState, CancellationToken, ValueTask> action,
-            CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
+            _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _inner.WaitForStartupAsync(cancellationToken);
     }

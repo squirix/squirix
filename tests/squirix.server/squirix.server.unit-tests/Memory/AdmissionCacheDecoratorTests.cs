@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
@@ -17,11 +18,13 @@ namespace Squirix.Server.UnitTests.Memory;
 /// Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.
 /// </summary>
 [Immutable]
-public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
+public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 {
     private const string CacheName = "orders";
     private const int ConcurrentRaceWidth = 64;
     private const string Self = "node-a";
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Ensures RemoveAsync accounts for one removed local-owner entry.</summary>
     [Fact]
@@ -29,7 +32,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
     {
         const string key = "remove-race";
         var physical = new PhysicalCache<string>();
-        var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical);
+        var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
 
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
@@ -51,6 +54,73 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.False(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
     }
 
+    /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
+    [Fact]
+    public async Task ConcurrentSetMissAccountsOneEntry()
+    {
+        const string key = "set-race";
+        var physical = new PhysicalCache<string>();
+        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
+        var entry = CreateEntry("v");
+        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
+
+        var set = new ConcurrentCacheOp(cache, key, entry);
+        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, set.SetEntry, DefaultCancellationToken);
+
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
+        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
+    }
+
+    /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
+    [Fact]
+    public async Task ConcurrentTryAddMissAddsSingleEntry()
+    {
+        const string key = "try-add-race";
+        var physical = new PhysicalCache<string>();
+        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
+        var entry = CreateEntry("v");
+        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
+
+        var tryAdd = new ConcurrentCacheOp(cache, key, entry);
+        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, tryAdd.TryAddEntry, DefaultCancellationToken);
+
+        var addedCount = 0;
+        foreach (var added in results)
+        {
+            if (added)
+                addedCount++;
+        }
+
+        Assert.Equal(1, addedCount);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
+        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
+    }
+
+    /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
+    [Fact]
+    public async Task ConcurrentUpdateReplacesLocalKeyOnce()
+    {
+        const string key = "update-race";
+        var physical = new PhysicalCache<string>();
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
+        var initial = CreateEntry("a");
+        const string updatedValue = "much-longer-value";
+        var replacement = CreateEntry(updatedValue);
+
+        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
+        var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
+
+        var update = new ConcurrentCacheOp(cache, key, updatedValue: updatedValue);
+        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, update.Update, DefaultCancellationToken);
+
+        Assert.All(results, Assert.True);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
+    }
+
     /// <summary>Ensures RemoveExpirationAsync accounts for removed expiration metadata on a local-owner entry.</summary>
     [Fact]
     public async Task RemoveExpiryAccountsShrinkForLocalKey()
@@ -58,7 +128,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         const string key = "remove-expiration-key";
         var timeProvider = new FakeTimeProvider();
         var physical = new PhysicalCache<string>(timeProvider);
-        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var keyValue = new CacheKey(CacheName, key);
         var entry = new NodeCacheEntry<string>
         {
@@ -76,31 +146,13 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(1, accounting.ReadEntryCount());
     }
 
-    /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
-    [Fact]
-    public async Task ConcurrentSetMissAccountsOneEntry()
-    {
-        const string key = "set-race";
-        var physical = new PhysicalCache<string>();
-        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
-        var entry = CreateEntry("v");
-        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
-
-        var set = new ConcurrentCacheOp(cache, key, entry);
-        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, set.SetEntry, DefaultCancellationToken);
-
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
-    }
-
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task SetReplaceAccountsValueDeltaForLocalKey()
     {
         const string key = "set-replace";
         var physical = new PhysicalCache<string>();
-        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
 
@@ -121,7 +173,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         const string key = "touch-key";
         var timeProvider = new FakeTimeProvider();
         var physical = new PhysicalCache<string>(timeProvider);
-        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var keyValue = new CacheKey(CacheName, key);
         var entry = CreateEntry("v");
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
@@ -141,7 +193,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         const string key = "retouch-key";
         var timeProvider = new FakeTimeProvider();
         var physical = new PhysicalCache<string>(timeProvider);
-        var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical);
+        var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = new NodeCacheEntry<string>
         {
             Value = "v",
@@ -157,39 +209,13 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(1, accounting.ReadEntryCount());
     }
 
-    /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
-    [Fact]
-    public async Task ConcurrentTryAddMissAddsSingleEntry()
-    {
-        const string key = "try-add-race";
-        var physical = new PhysicalCache<string>();
-        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
-        var entry = CreateEntry("v");
-        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
-
-        var tryAdd = new ConcurrentCacheOp(cache, key, entry);
-        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, tryAdd.TryAddEntry, DefaultCancellationToken);
-
-        var addedCount = 0;
-        foreach (var added in results)
-        {
-            if (added)
-                addedCount++;
-        }
-
-        Assert.Equal(1, addedCount);
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
-    }
-
     /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task UpdateAccountsValueDeltaForLocalKey()
     {
         const string key = "update-replace";
         var physical = new PhysicalCache<string>();
-        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
+        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
 
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
@@ -204,43 +230,23 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
     }
 
-    /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
-    [Fact]
-    public async Task ConcurrentUpdateReplacesLocalKeyOnce()
-    {
-        const string key = "update-race";
-        var physical = new PhysicalCache<string>();
-        var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
-        var initial = CreateEntry("a");
-        const string updatedValue = "much-longer-value";
-        var replacement = CreateEntry(updatedValue);
-
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
-        var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
-        var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
-
-        var update = new ConcurrentCacheOp(cache, key, updatedValue: updatedValue);
-        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, update.Update, DefaultCancellationToken);
-
-        Assert.All(results, Assert.True);
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
-    }
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     private static (MemoryAdmissionCacheDecorator<string> Cache, ClientCache<string> Inner, MemoryUsageAccounting Accounting, CacheEntrySizeEstimator<string> Estimator)
-        CreateLocalOwnerCache(string self, PhysicalCache<string> physical)
+        CreateLocalOwnerCache(string self, PhysicalCache<string> physical, Meter meter)
     {
         var inner = new ClientCache<string>(physical, physical);
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, self);
+        var gate = CreatePermissiveGate(accounting, self, meter);
         var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(self), self);
         return (cache, inner, accounting, estimator);
     }
 
-    private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId)
+    private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId, Meter meter)
     {
         var options = Options.Create(
             new PressureOptions
@@ -249,7 +255,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
                 HighPressureThresholdPercent = 80,
                 CriticalPressureThresholdPercent = 95,
             });
-        return new PressureGate(new StateEvaluator(options), accounting, nodeId);
+        return new PressureGate(new StateEvaluator(options), accounting, nodeId, meter);
     }
 
     private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, NodeCacheEntry<string> entry) =>

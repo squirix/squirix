@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -105,6 +106,10 @@ internal static class ServerHostingComposition
         }
     }
 
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The Meter instance is transferred to the DI container via the factory overload, which disposes it on host shutdown.")]
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -127,15 +132,23 @@ internal static class ServerHostingComposition
                 MtlsMaterial = mtlsMaterial,
             },
             cancellationToken).ConfigureAwait(false);
+
+        // Per-host Meter. A single instance is created here, then both the runtime and the persistence composition
+        // resolve this same singleton. It is registered through the factory overload, so the DI container takes
+        // ownership and disposes of it when the owning host shuts down: AddSingleton(instance) does not transfer
+        // disposal ownership in Microsoft DI, which would leak the meter.
+        var serverMeter = new Meter("Squirix");
+        _ = builder.Services.AddSingleton(_ => serverMeter);
+
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
         if (persistenceEnabled)
         {
-            _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+            _ = await builder.Services.AddPersistenceServicesAsync(persistence!, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 
             // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
             // materialized; group membership is derived in a later milestone. Registered only when persistence is
-            // enabled because the factory resolves PersistenceOptions, which is not registered otherwise.
+            // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
             // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
             // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
             // together with group-membership derivation (see the durable ordered follower log specification, M8-05).

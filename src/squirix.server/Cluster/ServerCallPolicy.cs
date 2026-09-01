@@ -17,6 +17,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private readonly Lock _disposeGate = new();
     private readonly VolatileBool _draining = new();
     private readonly ServerCallPolicyExecutor _executor;
+    private readonly ServerCallPolicyMetrics _metrics;
     private readonly string _peer;
     private readonly SemaphoreSlim _semaphore;
     private Task? _disposeTask;
@@ -25,24 +26,26 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private bool _semaphoreDisposed;
 
     internal ServerCallPolicy(
-        TimeSpan? timeoutPerAttempt = null,
+        ServerCallPolicyInstrumentation instrumentation,
         int maxAttempts = 3,
-        TimeSpan? baseBackoff = null,
-        TimeSpan? maxBackoff = null,
         int maxConcurrentPerPeer = 64,
         string? peer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        CallPolicyTimeouts? timeouts = null)
     {
+        var metrics = instrumentation.CallPolicyMetrics;
+        var rpcMetrics = instrumentation.RpcTimeoutMetrics;
+        _metrics = metrics;
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
         _semaphore = new SemaphoreSlim(cap, cap);
         var settings = new ServerCallPolicySettings(
             _peer,
             Math.Max(1, maxAttempts),
-            timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
-            baseBackoff ?? TimeSpan.FromMilliseconds(50),
-            maxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new ServerCallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining);
+            timeouts?.TimeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
+            timeouts?.BaseBackoff ?? TimeSpan.FromMilliseconds(50),
+            timeouts?.MaxBackoff ?? TimeSpan.FromMilliseconds(500));
+        _executor = new ServerCallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining, metrics, rpcMetrics);
     }
 
     public void BeginDrain() => _draining.Write(true);
@@ -137,7 +140,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         if (!_draining.Read())
             return;
 
-        ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
+        _metrics.IncrementDrainRejectsTotal(_peer, 1);
         throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
     }
 
@@ -165,12 +168,20 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         private readonly Func<bool> _isDraining;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
+        private readonly ServerCallPolicyMetrics _metrics;
         private readonly string _peer;
+        private readonly ServerRpcTimeoutMetrics _rpcMetrics;
         private readonly SemaphoreSlim _semaphore;
         private readonly TimeProvider _timeProvider;
         private readonly TimeSpan _timeoutPerAttempt;
 
-        internal ServerCallPolicyExecutor(ServerCallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore, Func<bool> isDraining)
+        internal ServerCallPolicyExecutor(
+            ServerCallPolicySettings settings,
+            TimeProvider timeProvider,
+            SemaphoreSlim semaphore,
+            Func<bool> isDraining,
+            ServerCallPolicyMetrics metrics,
+            ServerRpcTimeoutMetrics rpcMetrics)
         {
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
@@ -180,6 +191,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             _timeProvider = timeProvider;
             _semaphore = semaphore;
             _isDraining = isDraining;
+            _metrics = metrics;
+            _rpcMetrics = rpcMetrics;
         }
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
@@ -199,11 +212,11 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 // The ambient RPC deadline can expire while queued on the per-peer semaphore. Surface it as
                 // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
                 // TaskCanceledException.
-                ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
-            ServerCallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
+            _metrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
                 ThrowIfDraining();
@@ -219,8 +232,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private Task BackoffAsync(TimeSpan d, CancellationToken outerCt)
         {
-            ServerCallPolicyMetrics.IncrementBackoffLabel(_peer, 1);
-            ServerCallPolicyMetrics.ObserveBackoffSeconds(_peer, d);
+            _metrics.IncrementBackoffLabel(_peer, 1);
+            _metrics.ObserveBackoffSeconds(_peer, d);
             return Task.Delay(d, _timeProvider, outerCt);
         }
 
@@ -296,7 +309,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (attempt >= _maxAttempts || !ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
                 return AttemptOutcome<T>.Stop(ex);
 
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(ex));
+            _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(ex));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), ex, effectiveToken).ConfigureAwait(false));
         }
 
@@ -311,8 +324,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (cancelKind != ServerCancelScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
+            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            _metrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
         }
 
@@ -325,14 +338,14 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded)
             {
                 var reason = rx.StatusCode is StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
-                ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
-                ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
+                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
+                _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
 
             if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal or StatusCode.ResourceExhausted))
                 return AttemptOutcome<T>.Stop(rx);
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
+            _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
         }
 
@@ -375,7 +388,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 };
             }
 
-            ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
@@ -384,7 +397,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (!_isDraining())
                 return;
 
-            ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
+            _metrics.IncrementDrainRejectsTotal(_peer, 1);
             throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
         }
 

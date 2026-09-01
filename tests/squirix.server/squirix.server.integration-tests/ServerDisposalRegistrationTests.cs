@@ -14,15 +14,15 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// General regression guard for issue 461. MS DI does not dispose IAsyncDisposable singletons that are registered
-/// through the instance overloads of AddSingleton (for example, AddSingleton(runtime)). Such a service must be
-/// registered through the factory overload so the host owns its disposal on shutdown. This rule scans the entire
-/// server composition (not just persistence) and fails for any IAsyncDisposable-only service registered via the
-/// instance form, so future regressions of this class are caught wherever they appear.
+/// General regression guard for issue 461. MS DI does not dispose IDisposable/IAsyncDisposable singletons that are
+/// registered through the instance overloads of AddSingleton (for example, AddSingleton(runtime)). Such a service
+/// must be registered through the factory overload so the host owns its disposal on shutdown. This rule scans the
+/// server composition (not just persistence) and fails for any disposable service that the composition registers via
+/// the instance form, so future regressions of this class (including Meters) are caught wherever they appear.
 /// </summary>
 public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 {
-    /// <summary>Every IAsyncDisposable-only server singleton must be registered via the factory overload.</summary>
+    /// <summary>Every disposable server singleton must be registered via the factory overload.</summary>
     [Fact]
     public async Task AsyncDisposableRegistrationsUseFactory()
     {
@@ -64,11 +64,24 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
             ApplicationName = "Squirix.Server",
         };
         var builder = WebApplication.CreateBuilder(applicationOptions);
+
+        // Snapshot instance-registration descriptors already present after CreateBuilder by reference identity.
+        // The ASP.NET Core host itself adds several IDisposable instance services (for example its EventSource
+        // logger); those are owned by the host framework and out of scope. Tracking descriptors by reference (not
+        // by ServiceType) ensures that if squirrelix composition later adds a disposable instance registration with
+        // the same ServiceType as a framework service, the duplicate is still flagged.
+        var preExisting = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var descriptor in builder.Services)
+        {
+            if (descriptor.ImplementationInstance is not null)
+                _ = preExisting.Add(descriptor);
+        }
+
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, Configure, DefaultCancellationToken);
         var offenders = new List<string>(builder.Services.Count);
         foreach (var descriptor in builder.Services)
         {
-            if (descriptor.ImplementationInstance is IAsyncDisposable and not IDisposable)
+            if (!preExisting.Contains(descriptor) && descriptor.ImplementationInstance is IDisposable or IAsyncDisposable)
                 offenders.Add(descriptor.ServiceType.FullName ?? descriptor.ServiceType.Name);
         }
 

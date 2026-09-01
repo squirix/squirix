@@ -1,22 +1,23 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Instruments for logical cache operation metrics.</summary>
-internal static class CacheMetrics
+[Immutable]
+internal sealed class CacheMetrics
 {
-    private static readonly Histogram<double> OperationDurationSeconds = ServerMeterRegistry.Meter.CreateHistogram<double>(
-        "squirix_op_latency_seconds",
-        "s",
-        "Logical cache operation duration");
+    private readonly Histogram<double> _operationDurationSeconds;
+    private readonly Counter<long> _operationsTotal;
 
-    private static readonly Counter<long> OperationsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_ops_total",
-        "{operation}",
-        "Logical cache operations by operation and result");
+    internal CacheMetrics(Meter meter)
+    {
+        _operationDurationSeconds = meter.CreateHistogram<double>("squirix_op_latency_seconds", "s", "Logical cache operation duration");
+        _operationsTotal = meter.CreateCounter<long>("squirix_ops_total", "{operation}", "Logical cache operations by operation and result");
+    }
 
-    internal static void RecordOperation(string cacheName, string operation, string result, double durationSeconds)
+    internal void RecordOperation(string cacheName, string operation, string result, double durationSeconds)
     {
         var tags = new TagList
         {
@@ -25,7 +26,7 @@ internal static class CacheMetrics
             { "result", result },
         };
 
-        OperationsTotal.Add(1, in tags);
-        OperationDurationSeconds.Record(durationSeconds, in tags);
+        _operationsTotal.Add(1, in tags);
+        _operationDurationSeconds.Record(durationSeconds, in tags);
     }
 }

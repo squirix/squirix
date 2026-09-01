@@ -23,8 +23,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
     private readonly ILogger<JournalCompactionService<T>> _log;
     private readonly Ledger _manifest;
+    private readonly CompactionMetrics _metrics;
     private readonly string _nodeId;
-    private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly Coordinator _snap;
@@ -36,12 +36,17 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private SnapshotRef? _pendingSnapshotHint;
     private int _snapshotSubscriptionState;
 
-    internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
+    internal JournalCompactionService(
+        ILogger<JournalCompactionService<T>> log,
+        IOptions<JournalCompactionOptions> opt,
+        JournalCompactionDependencies deps,
+        CompactionMetrics metrics)
     {
         _log = log ?? throw new ArgumentNullException(nameof(log));
         ArgumentNullException.ThrowIfNull(opt);
         _opt = opt.Value;
         ArgumentNullException.ThrowIfNull(deps);
+        _metrics = metrics;
         _snap = deps.Snapshot;
         _journalMaintenance = deps.JournalMaintenance;
         _manifest = deps.Manifest;
@@ -49,7 +54,6 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _nodeId = deps.Cluster.NodeId;
         _persistence = deps.Persistence;
         _timeProvider = deps.TimeProvider;
-        _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
     public bool IsInFlight => Volatile.Read(ref _inFlight) != 0;
@@ -177,7 +181,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         finally
         {
             var elapsed = Stopwatch.GetElapsedTime(started);
-            CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
+            _metrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
             _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
@@ -234,7 +238,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) != 0)
             return;
 
-        _snap.SnapshotCompleted += _onSnapshotCompleted;
+        _snap.SnapshotCompleted += OnSnapshotCompleted;
     }
 
     private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
@@ -248,7 +252,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) == 0)
             return;
 
-        _snap.SnapshotCompleted -= _onSnapshotCompleted;
+        _snap.SnapshotCompleted -= OnSnapshotCompleted;
     }
 
     private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)

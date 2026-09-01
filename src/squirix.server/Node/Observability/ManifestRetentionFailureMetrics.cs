@@ -8,21 +8,28 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailureMetrics
 {
-    internal static ManifestRetentionFailureMetrics Instance { get; } = new();
+    private readonly StorageRetentionMetrics _storageRetentionMetrics;
+
+    internal ManifestRetentionFailureMetrics(Meter meter)
+    {
+        _storageRetentionMetrics = new StorageRetentionMetrics(meter);
+    }
 
     /// <inheritdoc />
-    public void RecordDeleteFailure(string artifactKind, string outcome) => StorageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
+    public void RecordDeleteFailure(string artifactKind, string outcome) => _storageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
 
-    /// <summary>Low-cardinality manifest retention cleanup metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
-    private static class StorageRetentionMetrics
+    /// <summary>Low-cardinality manifest retention cleanup metrics on the host-scoped <see cref="Meter" />.</summary>
+    [Immutable]
+    private sealed class StorageRetentionMetrics
     {
-        private static readonly Counter2Labels DeleteFailuresTotal = new(
-            ServerMeterRegistry.Meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"),
-            "artifact",
-            "outcome");
+        private readonly Counter2Labels _deleteFailuresTotal;
 
-        internal static void IncrementDeleteFailuresTotal(string artifactKind, string outcome, int increment = 1) =>
-            DeleteFailuresTotal.WithLabels(artifactKind, outcome).Inc(increment);
+        internal StorageRetentionMetrics(Meter meter)
+        {
+            _deleteFailuresTotal = new Counter2Labels(meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"), "artifact", "outcome");
+        }
+
+        internal void IncrementDeleteFailuresTotal(string artifactKind, string outcome, int increment = 1) => _deleteFailuresTotal.WithLabels(artifactKind, outcome).Inc(increment);
 
         [Immutable]
         private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -27,6 +29,8 @@ namespace Squirix.Server.UnitTests.Persistence;
 [Immutable]
 public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
     [Fact]
     public async Task ShutdownClearsSnapshotCompactionFlight()
@@ -50,7 +54,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
             new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             store,
-            new RpcMutationIdempotencyStore(),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
             cluster.NodeId,
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
@@ -58,7 +62,8 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance, store, StoreFactory.CreateReader(persistence), persistence, cluster));
+            new JournalCompactionDependencies(snapshots, maintenance, store, StoreFactory.CreateReader(persistence), persistence, cluster),
+            new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(DefaultCancellationToken);
         await snapshots.TrySnapshotAsync(journal, DefaultCancellationToken);
@@ -70,7 +75,13 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
         Assert.False(compaction.IsInFlight);
     }
 
-    [Immutable]
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+        _testMeter.Dispose();
+    }
+
     private sealed class BlockingMaintenanceExecutor : IExclusiveMaintenanceExecutor
     {
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);

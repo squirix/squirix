@@ -7,6 +7,7 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -39,7 +40,9 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
+        _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
+            sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
+            sp.GetRequiredService<CacheMetrics>()));
         _ = services.AddSingleton(static sp => new BackpressureCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>(),

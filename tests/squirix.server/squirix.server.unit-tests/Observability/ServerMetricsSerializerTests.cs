@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Text.Json;
 using Squirix.Server.Attributes;
@@ -15,11 +16,13 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
 {
+    private static readonly Meter TestMeter = new("Squirix");
+
     /// <summary>Json failures are recorded and rethrown.</summary>
     [Fact]
     public void InvalidJsonRethrowsJsonException()
     {
-        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
+        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer(), TestMeter);
         _ = NodeExceptionAssert.For<JsonException>().ThrowsAny(serializer, static value => value.Deserialize<Dictionary<string, int>>("{not-json"));
     }
 
@@ -27,7 +30,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void RoundTripOverloadsSucceed()
     {
-        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
+        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer(), TestMeter);
         var original = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 7 };
         const string payload = """{"value":7}""";
 
@@ -56,7 +59,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void SerializeFailureFromInnerIsRethrown()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
+        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new NotSupportedException("boom")), TestMeter);
         _ = NodeExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -64,7 +67,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void SerializeIoFailureFromInnerIsRethrown()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new IOException("io")));
+        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new IOException("io")), TestMeter);
         _ = NodeExceptionAssert.For<IOException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -72,7 +75,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void UnhandledExceptionBypassesFailureFilter()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
+        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new InvalidCastException("nope")), TestMeter);
         _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 

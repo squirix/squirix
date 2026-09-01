@@ -16,26 +16,18 @@ namespace Squirix.Server.Node.Services;
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 {
     private readonly Lock _capacityGate = new();
+    private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
     private readonly IdempotencyOptions _options;
     private readonly ConcurrentDictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
 
-    internal RpcMutationIdempotencyStore()
-        : this(new IdempotencyOptions(), "local")
-    {
-    }
-
-    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId)
+    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
         _options = options;
         _nodeId = string.IsNullOrWhiteSpace(nodeId) ? "local" : nodeId;
-    }
-
-    internal RpcMutationIdempotencyStore(TimeSpan retention)
-        : this(new IdempotencyOptions { Retention = retention }, "local")
-    {
+        _metrics = metrics;
     }
 
     internal int RecordCount
@@ -175,11 +167,11 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             if (!TryEvictOldestLocked())
             {
-                IdempotencyMetrics.RecordRejection(_nodeId);
+                _metrics.RecordRejection(_nodeId);
                 throw ServerOpContract.TooManyRequests("idempotency_store_capacity");
             }
 
-            IdempotencyMetrics.RecordEviction(_nodeId);
+            _metrics.RecordEviction(_nodeId);
         }
     }
 

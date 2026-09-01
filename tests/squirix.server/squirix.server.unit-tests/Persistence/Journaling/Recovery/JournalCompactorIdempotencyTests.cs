@@ -1,7 +1,9 @@
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -25,6 +27,8 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private const string Fingerprint = "try-add-entry-async|default|compact-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
 
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Recovery after compaction must restore idempotency replay from the compacted journal.</summary>
     [Fact]
     public async Task CompactedLogReplaysIdempotentOps()
@@ -34,7 +38,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore();
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, persistence, idempotencyStore);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
@@ -67,6 +71,13 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         }
 
         Assert.True(found);
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+        _testMeter.Dispose();
     }
 
     private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };

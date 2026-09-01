@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -20,8 +22,10 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Recovery replay of mutation journal frames (Put, Remove, RemoveExpiration, TouchExpiration).</summary>
 [Immutable]
-public sealed class ServiceRecoveryMutationReplayTests : ServerUnitTestBase
+public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Replay must skip Put entries whose absolute expiration has already passed.</summary>
     [Fact]
     public async Task ExpiredPutIsSkippedDuringReplay()
@@ -46,7 +50,7 @@ public sealed class ServiceRecoveryMutationReplayTests : ServerUnitTestBase
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, DefaultCancellationToken);
 
-        var store = new RpcMutationIdempotencyStore();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, store);
 
         IIdempotencySnapshotExporter exporter = store;
@@ -90,6 +94,9 @@ public sealed class ServiceRecoveryMutationReplayTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunRecoveryAsync(scenario));
     }
 
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
     private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
     {
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
@@ -98,7 +105,9 @@ public sealed class ServiceRecoveryMutationReplayTests : ServerUnitTestBase
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);
     }
 
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder) => RunRecoveryAsync(builder, new RpcMutationIdempotencyStore());
-
     private static Task RunRecoveryAsync(RecoveryScenarioBuilder builder, RpcMutationIdempotencyStore store) => CreateRecovery(builder, store).StartAsync(DefaultCancellationToken);
+
+    private Task RunRecoveryAsync(RecoveryScenarioBuilder builder) => RunRecoveryAsync(
+        builder,
+        new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)));
 }

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -22,10 +24,12 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Recovery replay of durable idempotency journal frames.</summary>
 [Immutable]
-public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
+public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
 {
     private const string Fingerprint = "try-add-entry-async|default|idempotency-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
+
+    private readonly Meter _testMeter = new("test");
 
     /// <summary>Journal replay must restore idempotency CreatedUtc from the frame UnixMs, not recovery wall clock.</summary>
     [Fact]
@@ -37,7 +41,7 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
 
         var journalUnixMs = ReadIdempotencyOutcomeUnixMs(scenario.DataDir);
 
-        var idempotencyStore = new RpcMutationIdempotencyStore();
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, persistence, idempotencyStore);
 
         IIdempotencySnapshotExporter exporter = idempotencyStore;
@@ -53,6 +57,9 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
         Assert.NotNull(response);
         Assert.True(response.Added);
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
 

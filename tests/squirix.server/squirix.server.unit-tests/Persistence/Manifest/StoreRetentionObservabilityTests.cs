@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -19,41 +20,9 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 [Immutable]
 public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 {
-    private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = ManifestRetentionFailureMetrics.Instance;
+    private static readonly Meter RetentionFailureMeter = new("Squirix");
+    private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = new(RetentionFailureMeter);
     private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
-
-    /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
-    [Fact]
-    public async Task RepeatedRetentionFailuresDegradeReady()
-    {
-        var logger = new CollectingLogger();
-        using var dir = new TempDirectory("manifest-retention-readiness");
-        var options = new PersistenceOptions
-        {
-            DataDir = dir,
-            ManifestRetentionCount = 1,
-            RetentionCleanupDegradedWrites = 2,
-            RetentionCleanupDegradedWindowFailures = 10,
-        };
-        var readiness = new RetentionCleanupReadiness(options);
-        var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, DefaultCancellationToken);
-        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
-
-        await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
-        Assert.False(readiness.IsDegraded);
-        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
-
-        await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
-        await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
-        Assert.True(readiness.IsDegraded);
-        Assert.Equal(2, readiness.ConsecutiveWriteFailures);
-
-        var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        if (File.Exists(stale))
-            File.SetAttributes(stale, FileAttributes.Normal);
-    }
 
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
@@ -129,6 +98,39 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                 "squirix_storage_retention_delete_failures_total",
                 ("artifact", ManifestRetentionArtifactKind.Manifest),
                 ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+
+        var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
+        if (File.Exists(stale))
+            File.SetAttributes(stale, FileAttributes.Normal);
+    }
+
+    /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
+    [Fact]
+    public async Task RepeatedRetentionFailuresDegradeReady()
+    {
+        var logger = new CollectingLogger();
+        using var dir = new TempDirectory("manifest-retention-readiness");
+        var options = new PersistenceOptions
+        {
+            DataDir = dir,
+            ManifestRetentionCount = 1,
+            RetentionCleanupDegradedWrites = 2,
+            RetentionCleanupDegradedWindowFailures = 10,
+        };
+        var readiness = new RetentionCleanupReadiness(options);
+        var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
+        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, DefaultCancellationToken);
+        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
+
+        await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
+        Assert.False(readiness.IsDegraded);
+        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+
+        await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
+        Assert.True(readiness.IsDegraded);
+        Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
         var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         if (File.Exists(stale))

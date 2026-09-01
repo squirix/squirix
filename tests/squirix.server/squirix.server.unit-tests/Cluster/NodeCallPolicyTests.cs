@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,8 +19,10 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.
 /// </summary>
 [Immutable]
-public sealed class NodeCallPolicyTests : ServerUnitTestBase
+public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
     [Fact]
     public async Task AmbientDeadlineCapsOverallRetryBudget()
@@ -50,14 +53,42 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
     [Fact]
     public async Task BeginDrainRejectsNewCalls()
     {
-        using var sink = new NodeMeasurementSink("Squirix");
-        await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System, meter: meter);
         policy.BeginDrain();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken));
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
+    }
+
+    /// <summary>Ensures caller cancellation stops retry flow and is not treated as per-attempt timeout.</summary>
+    [Fact]
+    public async Task CallerCancellationPreventsRetries()
+    {
+        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(50), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-h", timeProvider: TimeProvider.System);
+        using var cts = new CancellationTokenSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = new InvocationCounter();
+
+        var pending = policy.ExecuteAsync(
+            new CancellationProbeState(entered, attempts),
+            static async (s, token) =>
+            {
+                _ = s.Attempts.Increment();
+                _ = s.Entered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
+                return 1;
+            },
+            cts.Token);
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+        await cts.CancelAsync();
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(pending);
+        Assert.Equal(1, attempts.Count);
     }
 
     /// <summary>Ensures the per-peer concurrency cap does not allow more concurrent executions than configured.</summary>
@@ -183,14 +214,20 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
             {
                 using var drained = new ManualResetEventSlim(false);
                 var faults = new ConcurrentQueue<string>();
-                var callers = StartHammerCallers(policy, drained, faults, callersPerRound);
+
+                // Await every caller reaching its hammer loop (and so its first ExecuteAsync) before
+                // disposing, so a busy runner cannot dispose before any caller enters the race.
+                Task[] callers;
+                foreach (var signal in StartHammerCallers(policy, drained, faults, callersPerRound, out callers))
+                    await signal;
 
                 // Spin-based phase smear: burning a round-dependent number of cycles before disposing
-                // walks the dispose landing point through the callers' execute loop without depending
+                // walks the disposal landing point through the callers' execute loop without depending
                 // on coarse OS timer resolution, covering the whole claim window over time.
                 Thread.SpinWait(((round % 64) + 1) * 256);
                 await policy.DisposeAsync();
                 drained.Set();
+
                 foreach (var caller in callers)
                     await caller;
 
@@ -213,7 +250,7 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         Assert.Contains("boom", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>Ensures non-retryable Rpc status codes stop without retry.</summary>
+    /// <summary>Ensures non-retryable Rpc status codes stop without a retry.</summary>
     [Fact]
     public async Task NoRetryForNonRetryableRpcStatus()
     {
@@ -230,33 +267,6 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
                 },
                 DefaultCancellationToken));
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(1, attempts.Count);
-    }
-
-    /// <summary>Ensures caller cancellation stops retry flow and is not treated as per-attempt timeout.</summary>
-    [Fact]
-    public async Task CallerCancellationPreventsRetries()
-    {
-        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(50), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-h", timeProvider: TimeProvider.System);
-        using var cts = new CancellationTokenSource();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var attempts = new InvocationCounter();
-
-        var pending = policy.ExecuteAsync(
-            new CancellationProbeState(entered, attempts),
-            static async (s, token) =>
-            {
-                _ = s.Attempts.Increment();
-                _ = s.Entered.TrySetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
-                return 1;
-            },
-            cts.Token);
-
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
-        await cts.CancelAsync();
-
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(pending);
         Assert.Equal(1, attempts.Count);
     }
 
@@ -283,43 +293,14 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         Assert.Equal(2, attempts.Count);
     }
 
-    /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
-    [Fact]
-    public async Task UnavailableRpcRetriedUntilSuccess()
-    {
-        var timeProvider = new FakeTimeProvider();
-        await using var policy = CreatePolicy(
-            TimeSpan.FromSeconds(1),
-            2,
-            TimeSpan.FromMilliseconds(5),
-            TimeSpan.FromMilliseconds(5),
-            peer: "peer-rpc-retry",
-            timeProvider: timeProvider);
-        var attempts = new InvocationCounter();
-        var executeTask = policy.ExecuteAsync(
-            attempts,
-            static (counter, _) =>
-            {
-                var attempt = counter.Increment();
-                return attempt == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
-            },
-            DefaultCancellationToken);
-
-        while (attempts.Count < 1)
-            await Task.Yield();
-
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(9, await executeTask);
-        Assert.Equal(2, attempts.Count);
-    }
-
-    /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
+    /// <summary>Ensures a call queued behind the concurrency gate is rejected if the drain begins before it starts executing.</summary>
     [Fact]
     public async Task QueuedCallRejectedWhenDrainStartsFirst()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        using var sink = new NodeMeasurementSink("Squirix");
-        await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System, meter: meter);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var drainGate = new EnterReleaseGate(firstEntered, releaseFirst);
@@ -353,8 +334,16 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
     public async Task RetryAndBackoffMetricsAreRecorded()
     {
         var timeProvider = new FakeTimeProvider();
-        using var sink = new NodeMeasurementSink("Squirix");
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5), peer: "peer-d", timeProvider: timeProvider);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(
+            TimeSpan.FromSeconds(1),
+            2,
+            TimeSpan.FromMilliseconds(5),
+            TimeSpan.FromMilliseconds(5),
+            peer: "peer-d",
+            timeProvider: timeProvider,
+            meter: meter);
         var attempts = new InvocationCounter();
 
         var executeTask = policy.ExecuteAsync(
@@ -383,8 +372,9 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
     [Fact]
     public async Task TimeoutMetricsRecordedAsOwnCategory()
     {
-        using var sink = new NodeMeasurementSink("Squirix");
-        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System, meter: meter);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
@@ -402,40 +392,51 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
         Assert.True(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget")));
     }
 
-    private static ServerCallPolicy CreatePolicy(
-        TimeSpan? timeoutPerAttempt = null,
-        int maxAttempts = 3,
-        TimeSpan? baseBackoff = null,
-        TimeSpan? maxBackoff = null,
-        int maxConcurrentPerPeer = 64,
-        string? peer = null,
-        TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
-
-    private static Task[] StartHammerCallers(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count)
+    /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
+    [Fact]
+    public async Task UnavailableRpcRetriedUntilSuccess()
     {
-        Task StartCallerAsync()
-        {
-            return Task.Factory.StartNew(
-                () => HammerExecuteUntilDisposedAsync(policy, drained, faults),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).Unwrap();
-        }
+        var timeProvider = new FakeTimeProvider();
+        await using var policy = CreatePolicy(
+            TimeSpan.FromSeconds(1),
+            2,
+            TimeSpan.FromMilliseconds(5),
+            TimeSpan.FromMilliseconds(5),
+            peer: "peer-rpc-retry",
+            timeProvider: timeProvider);
+        var attempts = new InvocationCounter();
+        var executeTask = policy.ExecuteAsync(
+            attempts,
+            static (counter, _) =>
+            {
+                var attempt = counter.Increment();
+                return attempt == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
+            },
+            DefaultCancellationToken);
 
-        var callers = new Task[count];
-        for (var i = 0; i < count; i++)
-            callers[i] = StartCallerAsync();
+        while (attempts.Count < 1)
+            await Task.Yield();
 
-        return callers;
+        timeProvider.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(9, await executeTask);
+        Assert.Equal(2, attempts.Count);
     }
 
-    private static async Task HammerExecuteUntilDisposedAsync(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults)
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static async Task HammerExecuteUntilDisposedAsync(
+        ServerCallPolicy policy,
+        ManualResetEventSlim drained,
+        ConcurrentQueue<string> faults,
+        TaskCompletionSource readySignal)
     {
         while (!drained.IsSet)
         {
             try
             {
                 _ = await policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), CancellationToken.None);
+                _ = readySignal.TrySetResult();
             }
             catch (Exception ex) when (ex is RpcException or OperationCanceledException)
             {
@@ -448,13 +449,52 @@ public sealed class NodeCallPolicyTests : ServerUnitTestBase
                 // text: both policies throw their post-enter check via ThrowIf(..., this), which
                 // reports the policy type name, so only an ObjectName identifying SemaphoreSlim
                 // counts as a fault.
-                if (string.Equals(disposed.ObjectName, typeof(SemaphoreSlim).Name, StringComparison.Ordinal))
+                if (string.Equals(disposed.ObjectName, nameof(SemaphoreSlim), StringComparison.Ordinal))
                     faults.Enqueue(disposed.ToString());
 
                 return;
             }
         }
     }
+
+    private static Task[] StartHammerCallers(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count, out Task[] callers)
+    {
+        var started = new Task[count];
+        callers = new Task[count];
+        for (var i = 0; i < count; i++)
+        {
+            var readySignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            started[i] = readySignal.Task;
+            callers[i] = StartCallerAsync(readySignal);
+        }
+
+        return started;
+
+        Task StartCallerAsync(TaskCompletionSource readySignal)
+        {
+            return Task.Factory.StartNew(
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        }
+    }
+
+    private ServerCallPolicy CreatePolicy(
+        TimeSpan? timeoutPerAttempt = null,
+        int maxAttempts = 3,
+        TimeSpan? baseBackoff = null,
+        TimeSpan? maxBackoff = null,
+        int maxConcurrentPerPeer = 64,
+        string? peer = null,
+        TimeProvider? timeProvider = null,
+        Meter? meter = null) => new(
+        new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter ?? _testMeter), new ServerRpcTimeoutMetrics(meter ?? _testMeter)),
+        maxAttempts,
+        maxConcurrentPerPeer,
+        peer,
+        timeProvider ?? TimeProvider.System,
+        new CallPolicyTimeouts(timeoutPerAttempt, baseBackoff, maxBackoff));
 
     [Immutable]
     private sealed class CancellationProbeState

@@ -1,8 +1,10 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -11,10 +13,26 @@ namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Tests for ServerClientPool methods and metrics.</summary>
 [Immutable]
-public sealed class ClientPoolMetricsTests : ServerUnitTestBase
+public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
 {
-    private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
+
+    private readonly Meter _testMeter = new("test");
+
+    /// <summary>Case-distinct node identities require distinct transport resources.</summary>
+    [Fact]
+    public async Task CaseDistinctNodeIdsUseSeparatePools()
+    {
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "node-a", Uri = new Uri("https://localhost:6500") },
+            new() { NodeId = "NODE-A", Uri = new Uri("https://localhost:6501") },
+        ];
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
+
+        Assert.NotSame(pool.ForNode("node-a"), pool.ForNode("NODE-A"));
+        Assert.NotSame(pool.PolicyFor("node-a"), pool.PolicyFor("NODE-A"));
+    }
 
     /// <summary>Inter-node address rewrite rejects a non-absolute primary peer URI.</summary>
     [Fact]
@@ -28,10 +46,14 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         {
             InterNodeMtlsEnabled = true,
             MtlsOptions = new MtlsOptions { InternalListenPort = 6101 },
-            PolicyFactory = static _ => new ServerCallPolicy(),
+            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))),
         };
 
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(peers, args, static (peerList, poolArgs) => _ = new ServerClientPool(peerList, poolArgs));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            peers,
+            args,
+            _testMeter,
+            static (peerList, poolArgs, meter) => _ = new ServerClientPool(peerList, poolArgs, new ServerClientPoolMetrics(meter)));
         Assert.Equal("Cluster peer URI is invalid.", ex.Message);
     }
 
@@ -39,9 +61,10 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     [Fact]
     public async Task DisposeIncrementsDisposalsTotal()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
         var peers = BuildPeers(2);
-        var pool = new ServerClientPool(peers, PolicyOnlyArgs());
+        var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(meter));
 
         await pool.DisposeAsync();
 
@@ -53,26 +76,11 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
         var peers = BuildPeers(1);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
         var first = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
             Assert.Same(first, pool.ForNode("n0"));
-    }
-
-    /// <summary>Case-distinct node identities require distinct transport resources.</summary>
-    [Fact]
-    public async Task CaseDistinctNodeIdsUseSeparatePools()
-    {
-        ServerPeer[] peers =
-        [
-            new() { NodeId = "node-a", Uri = new Uri("https://localhost:6500") },
-            new() { NodeId = "NODE-A", Uri = new Uri("https://localhost:6501") },
-        ];
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
-
-        Assert.NotSame(pool.ForNode("node-a"), pool.ForNode("NODE-A"));
-        Assert.NotSame(pool.PolicyFor("node-a"), pool.PolicyFor("NODE-A"));
     }
 
     /// <summary>Ensures NodeIds is a deterministic snapshot of the pool membership.</summary>
@@ -80,7 +88,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
         var peers = BuildPeers(3);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
 
         Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
     }
@@ -90,7 +98,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     public async Task PoolSizeStableAcrossManyForNodeLookups()
     {
         var peers = BuildPeers(2);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
 
         var anchor = pool.ForNode("n0");
 
@@ -99,6 +107,9 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 
         Assert.Same(anchor, pool.ForNode("n0"));
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static ServerPeer[] BuildPeers(int n)
     {
@@ -112,5 +123,5 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         return peers;
     }
 
-    private static ServerClientPoolArgs PolicyOnlyArgs() => new() { PolicyFactory = static _ => new ServerCallPolicy() };
+    private ServerClientPoolArgs PolicyOnlyArgs() => new() { PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))) };
 }

@@ -17,7 +17,8 @@ public sealed class NodeMeasurementSink : IDisposable
 {
     private readonly ConcurrentQueue<CapturedMeasurement> _events = new();
     private readonly MeterListener _listener = new();
-    private readonly string _meterName;
+    private readonly Meter? _meter;
+    private readonly string? _meterName;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.
@@ -27,6 +28,22 @@ public sealed class NodeMeasurementSink : IDisposable
     {
         _meterName = name;
         _listener.InstrumentPublished = OnInstrumentPublished;
+        _listener.SetMeasurementEventCallback<int>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.SetMeasurementEventCallback<long>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.SetMeasurementEventCallback<double>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.Start();
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to measurements from the
+    /// specified meter instance only.
+    /// </summary>
+    /// <param name="meter">Meter instance to subscribe to.</param>
+    public NodeMeasurementSink(Meter meter)
+    {
+        _meter = meter ?? throw new ArgumentNullException(nameof(meter));
+        _listener.InstrumentPublished = OnInstrumentPublished;
+        _listener.SetMeasurementEventCallback<int>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.SetMeasurementEventCallback<long>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.SetMeasurementEventCallback<double>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.Start();
@@ -160,6 +177,13 @@ public sealed class NodeMeasurementSink : IDisposable
 
     private void OnInstrumentPublished(Instrument instrument, MeterListener listener)
     {
+        if (_meter != null)
+        {
+            if (ReferenceEquals(instrument.Meter, _meter))
+                listener.EnableMeasurementEvents(instrument, _events);
+            return;
+        }
+
         if (string.Equals(instrument.Meter.Name, _meterName, StringComparison.OrdinalIgnoreCase))
             listener.EnableMeasurementEvents(instrument, _events);
     }

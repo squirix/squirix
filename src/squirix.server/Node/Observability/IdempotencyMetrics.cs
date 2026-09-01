@@ -8,59 +8,53 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Low-cardinality idempotency store metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
+/// <summary>Low-cardinality idempotency store metrics on the host-scoped <see cref="Meter" />.</summary>
 [ThreadSafe]
-internal static class IdempotencyMetrics
+internal sealed class IdempotencyMetrics
 {
-    private static readonly Counter<long> EvictionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_idempotency_evictions_total",
-        "{eviction}",
-        "Idempotency store evictions when enforcing the in-flight record cap");
+    private readonly RegistrationCatalog _catalog = new();
+    private readonly Counter<long> _evictionsTotal;
+    private readonly Lock _initLock = new();
+    private readonly Meter _meter;
+    private readonly Counter<long> _rejectionsTotal;
 
-    private static readonly Lock InitLock = new();
-
-    private static readonly Counter<long> RejectionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_idempotency_rejections_total",
-        "{rejection}",
-        "Idempotency store rejections when the in-flight record cap cannot be satisfied");
-
-    private static RegistrationCatalog Catalog { get; } = new();
-
-    internal static void RecordEviction(string nodeId)
+    internal IdempotencyMetrics(Meter meter)
     {
-        var tags = NodeTags(nodeId);
-        EvictionsTotal.Add(1, in tags);
+        _meter = meter;
+        _evictionsTotal = meter.CreateCounter<long>("squirix_idempotency_evictions_total", "{eviction}", "Idempotency store evictions when enforcing the in-flight record cap");
+        _rejectionsTotal = meter.CreateCounter<long>(
+            "squirix_idempotency_rejections_total",
+            "{rejection}",
+            "Idempotency store rejections when the in-flight record cap cannot be satisfied");
     }
 
-    internal static void RecordRejection(string nodeId)
+    internal void RecordEviction(string nodeId)
     {
         var tags = NodeTags(nodeId);
-        RejectionsTotal.Add(1, in tags);
+        _evictionsTotal.Add(1, in tags);
     }
 
-    internal static void Register(IdempotencyMetricRegistration registration)
+    internal void RecordRejection(string nodeId)
+    {
+        var tags = NodeTags(nodeId);
+        _rejectionsTotal.Add(1, in tags);
+    }
+
+    internal void Register(IdempotencyMetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
+        lock (_initLock)
         {
-            Catalog.Add(registration);
+            _catalog.Add(registration);
             EnsureInstrumentsLocked();
         }
     }
 
-    internal static void Unregister(IdempotencyMetricRegistration registration)
+    internal void Unregister(IdempotencyMetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
-            Catalog.Remove(registration);
-    }
-
-    private static void EnsureInstrumentsLocked()
-    {
-        if (!Catalog.TryCreateInstruments())
-            return;
-
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
+        lock (_initLock)
+            _catalog.Remove(registration);
     }
 
     private static TagList NodeTags(string nodeId) => new()
@@ -68,9 +62,17 @@ internal static class IdempotencyMetrics
         { "node", nodeId },
     };
 
-    private static IEnumerable<Measurement<long>> ObserveRecordCount()
+    private void EnsureInstrumentsLocked()
     {
-        var snapshot = Catalog.SnapshotItems();
+        if (!_catalog.TryCreateInstruments())
+            return;
+
+        _ = _meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveRecordCount()
+    {
+        var snapshot = _catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];

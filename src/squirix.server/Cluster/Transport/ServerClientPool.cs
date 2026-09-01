@@ -26,15 +26,17 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.Ordinal);
+    private readonly ILogger? _logger;
+    private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
-    private readonly ILogger? _logger;
     private int _disposed;
 
-    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args)
+    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics)
     {
         ArgumentNullException.ThrowIfNull(args);
         _logger = args.Logger;
+        _metrics = metrics;
         var nodeIds = new string[peers.Count];
 
         for (var i = 0; i < peers.Count; i++)
@@ -77,7 +79,7 @@ internal sealed class ServerClientPool : IServerClientPool
             try
             {
                 _channels[nodeId].Dispose();
-                ServerClientPoolMetrics.AddDisposal();
+                _metrics.AddDisposal();
             }
             catch (Exception exception) when (exception is ObjectDisposedException or IOException)
             {
