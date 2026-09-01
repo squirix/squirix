@@ -64,14 +64,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
-    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
-        _evictionIndex.TrackNew(key);
-        return ValueTask.CompletedTask;
-    }
+    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => SetAsync(key, entry, cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
@@ -104,10 +97,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
-        _evictionIndex.TrackNew(key);
-        EnforceCapacityIfNeeded();
+        UpsertEntry(key, entry);
         return ValueTask.CompletedTask;
     }
 
@@ -226,6 +216,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return new NodeCacheEntry<T>(entry.Value, version, expires, entry.Expiration, entry.Tags);
     }
 
+    private void UpsertEntry(CacheKey key, NodeCacheEntry<T> entry)
+    {
+        var normalized = NormalizeEntry(entry);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
+        _evictionIndex.TrackOrTouch(key);
+        EnforceCapacityIfNeeded();
+    }
+
     private bool TryGetLive(CacheKey key, out StoredEntry stored)
     {
         while (true)
@@ -323,6 +321,24 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             {
                 if (_meta.ContainsKey(key))
                     return;
+
+                var node = _order.AddFirst(key);
+                _meta[key] = (node, 1);
+            }
+        }
+
+        internal void TrackOrTouch(CacheKey key)
+        {
+            if (_options.Capacity == null)
+                return;
+
+            lock (_lock)
+            {
+                if (_meta.TryGetValue(key, out var m))
+                {
+                    ApplyTouchPolicy(key, m);
+                    return;
+                }
 
                 var node = _order.AddFirst(key);
                 _meta[key] = (node, 1);
