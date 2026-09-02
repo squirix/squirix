@@ -1461,10 +1461,16 @@ jobs:
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
             -   name: Synchronize NDepend project
-                run: python3 build/ndepend/sync_ndproj.py
+                run: |
+                    python3 build/ndepend/sync_ndproj.py
+                    if ! git diff --exit-code --quiet -- squirix.ndproj; then
+                        echo "squirix.ndproj is out of date with build/ndepend/squirix.ndrules." >&2
+                        echo "Run python3 build/ndepend/sync_ndproj.py and commit the regenerated squirix.ndproj." >&2
+                        exit 1
+                    fi
 
             -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@v2
+                uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14 # latest ndepend (unreleased; last release v1.0.0)
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}

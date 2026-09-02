@@ -50,7 +50,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
     private static void AppendMetricLine(StringBuilder sb, string metric, string? suffix, string labels, double value)
     {
-        AppendSanitizedName(sb, metric, true);
+        PrometheusScrapeLabelPolicy.AppendSanitizedName(sb, metric, true);
         if (suffix != null)
             _ = sb.Append(suffix);
         if (labels.Length > 0)
@@ -65,28 +65,10 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         _ = sb.Append('\n');
     }
 
-    private static void AppendSanitizedName(StringBuilder sb, string name, bool allowColon)
-    {
-        if (name.Length == 0)
-            return;
-
-        if (name[0] >= '0' && name[0] <= '9')
-            _ = sb.Append('_');
-
-        for (var i = 0; i < name.Length; i++)
-        {
-            var ch = name[i];
-            if (ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' || ch == '_' || (allowColon && ch == ':'))
-                _ = sb.Append(ch);
-            else
-                _ = sb.Append('_');
-        }
-    }
-
     private static string BuildSeriesKey(string metric, string? suffix, string labels)
     {
         var sb = new StringBuilder(metric.Length + (suffix?.Length ?? 0) + labels.Length);
-        AppendSanitizedName(sb, metric, true);
+        PrometheusScrapeLabelPolicy.AppendSanitizedName(sb, metric, true);
         if (suffix != null)
             _ = sb.Append(suffix);
         if (labels.Length == 0)
@@ -215,6 +197,24 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             finally
             {
                 ArrayPool<KeyValuePair<string, object?>>.Shared.Return(rented, true);
+            }
+        }
+
+        internal static void AppendSanitizedName(StringBuilder sb, string name, bool allowColon)
+        {
+            if (name.Length == 0)
+                return;
+
+            if (name[0] >= '0' && name[0] <= '9')
+                _ = sb.Append('_');
+
+            for (var i = 0; i < name.Length; i++)
+            {
+                var ch = name[i];
+                if (ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' || ch == '_' || (allowColon && ch == ':'))
+                    _ = sb.Append(ch);
+                else
+                    _ = sb.Append('_');
             }
         }
 

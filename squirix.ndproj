@@ -1242,7 +1242,22 @@ select new { t, t.NbLinesOfCode, Debt = 10.ToMinutes().ToDebt(), Severity = Seve
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1914$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Immutable struct should be declared as readonly</Name>
+// <Id>ND1914:ImmutableStructShouldBeDeclaredAsReadonly</Id>
+// ND1914 squirix override: skip structures explicitly marked thread-safe. A
+// [ThreadSafe] struct changes internal state under its own synchronization (for
+// example AsyncLockHolder flips a release flag via Interlocked) and cannot be
+// declared readonly, so the read-only suggestion is a false positive for it.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsStructure &&
+      t.IsImmutable &&
+      !t.IsReadOnly &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch())
+select new { t, Debt = 2.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
 
 
 
