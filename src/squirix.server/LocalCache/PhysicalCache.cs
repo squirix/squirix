@@ -347,7 +347,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <param name="expiresUtc">The expiration time.</param>
         /// <param name="version">The version.</param>
         /// <param name="tags">The tags.</param>
-        public Node(T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
+        internal Node(T? value, DateTime? expiresUtc, long version, FrozenDictionary<string, string>? tags)
         {
             Value = value;
             ExpiresUtc = expiresUtc;
@@ -356,18 +356,18 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 Tags = tags;
         }
 
-        public DateTime? ExpiresUtc { get; set; }
+        internal DateTime? ExpiresUtc { get; set; }
 
         /// <summary>Gets or sets the access frequency, maintained only for the LFU policy.</summary>
-        public long Frequency { get; set; } = 1;
+        internal long Frequency { get; set; } = 1;
 
         /// <summary>Gets or sets the node in the shared eviction-order list, or <see langword="null" /> when eviction is unbounded.</summary>
-        public LinkedListNode<CacheKey>? OrderNode { get; set; }
+        internal LinkedListNode<CacheKey>? OrderNode { get; set; }
 
-        public FrozenDictionary<string, string>? Tags { get; set; }
+        internal FrozenDictionary<string, string>? Tags { get; set; }
 
-        public T? Value { get; set; }
+        internal T? Value { get; set; }
 
-        public long Version { get; set; }
+        internal long Version { get; set; }
     }
 }
