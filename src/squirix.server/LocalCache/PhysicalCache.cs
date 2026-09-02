@@ -342,12 +342,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// </summary>
     private sealed class Node
     {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Node" /> class.
-        /// A single live entry plus its eviction-order bookkeeping. Merging value and order state
-        /// into one object per key - instead of a value in one structure and metadata in another -
-        /// is what removes the divergence race: there's nothing left to fall out of sync.
-        /// </summary>
+        /// <summary>Initializes a new instance of the <see cref="Node" /> class.</summary>
         /// <param name="value">The cached value.</param>
         /// <param name="expiresUtc">The expiration time.</param>
         /// <param name="version">The version.</param>
@@ -357,8 +352,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             Value = value;
             ExpiresUtc = expiresUtc;
             Version = version;
-            if (tags != null)
-                Tags = tags;
+            Tags = tags;
         }
 
         internal DateTime? ExpiresUtc { get; set; }

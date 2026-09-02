@@ -1470,7 +1470,7 @@ jobs:
                     fi
 
             -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14
+                uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14 # latest ndepend (unreleased; last release v1.0.0)
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}
