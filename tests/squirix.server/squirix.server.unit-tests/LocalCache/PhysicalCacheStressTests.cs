@@ -101,9 +101,32 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
                 TaskScheduler.Default).Unwrap();
         }
 
-        await Task.WhenAll(jobs);
+        var maxObserved = 0;
+        while (!AllCompleted(jobs))
+        {
+            var current = EntryCountOf(cache);
+            if (current > maxObserved)
+                maxObserved = current;
 
+            await Task.Delay(5, DefaultCancellationToken);
+        }
+
+        await Task.WhenAll(jobs);
+        maxObserved = Math.Max(maxObserved, EntryCountOf(cache));
+
+        Assert.InRange(maxObserved, 0, capacity);
         Assert.InRange(EntryCountOf(cache), 0, capacity);
+    }
+
+    private static bool AllCompleted(Task[] jobs)
+    {
+        foreach (var job in jobs)
+        {
+            if (!job.IsCompleted)
+                return false;
+        }
+
+        return true;
     }
 
     private static CacheKey[] CreateKeys(int keyCount)
