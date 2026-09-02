@@ -288,20 +288,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> entry, bool insertOnly)
     {
-        NodeCacheEntry<T> NormalizeExpiration(NodeCacheEntry<T> candidate)
-        {
-            var version = candidate.Version > 0 ? candidate.Version : 1;
-            var expires = candidate.ExpiresUtc;
-            if (candidate.Expiration is { } expiration)
-            {
-                var relativeDeadline = UtcNow.SaturatedAdd(expiration);
-                if (expires == null || relativeDeadline < expires)
-                    expires = relativeDeadline;
-            }
-
-            return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
-        }
-
         var normalized = NormalizeExpiration(entry);
         _ = _store.TryGetValue(key, out var node);
         if (node != null && insertOnly && node.ExpiresUtc is { } existingExpires && existingExpires <= UtcNow)
@@ -334,6 +320,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         node.Tags = normalized.Tags;
         TouchOrderLocked(key, node);
         return false;
+
+        NodeCacheEntry<T> NormalizeExpiration(NodeCacheEntry<T> candidate)
+        {
+            var version = candidate.Version > 0 ? candidate.Version : 1;
+            var expires = candidate.ExpiresUtc;
+            if (candidate.Expiration is not { } expiration)
+                return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
+            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+            if (expires == null || relativeDeadline < expires)
+                expires = relativeDeadline;
+
+            return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
+        }
     }
 
     /// <summary>
