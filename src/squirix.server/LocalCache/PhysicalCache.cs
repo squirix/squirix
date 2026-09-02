@@ -218,13 +218,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         CacheKey? chosen = null;
         var minFrequency = long.MaxValue;
 
-        foreach (var pair in _store)
+        for (var node = _order.Last; node != null; node = node.Previous)
         {
-            if (pair.Value.Frequency >= minFrequency)
+            if (!_store.TryGetValue(node.Value, out var entry) || entry.Frequency >= minFrequency)
                 continue;
 
-            minFrequency = pair.Value.Frequency;
-            chosen = pair.Key;
+            minFrequency = entry.Frequency;
+            chosen = node.Value;
         }
 
         return chosen;
