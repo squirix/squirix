@@ -1171,9 +1171,22 @@ jobs:
     # PVS-Studio Team: full analysis of production packages; fail CI when warnings remain.
     # Secret: PVS_STUDIO_CREDENTIALS = "<license-name> <license-key>"
     # Skipped on fork PRs (secrets unavailable). No SARIF upload.
+    # Uses the pre-baked analysis container (ghcr.io/squirix/braid-pvs-studio) that
+    # already carries the .NET 10.0.400 SDK plus pvs-studio/pvs-studio-dotnet, so
+    # CI no longer installs the analyzer via apt on every run. The analyzer
+    # license is NOT baked in; it is activated at runtime via credentials.
     pvs-studio:
         name: PVS-Studio
         runs-on: ubuntu-latest
+        container:
+            # Pin the immutable image digest instead of the mutable :latest tag so
+            # CI always runs the reviewed build. Because the image is released via
+            # :latest re-tagging (weekly rebuild in the braid repo), bump this digest
+            # to adopt a newer analyzer build.
+            image: ghcr.io/squirix/braid-pvs-studio@sha256:88ba0f1a4cb9bbf9d9de4e072a888527a3fcd9aedb7fae99cd318736f0e8cafb
+            credentials:
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
         timeout-minutes: 60
         permissions:
             contents: read
@@ -1201,11 +1214,6 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-                with:
-                    global-json-file: global.json
-
             -   name: Cache NuGet Packages
                 uses: actions/cache@v6
                 with:
@@ -1213,31 +1221,6 @@ jobs:
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
                     restore-keys: |
                         ${{ runner.os }}-dotnet10-nuget-
-
-            -   name: Install PVS-Studio
-                shell: bash
-                run: |
-                    set -euo pipefail
-                    # --max-redirect=0: refuse HTTP→attacker redirect of the apt signing material (S6506).
-                    wget --max-redirect=0 -qO- https://files.pvs-studio.com/etc/pubkey.txt \
-                      | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/viva64.gpg
-                    # Use the primary pvs-studio host instead of the wcdn CDN edge, which occasionally
-                    # serves a mid-sync repo index (size/hash mismatch during a mirror update).
-                    echo "deb [arch=amd64] https://files.pvs-studio.com/deb viva64-release pvs-studio" \
-                      | sudo tee /etc/apt/sources.list.d/viva64.list >/dev/null
-                    # The pvs-studio mirror occasionally serves a mid-sync index (size/hash mismatch);
-                    # retry the index fetch a few times to ride through the transient mirror update.
-                    for attempt in 1 2 3 4 5; do
-                        if sudo apt-get update; then
-                            break
-                        fi
-                        if [[ "$attempt" -eq 5 ]]; then
-                            echo "apt-get update failed after 5 attempts (pvs-studio mirror)." >&2
-                            exit 1
-                        fi
-                        sleep 15
-                    done
-                    sudo apt-get install -y pvs-studio-dotnet
 
             -   name: Restore production projects
                 run: |
