@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
@@ -90,10 +89,7 @@ internal static class RuntimeServiceRegistration
             // expiration can be advanced deterministically instead of relying on real-time delays.
             _ = services.AddSingleton(TimeProvider.System);
 
-            _ = services.AddSingleton(static sp => new PhysicalCache<object?>(
-                sp.GetService<TimeProvider>(),
-                new EvictionOptions { Policy = EvictionPolicyType.Lru },
-                sp.GetRequiredService<ILogger<PhysicalCache<object?>>>()));
+            _ = services.AddSingleton(static sp => new PhysicalCache<object?>(sp.GetService<TimeProvider>(), new EvictionOptions { Policy = EvictionPolicyType.Lru }));
             _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheReadOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
             _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
