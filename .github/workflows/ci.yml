@@ -1179,9 +1179,11 @@ jobs:
         name: PVS-Studio
         runs-on: ubuntu-latest
         container:
-            image: ghcr.io/squirix/braid-pvs-studio:latest
-            # Prefer pinned digest over :latest for deterministic CI. The image is
-            # public, so credentials only make the pull explicit via GITHUB_TOKEN.
+            # Pin the immutable image digest instead of the mutable :latest tag so
+            # CI always runs the reviewed build. Because the image is released via
+            # :latest re-tagging (weekly rebuild in the braid repo), bump this digest
+            # to adopt a newer analyzer build.
+            image: ghcr.io/squirix/braid-pvs-studio@sha256:88ba0f1a4cb9bbf9d9de4e072a888527a3fcd9aedb7fae99cd318736f0e8cafb
             credentials:
                 username: ${{ github.actor }}
                 password: ${{ secrets.GITHUB_TOKEN }}
