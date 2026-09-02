@@ -288,15 +288,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     private bool UpsertLocked(CacheKey key, NodeCacheEntry<T> entry, bool insertOnly)
     {
-        var version = entry.Version > 0 ? entry.Version : 1;
-        var expires = entry.ExpiresUtc;
-        if (entry.Expiration is { } expiration)
+        NodeCacheEntry<T> NormalizeExpiration(NodeCacheEntry<T> candidate)
         {
-            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
-            if (expires == null || relativeDeadline < expires)
-                expires = relativeDeadline;
+            var version = candidate.Version > 0 ? candidate.Version : 1;
+            var expires = candidate.ExpiresUtc;
+            if (candidate.Expiration is { } expiration)
+            {
+                var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+                if (expires == null || relativeDeadline < expires)
+                    expires = relativeDeadline;
+            }
+
+            return new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
         }
 
+        var normalized = NormalizeExpiration(entry);
         _ = _store.TryGetValue(key, out var node);
         if (node != null && insertOnly && node.ExpiresUtc is { } existingExpires && existingExpires <= UtcNow)
         {
@@ -306,7 +312,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         if (node == null)
         {
-            node = new Node(entry.Value, expires, version, entry.Tags);
+            node = new Node(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
             _store[key] = node;
 
             if (_eviction.Capacity != null)
@@ -322,10 +328,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (insertOnly)
             return false;
 
-        node.Value = entry.Value;
-        node.ExpiresUtc = expires;
-        node.Version = version;
-        node.Tags = entry.Tags;
+        node.Value = normalized.Value;
+        node.ExpiresUtc = normalized.ExpiresUtc;
+        node.Version = normalized.Version;
+        node.Tags = normalized.Tags;
         TouchOrderLocked(key, node);
         return false;
     }
