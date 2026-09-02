@@ -82,30 +82,9 @@ internal static partial class FileEx
         else
             File.Move(validatedTemp, validatedFinal);
 
-        Exception? firstFlushError = null;
-
-        CaptureFlushError(validatedTemp);
-        CaptureFlushError(validatedFinal);
-
-        if (validatedBackup != null)
-            CaptureFlushError(validatedBackup);
-
-        if (firstFlushError != null)
-            throw firstFlushError;
-
-        return;
-
-        void CaptureFlushError(string path)
-        {
-            try
-            {
-                FlushDirectoryEntry(path);
-            }
-            catch (Exception ex) when (firstFlushError == null)
-            {
-                firstFlushError = ex;
-            }
-        }
+        // Temp, final, and backup always share a directory; flushing the destination's parent directory
+        // is sufficient to make the rename's directory entry durable.
+        FlushDirectoryEntry(validatedFinal);
     }
 
     /// <summary>

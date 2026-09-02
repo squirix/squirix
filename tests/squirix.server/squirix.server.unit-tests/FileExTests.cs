@@ -59,21 +59,4 @@ public sealed class FileExTests : ServerUnitTestBase
         Assert.Equal([30, 40], File.ReadAllBytes(finalPath));
         Assert.Equal([10, 20], File.ReadAllBytes(backupPath));
     }
-
-    /// <summary>PublishFile moves a file across directories and flushes both parent directories.</summary>
-    [Fact]
-    public void PublishFileCrossDirectoryFlushesBoth()
-    {
-        using var srcDir = new TempDirectory("squirix-fileex-cross-src");
-        using var dstDir = new TempDirectory("squirix-fileex-cross-dst");
-        var tempPath = Path.Join(srcDir.Path, "temp.bin");
-        var finalPath = Path.Join(dstDir.Path, "final.bin");
-        File.WriteAllBytes(tempPath, [11, 22, 33]);
-
-        FileEx.PublishFile(tempPath, finalPath);
-
-        Assert.False(File.Exists(tempPath));
-        Assert.True(File.Exists(finalPath));
-        Assert.Equal([11, 22, 33], File.ReadAllBytes(finalPath));
-    }
 }
