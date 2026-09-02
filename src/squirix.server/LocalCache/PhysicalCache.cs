@@ -53,10 +53,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         const int yieldEvery = 256;
 
-        // Snapshot the key set under the lock, then look up (and lazily expire/touch) one key at
-        // a time, each under its own short lock acquisition. This never holds _lock across a
-        // `yield return` or an `await` - doing so would risk deadlocking re-entrant callers and
-        // isn't even expressible with `Lock` inside an iterator.
+        // Snapshot the key set under the lock, then look up one key at a time under its own short
+        // lock acquisition. This never holds _lock across a `yield return` or an `await`, and the
+        // lookup deliberately does not touch eviction order or frequency: a snapshot read must not
+        // reorder LRU or inflate LFU counts for entries it merely enumerates.
         CacheKey[] keys;
         lock (_lock)
         {
@@ -72,7 +72,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             NodeCacheEntry<T>? entry = null;
             lock (_lock)
             {
-                if (TryGetLiveLocked(key, out var node))
+                if (_store.TryGetValue(key, out var node) && (node.ExpiresUtc == null || node.ExpiresUtc > UtcNow))
                     entry = new NodeCacheEntry<T>(node.Value, node.Version, node.ExpiresUtc, tags: node.Tags);
             }
 
