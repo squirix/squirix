@@ -203,7 +203,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _ => throw new InvalidOperationException("Unsupported eviction policy."),
             };
 
-            if (candidate is null)
+            if (candidate == null)
                 break;
 
             if (!_store.Remove(candidate, out var node))
