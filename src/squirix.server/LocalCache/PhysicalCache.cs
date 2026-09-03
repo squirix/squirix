@@ -203,10 +203,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _ => throw new InvalidOperationException("Unsupported eviction policy."),
             };
 
-            if (candidate is not { } key)
+            if (candidate is null)
                 break;
 
-            if (!_store.Remove(key, out var node))
+            if (!_store.Remove(candidate, out var node))
                 break; // Shouldn't happen: order and store are updated together now.
 
             UntrackLocked(node);

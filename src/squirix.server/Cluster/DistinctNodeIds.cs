@@ -16,7 +16,7 @@ internal static class DistinctNodeIds
         var write = 0;
         for (var i = 0; i < nodeIds.Length; i++)
         {
-            var value = nodeIds[i]?.Trim();
+            var value = nodeIds[i].Trim();
             if (string.IsNullOrEmpty(value) || !seen.Add(value))
                 continue;
 
