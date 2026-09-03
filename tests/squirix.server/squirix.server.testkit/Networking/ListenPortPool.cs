@@ -51,9 +51,18 @@ public sealed class ListenPortPool : IDisposable
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
 
+    /// <summary>Reserves a contiguous range of free ports and holds them all open to eliminate TOCTOU races between the probe and the actual bind.</summary>
+    /// <param name="count">Number of consecutive free ports to reserve.</param>
+    /// <returns>The reserved port numbers, all bound and held open until released via <see cref="ReleasePort" />.</returns>
+    public int[] AllocateRange(int count) => _allocator.ReserveRange(count);
+
     /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
+
+    /// <summary>Releases a previously reserved port so the actual server can bind to it.</summary>
+    /// <param name="port">The port number to release.</param>
+    public void ReleasePort(int port) => _allocator.ReleasePort(port);
 
     /// <inheritdoc />
     public void Dispose()

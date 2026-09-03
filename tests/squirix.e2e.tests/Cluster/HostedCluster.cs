@@ -114,22 +114,29 @@ internal sealed class HostedCluster : IAsyncDisposable
     {
         startOptions ??= new TwoNodeStartOptions();
 
-        // Pre-allocate every listen URI so each node advertises the same peer topology at startup.
-        var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
-        for (var i = 0; i < nodeIds.Length; i++)
-            uris[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpUri();
-
-        var topology = new (string NodeId, Uri Uri)[nodeIds.Length];
-        for (var i = 0; i < nodeIds.Length; i++)
-            topology[i] = (nodeIds[i], uris[nodeIds[i]]);
-
+        var pool = ListenPortPool.EndToEndTests;
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
 
         // Multi-node topologies share one ClusterTls material so peer trust anchors stay consistent.
         var mtls = nodeIds.Length > 1 ? new ClusterTls() : null;
         var dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
+        var reserved = Array.Empty<int>();
         try
         {
+            // Reserve one loopback port per node and keep them bound until each node binds. Because the
+            // reserved ports stay marked as in-process reservations even after they are released for a node,
+            // the pool will not hand the same port to a later caller, and cross-process slices are disjoint.
+            // This closes the pool-level TOCTOU race; an unrelated third-party process could still grab a
+            // briefly released port, which upstream probes already guard against.
+            reserved = pool.AllocateRange(nodeIds.Length);
+            var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
+            for (var i = 0; i < nodeIds.Length; i++)
+                uris[nodeIds[i]] = new Uri($"https://127.0.0.1:{reserved[i]}", UriKind.Absolute);
+
+            var topology = new (string NodeId, Uri Uri)[nodeIds.Length];
+            for (var i = 0; i < nodeIds.Length; i++)
+                topology[i] = (nodeIds[i], uris[nodeIds[i]]);
+
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
@@ -140,14 +147,22 @@ internal sealed class HostedCluster : IAsyncDisposable
                     MtlsProfile = startOptions.GetProfile(nodeId),
                     TimeProvider = startOptions.TimeProvider,
                 };
+
+                // Release this node's held port so Kestrel can bind it, then start the node immediately.
+                pool.ReleasePort(reserved[i]);
                 nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, mtls, cancellationToken));
             }
 
             return new HostedCluster(nodes, mtls, dataDir);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        catch
         {
-            // Startup failures (configuration or I/O) must dispose already-started nodes before rethrowing.
+            // Release any reserved ports that were never handed to a started node, then dispose all
+            // already-started nodes before rethrowing. This runs for every failure, including startup
+            // exceptions and cancellation, so held ports never leak for the process lifetime.
+            for (var i = nodes.Count; i < reserved.Length; i++)
+                pool.ReleasePort(reserved[i]);
+
             foreach (var node in nodes.Values)
                 await node.DisposeAsync();
 

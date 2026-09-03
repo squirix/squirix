@@ -16,6 +16,7 @@ public sealed class PortAllocator : IDisposable
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
 
     private readonly ConcurrentBag<int> _allocatedPorts = [];
+    private readonly ConcurrentDictionary<int, TcpListener> _heldPorts = new();
     private readonly int _rangeSize;
     private readonly int _start;
     private int _disposed;
@@ -106,16 +107,93 @@ public sealed class PortAllocator : IDisposable
         throw new InvalidOperationException("Failed to allocate a free listen port.");
     }
 
+    /// <summary>Releases a previously reserved port so the actual server can bind to it.</summary>
+    /// <param name="port">The port number to release.</param>
+    /// <remarks>
+    /// The port is unbound, and the caller should bind it immediately to minimize the TOCTOU window.
+    /// The port stays reserved in-process until the allocator is disposed, so the pool will not hand it
+    /// out again to a later caller.
+    /// </remarks>
+    public void ReleasePort(int port)
+    {
+        if (!_heldPorts.TryRemove(port, out var listener))
+            return;
+        listener.Stop();
+        listener.Dispose();
+    }
+
+    /// <summary>
+    /// Reserves a contiguous range of <paramref name="count" /> free ports and holds them all bound
+    /// simultaneously so the pool does not hand the same port to overlapping callers.
+    /// </summary>
+    /// <param name="count">Number of consecutive free ports to reserve.</param>
+    /// <param name="maxAttempts">The maximum number of candidate starting ports to try before giving up. The default is 3,000.</param>
+    /// <returns>The reserved port numbers, all bound and held open until released via <see cref="ReleasePort" />.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="count" /> is less than 1.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if no contiguous range of <paramref name="count" /> free ports can be found within the attempt budget.
+    /// </exception>
+    /// <remarks>
+    /// Each port in the returned range stays bound (with exclusive address use) and marked as an in-process
+    /// reservation until the caller releases it via <see cref="ReleasePort" />, so the pool will not hand any of
+    /// these ports to another caller. A released port stays reserved in-process; the caller should bind it
+    /// quickly, because an unrelated third-party process could still grab it in the brief gap before the real bind.
+    /// </remarks>
+    public int[] ReserveRange(int count, int maxAttempts = 3_000)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var candidate = NextCandidate();
+            if (!FitsInRange(candidate, count))
+                continue;
+
+            var ports = new int[count];
+            if (TryReserve(ResolveWithinRange(candidate), ports))
+                return ports;
+        }
+
+        throw new InvalidOperationException($"Failed to reserve a contiguous range of {count} free listen ports.");
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        foreach (var (port, listener) in _heldPorts)
+        {
+            listener.Stop();
+            listener.Dispose();
+            _ = Reserved.TryRemove(port, out _);
+        }
+
+        _heldPorts.Clear();
+
         foreach (var port in _allocatedPorts)
             _ = Reserved.TryRemove(port, out _);
 
         _allocatedPorts.Clear();
+    }
+
+    private static TcpListener BindPort(int port)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            listener.Server.ExclusiveAddressUse = true;
+            listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+            listener.Start();
+            return listener;
+        }
+        catch
+        {
+            listener.Dispose();
+            throw;
+        }
     }
 
     private static int CreateProcessOffset()
@@ -149,6 +227,14 @@ public sealed class PortAllocator : IDisposable
         }
     }
 
+    private bool FitsInRange(int candidate, int count)
+    {
+        var offset = (candidate - _start) % _rangeSize;
+        if (offset < 0)
+            offset += _rangeSize;
+        return offset + count <= _rangeSize;
+    }
+
     private int NextCandidate()
     {
         var cur = Interlocked.Increment(ref _next);
@@ -156,5 +242,59 @@ public sealed class PortAllocator : IDisposable
         if (offset < 0)
             offset += _rangeSize;
         return _start + offset;
+    }
+
+    private int ResolveWithinRange(int candidate)
+    {
+        var offset = (candidate - _start) % _rangeSize;
+        if (offset < 0)
+            offset += _rangeSize;
+        return _start + offset;
+    }
+
+    private bool TryReserve(int start, int[] ports)
+    {
+        var reservedCount = 0;
+        var listeners = new TcpListener[ports.Length];
+        try
+        {
+            for (var i = 0; i < ports.Length; i++)
+            {
+                var port = start + i;
+                if (!Reserved.TryAdd(port, 0))
+                    return false;
+
+                try
+                {
+                    listeners[i] = BindPort(port);
+                    ports[i] = port;
+                    reservedCount++;
+                    _heldPorts[port] = listeners[i];
+                    _allocatedPorts.Add(port);
+                }
+                catch (SocketException)
+                {
+                    // The port was reserved but could not be bound; drop its reservation before failing.
+                    _ = Reserved.TryRemove(port, out _);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            if (reservedCount < ports.Length)
+            {
+                for (var i = reservedCount - 1; i >= 0; i--)
+                {
+                    var port = ports[i];
+                    _ = _heldPorts.TryRemove(port, out var listener);
+                    listener?.Stop();
+                    listener?.Dispose();
+                    _ = Reserved.TryRemove(port, out _);
+                }
+            }
+        }
     }
 }
