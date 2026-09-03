@@ -13,7 +13,7 @@ internal static class DirectoryEx
 
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
-    /// The target directory path. May be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
+    /// The target directory path. Can be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
     /// and must not contain invalid characters or wildcards.
     /// </param>
     /// <param name="baseDir">
@@ -46,7 +46,7 @@ internal static class DirectoryEx
     ///     </para>
     ///     <para>
     ///     This routine minimizes directory traversal and link attacks by rejecting targets that escape the base directory
-    ///     and, by default, forbidding symlinks. Use the returned path immediately for subsequent operations.
+    ///     and, by default, forbidding symlinks. Use the returned path immediately for later operations.
     ///     </para>
     /// </remarks>
     internal static string CreateDirectory(string path, string? baseDir = null, bool forbidSymlinks = true)

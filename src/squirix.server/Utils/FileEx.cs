@@ -7,7 +7,7 @@ using Microsoft.Win32.SafeHandles;
 namespace Squirix.Server.Utils;
 
 /// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
-internal static partial class FileEx
+internal static class FileEx
 {
     private const int DarwinCloseOnExec = 0x1000000;
 
@@ -71,7 +71,8 @@ internal static partial class FileEx
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
-    internal static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
+    internal static bool PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
@@ -82,9 +83,9 @@ internal static partial class FileEx
         else
             File.Move(validatedTemp, validatedFinal);
 
-        // Temp, final, and backup always share a directory; flushing the destination's parent directory
-        // is sufficient to make the rename's directory entry durable.
+        // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
         FlushDirectoryEntry(validatedFinal);
+        return true;
     }
 
     /// <summary>
@@ -169,14 +170,5 @@ internal static partial class FileEx
         {
             return false;
         }
-    }
-
-    /// <summary>Platforms invoke methods for unmanaged file-system calls used by <see cref="FileEx" />.</summary>
-    /// <remarks>Declared as a dedicated <c language="csharp">NativeMethods</c> class per NDepend ND2401.</remarks>
-    private static partial class NativeMethods
-    {
-        [LibraryImport("libc", EntryPoint = "open", SetLastError = true)]
-        [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
-        internal static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
     }
 }

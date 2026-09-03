@@ -33,8 +33,7 @@ public sealed class FileExTests : ServerUnitTestBase
         var finalPath = Path.Join(dir.Path, "final.bin");
         File.WriteAllBytes(tempPath, [7, 8, 9]);
 
-        FileEx.PublishFile(tempPath, finalPath);
-
+        Assert.True(FileEx.PublishFile(tempPath, finalPath));
         Assert.False(File.Exists(tempPath));
         Assert.True(File.Exists(finalPath));
         Assert.Equal([7, 8, 9], File.ReadAllBytes(finalPath));
@@ -51,7 +50,7 @@ public sealed class FileExTests : ServerUnitTestBase
         File.WriteAllBytes(finalPath, [10, 20]);
         File.WriteAllBytes(tempPath, [30, 40]);
 
-        FileEx.PublishFile(tempPath, finalPath, backupPath);
+        Assert.True(FileEx.PublishFile(tempPath, finalPath, backupPath));
 
         Assert.False(File.Exists(tempPath));
         Assert.True(File.Exists(finalPath));
