@@ -27,13 +27,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Fact]
     public async Task AmbientDeadlineCapsOverallRetryBudget()
     {
-        await using var policy = CreatePolicy(
-            TimeSpan.FromSeconds(5),
-            5,
-            TimeSpan.FromMilliseconds(5),
-            TimeSpan.FromMilliseconds(5),
-            peer: "peer-a",
-            timeProvider: TimeProvider.System);
+        var timeouts = new CallPolicyTimeouts(TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5));
+        await using var policy = CreatePolicy(timeouts, 5, peer: "peer-a", timeProvider: TimeProvider.System);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
@@ -68,7 +63,10 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Fact]
     public async Task CallerCancellationPreventsRetries()
     {
-        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(50), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-h", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromMilliseconds(50), TimeSpan.Zero, TimeSpan.Zero),
+            peer: "peer-h",
+            timeProvider: TimeProvider.System);
         using var cts = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = new InvocationCounter();
@@ -96,7 +94,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     public async Task ConcurrencyCapSerializesExecution()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-e", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-e", timeProvider: TimeProvider.System);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var peakRunning = new PeakCounter();
@@ -164,7 +162,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     public async Task DisposeDoesNotBreakInFlightExecution()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-g", timeProvider: TimeProvider.System);
+        var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-g", timeProvider: TimeProvider.System);
         try
         {
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -244,7 +242,11 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Fact]
     public async Task NoHttpRetryWhenMaxAttemptsIsOne()
     {
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-http-stop", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero),
+            1,
+            peer: "peer-http-stop",
+            timeProvider: TimeProvider.System);
         var ex = await NodeAsyncAssert.ThrowsAsync<HttpRequestException, int>(
             policy.ExecuteAsync(0, static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), DefaultCancellationToken));
         Assert.Contains("boom", ex.Message, StringComparison.Ordinal);
@@ -254,7 +256,10 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Fact]
     public async Task NoRetryForNonRetryableRpcStatus()
     {
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-rpc-stop", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.Zero, TimeSpan.Zero),
+            peer: "peer-rpc-stop",
+            timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(
@@ -274,7 +279,11 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     [Fact]
     public async Task PerAttemptTimeoutRetrySucceedsNextTry()
     {
-        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(25), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-i", timeProvider: TimeProvider.System);
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromMilliseconds(25), TimeSpan.Zero, TimeSpan.Zero),
+            2,
+            peer: "peer-i",
+            timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();
 
         var value = await policy.ExecuteAsync(
@@ -300,7 +309,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         var timeout = TimeSpan.FromSeconds(5);
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
-        await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System, meter: meter);
+        await using var policy = CreatePolicy(new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System, meter: meter);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var drainGate = new EnterReleaseGate(firstEntered, releaseFirst);
@@ -337,10 +346,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
         await using var policy = CreatePolicy(
-            TimeSpan.FromSeconds(1),
+            new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5)),
             2,
-            TimeSpan.FromMilliseconds(5),
-            TimeSpan.FromMilliseconds(5),
             peer: "peer-d",
             timeProvider: timeProvider,
             meter: meter);
@@ -374,7 +381,12 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
-        await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System, meter: meter);
+        await using var policy = CreatePolicy(
+            new CallPolicyTimeouts(TimeSpan.FromMilliseconds(100), TimeSpan.Zero, TimeSpan.Zero),
+            2,
+            peer: "peer-b",
+            timeProvider: TimeProvider.System,
+            meter: meter);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
@@ -398,10 +410,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var timeProvider = new FakeTimeProvider();
         await using var policy = CreatePolicy(
-            TimeSpan.FromSeconds(1),
+            new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5)),
             2,
-            TimeSpan.FromMilliseconds(5),
-            TimeSpan.FromMilliseconds(5),
             peer: "peer-rpc-retry",
             timeProvider: timeProvider);
         var attempts = new InvocationCounter();
@@ -481,10 +491,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     }
 
     private ServerCallPolicy CreatePolicy(
-        TimeSpan? timeoutPerAttempt = null,
+        CallPolicyTimeouts? timeouts = null,
         int maxAttempts = 3,
-        TimeSpan? baseBackoff = null,
-        TimeSpan? maxBackoff = null,
         int maxConcurrentPerPeer = 64,
         string? peer = null,
         TimeProvider? timeProvider = null,
@@ -494,7 +502,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         maxConcurrentPerPeer,
         peer,
         timeProvider ?? TimeProvider.System,
-        new CallPolicyTimeouts(timeoutPerAttempt, baseBackoff, maxBackoff));
+        timeouts ?? new CallPolicyTimeouts());
 
     [Immutable]
     private sealed class CancellationProbeState
