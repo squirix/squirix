@@ -633,6 +633,7 @@ resharper_csharp_wrap_ternary_expr_style = wrap_if_long # wrap ternary if long
 dotnet_diagnostic.MA0047.severity = none # Types must be declared inside a namespace (file-based scripts use top-level statements)
 dotnet_diagnostic.MA0048.severity = none # File name must match the primary type name (script file names differ from inline types)
 dotnet_diagnostic.MA0051.severity = none # Method exceeds configured line/statement limits (verify/pack scripts are intentionally long)
+dotnet_diagnostic.S3776.severity = none # Cognitive Complexity budgets a whole top-level file as one method (unfixable by extraction; same rationale as MA0051)
 dotnet_diagnostic.RCS1110.severity = none # Declare type inside namespace (inline helper types in file-based scripts)
 dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed)
 
