@@ -24,6 +24,21 @@ internal static class JournalFrameReader
         };
     }
 
+    private static int ReadAtLeast(SafeFileHandle handle, Span<byte> buffer, long offset)
+    {
+        var total = ReadAtMost(handle, buffer, offset);
+        while (total > 0 && total < buffer.Length)
+        {
+            var next = RandomAccess.Read(handle, buffer[total..], offset + total);
+            if (next == 0)
+                break;
+
+            total += next;
+        }
+
+        return total;
+    }
+
     /// <summary>Reads up to <paramref name="buffer.Length" /> bytes at <paramref name="offset" /> and returns the number of bytes read.</summary>
     /// <param name="handle">The file handle to read from.</param>
     /// <param name="buffer">The span to fill partially.</param>
@@ -44,30 +59,13 @@ internal static class JournalFrameReader
         return total;
     }
 
-    private static int ReadAtLeast(SafeFileHandle handle, Span<byte> buffer, long offset)
-    {
-        var total = ReadAtMost(handle, buffer, offset);
-        while (total > 0 && total < buffer.Length)
-        {
-            var next = RandomAccess.Read(handle, buffer[total..], offset + total);
-            if (next == 0)
-                break;
-
-            total += next;
-        }
-
-        return total;
-    }
-
-    private static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, long offset) => ReadAtMost(handle, buffer, offset) == buffer.Length;
-
     private static JournalFrameReadResult ReadNextFromValidStreamHeader(SafeFileHandle handle, long offset, ReadOnlySpan<byte> lengthBytes, out byte[]? buffer, out int length)
     {
         buffer = null;
         length = 0;
 
         var declaredPayloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
-        if (declaredPayloadLength < 0 || declaredPayloadLength > JournalSegmentLimits.MaxFramePayloadBytes)
+        if (declaredPayloadLength is < 0 or > JournalSegmentLimits.MaxFramePayloadBytes)
             return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, offset);
 
         length = declaredPayloadLength;
@@ -99,4 +97,6 @@ internal static class JournalFrameReader
                 ArrayPool<byte>.Shared.ReturnCleared(rented);
         }
     }
+
+    private static bool TryReadExact(SafeFileHandle handle, Span<byte> buffer, long offset) => ReadAtMost(handle, buffer, offset) == buffer.Length;
 }
