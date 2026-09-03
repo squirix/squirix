@@ -42,7 +42,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         JournalCompactionDependencies deps,
         CompactionMetrics metrics)
     {
-        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(log);
+        _log = log;
         ArgumentNullException.ThrowIfNull(opt);
         _opt = opt.Value;
         ArgumentNullException.ThrowIfNull(deps);

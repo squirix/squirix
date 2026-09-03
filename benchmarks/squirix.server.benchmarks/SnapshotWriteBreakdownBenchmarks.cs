@@ -45,7 +45,7 @@ public class SnapshotWriteBreakdownBenchmarks
     [Benchmark]
     public async Task ManifestWriteOnlyAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
             await session.WriteManifestOnlyAsync().ConfigureAwait(false);
     }
@@ -55,7 +55,7 @@ public class SnapshotWriteBreakdownBenchmarks
     [Benchmark(Baseline = true)]
     public async Task PublishSnapshotAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
             await session.PublishSnapshotAsync().ConfigureAwait(false);
     }
@@ -65,7 +65,7 @@ public class SnapshotWriteBreakdownBenchmarks
     [Benchmark]
     public async Task WriteTempFileOnlyAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
             await session.WriteTempFileOnlyAsync().ConfigureAwait(false);
     }

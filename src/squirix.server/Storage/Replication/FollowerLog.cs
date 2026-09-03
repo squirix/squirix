@@ -69,7 +69,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, FollowerLogOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        _composition = composition ?? throw new ArgumentNullException(nameof(composition));
+        ArgumentNullException.ThrowIfNull(composition);
+        _composition = composition;
         var settings = options ?? new FollowerLogOptions();
         _faults = settings.FaultHooks ?? DefaultFaults;
         GroupId = groupId;
@@ -959,9 +960,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private sealed class TruncateDurableWork : IWorkPoolItem
         {
             private readonly GroupLogDurability _durability;
+            private readonly TaskCompletionSource<bool> _durable;
             private readonly IFollowerLogFaultHooks _faults;
             private readonly long _length;
-            private readonly TaskCompletionSource<bool> _durable;
 
             internal TruncateDurableWork(GroupLogDurability durability, long length, IFollowerLogFaultHooks faults, TaskCompletionSource<bool> durable)
             {
@@ -1083,6 +1084,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
+        /// <summary>Fails recovery for a gap within the committed region.</summary>
+        /// <param name="owner">The log being recovered.</param>
+        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
+        /// <param name="nextLogIndex">The index of the missing frame.</param>
+        /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
+        private static WalkResult CommittedGap(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
+        {
+            if (nextLogIndex > owner.Meta.CommitIndex)
+                return new WalkResult(lastValidEnd, true);
+            owner.SetReadiness(FollowerLogReadiness.Failed);
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
+        }
+
         /// <summary>Derives the index the frame walk resumes from, given the first durable frame and the snapshot base.</summary>
         /// <remarks>
         ///     <para>
@@ -1111,19 +1125,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return snapshotBase;
 
             return 0UL;
-        }
-
-        /// <summary>Fails recovery for a gap within the committed region.</summary>
-        /// <param name="owner">The log being recovered.</param>
-        /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
-        /// <param name="nextLogIndex">The index of the missing frame.</param>
-        /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
-        private static WalkResult CommittedGap(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
-        {
-            if (nextLogIndex > owner.Meta.CommitIndex)
-                return new WalkResult(lastValidEnd, true);
-            owner.SetReadiness(FollowerLogReadiness.Failed);
-            throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
         }
 
         /// <summary>Detects a surviving journal frame whose term diverges from the restored snapshot at its included index.</summary>
@@ -1952,20 +1953,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 journal.AddEntry(tail[i], offsets[i], tail[i].Term);
         }
 
-        /// <summary>Returns <see langword="true" /> when any committed outcome carried by the snapshot is still unresolved.</summary>
-        /// <param name="outcomes">The committed outcomes carried by the snapshot.</param>
-        /// <returns><see langword="true" /> when at least one outcome has no resolution timestamp.</returns>
-        private static bool SnapshotHasUnresolvedOutcome(IReadOnlyList<GroupIdempotencyRecord> outcomes)
-        {
-            for (var i = 0; i < outcomes.Count; i++)
-            {
-                if (outcomes[i].ResolvedUtc == null)
-                    return true;
-            }
-
-            return false;
-        }
-
         /// <summary>Returns <see langword="true" /> when any committed outcome lies beyond the snapshot boundary.</summary>
         /// <param name="outcomes">The committed outcomes carried by the snapshot.</param>
         /// <param name="lastIncludedIndex">The highest journal index covered by the snapshot.</param>
@@ -1975,6 +1962,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             for (var i = 0; i < outcomes.Count; i++)
             {
                 if (outcomes[i].LogIndex > lastIncludedIndex)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Returns <see langword="true" /> when any committed outcome carried by the snapshot is still unresolved.</summary>
+        /// <param name="outcomes">The committed outcomes carried by the snapshot.</param>
+        /// <returns><see langword="true" /> when at least one outcome has no resolution timestamp.</returns>
+        private static bool SnapshotHasUnresolvedOutcome(IReadOnlyList<GroupIdempotencyRecord> outcomes)
+        {
+            for (var i = 0; i < outcomes.Count; i++)
+            {
+                if (outcomes[i].ResolvedUtc == null)
                     return true;
             }
 

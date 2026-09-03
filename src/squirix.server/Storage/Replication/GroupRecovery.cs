@@ -31,8 +31,10 @@ internal sealed class GroupRecovery : IAsyncDisposable
 
     internal GroupRecovery(string persistenceRoot, GroupComposition composition)
     {
-        _persistenceRoot = persistenceRoot ?? throw new ArgumentNullException(nameof(persistenceRoot));
-        _composition = composition ?? throw new ArgumentNullException(nameof(composition));
+        ArgumentNullException.ThrowIfNull(persistenceRoot);
+        ArgumentNullException.ThrowIfNull(composition);
+        _persistenceRoot = persistenceRoot;
+        _composition = composition;
     }
 
     /// <inheritdoc />

@@ -6,6 +6,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -52,7 +53,7 @@ public class ManifestPublishBenchmarks
     [Benchmark]
     public Task PublishManifestAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Action onSuccess = () => completion.TrySetResult();
         Action<Exception> onFailure = ex => completion.TrySetException(ex);

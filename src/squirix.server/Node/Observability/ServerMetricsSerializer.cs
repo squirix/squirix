@@ -22,7 +22,8 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
 
     internal ServerMetricsSerializer(IServerSerializer inner, Meter meter)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
         _impl = _inner.GetType().Name;
         _serializerMetrics = new ServerSerializerMetrics(meter);
     }

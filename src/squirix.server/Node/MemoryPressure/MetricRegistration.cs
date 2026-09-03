@@ -9,9 +9,12 @@ internal sealed class MetricRegistration
 {
     internal MetricRegistration(string nodeId, IMemoryUsageAccounting accounting, IMemoryPressureStateEvaluator evaluator)
     {
-        NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
-        Accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
-        Evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
+        ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(accounting);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        NodeId = nodeId;
+        Accounting = accounting;
+        Evaluator = evaluator;
     }
 
     internal IMemoryUsageAccounting Accounting { get; }

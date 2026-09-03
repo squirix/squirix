@@ -40,7 +40,7 @@ csharp_style_prefer_switch_expression = true:warning # prefer switch expression
 csharp_style_unused_value_assignment_preference = discard_variable:warning # prefer discard for unused assignments
 csharp_style_unused_value_expression_statement_preference = discard_variable:warning # prefer explicit discard when intentionally ignoring a value
 csharp_style_var_elsewhere = true:suggestion # use var where type not apparent
-csharp_style_var_for_built_in_types = true:warning # use latest C# style rules
+csharp_style_var_for_built_in_types = true:warning # prefer var for built-in types
 csharp_style_var_when_type_is_apparent = true:suggestion # use var when type apparent
 
 dotnet_diagnostic.CA1510.severity = warning # throw helpers instead of multi-line ArgumentNullException/ObjectDisposedException blocks
@@ -115,21 +115,25 @@ resharper_redundant_argument_default_value_highlighting = warning # parameter ha
 # Squirix analyzers (SQR*)
 # ===========================================================================
 dotnet_diagnostic.SQR0001.severity = error # outer for/foreach/while/do must omit braces when body is only a nested loop
-dotnet_diagnostic.SQR0002.severity = error # design/naming limit (SQR0002-SQR0007); threshold via SQR0002.max_methods_per_type (default 20)
-dotnet_diagnostic.SQR0003.severity = error # design/naming limit (SQR0002-SQR0007)
-dotnet_diagnostic.SQR0004.severity = error # design/naming limit (SQR0002-SQR0007)
-dotnet_diagnostic.SQR0005.severity = error # design/naming limit (SQR0002-SQR0007)
-dotnet_diagnostic.SQR0006.severity = error # design/naming limit (SQR0002-SQR0007)
-dotnet_diagnostic.SQR0007.severity = error # design / naming limits (SQR0002-SQR0007)
+dotnet_diagnostic.SQR0002.severity = error # cap methods per type (threshold via SQR0002.max_methods_per_type, default 20)
+dotnet_diagnostic.SQR0003.severity = error # cap fields per type (threshold via SQR0003.max_fields_per_type, default 15)
+dotnet_diagnostic.SQR0004.severity = error # type name must be at most 40 chars
+dotnet_diagnostic.SQR0005.severity = error # method name must be at most 40 chars
+dotnet_diagnostic.SQR0006.severity = error # field name must be at most 40 chars
+dotnet_diagnostic.SQR0007.severity = error # type name must not repeat its namespace segment
 dotnet_diagnostic.SQR0008.severity = error # multiline embedded loop bodies (except nested loops) must use braces
 dotnet_diagnostic.SQR0010.severity = error # skips multiline if/else/using/lock embedded bodies (only single-line bodies gated)
 dotnet_diagnostic.SQR0012.severity = error # prefer ==/!= over is/is not patterns for null checks (reverses MA0142/MA0148/MA0149)
-dotnet_diagnostic.SQR0013.severity = error # Squirix design/naming rule
-dotnet_diagnostic.SQR0014.severity = error # Squirix design/naming rule
+dotnet_diagnostic.SQR0013.severity = error # prefer == over is for constant comparisons
+dotnet_diagnostic.SQR0014.severity = error # prefer != over is-not for constant comparisons
 dotnet_diagnostic.SQR0017.severity = error # forbid TestContext.Current.CancellationToken; use DefaultCancellationToken from base test classes
 dotnet_diagnostic.SQR0018.severity = error # multiline embedded if/else-if/else bodies (except nested ifs) must use braces
-dotnet_diagnostic.SQR0009.severity = warning # Squirix rule (SQR0009)
-dotnet_diagnostic.SQR0011.severity = warning # Squirix rule (SQR0011)
+dotnet_diagnostic.SQR0009.severity = warning # drop named args passed in declaration order (prefer positional)
+dotnet_diagnostic.SQR0011.severity = warning # omit args equal to the parameter default
+dotnet_diagnostic.SQR0021.severity = warning # prefer ArgumentException throw helpers over manual guards
+dotnet_diagnostic.SQR0022.severity = warning # TimeSpan range guards must route the throw through a throw-helper method (BCL ThrowIf* require INumberBase<T>; use a project helper)
+dotnet_diagnostic.SQR0023.severity = warning # prefer ArgumentNullException.ThrowIfNull over null-coalescing throw
+dotnet_diagnostic.SQR0024.severity = warning # prefer a throw-helper method over null-coalescing throw
 
 # ===========================================================================
 # StyleCop analyzers (SA*)
@@ -151,10 +155,10 @@ dotnet_diagnostic.SA1633.severity = none # file header
 # ===========================================================================
 dotnet_analyzer_diagnostic.category-roslynator.severity = warning # all rules at warning+ so they appear in dotnet build (TreatWarningsAsErrors => error)
 dotnet_diagnostic.RCS1001.severity = none # brace rules conflict with SA1520 / nested-loop style
-dotnet_diagnostic.RCS1002.severity = none # Roslynator rule disabled (RCS1002)
-dotnet_diagnostic.RCS1003.severity = none # Roslynator rule disabled (RCS1003)
-dotnet_diagnostic.RCS1004.severity = error # Roslynator rule (RCS1004)
-dotnet_diagnostic.RCS1007.severity = none # Roslynator rule disabled (RCS1007)
+dotnet_diagnostic.RCS1002.severity = none # remove braces (disabled: SQR0008/SQR0018 require them on multiline bodies)
+dotnet_diagnostic.RCS1003.severity = none # add braces to multiline if-else (disabled: same conflict as RCS1002)
+dotnet_diagnostic.RCS1004.severity = error # remove braces from single-line if-else (pairs with SQR0010)
+dotnet_diagnostic.RCS1007.severity = none # add braces to multiline declarations (disabled: same conflict as RCS1002)
 dotnet_diagnostic.RCS1021.severity = none # expression-bodied lambda makes XUnit box the value inside an assert
 dotnet_diagnostic.RCS1069.severity = none # remove unnecessary case label conflicts with exhaustive switch style
 dotnet_diagnostic.RCS1134.severity = none # remove redundant statement conflicts with explicit control-flow in some methods
@@ -486,9 +490,9 @@ dotnet_diagnostic.EPC33.severity = warning # do not use Thread.Sleep in async me
 dotnet_diagnostic.EPC35.severity = warning # do not block unnecessarily in async methods
 dotnet_diagnostic.EPC36.severity = warning # no async delegates with Task.Factory.StartNew + LongRunning
 dotnet_diagnostic.EPC37.severity = warning # do not validate arguments in async methods
-dotnet_diagnostic.EPC38.severity = warning # ErrorProne.NET correctness rule (EPC38)
-dotnet_diagnostic.EPC39.severity = warning # ErrorProne.NET correctness rule (EPC39)
-dotnet_diagnostic.EPC40.severity = warning # ErrorProne.NET correctness rule (EPC40)
+dotnet_diagnostic.EPC38.severity = warning # do not re-enumerate IEnumerable<Task> (materialize with ToArray/ToList)
+dotnet_diagnostic.EPC39.severity = warning # do not iterate the same enumerable inside a loop (quadratic cost)
+dotnet_diagnostic.EPC40.severity = warning # private method must not enumerate an IEnumerable parameter twice (deferred re-execution)
 dotnet_diagnostic.ERP041.severity = warning # EventSource class should be sealed
 dotnet_diagnostic.EPS02.severity = warning # struct not readonly-friendly passed via in-parameter (defensive copy risk)
 dotnet_diagnostic.EPS03.severity = warning # struct not readonly-friendly returned by ref readonly (defensive copy risk)
@@ -580,6 +584,8 @@ resharper_remove_redundant_braces_highlighting = none # do not remove redundant 
 resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Rider var-for-built-in-types with csharp_style_var_for_built_in_types
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
+resharper_use_argument_exception_throw_if_method_highlighting = error # prefer ArgumentException.ThrowIfNullOrEmpty/ThrowIfNullOrWhiteSpace over manual if+throw
+resharper_use_throw_if_null_method_highlighting = error # prefer ArgumentNullException.ThrowIfNull over manual if+throw
 resharper_use_utf8_string_literal_highlighting = none # do not suggest utf8 literals
 resharper_xmldoc_indent_text = zero_indent # no extra indent in XML doc
 
@@ -646,6 +652,23 @@ dotnet_diagnostic.SA1615.severity = none # Element return value should be docume
 
 [tests/**]
 dotnet_diagnostic.VSTHRD111.severity = none # VSTHRD111 (ConfigureAwait(bool)) targets production code; test classes with [Fact] are excluded
+dotnet_diagnostic.CA1515.severity = none # test classes and fixtures must stay public for xUnit discovery
+dotnet_diagnostic.CA2007.severity = none # no SynchronizationContext in tests; ConfigureAwait is noise
+dotnet_diagnostic.MA0004.severity = none # Meziantou twin of CA2007; same rationale
+dotnet_diagnostic.ZA0302.severity = none # tests may use plain arrays for clarity over ArrayPool
+
+[benchmarks/**]
+dotnet_diagnostic.CA1515.severity = none # benchmark types must stay public for BenchmarkDotNet discovery
+dotnet_diagnostic.CA1822.severity = none # benchmark methods must stay instance members for per-iteration invocation
+dotnet_diagnostic.IDE0058.severity = none # benchmark steps call side-effect APIs with intentionally discarded results
+dotnet_diagnostic.ZA0901.severity = none # sealing is for production hot paths, not the benchmark harness
+dotnet_diagnostic.ZA0302.severity = none # plain scratch buffers avoid setup/teardown noise in measured workloads
+
+[src/squirix.protocol-model/**]
+dotnet_diagnostic.CA1515.severity = none # design-time Raft safety explorer; not a shipped product package
+
+[tests/squirix.protocol-model/**]
+dotnet_diagnostic.CS1591.severity = none # test projects omit XML docs on fixtures
 
 [**/{AsyncAssert,NodeAsyncAssert}.cs]
 dotnet_diagnostic.VSTHRD003.severity = none # The closure-free exception assertions exist to observe an operation the caller already started

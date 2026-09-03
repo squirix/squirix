@@ -229,7 +229,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
         private void ProcessRollDeferredAppend(ref JournalWorkItem? rollDeferredAppend)
         {
-            var item = rollDeferredAppend ?? throw new InvalidOperationException("roll-deferred append is missing.");
+            var item = ThrowHelper.Required(rollDeferredAppend, "roll-deferred append is missing.");
             rollDeferredAppend = null;
             if (_segmentWriter.TryAcceptAppendIntoBatch(item, out var rollDeferred))
                 return;

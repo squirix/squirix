@@ -76,8 +76,8 @@ internal static class JournalCompactor
 
     private static void ApplyIdempotencyOutcome(JournalRecord record, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
     {
-        var operationId = record.IdempotencyOperationId ?? throw CreateCompactionDecodeFailure();
-        var fingerprint = record.IdempotencyFingerprint ?? throw CreateCompactionDecodeFailure();
+        var operationId = record.IdempotencyOperationId ?? ThrowHelper.Throw<string>(CreateCompactionDecodeFailure());
+        var fingerprint = record.IdempotencyFingerprint ?? ThrowHelper.Throw<string>(CreateCompactionDecodeFailure());
         var responseBytes = record.IdempotencyResponseBytes;
 
         var copy = BufferEx.CopyToOwned(responseBytes.Span);
@@ -133,7 +133,7 @@ internal static class JournalCompactor
 
             for (var i = 0; i < snapshot.IdempotencyRecords.Count; i++)
             {
-                var record = snapshot.IdempotencyRecords[i] ?? throw new InvalidOperationException("Idempotency record must not be null.");
+                var record = ThrowHelper.Required(snapshot.IdempotencyRecords[i], "Idempotency record must not be null.");
                 var unixMs = new DateTimeOffset(DateTime.SpecifyKind(record.CreatedUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 idempotencyState[record.OperationId] = new CompactedIdempotencyRecord(record.OperationId, record.Fingerprint, record.ResponseBytes, unixMs);
             }
@@ -195,7 +195,12 @@ internal static class JournalCompactor
 
     private static bool IsExpired(NodeCacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
-    private static async Task<(ulong Sequence, long Offset)> WriteCompactedIdempotencyOutcomeAsync(SafeFileHandle handle, CompactedIdempotencyRecord record, ulong sequence, long offset, CancellationToken cancellationToken)
+    private static async Task<(ulong Sequence, long Offset)> WriteCompactedIdempotencyOutcomeAsync(
+        SafeFileHandle handle,
+        CompactedIdempotencyRecord record,
+        ulong sequence,
+        long offset,
+        CancellationToken cancellationToken)
     {
         var journalRecord = new JournalRecord
         {
@@ -283,7 +288,13 @@ internal static class JournalCompactor
         return Task.CompletedTask;
     }
 
-    private static async Task<(ulong Sequence, long Offset)> WriteCompactedPutEntryAsync(SafeFileHandle handle, CacheKey key, ReadOnlyMemory<byte> body, ulong sequence, long offset, CancellationToken cancellationToken)
+    private static async Task<(ulong Sequence, long Offset)> WriteCompactedPutEntryAsync(
+        SafeFileHandle handle,
+        CacheKey key,
+        ReadOnlyMemory<byte> body,
+        ulong sequence,
+        long offset,
+        CancellationToken cancellationToken)
     {
         var record = new JournalRecord
         {

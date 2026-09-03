@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
@@ -18,7 +19,7 @@ internal sealed class E2EBenchmarkClientLease : IAsyncDisposable
         _client = client;
     }
 
-    internal ISquirixClient Client => _client ?? throw new ObjectDisposedException(nameof(E2EBenchmarkClientLease));
+    internal ISquirixClient Client => _client ?? ThrowDisposed();
 
     public async ValueTask DisposeAsync()
     {
@@ -38,4 +39,7 @@ internal sealed class E2EBenchmarkClientLease : IAsyncDisposable
         var client = await SquirixClient.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
         return new E2EBenchmarkClientLease(client);
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private ISquirixClient ThrowDisposed() => throw new ObjectDisposedException(nameof(E2EBenchmarkClientLease));
 }

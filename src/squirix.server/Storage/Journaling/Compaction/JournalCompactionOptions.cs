@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
@@ -22,8 +23,7 @@ internal sealed class JournalCompactionOptions
         get;
         init
         {
-            if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "MinGap cannot be negative.");
+            value.ThrowIfNegative(nameof(value), "MinGap cannot be negative.");
 
             field = value;
         }

@@ -20,12 +20,18 @@ internal sealed class JournalCompactionDependencies
         TopologyOptions cluster,
         TimeProvider? timeProvider = null)
     {
-        Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-        JournalMaintenance = journalMaintenance ?? throw new ArgumentNullException(nameof(journalMaintenance));
-        Manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
-        SnapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
-        Persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
-        Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(journalMaintenance);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(snapshotReader);
+        ArgumentNullException.ThrowIfNull(persistence);
+        ArgumentNullException.ThrowIfNull(cluster);
+        Snapshot = snapshot;
+        JournalMaintenance = journalMaintenance;
+        Manifest = manifest;
+        SnapshotReader = snapshotReader;
+        Persistence = persistence;
+        Cluster = cluster;
         TimeProvider = timeProvider ?? TimeProvider.System;
     }
 

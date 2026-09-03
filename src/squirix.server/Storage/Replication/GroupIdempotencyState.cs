@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -48,12 +49,12 @@ internal sealed class GroupIdempotencyState
         if (capacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(capacity), "Idempotency capacity must be positive.");
 
-        if (retention < TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(retention), "Idempotency retention must be non-negative.");
+        retention.ThrowIfNegative(nameof(retention), "Idempotency retention must be non-negative.");
 
         Capacity = capacity;
         _retention = retention;
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        _timeProvider = timeProvider;
         _records = [];
     }
 
@@ -235,6 +236,34 @@ internal sealed class GroupIdempotencyState
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
     internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records) => RestoreFromSnapshot(records, []);
 
+    /// <summary>Resolves an existing record with the exact outcome bytes and a resolution timestamp.</summary>
+    /// <param name="scope">The operation scope.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="outcomePayload">The exact resolved outcome bytes.</param>
+    /// <param name="logIndex">The journal index that carries the record.</param>
+    /// <param name="term">The term in which the record was appended.</param>
+    /// <returns><see langword="true" /> when the record existed with matching coordinates and was resolved; otherwise <see langword="false" />.</returns>
+    internal bool TryResolve(string scope, string operationId, ReadOnlyMemory<byte> outcomePayload, ulong logIndex, ulong term)
+    {
+        lock (_sync)
+        {
+            ExpireCore();
+            var key = new GroupOperationKey(scope, operationId);
+            if (!_records.TryGetValue(key, out var record))
+                return false;
+
+            if (record.LogIndex != logIndex || record.Term != term)
+                return false;
+
+            // A resolved record already carries its durable outcome; re-resolution must never overwrite it.
+            if (record.IsResolved)
+                return false;
+
+            _records[key] = record.Resolve(outcomePayload.ToArray(), _timeProvider.GetUtcNow().UtcDateTime);
+            return true;
+        }
+    }
+
     /// <summary>Restores snapshot outcomes and retained records only when the combined set fits the capacity.</summary>
     /// <remarks>
     ///     <para>
@@ -294,34 +323,6 @@ internal sealed class GroupIdempotencyState
             }
 
             return DistinctKeyCount(surviving, retained) <= Capacity;
-        }
-    }
-
-    /// <summary>Resolves an existing record with the exact outcome bytes and a resolution timestamp.</summary>
-    /// <param name="scope">The operation scope.</param>
-    /// <param name="operationId">The operation identifier.</param>
-    /// <param name="outcomePayload">The exact resolved outcome bytes.</param>
-    /// <param name="logIndex">The journal index that carries the record.</param>
-    /// <param name="term">The term in which the record was appended.</param>
-    /// <returns><see langword="true" /> when the record existed with matching coordinates and was resolved; otherwise <see langword="false" />.</returns>
-    internal bool TryResolve(string scope, string operationId, ReadOnlyMemory<byte> outcomePayload, ulong logIndex, ulong term)
-    {
-        lock (_sync)
-        {
-            ExpireCore();
-            var key = new GroupOperationKey(scope, operationId);
-            if (!_records.TryGetValue(key, out var record))
-                return false;
-
-            if (record.LogIndex != logIndex || record.Term != term)
-                return false;
-
-            // A resolved record already carries its durable outcome; re-resolution must never overwrite it.
-            if (record.IsResolved)
-                return false;
-
-            _records[key] = record.Resolve(outcomePayload.ToArray(), _timeProvider.GetUtcNow().UtcDateTime);
-            return true;
         }
     }
 

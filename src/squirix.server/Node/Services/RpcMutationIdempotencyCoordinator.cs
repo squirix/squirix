@@ -19,12 +19,14 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
         : this(store)
     {
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(journal);
+        _journal = journal;
     }
 
     internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        ArgumentNullException.ThrowIfNull(store);
+        _store = store;
     }
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
@@ -43,7 +45,12 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
         if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
-            return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
+        {
+            if (cached == null)
+                throw new InvalidOperationException("Replayed response was not cached.");
+
+            return cached;
+        }
 
         if (_journal != null)
         {

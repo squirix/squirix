@@ -18,9 +18,12 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 
     internal JournalMaintenanceReadinessHealthCheck(IJournalCoordinator journal, IJournalCompactionStatus compaction, ISnapshotReadinessStatus snapshot)
     {
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
-        _compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-        _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+        ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(compaction);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _journal = journal;
+        _compaction = compaction;
+        _snapshot = snapshot;
     }
 
     /// <inheritdoc />

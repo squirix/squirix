@@ -19,8 +19,10 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     internal TracingJournalCoordinatorDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(tracer);
+        _inner = inner;
+        _tracer = tracer;
         _forwardOnAppended = ForwardOnAppended;
         _inner.OnAppended += _forwardOnAppended;
     }
@@ -37,13 +39,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long HighWaterBytes => _inner.HighWaterBytes;
 
+    public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
+
     public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
     public long MaxBytes => _inner.MaxBytes;
 
     public ulong NextSequence => _inner.NextSequence;
-
-    public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 

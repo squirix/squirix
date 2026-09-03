@@ -16,7 +16,8 @@ internal sealed class NamespacedCacheAdapter<T> : ILogicalNamespacedCache<T>
 
     internal NamespacedCacheAdapter(ILogicalNamespacedCache<T> inner)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

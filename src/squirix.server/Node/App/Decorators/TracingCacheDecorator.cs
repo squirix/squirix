@@ -21,7 +21,8 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     internal TracingCacheDecorator(ILogicalNamespacedCache<T> inner, string nodeId)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
         _nodeId = string.IsNullOrWhiteSpace(nodeId) ? throw new ArgumentException("Node id is required.", nameof(nodeId)) : nodeId;
     }
 

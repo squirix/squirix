@@ -19,17 +19,23 @@ internal sealed class RecoveryDependencies<T>
         RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader)
     {
-        Persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
-        Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-        LocalCache = localCache ?? throw new ArgumentNullException(nameof(localCache));
-        AsyncManualResetEvent = asyncManualResetEvent ?? throw new ArgumentNullException(nameof(asyncManualResetEvent));
-        Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
-        SnapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
+        ArgumentNullException.ThrowIfNull(persistence);
+        ArgumentNullException.ThrowIfNull(manifestStore);
+        ArgumentNullException.ThrowIfNull(localCache);
+        ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
+        ArgumentNullException.ThrowIfNull(idempotency);
+        ArgumentNullException.ThrowIfNull(snapshotReader);
+        Persistence = persistence;
+        Ledger = manifestStore;
+        LocalCache = localCache;
+        AsyncManualResetEvent = asyncManualResetEvent;
+        Idempotency = idempotency;
+        SnapshotReader = snapshotReader;
     }
 
-    internal RpcMutationIdempotencyStore Idempotency { get; }
-
     internal AsyncManualResetEvent AsyncManualResetEvent { get; }
+
+    internal RpcMutationIdempotencyStore Idempotency { get; }
 
     internal Ledger Ledger { get; }
 

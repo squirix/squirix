@@ -41,7 +41,8 @@ public sealed class NodeMeasurementSink : IDisposable
     /// <param name="meter">Meter instance to subscribe to.</param>
     public NodeMeasurementSink(Meter meter)
     {
-        _meter = meter ?? throw new ArgumentNullException(nameof(meter));
+        ArgumentNullException.ThrowIfNull(meter);
+        _meter = meter;
         _listener.InstrumentPublished = OnInstrumentPublished;
         _listener.SetMeasurementEventCallback<int>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.SetMeasurementEventCallback<long>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));

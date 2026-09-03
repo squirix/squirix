@@ -20,9 +20,12 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
 
     internal OwnerPutPayloadGuardDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        ArgumentNullException.ThrowIfNull(inner);
+        _self = self;
+        _ring = ring;
+        _inner = inner;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

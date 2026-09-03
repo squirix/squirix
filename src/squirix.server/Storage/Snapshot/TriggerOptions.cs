@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -112,9 +113,7 @@ internal sealed class TriggerOptions
         get;
         private init
         {
-            if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "LatencyThrottleDuration cannot be negative.");
-
+            value.ThrowIfNegative(nameof(value), "LatencyThrottleDuration cannot be negative.");
             field = value;
         }
     }
@@ -130,9 +129,7 @@ internal sealed class TriggerOptions
         get;
         private init
         {
-            if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "MinGapBetweenSnapshots cannot be negative.");
-
+            value.ThrowIfNegative(nameof(value), "MinGapBetweenSnapshots cannot be negative.");
             field = value;
         }
     }
@@ -184,9 +181,7 @@ internal sealed class TriggerOptions
         get;
         private init
         {
-            if (value <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotInterval must be greater than zero.");
-
+            value.ThrowIfNegativeOrZero(nameof(value), "SnapshotInterval must be greater than zero.");
             field = value;
         }
     }

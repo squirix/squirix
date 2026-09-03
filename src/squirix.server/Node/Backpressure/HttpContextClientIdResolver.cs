@@ -23,7 +23,8 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
 
     internal HttpContextClientIdResolver(IHttpContextAccessor httpContextAccessor)
     {
-        _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+        ArgumentNullException.ThrowIfNull(httpContextAccessor);
+        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <inheritdoc />

@@ -5,6 +5,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -13,7 +14,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private IJournalCoordinator? _coordinator;
 
-    internal IJournalCoordinator Coordinator => _coordinator ?? throw new InvalidOperationException("Journal coordinator is not initialized.");
+    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Journal coordinator is not initialized.");
 
     public async ValueTask DisposeAsync()
     {

@@ -18,7 +18,7 @@ internal sealed class BenchmarkClientLease : IAsyncDisposable
         _client = client;
     }
 
-    internal ISquirixClient Client => _client ?? throw new ObjectDisposedException(nameof(BenchmarkClientLease));
+    internal ISquirixClient Client => BenchmarkThrowHelper.Disposed(_client, nameof(BenchmarkClientLease));
 
     public async ValueTask DisposeAsync()
     {

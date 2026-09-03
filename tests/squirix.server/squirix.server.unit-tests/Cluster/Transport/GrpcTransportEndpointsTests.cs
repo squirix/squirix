@@ -7,6 +7,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
@@ -64,7 +65,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             true,
             "node-a");
         using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
+        var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         Assert.False(callback(this, null, null, SslPolicyErrors.None));
     }

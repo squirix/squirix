@@ -17,8 +17,10 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 
     internal ClientCache(ILocalCacheReadOperations<T> read, ILocalCacheMutationOperations<T> mutation)
     {
-        _read = read ?? throw new ArgumentNullException(nameof(read));
-        _mutation = mutation ?? throw new ArgumentNullException(nameof(mutation));
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(mutation);
+        _read = read;
+        _mutation = mutation;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

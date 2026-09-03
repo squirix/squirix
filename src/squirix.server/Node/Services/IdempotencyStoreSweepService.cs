@@ -11,15 +11,17 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Periodically sweeps expired idempotency records in addition to lazy per-access sweeps.</summary>
 internal sealed class IdempotencyStoreSweepService : BackgroundService
 {
-    private readonly IdempotencyOptions _options;
     private readonly ILogger<IdempotencyStoreSweepService> _log;
+    private readonly IdempotencyOptions _options;
     private readonly RpcMutationIdempotencyStore _store;
 
     public IdempotencyStoreSweepService(RpcMutationIdempotencyStore store, IOptions<IdempotencyOptions> options, ILogger<IdempotencyStoreSweepService> log)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        ArgumentNullException.ThrowIfNull(store);
+        _store = store;
         ArgumentNullException.ThrowIfNull(options);
-        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(log);
+        _log = log;
         _options = options.Value;
     }
 

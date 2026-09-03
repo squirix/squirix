@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -31,7 +32,7 @@ internal static class JournalSegmentWriterFactory
         {
             get
             {
-                var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+                var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
                 return RandomAccess.GetLength(handle);
             }
         }
@@ -44,7 +45,7 @@ internal static class JournalSegmentWriterFactory
 
         public void Fsync()
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             if (OperatingSystem.IsWindows())
 
                 // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
@@ -68,13 +69,13 @@ internal static class JournalSegmentWriterFactory
 
         public void Truncate(long length)
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             RandomAccess.SetLength(handle, length);
         }
 
         public void Write(ReadOnlySpan<byte> buffer, long fileOffset)
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             RandomAccess.Write(handle, buffer, fileOffset);
         }
     }

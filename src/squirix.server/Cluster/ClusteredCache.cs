@@ -22,10 +22,14 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
 
     internal ClusteredCache(string selfId, ILogicalNamespacedCache<T> local, INodeLocator locator, IServerClientPool clients)
     {
-        _selfId = selfId ?? throw new ArgumentNullException(nameof(selfId));
-        _local = local ?? throw new ArgumentNullException(nameof(local));
-        _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-        _remote = new OwnerPeerCacheClient(clients ?? throw new ArgumentNullException(nameof(clients)));
+        ArgumentNullException.ThrowIfNull(selfId);
+        ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(clients);
+        _selfId = selfId;
+        _local = local;
+        _locator = locator;
+        _remote = new OwnerPeerCacheClient(clients);
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -93,7 +97,8 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
 
         internal OwnerPeerCacheClient(IServerClientPool clients)
         {
-            _clients = clients ?? throw new ArgumentNullException(nameof(clients));
+            ArgumentNullException.ThrowIfNull(clients);
+            _clients = clients;
         }
 
         internal async ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -217,7 +222,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
         /// <returns>The decoded cache value, or <see langword="default" /> when <paramref name="value" /> is unset.</returns>
         private static async ValueTask<T?> MapOptionalCacheValueAsync(CacheValue? value)
         {
-            if (value is null or { KindCase: CacheValue.KindOneofCase.None })
+            if (value == null || value is { KindCase: CacheValue.KindOneofCase.None })
                 return default;
 
             return await ServerProtoEx.MapCacheValueAsync<T>(value).ConfigureAwait(false);

@@ -21,10 +21,9 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
 
     internal PersistentPointerWriter(string path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Pointer path must be a non-empty string.", nameof(path));
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException($"Pointer path has no directory: {path}");
+        var directory = ThrowHelper.Required(Path.GetDirectoryName(path), $"Pointer path has no directory: {path}");
         _path = path;
         _tempPath = PathEx.Combine(directory, "man-current.next");
     }

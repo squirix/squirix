@@ -154,7 +154,7 @@ public static class Configurator
         if (!success)
             throw new InvalidOperationException(error);
 
-        return options ?? throw new InvalidOperationException("Settings file did not produce cluster options.");
+        return ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
     /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
@@ -232,8 +232,9 @@ public static class Configurator
             if (!root.TryGetProperty("Cluster", out var cluster))
                 return (false, null, "Settings file must define Squirix.Cluster.");
 
-            var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
-                          throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
+            var options = ThrowHelper.Required(
+                JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
+                "Cannot deserialize Squirix.Cluster.");
             if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 

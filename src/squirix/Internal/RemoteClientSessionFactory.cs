@@ -163,7 +163,8 @@ internal static class RemoteClientSessionFactory
 
             internal MetricsDecoratedSerializer(ISquirixSerializer inner)
             {
-                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                ArgumentNullException.ThrowIfNull(inner);
+                _inner = inner;
                 _impl = _inner.GetType().Name;
             }
 
@@ -361,9 +362,12 @@ internal static class RemoteClientSessionFactory
 
         internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
         {
-            _remoteClients = remoteClients ?? throw new ArgumentNullException(nameof(remoteClients));
-            _bootstrapFailover = bootstrapFailover ?? throw new ArgumentNullException(nameof(bootstrapFailover));
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            ArgumentNullException.ThrowIfNull(remoteClients);
+            ArgumentNullException.ThrowIfNull(bootstrapFailover);
+            ArgumentNullException.ThrowIfNull(serializer);
+            _remoteClients = remoteClients;
+            _bootstrapFailover = bootstrapFailover;
+            _serializer = serializer;
         }
 
         public ValueTask DisposeAsync()

@@ -26,13 +26,14 @@ internal sealed class PressureGate : IMemoryPressureGate
     /// <param name="meter">Server-wide meter used to create the rejection counter.</param>
     internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId, Meter meter)
     {
-        _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
-        _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
-        _nodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
-        _rejectionsTotal = (meter ?? throw new ArgumentNullException(nameof(meter))).CreateCounter<long>(
-            "squirix_memory_rejections_total",
-            "{rejection}",
-            "Memory admission rejections by operation and reason");
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(accounting);
+        ArgumentNullException.ThrowIfNull(nodeId);
+        _evaluator = evaluator;
+        _accounting = accounting;
+        _nodeId = nodeId;
+        ArgumentNullException.ThrowIfNull(meter);
+        _rejectionsTotal = meter.CreateCounter<long>("squirix_memory_rejections_total", "{rejection}", "Memory admission rejections by operation and reason");
     }
 
     /// <inheritdoc />

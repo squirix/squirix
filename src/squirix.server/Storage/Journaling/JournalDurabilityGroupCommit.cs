@@ -24,9 +24,12 @@ internal sealed class JournalDurabilityGroupCommit
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
     {
-        _journalThreadFlush = journalThreadFlush ?? throw new ArgumentNullException(nameof(journalThreadFlush));
-        _notifyJournalThread = notifyJournalThread ?? throw new ArgumentNullException(nameof(notifyJournalThread));
-        _opt = opt ?? throw new ArgumentNullException(nameof(opt));
+        ArgumentNullException.ThrowIfNull(journalThreadFlush);
+        ArgumentNullException.ThrowIfNull(notifyJournalThread);
+        ArgumentNullException.ThrowIfNull(opt);
+        _journalThreadFlush = journalThreadFlush;
+        _notifyJournalThread = notifyJournalThread;
+        _opt = opt;
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);

@@ -19,7 +19,8 @@ public abstract class TestBase : EndToEndTestBase, IClassFixture<SingleNodeFixtu
     /// <param name="fixture">Shared single-node cluster fixture.</param>
     protected TestBase(SingleNodeFixture fixture)
     {
-        _fixture = fixture ?? throw new ArgumentNullException(nameof(fixture));
+        ArgumentNullException.ThrowIfNull(fixture);
+        _fixture = fixture;
     }
 
     /// <summary>Gets the shared SDK client connected to the class cluster.</summary>

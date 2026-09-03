@@ -15,7 +15,8 @@ internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 
     internal JournalRecoveryReadinessHealthCheck(AsyncManualResetEvent asyncManualResetEvent)
     {
-        _asyncManualResetEvent = asyncManualResetEvent ?? throw new ArgumentNullException(nameof(asyncManualResetEvent));
+        ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
+        _asyncManualResetEvent = asyncManualResetEvent;
     }
 
     /// <inheritdoc />

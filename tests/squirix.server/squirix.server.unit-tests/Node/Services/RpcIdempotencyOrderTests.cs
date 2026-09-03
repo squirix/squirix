@@ -120,8 +120,10 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         internal OrderingJournal(IJournalCoordinator inner, OrderingTrace trace)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-            _trace = trace ?? throw new ArgumentNullException(nameof(trace));
+            ArgumentNullException.ThrowIfNull(inner);
+            ArgumentNullException.ThrowIfNull(trace);
+            _inner = inner;
+            _trace = trace;
         }
 
         public event EventHandler? OnAppended

@@ -103,7 +103,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             SweepExpiredLocked(utcNow);
             for (var i = 0; i < records.Count; i++)
             {
-                var record = records[i] ?? throw new ArgumentException("Idempotency record must not be null.", nameof(records));
+                var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
                 if (_records.TryGetValue(record.OperationId, out var existing))
                 {
                     _ = existing.OperationId;

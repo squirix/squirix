@@ -34,9 +34,12 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
     {
-        _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _log = log ?? throw new ArgumentNullException(nameof(log));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(journal);
+        _coordinator = coordinator;
+        _log = log;
+        _journal = journal;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _onJournalAppended = OnJournalAppended;
     }

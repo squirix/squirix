@@ -23,8 +23,7 @@ internal static class FilePathValidator
 
     private static string ResolveValidatedPath(string path, string paramName)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", paramName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         PathValidation.ValidateNoInvalidChars(path, paramName);
         ValidateRawSegments(path, paramName);

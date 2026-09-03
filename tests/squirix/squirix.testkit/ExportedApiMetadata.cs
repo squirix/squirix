@@ -239,7 +239,7 @@ public static class ExportedApiMetadata
         private static string GetNamespace(ITypeSymbol type)
         {
             var ns = type.ContainingNamespace;
-            if (ns is null or { IsGlobalNamespace: true })
+            if (ns == null || ns is { IsGlobalNamespace: true })
                 return string.Empty;
 
             return ns.ToDisplayString();

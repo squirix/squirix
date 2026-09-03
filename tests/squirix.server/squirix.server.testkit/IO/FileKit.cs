@@ -34,8 +34,7 @@ public static class FileKit
 
     private static string ValidateAndGetFullPath(string? path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         PathValidationKit.ValidateNoInvalidChars(path);
 

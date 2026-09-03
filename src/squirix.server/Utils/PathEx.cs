@@ -61,14 +61,9 @@ internal static class PathEx
     /// <exception cref="ArgumentException">Thrown when paths are empty, rooted, or escape <paramref name="rootDirectory" />.</exception>
     internal static string Combine(string rootDirectory, string relativePath)
     {
-        ArgumentNullException.ThrowIfNull(rootDirectory);
-        ArgumentNullException.ThrowIfNull(relativePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
 
-        if (string.IsNullOrWhiteSpace(rootDirectory))
-            throw new ArgumentException("Root directory must not be empty.", nameof(rootDirectory));
-
-        if (string.IsNullOrWhiteSpace(relativePath))
-            throw new ArgumentException("Relative path must not be empty.", nameof(relativePath));
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
 
         if (Path.IsPathRooted(relativePath))
             throw new ArgumentException("Path must be relative.", nameof(relativePath));
@@ -151,8 +146,7 @@ internal static class PathEx
 
     private static void ValidateSegment(string segment)
     {
-        if (string.IsNullOrWhiteSpace(segment))
-            throw new ArgumentException("Path segments must not be empty.", nameof(segment));
+        ArgumentException.ThrowIfNullOrWhiteSpace(segment);
 
         if (Path.IsPathRooted(segment))
             throw new ArgumentException("Path segments must be relative.", nameof(segment));

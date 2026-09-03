@@ -297,16 +297,16 @@ internal static class ServerProtoEx
         /// <returns>Protobuf struct payload.</returns>
         internal static Struct EncodeToStruct<T>(T? value)
         {
-            // 'value is null' detects actual null presence for unconstrained T. Comparing against
+            // A dedicated null arm detects actual null presence for unconstrained T. Comparing against
             // default(T) would also drop valid payloads such as 0, false, 0.0, or default-valued structs.
-            if (value is null)
-                return CreateSingleFieldStruct(Value.ForNull());
+            return value switch
+            {
+                null => CreateSingleFieldStruct(Value.ForNull()),
+                JsonElement jsonElement => EncodeJsonElement(jsonElement),
 
-            if (value is JsonElement jsonElement)
-                return EncodeJsonElement(jsonElement);
-
-            // Scalar and fallback arms live in a helper to keep local-variable count low.
-            return EncodeBoxedScalar(value);
+                // Scalar and fallback arms live in a helper to keep local-variable count low.
+                _ => EncodeBoxedScalar(value),
+            };
         }
 
         /// <summary>

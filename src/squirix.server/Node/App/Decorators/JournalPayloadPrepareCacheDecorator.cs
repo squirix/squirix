@@ -20,9 +20,12 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
 
     internal JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        ArgumentNullException.ThrowIfNull(journal);
+        _self = self;
+        _ring = ring;
+        _journal = journal;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

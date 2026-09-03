@@ -6,6 +6,7 @@ using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
@@ -66,7 +67,7 @@ internal static class JournalReadPath
                 }
             }
 
-            JournalRecord IJournalRecordEnumerator.Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+            JournalRecord IJournalRecordEnumerator.Current => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
 
             void IDisposable.Dispose()
             {
@@ -109,7 +110,10 @@ internal static class JournalReadPath
                     return Stop();
                 }
 
-                _rentedFrameBuffer = buffer ?? throw new InvalidDataException("journal segment missing payload buffer.");
+                if (buffer == null)
+                    throw new InvalidDataException("journal segment missing payload buffer.");
+
+                _rentedFrameBuffer = buffer;
                 _current = BinaryJournalCodec.Decode(buffer, payloadLength);
                 _offset = read.NextFrameOffset;
                 return true;

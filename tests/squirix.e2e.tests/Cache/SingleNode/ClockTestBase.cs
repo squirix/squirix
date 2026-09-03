@@ -16,8 +16,8 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
 {
-    private HostedCluster? _cluster;
     private ISquirixClient? _client;
+    private HostedCluster? _cluster;
 
     /// <summary>Initializes a new instance of the <see cref="ClockTestBase" /> class.</summary>
     protected ClockTestBase()
@@ -25,19 +25,12 @@ public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
         Clock = new FakeTimeProvider();
     }
 
-    /// <summary>Gets the fake clock driving this test's node. Advance it instead of sleeping for deterministic expiry.</summary>
-    protected FakeTimeProvider Clock { get; }
-
     /// <summary>Gets the SDK client connected to this test's node.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the test cluster is not initialized.</exception>
-    protected ISquirixClient Client => _client ?? throw new InvalidOperationException("Test cluster is not initialized.");
+    protected ISquirixClient Client => E2EThrowHelper.Required(_client, "Test cluster is not initialized.");
 
-    /// <inheritdoc />
-    public async ValueTask InitializeAsync()
-    {
-        _cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: Clock, cancellationToken: DefaultCancellationToken);
-        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
-    }
+    /// <summary>Gets the fake clock driving this test's node. Advance it instead of sleeping for deterministic expiry.</summary>
+    protected FakeTimeProvider Clock { get; }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -46,5 +39,12 @@ public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
             await _cluster.DisposeAsync();
 
         GC.SuppressFinalize(this);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask InitializeAsync()
+    {
+        _cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: Clock, cancellationToken: DefaultCancellationToken);
+        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
     }
 }

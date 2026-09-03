@@ -33,12 +33,18 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         INodeLocator ring,
         string self)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
-        _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(estimator);
+        ArgumentNullException.ThrowIfNull(accounting);
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        _inner = inner;
+        _gate = gate;
+        _estimator = estimator;
+        _accounting = accounting;
+        _self = self;
+        _ring = ring;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

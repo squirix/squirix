@@ -21,8 +21,10 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     internal DeadlineCacheDecorator(ILogicalNamespacedCache<T> inner, IOptions<CachePipelineDeadlineOptions> options)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(options);
+        _inner = inner;
+        _options = options;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => WithDeadlineAsync(
