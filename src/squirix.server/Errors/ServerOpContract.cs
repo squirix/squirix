@@ -4,6 +4,8 @@ namespace Squirix.Server.Errors;
 
 internal static class ServerOpContract
 {
+    private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+
     private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
 
     private const string EntryTagKeyTooLargeDetail = "Entry tag key exceeds the maximum UTF-8 size of 256 bytes.";
@@ -13,6 +15,8 @@ internal static class ServerOpContract
     private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
     private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
+
+    internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 
     internal static SquirixException EntryTagCountExceeded() => new(SquirixErrorCode.InvalidEntryTags, "InvalidEntryTags", EntryTagCountExceededDetail);
 

@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
 using Xunit;
@@ -16,6 +17,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// If a test writes a key that another test reads or asserts on, the suite becomes order-dependent.
 /// </para>
 /// </remarks>
+[UsedImplicitly]
 public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncLifetime
 {
     private TestNodeHost? _node;

@@ -9,6 +9,9 @@
         <ProjectReference Include="..\..\..\src\squirix.protocol-model\Squirix.ProtocolModel.csproj"/>
     </ItemGroup>
     <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
+    </ItemGroup>
+    <ItemGroup>
         <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 </Project>

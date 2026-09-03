@@ -44,10 +44,6 @@ internal interface IFollowerLogStorage
     /// <param name="index">The highest index to retain.</param>
     void RemoveEntriesAbove(ulong index);
 
-    /// <summary>Removes every entry and its matching offset at or below <paramref name="index" /> from both maps.</summary>
-    /// <param name="index">The highest index to remove; every retained index is strictly above it.</param>
-    void RemoveEntriesThrough(ulong index);
-
     /// <summary>
     /// Releases the payloads at or below <paramref name="index" /> from <see cref="Entries" /> only. The offsets
     /// deliberately survive so a divergent tail can still be truncated durably and applied-region term conflicts

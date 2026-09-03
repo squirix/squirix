@@ -49,6 +49,7 @@ M:Squirix.Server.Errors.JournalCapacityExceededException::.ctor()
 M:Squirix.Server.Errors.JournalCapacityExceededException::.ctor(System.String)
 M:Squirix.Server.Errors.JournalCapacityExceededException::.ctor(System.String,System.Exception)
 T:Squirix.Server.Errors.SquirixErrorCode
+F:Squirix.Server.Errors.SquirixErrorCode::CommitOutcomeUnknown
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheKey
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidEntryTags
 F:Squirix.Server.Errors.SquirixErrorCode::JournalDiskQuota

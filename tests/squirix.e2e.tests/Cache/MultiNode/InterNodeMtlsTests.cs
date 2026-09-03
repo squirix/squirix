@@ -13,11 +13,11 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>End-to-end coverage for inter-node mTLS cluster forwarding and failure modes.</summary>
+/// <summary>End-to-end coverage for internode mTLS cluster forwarding and failure modes.</summary>
 [Immutable]
 public sealed class InterNodeMtlsTests : EndToEndTestBase
 {
-    /// <summary>Verifies a client connected to node A forwards owner mutations to node B over trusted inter-node mTLS.</summary>
+    /// <summary>Verifies a client connected to node A forwards owner mutations to node B overtrusted internode mTLS.</summary>
     [Fact]
     public async Task NodeAClientForwardsToOwnerOverMtls()
     {
@@ -49,7 +49,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         Assert.Equal(StatusCode.Unauthenticated, status);
     }
 
-    /// <summary>Verifies external JWT authentication works independently of inter-node mTLS forwarding.</summary>
+    /// <summary>Verifies external JWT authentication works independently of internode mTLS forwarding.</summary>
     [Fact]
     public async Task JwtAuthIndependentOfInterNodeMtls()
     {
@@ -77,7 +77,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         Assert.Equal("jwt-forwarded", (await cacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
-    /// <summary>Verifies node B rejects inter-node forwarding when node A presents a certificate signed by an untrusted CA.</summary>
+    /// <summary>Verifies node B rejects internode forwarding when node A presents a certificate signed by an untrusted CA.</summary>
     [Fact]
     public async Task ForwardFailsUntrustedCallerCert()
     {
@@ -89,7 +89,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         AssertForwardRejected(ex);
     }
 
-    /// <summary>Verifies node A rejects inter-node forwarding when node B presents an untrusted server certificate.</summary>
+    /// <summary>Verifies node A rejects internode forwarding when node B presents an untrusted server certificate.</summary>
     [Fact]
     public async Task ForwardFailsUntrustedOwnerCert()
     {
@@ -101,7 +101,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         AssertForwardRejected(ex);
     }
 
-    /// <summary>Verifies node B rejects inter-node forwarding when node A does not present a client certificate.</summary>
+    /// <summary>Verifies node B rejects internode forwarding when node A does not present a client certificate.</summary>
     [Fact]
     public async Task ForwardFailsWithoutCallerCertificate()
     {
@@ -113,7 +113,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         AssertForwardRejected(ex);
     }
 
-    /// <summary>Verifies expired peer certificates are rejected for inter-node forwarding.</summary>
+    /// <summary>Verifies expired peer certificates are rejected for internode forwarding.</summary>
     [Fact]
     public async Task ForwardFailsWhenPeerCertificateIsExpired()
     {
@@ -125,7 +125,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         AssertForwardRejected(ex);
     }
 
-    /// <summary>Verifies a two-node cluster with inter-node mTLS enabled starts and serves SDK traffic.</summary>
+    /// <summary>Verifies a two-node cluster with internode mTLS enabled starts and serves SDK traffic.</summary>
     [Fact]
     public async Task ClusterWithInterNodeMtlsStartsUp()
     {

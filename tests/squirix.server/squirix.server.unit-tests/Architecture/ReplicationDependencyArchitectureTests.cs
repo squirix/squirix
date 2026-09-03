@@ -146,6 +146,27 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         ],
         static path => !path.EndsWith("ServiceRegistration.cs", StringComparison.Ordinal));
 
+    /// <summary>The RF1 journal mutation path remains free of replica-group WAL machinery.</summary>
+    [Fact]
+    public async Task RfOnePipelineDoesNotReferenceGroupWal()
+    {
+        var root = RepositoryPaths.FindRepositoryRoot();
+        string[] paths =
+        [
+            Path.Join(root, "src", "squirix.server", "Node", "App", "DurableMutationExecutor.cs"),
+            Path.Join(root, "src", "squirix.server", "Node", "App", "Decorators", "JournalLoggingCacheDecorator.cs"),
+        ];
+
+        for (var index = 0; index < paths.Length; index++)
+        {
+            Assert.True(File.Exists(paths[index]), $"Expected the guarded source to exist at '{paths[index]}'.");
+            var source = await File.ReadAllTextAsync(paths[index], DefaultCancellationToken);
+            Assert.DoesNotContain("Storage.Replication", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("ReplicaCommitCoordinator", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("FollowerLog", source, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Shared transport sources must not embed server replication logic.</summary>
     [Fact]
     public async Task SharedTransportContainsNoServerLogic()

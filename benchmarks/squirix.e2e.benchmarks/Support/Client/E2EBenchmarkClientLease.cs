@@ -41,5 +41,5 @@ internal sealed class E2EBenchmarkClientLease : IAsyncDisposable
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private ISquirixClient ThrowDisposed() => throw new ObjectDisposedException(nameof(E2EBenchmarkClientLease));
+    private static ISquirixClient ThrowDisposed() => throw new ObjectDisposedException(nameof(E2EBenchmarkClientLease));
 }

@@ -12,6 +12,11 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="Squirix.ProtocolModel.Tests"/>
+        <InternalsVisibleTo Include="Squirix.Server.IntegrationTests"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
 
     <ItemGroup>

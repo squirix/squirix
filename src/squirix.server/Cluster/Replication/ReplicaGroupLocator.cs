@@ -26,6 +26,5 @@ internal sealed class ReplicaGroupLocator : IReplicaGroupLocator
     public int ReplicaCount { get; }
 
     /// <inheritdoc />
-    public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination) =>
-        _ring.WriteReplicaGroup(originalOwnerNodeId, ReplicaCount, destination);
+    public void GetReplicaGroup(string originalOwnerNodeId, Span<string> destination) => _ring.WriteReplicaGroup(originalOwnerNodeId, ReplicaCount, destination);
 }

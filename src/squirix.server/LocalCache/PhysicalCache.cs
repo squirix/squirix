@@ -36,6 +36,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _eviction = eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru };
+        RawReader = new PhysicalCacheRawReader(this);
     }
 
     int ILocalCacheStats.EntryCount
@@ -46,6 +47,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 return _store.Count;
         }
     }
+
+    internal ILocalCacheRawReader<T> RawReader { get; }
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -368,5 +371,25 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal T? Value { get; set; }
 
         internal long Version { get; set; }
+    }
+
+    private sealed class PhysicalCacheRawReader : ILocalCacheRawReader<T>
+    {
+        private readonly PhysicalCache<T> _owner;
+
+        internal PhysicalCacheRawReader(PhysicalCache<T> owner)
+        {
+            _owner = owner;
+        }
+
+        public ValueTask<NodeCacheEntry<T>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_owner._lock)
+            {
+                return ValueTask.FromResult(
+                    _owner._store.TryGetValue(key, out var node) ? new NodeCacheEntry<T>(node.Value, node.Version, node.ExpiresUtc, tags: node.Tags) : null);
+            }
+        }
     }
 }
