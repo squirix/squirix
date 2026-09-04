@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -42,7 +43,7 @@ public class SnapshotWriteBenchmarks
     [Benchmark]
     public async Task WriteSnapshotAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
             _ = await host.WriteNextSnapshotAsync().ConfigureAwait(false);
     }

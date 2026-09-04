@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
@@ -7,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
@@ -23,8 +25,10 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
         ArgumentNullException.ThrowIfNull(cluster);
-        _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
-        _mtlsMaterial = mtlsMaterial ?? throw new ArgumentNullException(nameof(mtlsMaterial));
+        ArgumentNullException.ThrowIfNull(mtlsOptions);
+        ArgumentNullException.ThrowIfNull(mtlsMaterial);
+        _mtlsOptions = mtlsOptions;
+        _mtlsMaterial = mtlsMaterial;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
 
         _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
@@ -166,8 +170,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             if (httpContext.Connection.LocalPort != mtlsOptions.InternalListenPort)
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
 
-            var certificate = httpContext.Connection.ClientCertificate ??
-                              throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate."));
+            var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
+                new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate.")));
 
             if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));

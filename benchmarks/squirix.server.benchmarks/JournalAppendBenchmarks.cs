@@ -7,6 +7,7 @@ using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -46,7 +47,7 @@ public class JournalAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AppendPutAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
             await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);

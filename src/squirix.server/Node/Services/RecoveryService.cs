@@ -29,8 +29,8 @@ namespace Squirix.Server.Node.Services;
 internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;
-    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
+    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
     private readonly Ledger _manifestStore;
@@ -41,8 +41,10 @@ internal sealed class RecoveryService<T> : IHostedService
 
     internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(log);
+        _options = options;
+        _log = log;
         ArgumentNullException.ThrowIfNull(deps);
         _opt = deps.Persistence;
         _manifestStore = deps.Ledger;

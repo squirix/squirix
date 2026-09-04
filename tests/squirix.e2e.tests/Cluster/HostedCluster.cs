@@ -180,7 +180,8 @@ internal sealed class HostedCluster : IAsyncDisposable
 
         internal TestNode(TestNodeHost host)
         {
-            _host = host ?? throw new ArgumentNullException(nameof(host));
+            ArgumentNullException.ThrowIfNull(host);
+            _host = host;
         }
 
         internal Uri Uri => _host.Uri;

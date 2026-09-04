@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -61,10 +62,10 @@ public class ManifestSegmentRollBenchmarks
     [Benchmark]
     public async Task RollSegmentViaOverflowAppendAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         if (host.Coordinator is not JournalCoordinator coordinator)
             throw new InvalidOperationException("Benchmark requires a pipelined journal coordinator.");
-        var overflowPayload = _overflowPayload ?? throw new InvalidOperationException("Benchmark overflow payload was not initialized.");
+        var overflowPayload = ThrowHelper.Required(_overflowPayload, "Benchmark overflow payload was not initialized.");
         var overflowFrameLen = FrameLength(overflowPayload, _overflowKey);
         for (var i = 0; i < _rollsPerInvoke; i++)
         {

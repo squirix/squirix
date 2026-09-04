@@ -24,7 +24,8 @@ internal sealed class RemoteCache<T> : ICache<T>
     internal RemoteCache(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
     {
         _cacheName = CacheName.ParsePublic(cacheName).Canonical;
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        ArgumentNullException.ThrowIfNull(serializer);
+        _serializer = serializer;
         _rpc = new RemoteCacheRpc(_cacheName, failover, clients, serializer);
     }
 
@@ -129,7 +130,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
         var request = _rpc.ToSetEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -146,7 +146,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(expiration));
+        expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
@@ -169,7 +169,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default)
     {
         var expiration = absoluteExpiration.UtcDateTime - DateTime.UtcNow;
-        ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(absoluteExpiration));
+        expiration.ThrowIfNegativeOrZero(nameof(absoluteExpiration), "expiration must be greater than zero.");
         return TouchAsync(key, expiration, cancellationToken);
     }
 
@@ -177,7 +177,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
         var request = _rpc.ToTryAddEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -220,7 +219,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
         var entry = RemoteCacheRpc.ToEntry(created, state.Options);
-        OperationInputValidator.ValidateEntry(entry);
 
         var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, entry);
         request.OperationId = RpcOperationIdentity.New();
@@ -233,8 +231,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             request,
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found
-            ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false))
+        return response.Found ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false))
             : new CacheValueResult<T>(false, default);
     }
 
@@ -255,30 +252,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     [Immutable]
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
-    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example, touch operations).</summary>
-    private static class ExpirationInputValidator
-    {
-        /// <summary>
-        /// Ensures <paramref name="expiration" /> is greater than zero.
-        /// </summary>
-        /// <param name="expiration">The expiration to validate.</param>
-        /// <param name="parameterName">The caller parameter name for exceptions.</param>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
-        internal static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
-        {
-            if (expiration <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(parameterName, expiration, "expiration must be greater than zero.");
-        }
-    }
-
-    /// <summary>Validates single-operation payloads such as cache entries and non-null factory delegates.</summary>
-    private static class OperationInputValidator
-    {
-        /// <summary>Validates a cache entry reference.</summary>
-        /// <param name="entry">The entry to validate.</param>
-        internal static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
-    }
-
     [Immutable]
     private sealed class RemoteCacheRpc
     {
@@ -290,9 +263,12 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal RemoteCacheRpc(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
         {
             _cacheName = cacheName;
-            _failover = failover ?? throw new ArgumentNullException(nameof(failover));
-            _clients = clients ?? throw new ArgumentNullException(nameof(clients));
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            ArgumentNullException.ThrowIfNull(failover);
+            ArgumentNullException.ThrowIfNull(clients);
+            ArgumentNullException.ThrowIfNull(serializer);
+            _failover = failover;
+            _clients = clients;
+            _serializer = serializer;
         }
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
@@ -383,11 +359,8 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <param name="message">An exception or RPC status detail string.</param>
             /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
             internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                             message.StartsWith(
-                                                                                                 InsertVersionMustExceedCurrentPrefix,
-                                                                                                 StringComparison.Ordinal) && message.Contains(
-                                                                                                 ", provided=",
-                                                                                                 StringComparison.Ordinal);
+                                                                                             message.StartsWith(InsertVersionMustExceedCurrentPrefix, StringComparison.Ordinal) &&
+                                                                                             message.Contains(", provided=", StringComparison.Ordinal);
 
             internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
 

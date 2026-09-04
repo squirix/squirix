@@ -46,10 +46,14 @@ internal static class FrameworkServiceRegistration
 
         internal InvocationContextInterceptor(IRemoteInvocationScopeFactory scopeFactory, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
         {
-            _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
-            _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
-            _mtlsMaterial = mtlsMaterial ?? throw new ArgumentNullException(nameof(mtlsMaterial));
+            ArgumentNullException.ThrowIfNull(scopeFactory);
+            ArgumentNullException.ThrowIfNull(cluster);
+            ArgumentNullException.ThrowIfNull(mtlsOptions);
+            ArgumentNullException.ThrowIfNull(mtlsMaterial);
+            _scopeFactory = scopeFactory;
+            _cluster = cluster;
+            _mtlsOptions = mtlsOptions;
+            _mtlsMaterial = mtlsMaterial;
         }
 
         public override async Task ServerStreamingServerHandler<TRequest, TResponse>(

@@ -21,9 +21,12 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
 
     internal OwnershipGuardCacheDecorator(string self, INodeLocator locator, ILogicalNamespacedCache<T> inner)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(inner);
+        _self = self;
+        _locator = locator;
+        _inner = inner;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

@@ -24,11 +24,16 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     internal JournalLoggingCacheDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner, IJournalCoordinator journal, DurableMutationExecutor durableMutations)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
-        _executor = durableMutations ?? throw new ArgumentNullException(nameof(durableMutations));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(durableMutations);
+        _self = self;
+        _ring = ring;
+        _inner = inner;
+        _journal = journal;
+        _executor = durableMutations;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

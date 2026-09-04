@@ -46,7 +46,8 @@ internal sealed class JournalMetricsExporterService : BackgroundService
     {
         _opt = opt;
         _options = options;
-        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(log);
+        _log = log;
         _nodeId = cluster.NodeId;
 
         _ = meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");

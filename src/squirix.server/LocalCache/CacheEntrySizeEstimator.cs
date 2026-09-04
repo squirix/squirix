@@ -54,10 +54,11 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTypedPayloadBytes(T? value)
     {
-        // 'value is null' detects actual null presence for unconstrained T; comparing against
+        // A dedicated null arm detects actual null presence for unconstrained T; comparing against
         // default(T) would also zero-size valid payloads such as 0 or default-valued structs.
-        return value is null ? 0 : value switch
+        return value switch
         {
+            null => 0,
             string s => Encoding.UTF8.GetByteCount(s),
             byte[] bytes => bytes.LongLength,
             bool => 1,

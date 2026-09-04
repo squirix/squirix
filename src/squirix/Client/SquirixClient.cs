@@ -16,7 +16,8 @@ public sealed class SquirixClient : ISquirixClient
 
     private SquirixClient(IRemoteClientSession remoteSession)
     {
-        _remoteSession = remoteSession ?? throw new ArgumentNullException(nameof(remoteSession));
+        ArgumentNullException.ThrowIfNull(remoteSession);
+        _remoteSession = remoteSession;
     }
 
     /// <summary>Connects to a Squirix server endpoint.</summary>
@@ -100,8 +101,10 @@ public sealed class SquirixClient : ISquirixClient
 
         internal InternalCache(Action throwIfDisposed, ICache<T> inner)
         {
-            _throwIfDisposed = throwIfDisposed ?? throw new ArgumentNullException(nameof(throwIfDisposed));
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            ArgumentNullException.ThrowIfNull(throwIfDisposed);
+            ArgumentNullException.ThrowIfNull(inner);
+            _throwIfDisposed = throwIfDisposed;
+            _inner = inner;
         }
 
         public Task AddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)

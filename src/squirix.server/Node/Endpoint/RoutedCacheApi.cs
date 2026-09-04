@@ -17,8 +17,10 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 
     internal RoutedCacheApi(ILogicalNamespacedCache<T> namespaced, string cacheName)
     {
-        _namespaced = namespaced ?? throw new ArgumentNullException(nameof(namespaced));
-        _cacheName = cacheName ?? throw new ArgumentNullException(nameof(cacheName));
+        ArgumentNullException.ThrowIfNull(namespaced);
+        ArgumentNullException.ThrowIfNull(cacheName);
+        _namespaced = namespaced;
+        _cacheName = cacheName;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);

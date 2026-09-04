@@ -28,16 +28,7 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
 
     /// <summary>Gets the object-typed named caches for both nodes of this test's cluster.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the test cluster is not initialized.</exception>
-    protected TwoNodeNamedCaches<object?> Cluster => _clusterCaches ?? throw new InvalidOperationException("Test cluster is not initialized.");
-
-    /// <inheritdoc />
-    public async ValueTask InitializeAsync()
-    {
-        _cluster = await HostedCluster.StartTwoNodeAsync(new TwoNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
-        var clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        var clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        _clusterCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);
-    }
+    protected TwoNodeNamedCaches<object?> Cluster => E2EThrowHelper.Required(_clusterCaches, "Test cluster is not initialized.");
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -46,5 +37,14 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
             await _cluster.DisposeAsync();
 
         GC.SuppressFinalize(this);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask InitializeAsync()
+    {
+        _cluster = await HostedCluster.StartTwoNodeAsync(new TwoNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
+        var clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
+        var clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
+        _clusterCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);
     }
 }

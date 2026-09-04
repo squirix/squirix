@@ -17,6 +17,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests;
@@ -68,7 +69,8 @@ public abstract class SmokeTestBase : IDisposable
         options ??= new SmokeNodeStartOptions();
         ArgumentNullException.ThrowIfNull(uri);
         var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
-        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ??
+                         ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
 
         var clusterConfig = new TopologyOptions(peers)
         {

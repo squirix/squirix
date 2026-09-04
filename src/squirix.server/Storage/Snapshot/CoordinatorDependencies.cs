@@ -16,12 +16,18 @@ internal sealed class CoordinatorDependencies
         IBackgroundSnapshotMemoryThrottle backgroundSnapshotMemoryThrottle,
         ISnapshotTelemetry? telemetry)
     {
-        EntryCapture = entryCapture ?? throw new ArgumentNullException(nameof(entryCapture));
-        SnapWriter = snapWriter ?? throw new ArgumentNullException(nameof(snapWriter));
-        Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-        Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
-        NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
-        BackgroundSnapshotMemoryThrottle = backgroundSnapshotMemoryThrottle ?? throw new ArgumentNullException(nameof(backgroundSnapshotMemoryThrottle));
+        ArgumentNullException.ThrowIfNull(entryCapture);
+        ArgumentNullException.ThrowIfNull(snapWriter);
+        ArgumentNullException.ThrowIfNull(manifestStore);
+        ArgumentNullException.ThrowIfNull(idempotency);
+        ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(backgroundSnapshotMemoryThrottle);
+        EntryCapture = entryCapture;
+        SnapWriter = snapWriter;
+        Ledger = manifestStore;
+        Idempotency = idempotency;
+        NodeId = nodeId;
+        BackgroundSnapshotMemoryThrottle = backgroundSnapshotMemoryThrottle;
         Telemetry = telemetry ?? new NoOpSnapshotTelemetry();
     }
 

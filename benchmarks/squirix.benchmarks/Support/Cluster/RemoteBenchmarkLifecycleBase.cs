@@ -17,7 +17,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// Gets the shared cache opened by <see cref="StartSharedCacheAsync" />.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when the shared cache session was not opened.</exception>
-    protected ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
+    protected ICache<object?> SharedCache => BenchmarkThrowHelper.Required(_cacheSession, "Shared cache session was not opened.").Cache;
 
     /// <summary>Connects a client and disposes it before returning.</summary>
     /// <returns>A task that completes after the client is disposed.</returns>
@@ -92,5 +92,5 @@ public abstract class RemoteBenchmarkLifecycleBase
 
     private Task<BenchmarkClientLease> OpenClientLeaseAsync() => RequireNode().OpenClientAsync(CancellationToken.None);
 
-    private BenchmarkNodeScope RequireNode() => _node ?? throw new InvalidOperationException("Benchmark node was not started. Global setup did not run.");
+    private BenchmarkNodeScope RequireNode() => BenchmarkThrowHelper.Required(_node, "Benchmark node was not started. Global setup did not run.");
 }

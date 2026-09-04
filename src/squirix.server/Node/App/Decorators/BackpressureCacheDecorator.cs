@@ -22,9 +22,12 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _clientIdResolver = clientIdResolver ?? throw new ArgumentNullException(nameof(clientIdResolver));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(clientIdResolver);
+        _inner = inner;
+        _gate = gate;
+        _clientIdResolver = clientIdResolver;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(

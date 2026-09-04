@@ -107,7 +107,7 @@ internal static class StoreFactory
                 _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
             }
 
-            public object Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+            public object Current => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
 
             public void Dispose()
             {

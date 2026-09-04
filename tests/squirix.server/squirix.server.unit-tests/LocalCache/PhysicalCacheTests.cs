@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.LocalCache;
@@ -18,31 +19,31 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 {
     private static readonly Func<object?, Task> RemoveExpOp = static async s =>
     {
-        var st = s as RaceState ?? throw new InvalidOperationException();
+        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = await st.Cache.RemoveExpirationAsync(st.Key, st.Ct);
     };
 
     private static readonly Func<object?, Task> RemoveOp = static async s =>
     {
-        var st = s as RaceState ?? throw new InvalidOperationException();
+        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = await st.Cache.RemoveAsync(st.Key, st.Ct);
     };
 
     private static readonly Func<object?, Task> TouchOp = static async s =>
     {
-        var st = s as RaceState ?? throw new InvalidOperationException();
+        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = await st.Cache.TouchAsync(st.Key, TimeSpan.FromSeconds(10), st.Ct);
     };
 
     private static readonly Func<object?, Task> TouchRecOp = static async s =>
     {
-        var st = s as RaceState ?? throw new InvalidOperationException();
+        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = await st.Cache.TouchExpirationRecoveryAsync(st.Key, DateTime.UtcNow.AddHours(1), st.Ct);
     };
 
     private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
     {
-        var st = s as RaceState ?? throw new InvalidOperationException();
+        var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         for (var i = 0; i < 10000; i++)
         {
             await st.Cache.SetAsync(st.Key, new NodeCacheEntry<string> { Value = "v" }, st.Ct);

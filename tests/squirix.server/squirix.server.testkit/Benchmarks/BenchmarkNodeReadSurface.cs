@@ -17,7 +17,8 @@ public sealed class BenchmarkNodeReadSurface
 
     private BenchmarkNodeReadSurface(ICacheApi<object?> cacheApi)
     {
-        _cacheApi = cacheApi ?? throw new ArgumentNullException(nameof(cacheApi));
+        ArgumentNullException.ThrowIfNull(cacheApi);
+        _cacheApi = cacheApi;
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -27,8 +28,8 @@ public class ReplicaPlacementBenchmarks
     [Benchmark]
     public int ComputeTopologyFingerprint()
     {
-        var topology = _topology ?? throw new InvalidOperationException("Benchmark was not initialized.");
-        var mtls = _mtls ?? throw new InvalidOperationException("Benchmark was not initialized.");
+        var topology = ThrowHelper.Required(_topology, "Benchmark was not initialized.");
+        var mtls = ThrowHelper.Required(_mtls, "Benchmark was not initialized.");
         return TopologyFingerprint.CreateFromTopology(topology, mtls).ToString().Length;
     }
 
@@ -38,9 +39,15 @@ public class ReplicaPlacementBenchmarks
     [Benchmark]
     public string GetOriginalOwner()
     {
-        var locator = _locator ?? throw new InvalidOperationException("Benchmark was not initialized.");
+        var locator = ThrowHelper.Required(_locator, "Benchmark was not initialized.");
         return locator.GetOwner("cache", "bench-key");
     }
+
+    /// <summary>Resolves an RF=5 replica group without allocating.</summary>
+    /// <returns>Original owner from the group.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when setup has not run.</exception>
+    [Benchmark]
+    public string GetReplicaGroupRfFive() => WriteGroup(_rf5);
 
     /// <summary>Resolves an RF=1 replica group without allocating.</summary>
     /// <returns>Original owner from the group.</returns>
@@ -48,23 +55,17 @@ public class ReplicaPlacementBenchmarks
     [Benchmark]
     public string GetReplicaGroupRfOne() => WriteGroup(_rf1);
 
-    /// <summary>Resolves an RF=2 replica group without allocating.</summary>
-    /// <returns>Original owner from the group.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when setup has not run.</exception>
-    [Benchmark]
-    public string GetReplicaGroupRfTwo() => WriteGroup(_rf2);
-
     /// <summary>Resolves an RF=3 replica group without allocating.</summary>
     /// <returns>Original owner from the group.</returns>
     /// <exception cref="InvalidOperationException">Thrown when setup has not run.</exception>
     [Benchmark]
     public string GetReplicaGroupRfThree() => WriteGroup(_rf3);
 
-    /// <summary>Resolves an RF=5 replica group without allocating.</summary>
+    /// <summary>Resolves an RF=2 replica group without allocating.</summary>
     /// <returns>Original owner from the group.</returns>
     /// <exception cref="InvalidOperationException">Thrown when setup has not run.</exception>
     [Benchmark]
-    public string GetReplicaGroupRfFive() => WriteGroup(_rf5);
+    public string GetReplicaGroupRfTwo() => WriteGroup(_rf2);
 
     /// <summary>Builds locators used by ownership and replica-group benchmarks.</summary>
     [GlobalSetup]
@@ -109,7 +110,7 @@ public class ReplicaPlacementBenchmarks
 
     private string WriteGroup(IReplicaGroupLocator? locator)
     {
-        var groupLocator = locator ?? throw new InvalidOperationException("Benchmark was not initialized.");
+        var groupLocator = ThrowHelper.Required(locator, "Benchmark was not initialized.");
         var destination = _groupBuffer.AsSpan(0, groupLocator.ReplicaCount);
         groupLocator.GetReplicaGroup("node-c", destination);
         return destination[0];

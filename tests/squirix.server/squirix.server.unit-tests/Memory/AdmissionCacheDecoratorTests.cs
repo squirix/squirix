@@ -10,6 +10,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -340,21 +341,21 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         private Task SetEntryCoreAsync(int index)
         {
             _ = index;
-            var entry = _entry ?? throw new InvalidOperationException("Entry is required for SetEntryAsync.");
+            var entry = ThrowHelper.Required(_entry, "Entry is required for SetEntryAsync.");
             return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
         }
 
         private Task<bool> TryAddEntryCoreAsync(int index)
         {
             _ = index;
-            var entry = _entry ?? throw new InvalidOperationException("Entry is required for TryAddEntryAsync.");
+            var entry = ThrowHelper.Required(_entry, "Entry is required for TryAddEntryAsync.");
             return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
         }
 
         private Task<bool> UpdateCoreAsync(int index)
         {
             _ = index;
-            var updatedValue = _updatedValue ?? throw new InvalidOperationException("Updated value is required for UpdateAsync.");
+            var updatedValue = ThrowHelper.Required(_updatedValue, "Updated value is required for UpdateAsync.");
             return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, DefaultCancellationToken).AsTask();
         }
     }

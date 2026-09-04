@@ -7,6 +7,7 @@ using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
@@ -254,8 +255,9 @@ internal static class RuntimeServiceRegistration
 
         internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions topologyOptions)
         {
-            _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-            SelfNodeId = topologyOptions.NodeId ?? throw new ArgumentNullException(nameof(topologyOptions));
+            ArgumentNullException.ThrowIfNull(locator);
+            _locator = locator;
+            SelfNodeId = topologyOptions?.NodeId ?? ThrowHelper.Throw<string>(new ArgumentNullException(nameof(topologyOptions)));
         }
 
         /// <inheritdoc />

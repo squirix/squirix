@@ -33,13 +33,15 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         IRpcMutationIdempotencyCoordinator idempotency,
         TimeProvider timeProvider)
     {
-        _cacheOperations = cacheOperations ?? throw new ArgumentNullException(nameof(cacheOperations));
-        _idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        _handlers = new MutationHandlers(
-            cacheOperations,
-            ownershipResolver ?? throw new ArgumentNullException(nameof(ownershipResolver)),
-            invocationState ?? throw new ArgumentNullException(nameof(invocationState)));
+        ArgumentNullException.ThrowIfNull(cacheOperations);
+        ArgumentNullException.ThrowIfNull(idempotency);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        _cacheOperations = cacheOperations;
+        _idempotency = idempotency;
+        _timeProvider = timeProvider;
+        ArgumentNullException.ThrowIfNull(ownershipResolver);
+        ArgumentNullException.ThrowIfNull(invocationState);
+        _handlers = new MutationHandlers(cacheOperations, ownershipResolver, invocationState);
     }
 
     public override async Task<GetEntryAsyncResponse> GetEntry(GetEntryAsyncRequest request, ServerCallContext context)

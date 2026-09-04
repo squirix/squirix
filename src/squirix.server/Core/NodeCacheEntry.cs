@@ -82,11 +82,13 @@ public sealed class NodeCacheEntry<T>
 
     internal object? Normalize()
     {
-        if (Value is null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement)
-            return Value;
+        return Value switch
+        {
+            null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => Value,
 
-        // Serialize through object? so STJ resolves the runtime type, not the declared entry type T;
-        // otherwise base/interface-declared entries lose derived properties before persistence.
-        return SerializerProvider.Instance.SerializeToElement<object?>(Value);
+            // Serialize through object? so STJ resolves the runtime type, not the declared entry type T;
+            // otherwise base/interface-declared entries lose derived properties before persistence.
+            _ => SerializerProvider.Instance.SerializeToElement<object?>(Value),
+        };
     }
 }

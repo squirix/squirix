@@ -9,7 +9,11 @@ internal static partial class LogManager
 {
     private static ILoggerFactory? HostFactory { get; set; }
 
-    internal static void Configure(ILoggerFactory factory) => HostFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+    internal static void Configure(ILoggerFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        HostFactory = factory;
+    }
 
     internal static ILogger<T> GetLogger<T>()
         where T : class

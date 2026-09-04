@@ -12,7 +12,8 @@ internal sealed class CacheRuntime : ICacheRuntime
 
     public CacheRuntime(ILogicalNamespacedCache<object?> defaultCache)
     {
-        _defaultCache = defaultCache ?? throw new ArgumentNullException(nameof(defaultCache));
+        ArgumentNullException.ThrowIfNull(defaultCache);
+        _defaultCache = defaultCache;
     }
 
     public ILogicalNamespacedCache<T> GetCache<T>(string cacheName)

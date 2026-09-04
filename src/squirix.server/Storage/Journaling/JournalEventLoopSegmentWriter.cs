@@ -5,6 +5,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -248,7 +249,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void ProcessAppendWithDurability(JournalWorkItem item)
     {
-        var ack = item.Ack ?? throw new InvalidOperationException("AppendWithDurability work item is missing a durability ack.");
+        var ack = ThrowHelper.Required(item.Ack, "AppendWithDurability work item is missing a durability ack.");
         try
         {
             WriteAppendFrame(item);
@@ -294,7 +295,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void WriteAppendFrame(JournalWorkItem item)
     {
-        var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
+        var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
         EnsureSegmentOpen();
         var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
         var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;

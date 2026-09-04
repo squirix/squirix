@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Benchmarks.Support;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Benchmarks.Support.Cluster;
 
@@ -25,7 +26,7 @@ public class ComparisonBenchmarks
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public BenchmarkDurabilityMode DurabilityMode { get; set; }
 
-    private ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
+    private ICache<object?> SharedCache => BenchmarkThrowHelper.Required(_cacheSession, "Shared cache session was not opened.").Cache;
 
     /// <summary>
     /// Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.

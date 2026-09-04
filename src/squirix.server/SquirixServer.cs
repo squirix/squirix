@@ -19,7 +19,8 @@ public sealed class SquirixServer : IAsyncDisposable
 
     private SquirixServer(ApplicationHandle handle)
     {
-        _handle = handle ?? throw new ArgumentNullException(nameof(handle));
+        ArgumentNullException.ThrowIfNull(handle);
+        _handle = handle;
     }
 
     /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
@@ -81,7 +82,8 @@ public sealed class SquirixServer : IAsyncDisposable
 
         internal ApplicationHandle(WebApplication app)
         {
-            _app = app ?? throw new ArgumentNullException(nameof(app));
+            ArgumentNullException.ThrowIfNull(app);
+            _app = app;
         }
 
         /// <summary>Ends the server application and releases the owned ASP.NET Core host.</summary>

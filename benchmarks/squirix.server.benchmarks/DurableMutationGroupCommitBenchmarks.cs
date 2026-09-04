@@ -9,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -45,8 +46,8 @@ public class DurableMutationGroupCommitBenchmarks
     [Benchmark]
     public Task ExecutePutMutationAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
-        var executor = _executor ?? throw new InvalidOperationException("Benchmark executor was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
+        var executor = ThrowHelper.Required(_executor, "Benchmark executor was not initialized.");
         var payload = _putPayload;
         var operationsPerWriter = GetOperationsPerWriter();
         var parallelWriters = GetParallelWriters();

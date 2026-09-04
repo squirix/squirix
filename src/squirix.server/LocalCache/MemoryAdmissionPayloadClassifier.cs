@@ -9,8 +9,9 @@ internal static class MemoryAdmissionPayloadClassifier
     /// <returns><see langword="true" /> when the estimator would use an unknown typed payload fallback.</returns>
     internal static bool IsUnknownTypedPayloadEstimate<T>(T? value)
     {
-        return value is not null && value switch
+        return value switch
         {
+            null => false,
             string => false,
             byte[] => false,
             bool => false,

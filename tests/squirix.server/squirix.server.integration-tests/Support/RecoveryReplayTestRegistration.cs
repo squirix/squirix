@@ -31,8 +31,10 @@ internal static class RecoveryReplayTestRegistration
 
         internal DelayedLocalCacheRecoveryDecorator(ILocalCacheRecovery<T> inner, RecoveryReplayDelaySignal signal)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-            _signal = signal ?? throw new ArgumentNullException(nameof(signal));
+            ArgumentNullException.ThrowIfNull(inner);
+            ArgumentNullException.ThrowIfNull(signal);
+            _inner = inner;
+            _signal = signal;
         }
 
         public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)

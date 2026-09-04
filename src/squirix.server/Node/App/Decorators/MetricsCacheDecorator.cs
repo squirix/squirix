@@ -22,7 +22,8 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner, CacheMetrics metrics)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
         _metrics = metrics;
     }
 

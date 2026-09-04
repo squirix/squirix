@@ -14,9 +14,9 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalDurabilityCoordinator
 {
+    private readonly ILogger _logger;
     private readonly IJournalCoordinatorState _owner;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
-    private readonly ILogger _logger;
 
     internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger)
     {
@@ -62,7 +62,7 @@ internal sealed class JournalDurabilityCoordinator
 
     internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
     {
-        var ack = item.Ack ?? throw new InvalidOperationException("durability checkpoint work item is missing a durability ack.");
+        var ack = ThrowHelper.Required(item.Ack, "durability checkpoint work item is missing a durability ack.");
 
         // Complete only the ack carried by this work item. The ack rides the ring position of its
         // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before

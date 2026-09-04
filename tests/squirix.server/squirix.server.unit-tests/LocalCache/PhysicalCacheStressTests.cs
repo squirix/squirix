@@ -5,6 +5,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.LocalCache;
@@ -142,7 +143,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
     private static Task RunMixedLoadWorkerAsync(object? state)
     {
-        var s = state as PhysicalCacheStressState ?? throw new InvalidOperationException();
+        var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
         return RunMixedLoadWorkerCoreAsync(s);
     }
 
@@ -165,7 +166,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
     private static Task RunResetExpirationWorkerAsync(object? state)
     {
-        var s = state as PhysicalCacheStressState ?? throw new InvalidOperationException();
+        var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
         return RunResetExpirationWorkerCoreAsync(s);
     }
 
@@ -180,7 +181,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
     private static Task RunTouchWorkerAsync(object? state)
     {
-        var s = state as PhysicalCacheStressState ?? throw new InvalidOperationException();
+        var s = state as PhysicalCacheStressState ?? ThrowHelper.Throw<PhysicalCacheStressState>(new InvalidOperationException());
         return RunTouchWorkerCoreAsync(s);
     }
 
@@ -208,9 +209,9 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
 
         internal PhysicalCache<string> Cache { get; }
 
-        internal int[]? Failures { get; }
-
         internal int FailureSlot { get; }
+
+        internal int[]? Failures { get; }
 
         internal int Iterations { get; }
 

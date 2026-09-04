@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -43,7 +44,7 @@ public class SnapshotReadBenchmarks
     [Benchmark]
     public async Task LoadStrictAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 }

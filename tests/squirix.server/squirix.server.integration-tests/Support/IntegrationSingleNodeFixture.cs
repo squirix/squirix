@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Support;
@@ -21,22 +22,22 @@ public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsy
 
     /// <summary>Gets the started test node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    public TestNodeHost Node => _node ?? throw new InvalidOperationException("Fixture is not initialized.");
+    public TestNodeHost Node => ThrowHelper.Required(_node, "Fixture is not initialized.");
 
     /// <summary>Gets the listen URI of the started node.</summary>
     public Uri Uri => Node.Uri;
-
-    /// <inheritdoc />
-    public async ValueTask InitializeAsync()
-    {
-        var uri = GetNextHttpUri();
-        _node = await StartNodeAsync(uri, "node-a");
-    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_node != null)
             await _node.DisposeAsync();
+    }
+
+    /// <inheritdoc />
+    public async ValueTask InitializeAsync()
+    {
+        var uri = GetNextHttpUri();
+        _node = await StartNodeAsync(uri, "node-a");
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -16,7 +17,7 @@ public abstract class IsolatedStorageTestBase : DisposableServerUnitTestBase
 
     /// <summary>Gets the test's fresh temporary storage directory.</summary>
     /// <exception cref="InvalidOperationException">Thrown when accessed before <see cref="OnInitializeAsync" /> has run.</exception>
-    protected TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
+    protected TempDirectory Dir => ThrowHelper.Required(_dir, "Test directory is not initialized.");
 
     /// <summary>Gets the hint used when creating the temporary storage directory.</summary>
     protected virtual string TempDirectoryName => "squirix";

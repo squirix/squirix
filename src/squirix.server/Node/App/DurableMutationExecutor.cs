@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App;
 
@@ -22,7 +23,8 @@ internal sealed class DurableMutationExecutor
 
     internal DurableMutationExecutor(IJournalCoordinator journal)
     {
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(journal);
+        _journal = journal;
     }
 
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
@@ -105,7 +107,7 @@ internal sealed class DurableMutationExecutor
     {
         var decision = await state.Precondition(cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
-            return decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse);
+            return decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
 
         await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
         if (IsIdempotentDurabilityDeferred())
@@ -134,7 +136,7 @@ internal sealed class DurableMutationExecutor
             {
                 _ = _inFlight.TryRemove(conflictKey, out _);
                 state.Admitted = false;
-                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
+                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
             }
 
             _journal.InFlightApplyGate.Enter();

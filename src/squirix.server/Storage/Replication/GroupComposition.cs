@@ -32,8 +32,7 @@ internal sealed class GroupComposition
     /// <exception cref="ArgumentException">Thrown when the group identifier is null or whitespace.</exception>
     internal static GroupComposition Create(string groupId)
     {
-        if (string.IsNullOrWhiteSpace(groupId))
-            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(groupId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
 
         return new GroupComposition(new[] { groupId }.ToFrozenSet(StringComparer.Ordinal));
     }
@@ -45,11 +44,9 @@ internal sealed class GroupComposition
     /// <exception cref="ArgumentException">Thrown when a group identifier is null or whitespace.</exception>
     internal static GroupComposition Create(string first, string second)
     {
-        if (string.IsNullOrWhiteSpace(first))
-            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(first));
+        ArgumentException.ThrowIfNullOrWhiteSpace(first);
 
-        if (string.IsNullOrWhiteSpace(second))
-            throw new ArgumentException("Group identifiers must not be null or whitespace.", nameof(second));
+        ArgumentException.ThrowIfNullOrWhiteSpace(second);
 
         if (string.Equals(first, second, StringComparison.Ordinal))
             throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second));

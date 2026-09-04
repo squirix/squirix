@@ -19,8 +19,7 @@ internal static class DirectoryPathValidator
     /// <exception cref="IOException">Thrown when a file exists at the target or a forbidden symlink is detected.</exception>
     internal static string ResolveValidatedDirectoryPath(string path, string? baseDir, bool forbidSymlinks)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         PathValidation.ValidateNoInvalidChars(path, nameof(path));
 

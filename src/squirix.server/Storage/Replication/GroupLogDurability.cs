@@ -24,7 +24,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
     internal void Flush()
     {
-        var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
+        var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
         RandomAccess.FlushToDisk(handle);
     }
 
@@ -111,7 +111,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
     internal void Truncate(long length)
     {
-        var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
+        var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
         RandomAccess.SetLength(handle, length);
     }
 
@@ -121,7 +121,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
     internal void Write(ReadOnlyMemory<byte> data, long fileOffset)
     {
-        var handle = _handle ?? throw new InvalidOperationException(LogNotOpenMessage);
+        var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
         RandomAccess.Write(handle, data.Span, fileOffset);
 
         // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the

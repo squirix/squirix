@@ -47,7 +47,7 @@ public class ManifestPublishBreakdownBenchmarks
     [Benchmark(Baseline = true)]
     public Task PublishRollBlockingAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -72,7 +72,7 @@ public class ManifestPublishBreakdownBenchmarks
     [Benchmark]
     public void RollDataFileOnly()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var encodedLength = session.EncodeRoll(1, 1);
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
@@ -87,7 +87,7 @@ public class ManifestPublishBreakdownBenchmarks
     [Benchmark]
     public void RollEncodeAndDataFile()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
         {
@@ -102,7 +102,7 @@ public class ManifestPublishBreakdownBenchmarks
     [Benchmark]
     public void RollPointerOnly()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
             session.WritePointer(TakeNextFileIndex());

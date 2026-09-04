@@ -11,7 +11,11 @@ internal static class RpcMutationIdempotencyExecutionAmbient
     /// <summary>Gets a value indicating whether durability is currently deferred for an active idempotent RPC.</summary>
     internal static bool IsDeferred => ActiveScope.Value != null;
 
-    internal static void Activate(object scope) => ActiveScope.Value = scope ?? throw new ArgumentNullException(nameof(scope));
+    internal static void Activate(object scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ActiveScope.Value = scope;
+    }
 
     internal static void Deactivate(object scope)
     {

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -33,7 +34,7 @@ public class FollowerAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AcknowledgeIdenticalDuplicateAsync()
     {
-        var log = _log ?? throw new InvalidOperationException("Benchmark log was not initialized.");
+        var log = ThrowHelper.Required(_log, "Benchmark log was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
             var entry = new FollowerLogEntry(1UL, 1UL, _payload);
@@ -48,7 +49,7 @@ public class FollowerAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AppendBatchOrderedEntriesAsync()
     {
-        var log = _log ?? throw new InvalidOperationException("Benchmark log was not initialized.");
+        var log = ThrowHelper.Required(_log, "Benchmark log was not initialized.");
         const int batchSize = 32;
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
@@ -67,7 +68,7 @@ public class FollowerAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AppendSingleOrderedEntryAsync()
     {
-        var log = _log ?? throw new InvalidOperationException("Benchmark log was not initialized.");
+        var log = ThrowHelper.Required(_log, "Benchmark log was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
             _ = await AppendEntryAsync(log).ConfigureAwait(false);
     }
@@ -90,7 +91,7 @@ public class FollowerAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task RecoverCommittedPrefixAsync()
     {
-        var dir = _dir ?? throw new InvalidOperationException("Benchmark directory was not initialized.");
+        var dir = ThrowHelper.Required(_dir, "Benchmark directory was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
             if (_log != null)

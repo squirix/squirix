@@ -9,8 +9,10 @@ internal sealed class IdempotencyMetricRegistration
 {
     internal IdempotencyMetricRegistration(string nodeId, Func<int> recordCount)
     {
-        NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
-        RecordCount = recordCount ?? throw new ArgumentNullException(nameof(recordCount));
+        ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(recordCount);
+        NodeId = nodeId;
+        RecordCount = recordCount;
     }
 
     internal string NodeId { get; }

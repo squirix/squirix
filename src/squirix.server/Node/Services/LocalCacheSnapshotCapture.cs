@@ -18,7 +18,8 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 
     internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader)
     {
-        _reader = reader ?? throw new ArgumentNullException(nameof(reader));
+        ArgumentNullException.ThrowIfNull(reader);
+        _reader = reader;
     }
 
     public async ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken)

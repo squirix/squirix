@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Support;
@@ -30,11 +31,11 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncL
 
     /// <summary>Gets the first node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private TestNodeHost NodeA => _nodeA ?? throw new InvalidOperationException("Fixture is not initialized.");
+    private TestNodeHost NodeA => ThrowHelper.Required(_nodeA, "Fixture is not initialized.");
 
     /// <summary>Gets the second node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private TestNodeHost NodeB => _nodeB ?? throw new InvalidOperationException("Fixture is not initialized.");
+    private TestNodeHost NodeB => ThrowHelper.Required(_nodeB, "Fixture is not initialized.");
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

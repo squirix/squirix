@@ -191,7 +191,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved or its log index exceeds the boundary.</exception>
     private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(GroupSnapshot snapshot)
     {
-        var outcomes = snapshot.CommittedOutcomes ?? throw new ArgumentNullException(nameof(snapshot), "Snapshot committed outcomes must not be null.");
+        var outcomes = snapshot.CommittedOutcomes ?? ThrowHelper.Throw<IReadOnlyList<GroupIdempotencyRecord>>(
+            new ArgumentNullException(nameof(snapshot), "Snapshot committed outcomes must not be null."));
 
         var records = new GroupIdempotencyRecord[outcomes.Count];
         for (var i = 0; i < records.Length; i++)

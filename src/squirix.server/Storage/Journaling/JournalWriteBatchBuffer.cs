@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -46,7 +47,7 @@ internal sealed class JournalWriteBatchBuffer
         if (frameLength <= 0 || StagedByteLength + frameLength > _capacityBytes)
             return false;
 
-        var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
+        var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
         var buffer = _buffer ??= new byte[_capacityBytes];
         frameBytes.AsSpan(0, frameLength).CopyTo(buffer.AsSpan(StagedByteLength));
         _pending.Add(item);

@@ -28,11 +28,18 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
     /// <summary>Rejects empty and whitespace paths.</summary>
     /// <param name="path">Empty or whitespace path.</param>
     [Theory]
-    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     public static void ResolveValidatedFilePathRejectsEmpty(string? path) =>
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
+
+    /// <summary>Rejects null paths with an ArgumentNullException.</summary>
+    [Fact]
+    public static void ResolveValidatedFilePathRejectsNull()
+    {
+        const string? path = null;
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
+    }
 
     /// <summary>Rejects wildcards in operator paths.</summary>
     /// <param name="path">Path containing wildcards.</param>

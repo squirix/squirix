@@ -62,10 +62,14 @@ internal static class NodeEndpointServiceRegistration
             IMemoryPressureStateEvaluator memoryEvaluator,
             PressureOptions memoryPressureOptions)
         {
-            _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            _memoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
-            _memoryEvaluator = memoryEvaluator ?? throw new ArgumentNullException(nameof(memoryEvaluator));
-            _memoryPressureOptions = memoryPressureOptions ?? throw new ArgumentNullException(nameof(memoryPressureOptions));
+            ArgumentNullException.ThrowIfNull(cluster);
+            ArgumentNullException.ThrowIfNull(memoryAccounting);
+            ArgumentNullException.ThrowIfNull(memoryEvaluator);
+            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            _cluster = cluster;
+            _memoryAccounting = memoryAccounting;
+            _memoryEvaluator = memoryEvaluator;
+            _memoryPressureOptions = memoryPressureOptions;
         }
 
         /// <inheritdoc />
@@ -121,13 +125,20 @@ internal static class NodeEndpointServiceRegistration
             TopologyOptions cluster,
             IMemoryUsageAccounting memoryAccounting)
         {
-            Ledger = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-            RetentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
-            Journal = journal ?? throw new ArgumentNullException(nameof(journal));
-            Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-            Compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-            Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            MemoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
+            ArgumentNullException.ThrowIfNull(manifestStore);
+            ArgumentNullException.ThrowIfNull(retentionCleanup);
+            ArgumentNullException.ThrowIfNull(journal);
+            ArgumentNullException.ThrowIfNull(snapshot);
+            ArgumentNullException.ThrowIfNull(compaction);
+            ArgumentNullException.ThrowIfNull(cluster);
+            ArgumentNullException.ThrowIfNull(memoryAccounting);
+            Ledger = manifestStore;
+            RetentionCleanup = retentionCleanup;
+            Journal = journal;
+            Snapshot = snapshot;
+            Compaction = compaction;
+            Cluster = cluster;
+            MemoryAccounting = memoryAccounting;
         }
 
         internal TopologyOptions Cluster { get; }
@@ -169,8 +180,10 @@ internal static class NodeEndpointServiceRegistration
             _compaction = deps.Compaction;
             _cluster = deps.Cluster;
             _memoryAccounting = deps.MemoryAccounting;
-            _memoryEvaluator = memoryEvaluator ?? throw new ArgumentNullException(nameof(memoryEvaluator));
-            _memoryPressureOptions = memoryPressureOptions ?? throw new ArgumentNullException(nameof(memoryPressureOptions));
+            ArgumentNullException.ThrowIfNull(memoryEvaluator);
+            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            _memoryEvaluator = memoryEvaluator;
+            _memoryPressureOptions = memoryPressureOptions;
         }
 
         /// <inheritdoc />
