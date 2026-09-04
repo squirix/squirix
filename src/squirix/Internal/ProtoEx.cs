@@ -25,7 +25,7 @@ internal static class ProtoEx
         if (ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive))
             return new ValueTask<T?>(primitive);
 
-        if (value.KindCase is CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None)
+        if (value.KindCase == CacheValue.KindOneofCase.NullValue || value.KindCase == CacheValue.KindOneofCase.None)
             return new ValueTask<T?>(default(T?));
 
         if (value.KindCase is CacheValue.KindOneofCase.StructValue && value.StructValue is { } structValue)

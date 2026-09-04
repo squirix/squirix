@@ -59,7 +59,7 @@ internal static class JournalRecoveryScan
         while (true)
         {
             var read = JournalFrameReader.ReadNext(handle, validLength, out var rentedBuffer, out _);
-            if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
+            if (read.Status == JournalFrameReadStatus.EndOfFile || read.Status != JournalFrameReadStatus.Success)
                 return validLength;
 
             validLength = read.NextFrameOffset;

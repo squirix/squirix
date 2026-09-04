@@ -8,8 +8,8 @@ internal static class ProtoScalarMapping
 {
     internal static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    internal static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) => kind is CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue
-        or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue;
+    internal static bool IsTypedPrimitiveKind(CacheValue.KindOneofCase kind) => kind == CacheValue.KindOneofCase.StringValue || kind == CacheValue.KindOneofCase.BoolValue
+        || kind == CacheValue.KindOneofCase.Int32Value || kind == CacheValue.KindOneofCase.Int64Value || kind == CacheValue.KindOneofCase.DoubleValue;
 
     internal static bool TryMapTypedPrimitive<T>(CacheValue value, out T? result)
     {

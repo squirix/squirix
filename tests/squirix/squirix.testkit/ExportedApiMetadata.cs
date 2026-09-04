@@ -230,7 +230,7 @@ public static class ExportedApiMetadata
         private static string FormatParameterTypeName(IParameterSymbol parameter)
         {
             var typeName = FormatTypeName(parameter.Type);
-            return parameter.RefKind is RefKind.Ref or RefKind.Out or RefKind.In ? $"{typeName}&" : typeName;
+            return parameter.RefKind == RefKind.Ref || parameter.RefKind == RefKind.Out || parameter.RefKind == RefKind.In ? $"{typeName}&" : typeName;
         }
 
         private static string FormatTypeParameterName(ITypeParameterSymbol typeParameter) => typeParameter.TypeParameterKind is TypeParameterKind.Method

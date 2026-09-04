@@ -137,7 +137,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
     }
 
     private static void AssertForwardRejected(RpcException exception) =>
-        Assert.True(exception.StatusCode is StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown or StatusCode.DeadlineExceeded);
+        Assert.True(exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown || exception.StatusCode == StatusCode.DeadlineExceeded);
 
     private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
 

@@ -335,9 +335,9 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
-            if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded)
+            if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
-                var reason = rx.StatusCode is StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
+                var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
                 _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
                 _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));

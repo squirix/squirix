@@ -32,7 +32,7 @@ internal sealed class ServerJsonSerializer : IServerSerializer
     public T? Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload, _options);
 
     /// <inheritdoc />
-    public T? Deserialize<T>(JsonElement payload) => payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? default : payload.Deserialize<T>(_options);
+    public T? Deserialize<T>(JsonElement payload) => payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null ? default : payload.Deserialize<T>(_options);
 
     /// <inheritdoc />
     public T? Deserialize<T>(ReadOnlySpan<byte> payload) => JsonSerializer.Deserialize<T>(payload, _options);

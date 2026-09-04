@@ -173,7 +173,7 @@ internal static class ServerTypeCatalog
         if (comment >= 0)
             value = value[..comment].TrimEnd();
 
-        if (value.Length > 0 && value[^1] is ';' or '{')
+        if (value.Length > 0 && (value[^1] == ';' || value[^1] == '{'))
             value = value[..^1].TrimEnd();
         return value;
     }
@@ -184,7 +184,7 @@ internal static class ServerTypeCatalog
         while (length < text.Length)
         {
             var ch = text[length];
-            if (!(char.IsLetterOrDigit(ch) || ch is '_' or '@'))
+            if (!(char.IsLetterOrDigit(ch) || ch == '_' || ch == '@'))
                 break;
             length++;
         }
