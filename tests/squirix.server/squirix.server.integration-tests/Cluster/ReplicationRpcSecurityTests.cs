@@ -73,7 +73,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
                 CreateStatusRequest("node-b"),
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
-        Assert.True(ex.StatusCode is StatusCode.Unimplemented or StatusCode.PermissionDenied or StatusCode.Unauthenticated);
+        Assert.True(ex.StatusCode == StatusCode.Unimplemented || ex.StatusCode == StatusCode.PermissionDenied || ex.StatusCode == StatusCode.Unauthenticated);
     }
 
     /// <summary>Claimed sender_node_id must match the peer certificate NodeId.</summary>

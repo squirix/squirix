@@ -53,8 +53,8 @@ internal sealed class EndpointFailover
 
                 return result;
             }
-            catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
-                                          attempt < _bootstrapNodeIds.Count - 1)
+            catch (RpcException ex) when ((ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded || ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.ResourceExhausted) &&
+                                           attempt < _bootstrapNodeIds.Count - 1)
             {
                 lastFailure = ex;
             }

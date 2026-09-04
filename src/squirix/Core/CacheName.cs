@@ -51,7 +51,7 @@ internal sealed record CacheName
             _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
         };
 
-        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-');
+        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
 
         private static bool IsWhiteSpaceOnly(string cacheName)
         {

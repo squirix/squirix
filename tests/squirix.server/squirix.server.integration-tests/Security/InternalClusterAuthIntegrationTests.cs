@@ -107,7 +107,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                 new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
-        Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown);
+        Assert.True(ex.StatusCode == StatusCode.Unauthenticated || ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.Unknown);
     }
 
     /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to inter-node forwarding.</summary>

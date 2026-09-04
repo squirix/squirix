@@ -100,7 +100,7 @@ public sealed class PathValidationTests : ServerUnitTestBase
         for (var i = 0; i < invalid.Length; i++)
         {
             var ch = invalid[i];
-            if (ch is '/' or '\\' or '\0')
+            if (ch == '/' || ch == '\\' || ch == '\0')
                 continue;
 
             candidate = ch;

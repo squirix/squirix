@@ -92,10 +92,10 @@ internal static class ServerProtoEx
     private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire)
     {
         var kind = wire.KindCase;
-        if (kind is CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None)
+        if (kind == CacheValue.KindOneofCase.NullValue || kind == CacheValue.KindOneofCase.None)
             return new ValueTask<T?>(default(T?));
 
-        if (kind is CacheValue.KindOneofCase.StructValue)
+        if (kind == CacheValue.KindOneofCase.StructValue)
         {
             if (wire.StructValue == null)
                 throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");

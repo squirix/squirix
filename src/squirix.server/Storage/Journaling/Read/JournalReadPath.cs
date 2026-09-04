@@ -129,7 +129,7 @@ internal static class JournalReadPath
             }
 
             private bool ShouldThrowOnReadFailure(JournalFrameReadStatus status) =>
-                !_tolerateTruncatedTail || status is JournalFrameReadStatus.ChecksumMismatch or JournalFrameReadStatus.OversizedFrame;
+                !_tolerateTruncatedTail || status == JournalFrameReadStatus.ChecksumMismatch || status == JournalFrameReadStatus.OversizedFrame;
 
             private bool Stop()
             {
