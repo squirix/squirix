@@ -16,6 +16,7 @@
         <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageIcon>icon.png</PackageIcon>
         <IsPackable>true</IsPackable>
         <PackAsTool>true</PackAsTool>
         <ToolCommandName>squirix-server</ToolCommandName>
@@ -27,6 +28,7 @@
 
     <ItemGroup>
         <None Include="README.md" Pack="true" PackagePath="/"/>
+        <None Include="icon.png" Pack="true" PackagePath="/"/>
         <None Include="Squirix.settings.default.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
     <ItemGroup>
