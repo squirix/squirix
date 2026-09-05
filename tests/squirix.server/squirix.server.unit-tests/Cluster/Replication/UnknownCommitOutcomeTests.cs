@@ -52,7 +52,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     public async Task PreAppendFailureAllowsSameIndexRetry()
     {
         var pipeline = new RetryLocalPipeline();
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 8, pipeline, NoOpHooks.Instance, new GroupIdempotencyState(16, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 8), pipeline, NoOpHooks.Instance, new GroupIdempotencyState(16, TimeSpan.MaxValue));
         try
         {
             var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);

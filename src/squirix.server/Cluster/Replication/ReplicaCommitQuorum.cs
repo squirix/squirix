@@ -9,6 +9,7 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaCommitQuorum
 {
+    private readonly ReplicaEligibility? _eligibility;
     private readonly Dictionary<int, HashSet<ulong>> _futureAcks = [];
     private readonly ulong[] _matchIndexes;
     private readonly Lock _sync = new();
@@ -16,12 +17,16 @@ internal sealed class ReplicaCommitQuorum
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitQuorum" /> class.</summary>
     /// <param name="replicaCount">Fixed the replica count, including the leader.</param>
     /// <param name="initialMatchIndex">Initial contiguous durable index for every replica.</param>
-    internal ReplicaCommitQuorum(int replicaCount, ulong initialMatchIndex = 0)
+    /// <param name="eligibility">Optional authority that excludes non-ready participants.</param>
+    internal ReplicaCommitQuorum(int replicaCount, ulong initialMatchIndex = 0, ReplicaEligibility? eligibility = null)
     {
         if (replicaCount is < 1 or > PolicyOptions.MaxReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaCount), $"Replica count must be between 1 and {PolicyOptions.MaxReplicaCount}.");
+        if (eligibility != null && eligibility.ReplicaCount != replicaCount)
+            throw new ArgumentException("Eligibility replica count must match the quorum replica count.", nameof(eligibility));
 
         ReplicaCount = replicaCount;
+        _eligibility = eligibility;
         RequiredCopies = (replicaCount / 2) + 1;
         _matchIndexes = new ulong[replicaCount];
         if (initialMatchIndex == 0)
@@ -51,7 +56,7 @@ internal sealed class ReplicaCommitQuorum
                 var copies = 0;
                 for (var i = 0; i < _matchIndexes.Length; i++)
                 {
-                    if (_matchIndexes[i] >= candidate)
+                    if (_eligibility?.CanCountInWriteQuorum(i) != false && _matchIndexes[i] >= candidate)
                         copies++;
                 }
 
@@ -100,6 +105,12 @@ internal sealed class ReplicaCommitQuorum
 
         lock (_sync)
         {
+            // The eligibility verdict is read under _sync so a Ready-to-CatchingUp transition cannot slip
+            // an acknowledgement between the check and the record. Lock order is always quorum then eligibility;
+            // eligibility never calls back into the quorum, so this ordering cannot deadlock.
+            if (_eligibility?.CanCountInWriteQuorum(replicaIndex) == false)
+                return false;
+
             var current = _matchIndexes[replicaIndex];
             if (acknowledgement.LogIndex <= current)
                 return acknowledgement.LogIndex == current;

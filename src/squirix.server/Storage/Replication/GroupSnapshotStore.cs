@@ -59,6 +59,29 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     Task<GroupSnapshot?> IFollowerLogSnapshotStore.ReadPublishedAsync(CancellationToken cancellationToken) => ReadPublishedAsync(cancellationToken);
 
+    /// <summary>Computes the canonical transfer length and checksum for a snapshot payload.</summary>
+    /// <param name="snapshot">Snapshot to encode canonically.</param>
+    /// <param name="maxSnapshotBytes">Maximum accepted payload length; bounds the pooled rent against untrusted snapshots.</param>
+    /// <returns>The encoded payload integrity fields.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the encoded payload length exceeds <paramref name="maxSnapshotBytes" />.</exception>
+    internal static GroupSnapshotPayloadIntegrity ComputePayloadIntegrity(GroupSnapshot snapshot, int maxSnapshotBytes = DefaultMaxSnapshotBytes)
+    {
+        var payloadLength = GroupSnapshotCodec.ComputeSnapshotEncodedLength(snapshot);
+        if (payloadLength > maxSnapshotBytes)
+            throw new InvalidOperationException($"Replica group snapshot payload length {payloadLength} exceeds the maximum {maxSnapshotBytes} bytes.");
+
+        var bytes = ArrayPool<byte>.Shared.Rent(payloadLength);
+        try
+        {
+            GroupSnapshotEncoder.EncodeSnapshot(bytes.AsSpan(0, payloadLength), snapshot);
+            return new GroupSnapshotPayloadIntegrity(payloadLength, Crc32C.Compute(bytes.AsSpan(0, payloadLength)));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(bytes);
+        }
+    }
+
     /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
