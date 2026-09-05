@@ -175,9 +175,9 @@ public sealed class BinaryJournalCodecRoundTripTests
         // EncodeContext.From path, so comparing them could never fail.
         var expectedBodyLength = operation switch
         {
-            // 25 + "ns"(2) + "codec-key"(9) + TestKit put payload (fixture bytes,
-            // serializer-dependent, so pinned via the materialized record).
-            JournalOperationKind.Put => BinaryJournalCodec.FixedPrefixSize + 2 + 9 + record.PutEntryBytes.Length,
+            // 25 prefix + 11 key ("ns" + "codec-key") + 22 payload:
+            // flags (2) + version (8) + empty tags (2) + string "value" (1 + 4 + 5).
+            JournalOperationKind.Put => 58,
             JournalOperationKind.Remove => 36,
             JournalOperationKind.RemoveExpiration => 36,
             JournalOperationKind.TouchExpiration => 44,
