@@ -17,7 +17,7 @@ internal static class ThrowHelper
     /// <param name="message">The exception message.</param>
     /// <returns><paramref name="value" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="value" /> is null.</exception>
-    public static T Required<T>(T? value, string message)
+    internal static T Required<T>(T? value, string message)
         where T : class
     {
         if (value == null)
@@ -32,7 +32,7 @@ internal static class ThrowHelper
     /// <param name="message">The exception message.</param>
     /// <returns><paramref name="value" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="value" /> is null.</exception>
-    public static T RequiredValue<T>(T? value, string message)
+    internal static T RequiredValue<T>(T? value, string message)
         where T : struct
     {
         if (value == null)
@@ -48,7 +48,7 @@ internal static class ThrowHelper
     /// <exception cref="Exception">Always thrown: <paramref name="exception" />.</exception>
     [DoesNotReturn]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public static T Throw<T>(Exception exception) => throw exception;
+    internal static T Throw<T>(Exception exception) => throw exception;
 
     [DoesNotReturn]
     [MethodImpl(MethodImplOptions.NoInlining)]

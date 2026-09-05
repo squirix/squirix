@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -121,6 +122,17 @@ public sealed class ProtoExTests
         var entry = new CacheEntry<JsonElement> { Value = document.RootElement.Clone() };
 
         var wire = ProtoEx.MapEntryToProto(entry, serializer);
+
+        // Golden wire struct: the mapping must emit exact proto fields,
+        // not merely something the reverse mapping can read back.
+        Assert.Equal(2, wire.Value.Fields.Count);
+        var xWire = wire.Value.Fields["x"].StructValue;
+        Assert.Equal("1", xWire.Fields[ValueEnvelope.NumberEnvelopeInt64Key].StringValue);
+        var yWire = wire.Value.Fields["y"].ListValue;
+        Assert.Equal(2, yWire.Values.Count);
+        Assert.True(yWire.Values[0].BoolValue);
+        Assert.Equal(Value.KindOneofCase.NullValue, yWire.Values[1].KindCase);
+
         var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<JsonElement>(wire, serializer);
 
         Assert.Equal(1, roundTrip.Value.GetProperty("x").GetInt32());
@@ -139,6 +151,15 @@ public sealed class ProtoExTests
         var entry = new CacheEntry<JsonElement> { Value = document.RootElement.Clone() };
 
         var wire = ProtoEx.MapEntryToProto(entry, serializer);
+
+        // Golden wire scalar: negative zero must survive as a negative double,
+        // not collapse to plain zero inside the envelope.
+        var scalar = Assert.Single(wire.Value.Fields);
+        Assert.Equal(ValueEnvelope.ScalarEnvelopeKey, scalar.Key);
+        Assert.Equal(Value.KindOneofCase.NumberValue, scalar.Value.KindCase);
+        Assert.Equal(0d, scalar.Value.NumberValue);
+        Assert.True(double.IsNegative(scalar.Value.NumberValue));
+
         var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<JsonElement>(wire, serializer);
 
         Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
@@ -159,6 +180,14 @@ public sealed class ProtoExTests
         };
 
         var wire = ProtoEx.MapEntryToProto(entry, serializer);
+
+        // Golden wire metadata: expiry must map to exact protobuf time forms
+        // (2026-08-01T10:00:00Z = unix 1785578400, 2 minutes = 120 seconds),
+        // verified against the calendar, not against the reverse mapping.
+        Assert.Equal("payload", wire.Value.Fields[ValueEnvelope.ScalarEnvelopeKey].StringValue);
+        Assert.Equal(1785578400L, wire.ExpiresUtc!.Seconds);
+        Assert.Equal(120L, wire.Expiration!.Seconds);
+
         var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<string>(wire, serializer);
 
         Assert.Equal("payload", roundTrip.Value);

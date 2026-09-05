@@ -41,6 +41,57 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             });
     }
 
+    /// <summary>Length computation matches the documented golden size for a minimal integer entry.</summary>
+    [Fact]
+    public void ComputeEncodedLengthMatchesGolden()
+    {
+        var entry = new NodeCacheEntry<object?>(42, 4);
+
+        // Expires flag (1) + expiration flag (1) + version (8) + empty tags (2) + int64 value (1 + 8).
+        Assert.Equal(21, CacheEntryCodec.ComputeEncodedLength(entry));
+    }
+
+    /// <summary>Write emits the documented golden wire bytes for a minimal integer entry.</summary>
+    [Fact]
+    public void WriteMatchesGoldenWireBytes()
+    {
+        var entry = new NodeCacheEntry<object?>(42, 4);
+        Span<byte> buffer = stackalloc byte[CacheEntryCodec.ComputeEncodedLength(entry)];
+
+        CacheEntryCodec.Write(entry, buffer);
+
+        // No-expiry flag, no-expiration flag, version 4, zero tags,
+        // Int64 value-kind tag (4) with 42 little-endian.
+        byte[] golden =
+        [
+            0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+            0x04, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        Assert.True(golden.AsSpan().SequenceEqual(buffer));
+    }
+
+    /// <summary>Read decodes the golden wire bytes into the minimal integer entry.</summary>
+    [Fact]
+    public void ReadReadsGoldenWireBytes()
+    {
+        byte[] golden =
+        [
+            0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+            0x04, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        Assert.True(CacheEntryCodec.TryRead<object?>(golden, out var entry, out var bytesRead));
+        Assert.Equal(21, bytesRead);
+        Assert.Equal(42L, entry!.Value);
+        Assert.Equal(4, entry.Version);
+        Assert.Null(entry.ExpiresUtc);
+        Assert.Null(entry.Expiration);
+    }
+
     /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
     [Fact]
     public void RoundTripsDecimalAndByteArrayValues()

@@ -16,7 +16,6 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
 {
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
-    private SnapshotBaseline _snapshotBaseline = new(0UL, 0UL);
 
     internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot)
     {
@@ -31,7 +30,7 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
     public ReadOnlySortedDictionary<ulong, (long Offset, ulong Term)> EntryOffsets => new(_entryOffsets);
 
     /// <inheritdoc />
-    public SnapshotBaseline SnapshotBaseline => _snapshotBaseline;
+    public SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
     /// <inheritdoc />
     public FollowerLogPaths Paths { get; }
@@ -85,7 +84,7 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
     {
         // Callers hold _gate; this is the single paired mutation of the baseline and both indexes.
         RemoveEntriesThroughCore(baseline.LastIncludedIndex);
-        _snapshotBaseline = baseline;
+        SnapshotBaseline = baseline;
     }
 
     /// <summary>
@@ -94,7 +93,7 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
     /// releases it, while recovery and installation rebuild both indexes from the retained tail afterward.
     /// </summary>
     /// <param name="baseline">The restored snapshot baseline.</param>
-    internal void RestoreBaseline(SnapshotBaseline baseline) => _snapshotBaseline = baseline;
+    internal void RestoreBaseline(SnapshotBaseline baseline) => SnapshotBaseline = baseline;
 
     /// <summary>Reads the entry payload at <paramref name="index" /> without materializing a read-only wrapper.</summary>
     /// <param name="index">The journal index to look up.</param>

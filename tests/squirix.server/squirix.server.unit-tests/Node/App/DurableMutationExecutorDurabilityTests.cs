@@ -13,7 +13,7 @@ using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Persistence;
+namespace Squirix.Server.UnitTests.Node.App;
 
 /// <summary>Regression tests for durable journal ordering: fsync before in-memory apply.</summary>
 [Immutable]

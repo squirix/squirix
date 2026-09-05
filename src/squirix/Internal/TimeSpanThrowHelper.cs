@@ -12,17 +12,6 @@ namespace Squirix.Internal;
 /// </summary>
 internal static class TimeSpanThrowHelper
 {
-    /// <summary>Throws <see cref="ArgumentOutOfRangeException" /> when <paramref name="value" /> is negative.</summary>
-    /// <param name="value">The value to validate.</param>
-    /// <param name="paramName">The caller parameter name for exceptions.</param>
-    /// <param name="message">The exception message. Uses a default message when null.</param>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static void ThrowIfNegative(this TimeSpan value, string paramName, string? message = null)
-    {
-        if (value < TimeSpan.Zero)
-            ThrowNegative(value, paramName, message ?? "Value cannot be negative.");
-    }
-
     /// <summary>Throws <see cref="ArgumentOutOfRangeException" /> when <paramref name="value" /> is zero or negative.</summary>
     /// <param name="value">The value to validate.</param>
     /// <param name="paramName">The caller parameter name for exceptions.</param>
@@ -33,9 +22,6 @@ internal static class TimeSpanThrowHelper
         if (value <= TimeSpan.Zero)
             ThrowNegativeOrZero(value, paramName, message ?? "Value must be greater than zero.");
     }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void ThrowNegative(TimeSpan value, string paramName, string message) => throw new ArgumentOutOfRangeException(paramName, value, message);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowNegativeOrZero(TimeSpan value, string paramName, string message) => throw new ArgumentOutOfRangeException(paramName, value, message);
