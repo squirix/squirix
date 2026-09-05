@@ -53,15 +53,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         lock (_capacityGate)
         {
             SweepExpiredLocked(utcNow);
-            if (_records.TryGetValue(operationId, out var existing))
-            {
-                _ = existing.OperationId;
-                _records[operationId] = CreateRecord(operationId, fingerprint, responseBytes, utcNow);
-                return;
-            }
-
-            EnsureCapacityForNewRecordLocked(utcNow);
-            _records[operationId] = CreateRecord(operationId, fingerprint, responseBytes, utcNow);
+            UpsertLocked(operationId, CreateRecord(operationId, fingerprint, responseBytes, utcNow), utcNow);
         }
     }
 
@@ -73,15 +65,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         lock (_capacityGate)
         {
             SweepExpiredLocked(createdUtc);
-            if (_records.TryGetValue(operationId, out var existing))
-            {
-                _ = existing.OperationId;
-                _records[operationId] = CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc);
-                return;
-            }
-
-            EnsureCapacityForNewRecordLocked(createdUtc);
-            _records[operationId] = CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc);
+            UpsertLocked(operationId, CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), createdUtc);
         }
     }
 
@@ -96,16 +80,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             for (var i = 0; i < records.Count; i++)
             {
                 var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
-#pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
-                if (_records.TryGetValue(record.OperationId, out _))
-#pragma warning restore MA0160
-                {
-                    _records[record.OperationId] = record;
-                    continue;
-                }
-
-                EnsureCapacityForNewRecordLocked(utcNow);
-                _records[record.OperationId] = record;
+                UpsertLocked(record.OperationId, record, utcNow);
             }
         }
     }
@@ -151,6 +126,20 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     {
         var copy = BufferEx.CopyToOwned(responseBytes.Span);
         return new PersistedIdempotencyRecord(operationId, fingerprint, copy, createdUtc);
+    }
+
+    private void UpsertLocked(string operationId, PersistedIdempotencyRecord record, DateTime utcNow)
+    {
+#pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
+        if (_records.TryGetValue(operationId, out _))
+#pragma warning restore MA0160
+        {
+            _records[operationId] = record;
+            return;
+        }
+
+        EnsureCapacityForNewRecordLocked(utcNow);
+        _records[operationId] = record;
     }
 
     private void EnsureCapacityForNewRecordLocked(DateTime utcNow)
