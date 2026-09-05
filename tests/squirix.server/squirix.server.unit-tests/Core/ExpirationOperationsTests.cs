@@ -76,6 +76,26 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
         Assert.Null(entry.ExpiresUtc);
     }
 
+    /// <summary>Verifies concurrent TouchAsync calls on a live key all succeed with no spurious failure under contention.</summary>
+    [Fact]
+    public async Task ConcurrentTouchOnLiveKeyAlwaysSucceeds()
+    {
+        var cache = new PhysicalCache<string>();
+        var key = CacheKey.Default("touch-race");
+        await cache.SetAsync(
+            key,
+            new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromHours(1), Version = 1 },
+            DefaultCancellationToken);
+
+        const int width = 32;
+        var tasks = new Task<bool>[width];
+        for (var i = 0; i < width; i++)
+            tasks[i] = cache.TouchAsync(key, TimeSpan.FromMinutes(5), DefaultCancellationToken).AsTask();
+
+        var results = await Task.WhenAll(tasks);
+        Assert.All(results, Assert.True);
+    }
+
     /// <summary>Verifies RemoveExpirationAsync returns false for a missing key.</summary>
     [Fact]
     public async Task RemoveExpiryReturnsFalseForMissingKey()
