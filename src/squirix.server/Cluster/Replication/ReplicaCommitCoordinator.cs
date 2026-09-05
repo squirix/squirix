@@ -31,41 +31,35 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     private Task? _disposeTask;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitCoordinator" /> class.</summary>
-    /// <param name="replicaCount">Fixed replica count greater than one.</param>
-    /// <param name="initialLogIndex">Recovered the last durable log index.</param>
-    /// <param name="initialCommitIndex">Recovered durable commit index.</param>
-    /// <param name="maxInFlight">Maximum admitted mutations.</param>
+    /// <param name="options">Fixed group configuration.</param>
     /// <param name="pipeline">Durable and memory pipeline.</param>
     /// <param name="faultHooks">Fault-injection hooks.</param>
     /// <param name="idempotency">Bounded durable group idempotency state.</param>
+    /// <param name="eligibility">
+    /// Shared participation authority, also handed to repair sessions. When provided, replicas excluded by it
+    /// contribute neither acknowledgements nor write-quorum copies until a repair session marks them ready.
+    /// Activation wiring (RF&gt;1) owns the shared instance; <see langword="null" /> preserves the pre-activation behavior.
+    /// </param>
     internal ReplicaCommitCoordinator(
-        int replicaCount,
-        ulong initialLogIndex,
-        ulong initialCommitIndex,
-        int maxInFlight,
+        ReplicaCommitCoordinatorOptions options,
         IReplicaCommitPipeline pipeline,
         IReplicaCommitFaultHooks faultHooks,
-        GroupIdempotencyState idempotency)
+        GroupIdempotencyState idempotency,
+        ReplicaEligibility? eligibility = null)
     {
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(faultHooks);
         ArgumentNullException.ThrowIfNull(idempotency);
-        if (replicaCount < 2)
-            throw new ArgumentOutOfRangeException(nameof(replicaCount), "The majority coordinator is reserved for RF greater than one.");
-
-        if (initialCommitIndex > initialLogIndex)
-            throw new ArgumentOutOfRangeException(nameof(initialCommitIndex), "Commit index cannot exceed the last log index.");
-        if (initialCommitIndex != initialLogIndex)
-            throw new ArgumentException("The durable log tail must be reconciled to the commit index before the coordinator starts.", nameof(initialLogIndex));
 
         _pipeline = pipeline;
         _faultHooks = faultHooks;
         _idempotency = idempotency;
-        _quorum = new ReplicaCommitQuorum(replicaCount, initialCommitIndex);
-        _sequencer = new ReplicaLogIndexSequencer(initialLogIndex);
-        _turn = new ReplicaLogTurn(initialLogIndex);
-        _admission = new ReplicaMutationGate(maxInFlight);
-        _commitIndex = initialCommitIndex;
+        _quorum = new ReplicaCommitQuorum(options.ReplicaCount, options.InitialCommitIndex, eligibility);
+        _sequencer = new ReplicaLogIndexSequencer(options.InitialLogIndex);
+        _turn = new ReplicaLogTurn(options.InitialLogIndex);
+        _admission = new ReplicaMutationGate(options.MaxInFlight);
+        _commitIndex = options.InitialCommitIndex;
     }
 
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>

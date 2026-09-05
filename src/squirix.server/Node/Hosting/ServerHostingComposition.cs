@@ -24,6 +24,8 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Node.Replication;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Replication;
@@ -33,6 +35,12 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
+    /// <summary>Maximum entries returned in one follower-repair batch.</summary>
+    private const int RepairBatchEntries = 64;
+
+    /// <summary>Maximum queued follower repairs, excluding the active repair.</summary>
+    private const int RepairQueueCapacity = 128;
+
     /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -89,6 +97,11 @@ internal static class ServerHostingComposition
     /// Registers cluster locator, inter-node transport, and replication planning services.
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
+    /// <remarks>
+    /// Repair and bootstrap planning stay registered on every node, including RF=1 and foundation-only
+    /// hosts: activation discovers them when a stopped cluster is seeded for RF&gt;1, and the idle repair
+    /// service parks on its queue read without burning a thread.
+    /// </remarks>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
@@ -97,6 +110,10 @@ internal static class ServerHostingComposition
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
         _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
+        _ = services.AddSingleton(static _ => new ReplicaRepairPlanner(RepairBatchEntries));
+        _ = services.AddSingleton(static sp => new ReplicaRepairService(sp.GetRequiredService<ReplicaRepairPlanner>(), RepairQueueCapacity));
+        _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
+        _ = services.AddSingleton(static _ => new BootstrapPlanner());
         if (args.FoundationOnly)
         {
             _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(

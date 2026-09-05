@@ -121,6 +121,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
     /// <inheritdoc />
+    Task<GroupSnapshotInstallResult> IFollowerLog.InstallSnapshotAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) =>
+        InstallSnapshotAsync(snapshot, cancellationToken);
+
+    /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -190,6 +194,61 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.NotReady, _lastLogIndex, 0, Readiness == FollowerLogReadiness.Failed);
+
+        // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it would cross the
+        // durable commit boundary. No leader response may destructively revise a committed prefix.
+        // A zero index is caller-bug input rather than storage corruption, so it is refused without quarantine.
+        if (fromIndex == 0UL)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
+
+        if (fromIndex <= _meta.CommitIndex)
+        {
+            SetReadiness(FollowerLogReadiness.Failed);
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
+        }
+
+        if (fromIndex == _lastLogIndex + 1UL)
+            return new FollowerLogReconcileResult(true, string.Empty, _lastLogIndex, 0, false);
+
+        if (fromIndex > _lastLogIndex || !_journal.EntryOffsets.ContainsKey(fromIndex))
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
+
+        // Previous-log consistency, mirroring the append path: a stale leader must not truncate a tail
+        // written by the current term. An unverifiable predecessor (compacted below the snapshot baseline)
+        // is refused without quarantine; a term conflict at or below the commit boundary fails readiness.
+        if (!CheckPrevTerm(fromIndex - 1UL, prevLogTerm))
+        {
+            if (fromIndex - 1UL <= _meta.CommitIndex)
+            {
+                SetReadiness(FollowerLogReadiness.Failed);
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
+            }
+
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
+        }
+
+        try
+        {
+            var released = await FollowerLogDurable.TruncateFromAsync(_journal, this, fromIndex, cancellationToken).ConfigureAwait(false);
+            return new FollowerLogReconcileResult(true, string.Empty, _lastLogIndex, released, false);
+        }
+        catch
+        {
+            // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
+            // repair path additionally quarantines storage because the caller cannot prove which durable boundary
+            // survived an I/O fault until restart recovery scans the file again.
+            SetReadiness(FollowerLogReadiness.Failed);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -235,6 +294,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             _meta.CurrentTerm,
             _meta.VotedFor,
             _lastLogIndex,
+            LastLogTerm(),
             _meta.CommitIndex,
             _meta.LastAppliedIndex,
             Readiness);
@@ -394,6 +454,29 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         Readiness = FollowerLogReadiness.Ready;
     }
 
+    private bool CheckPrevTerm(ulong prev, ulong expected)
+    {
+        if (prev == 0UL)
+            return expected == 0UL;
+
+        if (_journal.EntryOffsets.TryGetValue(prev, out var location))
+            return location.Term == expected;
+
+        if (_journal.SnapshotBaseline.LastIncludedIndex == prev)
+            return _journal.SnapshotBaseline.LastIncludedTerm == expected;
+
+        return false;
+    }
+
+    private ulong LastLogTerm()
+    {
+        if (_lastLogIndex == 0UL)
+            return 0UL;
+        if (_journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
+            return location.Term;
+        return _journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex ? _journal.SnapshotBaseline.LastIncludedTerm : 0UL;
+    }
+
     private void SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
 
     private void SetLogLength(long logLength) => _logLength = logLength;
@@ -448,7 +531,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
 
             if (truncateAtIndex != null)
-                await FollowerLogDurable.TruncateFromAsync(journal, owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
+                _ = await FollowerLogDurable.TruncateFromAsync(journal, owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
 
             if (ownedToAppend != null)
                 await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
@@ -740,12 +823,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return (work.Length, work.Offsets);
         }
 
-        internal static async Task TruncateFromAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex, CancellationToken cancellationToken)
+        internal static async Task<int> TruncateFromAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!journal.EntryOffsets.TryGetValue(logIndex, out var location))
                 throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot truncate from a missing index '{logIndex}'.");
 
+            var released = 0;
             try
             {
                 var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -759,7 +843,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     // OnFlushed may throw after the flush completed. The work item records that durable boundary so
                     // reservations are released whenever the truncated bytes are no longer recoverable.
                     if (durable.Task.IsCompletedSuccessfully)
-                        _ = owner.Idempotency.ReleaseFromIndex(logIndex);
+                        released = owner.Idempotency.ReleaseFromIndex(logIndex);
                 }
             }
             finally
@@ -773,6 +857,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.SetLogLength(location.Offset);
                 owner.SetMeta(owner.Meta with { LastLogIndex = owner.LastLogIndex });
             }
+
+            return released;
         }
 
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
