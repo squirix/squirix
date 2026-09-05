@@ -81,7 +81,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
         var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (removed)
-            AccountReplaceOrInsert(keyValue, existing, replacement);
+            AccountReplaceOrInsert(keyValue, replacement);
 
         return removed;
     }
@@ -107,11 +107,12 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             }
 
             await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            AccountReplaceOrInsert(keyValue, entry);
             return;
         }
 
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        AccountReplaceOrInsert(keyValue, existing, entry);
+        AccountReplaceOrInsert(keyValue, entry);
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -128,7 +129,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
         var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
         if (touched)
-            AccountReplaceOrInsert(keyValue, existing, replacement);
+            AccountReplaceOrInsert(keyValue, replacement);
 
         return touched;
     }
@@ -173,7 +174,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
             return updated;
 
-        AccountReplaceOrInsert(keyValue, existing, replacement);
+        AccountReplaceOrInsert(keyValue, replacement);
         return updated;
     }
 
@@ -197,26 +198,28 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _ = _accountedEntryBytes.TryRemove(key, out _);
     }
 
-    private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> replacement)
+    private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T> replacement)
     {
-        if (existing == null)
-        {
-            AccountInsert(key, replacement);
-            return;
-        }
-
         var newBytes = _estimator.EstimateBytes(key, replacement, false);
-        var baselineBytes = _estimator.EstimateBytes(key, existing, false);
         while (true)
         {
-            var accountedBytes = _accountedEntryBytes.GetOrAdd(key, baselineBytes);
-            if (accountedBytes == newBytes)
-                return;
+            if (_accountedEntryBytes.TryGetValue(key, out var accountedBytes))
+            {
+                if (accountedBytes == newBytes)
+                    return;
 
-            if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
-                continue;
-            _accounting.ReplaceEntry(accountedBytes, newBytes);
-            return;
+                if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
+                    continue;
+
+                _accounting.ReplaceEntry(accountedBytes, newBytes);
+                return;
+            }
+
+            if (_accountedEntryBytes.TryAdd(key, newBytes))
+            {
+                _accounting.AddEntry(newBytes);
+                return;
+            }
         }
     }
 
