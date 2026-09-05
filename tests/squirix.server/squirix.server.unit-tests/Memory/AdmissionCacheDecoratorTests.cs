@@ -241,6 +241,26 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         Assert.Equal(0, accounting.ReadEstimatedBytes());
     }
 
+    /// <summary>Ensures SetEntryAsync accounts the entry when TryAdd loses the race and falls back to overwrite.</summary>
+    [Fact]
+    public async Task SetFallbackAccountsEntry()
+    {
+        const string key = "set-fallback-race";
+        var entry = CreateEntry("v");
+        var inner = new TryAddLosingInner();
+        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
+        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
+
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken);
+
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
+        Assert.True(inner.SetCalled);
+    }
+
     /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task UpdateAccountsValueDeltaForLocalKey()
@@ -464,6 +484,87 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             _ = entry;
             _ = cancellationToken;
             return ValueTask.FromResult(TryAddResult);
+        }
+
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = value;
+            _ = cancellationToken;
+            return ValueTask.FromResult(false);
+        }
+    }
+
+    [Immutable]
+    private sealed class TryAddLosingInner : ILogicalNamespacedCache<string>
+    {
+        internal bool SetCalled { get; private set; }
+
+        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            _ = cacheName;
+            _ = key;
+            _ = cancellationToken;
+            return ValueTask.FromResult<NodeCacheEntry<string>?>(null);
+        }
+
+        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            _ = cacheName;
+            _ = key;
+            _ = cancellationToken;
+            return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
+        }
+
+        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = cancellationToken;
+            return ValueTask.FromResult(new CacheRemoveResult<string>(false, null));
+        }
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = cancellationToken;
+            return ValueTask.FromResult(false);
+        }
+
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = entry;
+            _ = cancellationToken;
+            SetCalled = true;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = expiration;
+            _ = cancellationToken;
+            return ValueTask.FromResult(false);
+        }
+
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
+        {
+            _ = operationId;
+            _ = cacheName;
+            _ = key;
+            _ = entry;
+            _ = cancellationToken;
+            return ValueTask.FromResult(false);
         }
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken)
