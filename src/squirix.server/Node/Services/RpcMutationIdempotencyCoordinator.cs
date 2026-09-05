@@ -62,7 +62,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         }
 
         var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-        _store.RecordSuccess(operationId, fingerprint, RpcMutationIdempotencyStore.SerializeResponseBytes(memoryOnlyResponse));
+        _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
         return memoryOnlyResponse;
     }
 
@@ -108,7 +108,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         {
             ArgumentNullException.ThrowIfNull(response);
 
-            var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(response);
+            var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(response);
             _store.RecordSuccess(_operationId, _fingerprint, responseBytes);
             return _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken);
         }
