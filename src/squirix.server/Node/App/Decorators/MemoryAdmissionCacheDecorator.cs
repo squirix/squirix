@@ -59,10 +59,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (result.Removed && existing != null)
-            AccountRemove(keyValue, existing);
+        if (result.Removed)
+            AccountRemove(keyValue);
 
         return result;
     }
@@ -192,10 +191,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _accountedEntryBytes[key] = bytes;
     }
 
-    private void AccountRemove(CacheKey key, NodeCacheEntry<T> entry)
+    private void AccountRemove(CacheKey key)
     {
-        _accounting.RemoveEntry(_estimator.EstimateBytes(key, entry, false));
-        _ = _accountedEntryBytes.TryRemove(key, out _);
+        if (_accountedEntryBytes.TryRemove(key, out var accountedBytes))
+            _accounting.RemoveEntry(accountedBytes);
     }
 
     private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T> replacement)
