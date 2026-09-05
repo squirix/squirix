@@ -107,6 +107,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             }
 
             await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            AccountReplaceOrInsert(keyValue, existing, entry);
             return;
         }
 
@@ -199,24 +200,27 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> replacement)
     {
-        if (existing == null)
-        {
-            AccountInsert(key, replacement);
-            return;
-        }
-
+        _ = existing;
         var newBytes = _estimator.EstimateBytes(key, replacement, false);
-        var baselineBytes = _estimator.EstimateBytes(key, existing, false);
         while (true)
         {
-            var accountedBytes = _accountedEntryBytes.GetOrAdd(key, baselineBytes);
-            if (accountedBytes == newBytes)
-                return;
+            if (_accountedEntryBytes.TryGetValue(key, out var accountedBytes))
+            {
+                if (accountedBytes == newBytes)
+                    return;
 
-            if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
-                continue;
-            _accounting.ReplaceEntry(accountedBytes, newBytes);
-            return;
+                if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
+                    continue;
+
+                _accounting.ReplaceEntry(accountedBytes, newBytes);
+                return;
+            }
+
+            if (_accountedEntryBytes.TryAdd(key, newBytes))
+            {
+                _accounting.AddEntry(newBytes);
+                return;
+            }
         }
     }
 
