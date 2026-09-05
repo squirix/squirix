@@ -193,8 +193,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     private void AccountRemove(CacheKey key, NodeCacheEntry<T> entry)
     {
-        _accounting.RemoveEntry(_estimator.EstimateBytes(key, entry, false));
-        _ = _accountedEntryBytes.TryRemove(key, out _);
+        _ = entry;
+        if (_accountedEntryBytes.TryRemove(key, out var accountedBytes))
+            _accounting.RemoveEntry(accountedBytes);
     }
 
     private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> replacement)
