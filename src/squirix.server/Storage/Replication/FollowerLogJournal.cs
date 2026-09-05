@@ -53,9 +53,6 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
     public void RemoveEntriesAbove(ulong index) => RemoveEntriesAboveCore(index);
 
     /// <inheritdoc />
-    public void RemoveEntriesThrough(ulong index) => RemoveEntriesThroughCore(index);
-
-    /// <inheritdoc />
     public void ReleaseAppliedEntries(ulong index)
     {
         // Callers hold _gate; the offsets deliberately survive so durable truncation and applied-region

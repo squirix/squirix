@@ -110,10 +110,7 @@ internal static class JournalReadPath
                     return Stop();
                 }
 
-                if (buffer == null)
-                    throw new InvalidDataException("journal segment missing payload buffer.");
-
-                _rentedFrameBuffer = buffer;
+                _rentedFrameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
                 _current = BinaryJournalCodec.Decode(buffer, payloadLength);
                 _offset = read.NextFrameOffset;
                 return true;
@@ -138,7 +135,7 @@ internal static class JournalReadPath
             }
         }
 
-        /// <summary>Enumerates journal records across segment files.</summary>
+        /// <summary>Lists journal records across segment files.</summary>
         private sealed class JournalReplayEnumerator : IJournalRecordEnumerator
         {
             private readonly CancellationToken _cancellationToken;

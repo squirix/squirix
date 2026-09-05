@@ -80,6 +80,10 @@ M:Squirix.ICache`1::TouchAsync(System.String,System.DateTimeOffset,System.Thread
 M:Squirix.ICache`1::TouchAsync(System.String,System.TimeSpan,System.Threading.CancellationToken)
 M:Squirix.ICache`1::TryAddAsync(System.String,!!0,Squirix.CacheEntryOptions,System.Threading.CancellationToken)
 M:Squirix.ICache`1::UpdateAsync(System.String,!!0,System.Threading.CancellationToken)
+T:Squirix.CommitOutcomeUnknownException
+M:Squirix.CommitOutcomeUnknownException::.ctor()
+M:Squirix.CommitOutcomeUnknownException::.ctor(System.String)
+M:Squirix.CommitOutcomeUnknownException::.ctor(System.String,System.Exception)
 T:Squirix.OperationIdRequiredException
 M:Squirix.OperationIdRequiredException::.ctor()
 M:Squirix.OperationIdRequiredException::.ctor(System.String)

@@ -424,6 +424,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
             /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
             /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
+            /// <exception cref="CommitOutcomeUnknownException">When the server reports an ambiguous durable commit outcome.</exception>
             /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
             [DoesNotReturn]
             internal static void Map(RpcException ex)
@@ -435,6 +436,10 @@ internal sealed class RemoteCache<T> : ICache<T>
 
                 if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
                     throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
+
+                var commitUnknown = CommitOutcomeUnknownClassifier.Map(ex);
+                if (commitUnknown != null)
+                    throw commitUnknown;
 
                 ExceptionDispatchInfo.Capture(ex).Throw();
             }

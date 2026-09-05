@@ -66,6 +66,29 @@ internal sealed class GroupIdempotencyState
     {
     }
 
+    /// <summary>Gets the number of retained unresolved reservations.</summary>
+    /// <remarks>
+    /// Unresolved reservations pin capacity until they resolve or their journal index is truncated
+    /// (see <see cref="ReleaseFromIndex" />); monitor this count to size capacity for ambiguous-commit bursts.
+    /// </remarks>
+    internal int UnresolvedCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                var count = 0;
+                foreach (var pair in _records)
+                {
+                    if (pair.Value.IsUnresolved)
+                        count++;
+                }
+
+                return count;
+            }
+        }
+    }
+
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     private int Capacity { get; }
 
@@ -235,6 +258,24 @@ internal sealed class GroupIdempotencyState
     /// </remarks>
     /// <param name="records">The committed outcomes carried by the snapshot.</param>
     internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records) => RestoreFromSnapshot(records, []);
+
+    /// <summary>Releases one reservation only when it is still unresolved and has the expected durable coordinates.</summary>
+    /// <param name="scope">Operation scope.</param>
+    /// <param name="operationId">Operation identifier.</param>
+    /// <param name="logIndex">Expected log index.</param>
+    /// <param name="term">Expected term.</param>
+    /// <returns><see langword="true" /> when the unresolved reservation was removed.</returns>
+    internal bool TryReleaseUnresolved(string scope, string operationId, ulong logIndex, ulong term)
+    {
+        lock (_sync)
+        {
+            var key = new GroupOperationKey(scope, operationId);
+            if (!_records.TryGetValue(key, out var record) || record.IsResolved || record.LogIndex != logIndex || record.Term != term)
+                return false;
+
+            return _records.Remove(key);
+        }
+    }
 
     /// <summary>Resolves an existing record with the exact outcome bytes and a resolution timestamp.</summary>
     /// <param name="scope">The operation scope.</param>

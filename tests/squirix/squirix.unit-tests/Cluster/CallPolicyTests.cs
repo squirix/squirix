@@ -55,6 +55,8 @@ public sealed class CallPolicyTests
             // walks the dispose landing point through the callers' execute loop without depending
             // on coarse OS timer resolution, covering the whole claim window over time.
             Thread.SpinWait(((round % 64) + 1) * 256);
+
+            // ReSharper disable once DisposeOnUsingVariable — intentional mid-race disposal: the test covers dispose landing inside the execute loop.
             await policy.DisposeAsync();
             drained.Set();
 

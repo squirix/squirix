@@ -35,4 +35,7 @@ public enum SquirixErrorCode
 
     /// <summary>On-disk journal size reached the configured hard limit; durable writes are rejected.</summary>
     JournalDiskQuota = 10,
+
+    /// <summary>A durably appended mutation may have committed, but its final outcome is not yet known.</summary>
+    CommitOutcomeUnknown = 11,
 }

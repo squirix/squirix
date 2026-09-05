@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
 using Xunit;
@@ -18,6 +19,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 ///     (use <c language="csharp">RpcOperationIdentity.New()</c> per test).
 ///     </para>
 /// </remarks>
+[UsedImplicitly]
 public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncLifetime
 {
     private TestNodeHost? _nodeA;

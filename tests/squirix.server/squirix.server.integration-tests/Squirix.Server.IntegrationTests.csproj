@@ -14,6 +14,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
+        <ProjectReference Include="..\..\..\src\squirix.protocol-model\Squirix.ProtocolModel.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>
     <ItemGroup>

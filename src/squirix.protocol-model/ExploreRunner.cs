@@ -13,7 +13,26 @@ namespace Squirix.ProtocolModel;
 
 internal static class ExploreRunner
 {
+    private enum SuccessorOutcome
+    {
+        Enqueued = 0,
+        BudgetExhausted = 1,
+        Completed = 2,
+    }
+
     internal static string ModelVersionHash { get; } = ComputeModelVersionHash();
+
+    internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        if (trace.Count == 0)
+            return false;
+
+        var profile = ExploreProfile.SmallCommit(false);
+        var initial = ClusterState.CreateInitial(profile.ReplicaCount);
+        var initialIndex = AdvanceTrace(initial, trace, 0);
+        return RunTraceSearch(profile, trace, initial, initialIndex);
+    }
 
     internal static ExploreResult Run(ExploreProfile profile, BrokenMode broken) => StateExplorer.Explore(profile, broken);
 
@@ -40,6 +59,14 @@ internal static class ExploreRunner
         await File.WriteAllTextAsync(Path.Join(outputDir, "counterexample.json"), json, Encoding.UTF8, CancellationToken.None).ConfigureAwait(false);
 
         return ExitCode(broken, firstViolation, allFixedPoint);
+    }
+
+    private static int AdvanceTrace(ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
+    {
+        while (traceIndex < trace.Count && ContainsTracePoint(state, trace[traceIndex]))
+            traceIndex++;
+
+        return traceIndex;
     }
 
     private static void AggregateResults(
@@ -111,6 +138,19 @@ internal static class ExploreRunner
         return sb.ToString();
     }
 
+    private static bool ContainsTracePoint(ClusterState state, ModelCommitTracePoint point)
+    {
+        for (var index = 0; index < state.Nodes.Count; index++)
+        {
+            var node = state.Nodes[index];
+            if (node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&
+                node.AppliedIndex == point.AppliedIndex)
+                return true;
+        }
+
+        return false;
+    }
+
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
     {
         if (broken != BrokenMode.None)
@@ -149,6 +189,73 @@ internal static class ExploreRunner
         };
     }
 
+    private static bool RunTraceSearch(ExploreProfile profile, IReadOnlyList<ModelCommitTracePoint> trace, ClusterState initial, int initialIndex)
+    {
+        var queue = new Queue<TraceSearchState>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        queue.Enqueue(new TraceSearchState(initial, initialIndex));
+        _ = seen.Add(TraceFingerprint(initial, initialIndex));
+        var successors = new List<ClusterState>(64);
+        var maxStates = checked(profile.MaxStates * (trace.Count + 1));
+
+        var omittedUnique = false;
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (current.TraceIndex == trace.Count)
+                return true;
+
+            ModelTransitions.CollectSuccessors(current.State, profile, BrokenMode.None, successors);
+            var outcome = ProcessSuccessors(trace, queue, seen, maxStates, successors, current);
+            if (outcome == SuccessorOutcome.Completed)
+                return true;
+
+            if (outcome == SuccessorOutcome.BudgetExhausted)
+                omittedUnique = true;
+        }
+
+        if (omittedUnique)
+            throw new TraceSearchBudgetExhaustedException(maxStates, seen.Count);
+
+        return false;
+    }
+
+    private static SuccessorOutcome ProcessSuccessors(
+        IReadOnlyList<ModelCommitTracePoint> trace,
+        Queue<TraceSearchState> queue,
+        HashSet<string> seen,
+        int maxStates,
+        List<ClusterState> successors,
+        TraceSearchState current)
+    {
+        var budgetExhausted = false;
+        for (var index = 0; index < successors.Count; index++)
+        {
+            var next = successors[index];
+            var nextTraceIndex = AdvanceTrace(next, trace, current.TraceIndex);
+            if (nextTraceIndex == trace.Count)
+                return SuccessorOutcome.Completed;
+
+            var fingerprint = TraceFingerprint(next, nextTraceIndex);
+            if (seen.Contains(fingerprint))
+                continue;
+
+            if (seen.Count >= maxStates)
+            {
+                budgetExhausted = true;
+                continue;
+            }
+
+            _ = seen.Add(fingerprint);
+
+            queue.Enqueue(new TraceSearchState(next, nextTraceIndex));
+        }
+
+        return budgetExhausted ? SuccessorOutcome.BudgetExhausted : SuccessorOutcome.Enqueued;
+    }
+
+    private static string TraceFingerprint(ClusterState state, int traceIndex) => $"{traceIndex.ToString(CultureInfo.InvariantCulture)}:{state.Fingerprint(false)}";
+
     private static Task WriteSummaryAsync(string outputDir, SummaryContent content, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder(256);
@@ -182,6 +289,10 @@ internal static class ExploreRunner
     [Immutable]
     private readonly record struct SummaryContent(string ProfileName, BrokenMode Broken, int States, int Transitions, SafetyViolation? Violation, bool FixedPointReached);
 
+    [StructLayout(LayoutKind.Auto)]
+    [Immutable]
+    private readonly record struct TraceSearchState(ClusterState State, int TraceIndex);
+
     private static class ModelTransitions
     {
         internal static void CollectSuccessors(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
@@ -202,6 +313,28 @@ internal static class ExploreRunner
 
             if (profile.AllowCrash)
                 CollectCrashes(state, profile, output);
+        }
+
+        private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
+        {
+            var healed = ModelTransitionUtil.CloneInts(parts);
+            for (var i = 0; i < healed.Length; i++)
+                healed[i] = 0;
+
+            output.Add(state.WithPartitions(healed));
+        }
+
+        private static void AddIsolationPartitions(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
+        {
+            // Isolate each replica — permutation-invariant under symmetry reduction.
+            for (var isolated = 0; isolated < parts.Count; isolated++)
+            {
+                var split = ModelTransitionUtil.CloneInts(parts);
+                for (var i = 0; i < split.Length; i++)
+                    split[i] = i == isolated ? 1 : 0;
+
+                output.Add(state.WithPartitions(split));
+            }
         }
 
         private static void CollectApplyAdvances(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
@@ -347,28 +480,6 @@ internal static class ExploreRunner
             }
 
             AddHealedPartition(state, parts, output);
-        }
-
-        private static void AddIsolationPartitions(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
-        {
-            // Isolate each replica — permutation-invariant under symmetry reduction.
-            for (var isolated = 0; isolated < parts.Count; isolated++)
-            {
-                var split = ModelTransitionUtil.CloneInts(parts);
-                for (var i = 0; i < split.Length; i++)
-                    split[i] = i == isolated ? 1 : 0;
-
-                output.Add(state.WithPartitions(split));
-            }
-        }
-
-        private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
-        {
-            var healed = ModelTransitionUtil.CloneInts(parts);
-            for (var i = 0; i < healed.Length; i++)
-                healed[i] = 0;
-
-            output.Add(state.WithPartitions(healed));
         }
 
         private static void CollectReadIndexes(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)

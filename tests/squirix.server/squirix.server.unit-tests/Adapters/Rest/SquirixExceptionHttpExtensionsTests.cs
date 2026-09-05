@@ -26,6 +26,7 @@ public sealed class SquirixExceptionHttpExtensionsTests : ServerUnitTestBase
             { SquirixErrorCode.TooManyRequests, StatusCodes.Status429TooManyRequests },
             { SquirixErrorCode.MemoryPressure, StatusCodes.Status429TooManyRequests },
             { SquirixErrorCode.JournalDiskQuota, StatusCodes.Status429TooManyRequests },
+            { SquirixErrorCode.CommitOutcomeUnknown, StatusCodes.Status503ServiceUnavailable },
             { SquirixErrorCode.None, StatusCodes.Status500InternalServerError },
         };
 

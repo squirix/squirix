@@ -1,10 +1,12 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Xunit;
 
 namespace Squirix.ProtocolModel.Tests;
 
+[UsedImplicitly]
 public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
 {
     private static readonly string[] SampleCounterexamplePaths = ["start", "elect"];
@@ -31,6 +33,16 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
     [Fact]
     public static void ExploreProfileForCliRejectsUnknownName() =>
         ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
+
+    [Fact]
+    public static void BudgetExceptionCarriesPayload()
+    {
+        var exception = new TraceSearchBudgetExhaustedException(100, 100);
+
+        Assert.Equal(100, exception.MaxStates);
+        Assert.Equal(100, exception.VisitedStates);
+        Assert.Contains("100 of 100", exception.Message, StringComparison.Ordinal);
+    }
 
     [Fact]
     public static void ExploreReplicaCountProfileRejectsRange()

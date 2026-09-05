@@ -26,6 +26,7 @@ public sealed class SquirixErrorMapperTests : ServerUnitTestBase
         AssertMapping(SquirixErrorCode.OperationIdTooLong, "OPERATION_ID_TOO_LONG", StatusCode.InvalidArgument);
         AssertMapping(SquirixErrorCode.OperationIdReuseMismatch, "OPERATION_ID_REUSE_MISMATCH", StatusCode.FailedPrecondition);
         AssertMapping(SquirixErrorCode.InvalidEntryTags, "INVALID_ENTRY_TAGS", StatusCode.InvalidArgument);
+        AssertMapping(SquirixErrorCode.CommitOutcomeUnknown, "COMMIT_OUTCOME_UNKNOWN", StatusCode.Unavailable);
     }
 
     /// <summary>Unknown codes fall back to internal error projections.</summary>
