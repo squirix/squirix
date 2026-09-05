@@ -33,6 +33,33 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         Assert.Equal(envelope.PayloadChecksum, decoded.PayloadChecksum);
     }
 
+    /// <summary>Encode emits the documented golden wire bytes for a fixed envelope.</summary>
+    [Fact]
+    public void EncodeMatchesGoldenWireBytes()
+    {
+        var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
+
+        Assert.Equal(GoldenWireBytes(), EnvelopeCodec.Encode(envelope));
+    }
+
+    /// <summary>Decode reads the golden wire bytes back into the fixed envelope fields.</summary>
+    [Fact]
+    public void DecodeReadsGoldenWireBytes()
+    {
+        var decoded = EnvelopeCodec.Decode(GoldenWireBytes());
+
+        Assert.Equal(EnvelopeCodec.SchemaVersion, decoded.SchemaVersion);
+        Assert.Equal("group-a", decoded.GroupId);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, decoded.TopologyFingerprint);
+        Assert.Equal(9UL, decoded.ConfigurationGeneration);
+        Assert.Equal(11UL, decoded.Term);
+        Assert.Equal("leader-1", decoded.LeaderNodeId);
+        Assert.Equal("sender-2", decoded.SenderNodeId);
+        Assert.Equal(13UL, decoded.LogIndex);
+        Assert.Equal(17UL, decoded.CommitIndex);
+        Assert.Equal(0xA5A5_A5A5u, decoded.PayloadChecksum);
+    }
+
     /// <summary>Verifies that a payload shorter than the fixed header is rejected as truncated.</summary>
     [Fact]
     public void PayloadShorterThanFixedHeaderIsRejected()
@@ -116,6 +143,27 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     }
 
     private static Envelope CreateValidEnvelope() => new(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
+
+    /// <summary>
+    /// Hand-built golden encoding of the fixed envelope above (schema 1, group-a,
+    /// fingerprint 01..08, generation 9, term 11, leader-1, sender-2, log 13,
+    /// commit 17, checksum A5A5A5A5): u32 schema, u32 checksum, u64 generation,
+    /// u64 term, u64 log index, then i32-prefixed group, fingerprint, leader,
+    /// sender blobs, then u64 commit index. A symmetric encode/decode bug that a
+    /// pure round-trip cannot see fails against these bytes.
+    /// </summary>
+    private static byte[] GoldenWireBytes() =>
+    [
+        0x01, 0x00, 0x00, 0x00, 0xA5, 0xA5, 0xA5, 0xA5,
+        0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x07, 0x00, 0x00, 0x00, 0x67, 0x72, 0x6F, 0x75, 0x70, 0x2D, 0x61,
+        0x08, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x08, 0x00, 0x00, 0x00, 0x6C, 0x65, 0x61, 0x64, 0x65, 0x72, 0x2D, 0x31,
+        0x08, 0x00, 0x00, 0x00, 0x73, 0x65, 0x6E, 0x64, 0x65, 0x72, 0x2D, 0x32,
+        0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
 
     private static byte[] CreateFixedLengthPayload(int groupIdLength, int? fingerprintLength = null) => BufferKit.ToOwnedBytes(
         48,

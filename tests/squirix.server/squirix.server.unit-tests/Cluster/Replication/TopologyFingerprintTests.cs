@@ -141,6 +141,51 @@ public sealed class TopologyFingerprintTests
         Assert.Equal(left, right);
     }
 
+    /// <summary>Compute matches the independently derived golden digest for a fixed single-peer vector.</summary>
+    [Fact]
+    public void ComputeMatchesGoldenVector()
+    {
+        var inputs = new FingerprintInputs
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 1,
+            ReplicaCount = 1,
+            VirtualNodes = 128,
+            Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
+            MinClusterPackageVersion = "0.1.0-preview.8",
+            QuorumAckMode = "majority-no-lease",
+        };
+
+        // Golden SHA-256 over the documented canonical layout, derived outside the
+        // production code, so a systematic hashing bug cannot stay green on both sides.
+        Assert.Equal(
+            "1DE62DAF83BD5D2129BFF07DFDCEF1DAA7C3361B48F565688FF2D5800EC133A5",
+            TopologyFingerprint.Compute(inputs).ToString(),
+            StringComparer.Ordinal);
+    }
+
+    /// <summary>group_id matches the independently derived golden digest for a fixed vector and owner.</summary>
+    [Fact]
+    public void GroupIdMatchesGoldenVector()
+    {
+        var inputs = new FingerprintInputs
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 1,
+            ReplicaCount = 1,
+            VirtualNodes = 128,
+            Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
+            MinClusterPackageVersion = "0.1.0-preview.8",
+            QuorumAckMode = "majority-no-lease",
+        };
+        var fingerprint = TopologyFingerprint.Compute(inputs);
+
+        Assert.Equal(
+            "AB03238272D47286AA55CD55C199CB281324BC470DB9A2493A2DB727DEC407F2",
+            fingerprint.CreateGroupId("cluster", "node-a"),
+            StringComparer.Ordinal);
+    }
+
     /// <summary>group_id is stable for a fixed fingerprint vector and owner.</summary>
     [Fact]
     public void GroupIdIsStableForFixedVector()

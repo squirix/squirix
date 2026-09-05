@@ -60,6 +60,48 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Length computation matches the documented golden size for a fixed record.</summary>
+    [Fact]
+    public void ComputeEncodedLengthMatchesGolden()
+    {
+        var record = new PersistedIdempotencyRecord(
+            "0123456789abcdef0123456789abcdef",
+            "try-add-entry-async|default|k|abc123",
+            [0x08, 0x01],
+            new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+
+        // 2 + 32 + 2 + 36 + 8 + 4 + 2.
+        Assert.Equal(86, IdempotencyCodec.ComputeEncodedLength(record));
+    }
+
+    /// <summary>Write emits the documented golden wire bytes for a fixed record.</summary>
+    [Fact]
+    public void WriteMatchesGoldenWireBytes()
+    {
+        var record = new PersistedIdempotencyRecord(
+            "0123456789abcdef0123456789abcdef",
+            "try-add-entry-async|default|k|abc123",
+            [0x08, 0x01],
+            new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+        var buffer = new byte[IdempotencyCodec.ComputeEncodedLength(record)];
+
+        IdempotencyCodec.Write(record, buffer);
+
+        Assert.Equal(GoldenWireBytes(), buffer);
+    }
+
+    /// <summary>Read decodes the golden wire bytes into the fixed record fields.</summary>
+    [Fact]
+    public void ReadReadsGoldenWireBytes()
+    {
+        var decoded = IdempotencyCodec.Read(GoldenWireBytes());
+
+        Assert.Equal("0123456789abcdef0123456789abcdef", decoded.OperationId);
+        Assert.Equal("try-add-entry-async|default|k|abc123", decoded.Fingerprint);
+        Assert.Equal(new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc), decoded.CreatedUtc);
+        Assert.Equal(new byte[] { 0x08, 0x01 }, decoded.ResponseBytes);
+    }
+
     /// <summary>Encodes and decodes an idempotency record with response bytes.</summary>
     [Fact]
     public void WriteAndReadRoundTripsResponseBytes()
@@ -85,4 +127,23 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         var replayed = TryAddAsyncResponse.Parser.ParseFrom(decoded.ResponseBytes);
         Assert.True(replayed.Added);
     }
+
+    /// <summary>
+    /// Hand-built golden encoding of the fixed record above: u16-prefixed operation id
+    /// (32 ASCII bytes), u16-prefixed fingerprint (36 ASCII bytes), i64 little-endian
+    /// unix milliseconds for 2026-07-01T12:00:00Z, i32 little-endian response length (2),
+    /// then the 2 response bytes. A symmetric write/read bug that a pure round-trip
+    /// cannot see fails against these bytes.
+    /// </summary>
+    private static byte[] GoldenWireBytes() =>
+    [
+        0x20, 0x00,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+        0x24, 0x00,
+        0x74, 0x72, 0x79, 0x2D, 0x61, 0x64, 0x64, 0x2D, 0x65, 0x6E, 0x74, 0x72, 0x79, 0x2D, 0x61, 0x73, 0x79, 0x6E, 0x63,
+        0x7C, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6C, 0x74, 0x7C, 0x6B, 0x7C, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
+        0x00, 0xE2, 0x8C, 0x1D, 0x9F, 0x01, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x08, 0x01,
+    ];
 }

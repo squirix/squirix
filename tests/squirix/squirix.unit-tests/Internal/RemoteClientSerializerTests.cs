@@ -53,10 +53,15 @@ public sealed class RemoteClientSerializerTests
         var serializer = RemoteClientSessionFactory.CreateSerializer();
         var original = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 5 };
         var utf8 = serializer.SerializeToUtf8Bytes(original);
+
+        // Golden bytes: the decorated serializer must emit canonical System.Text.Json,
+        // not merely something it can read back itself.
+        Assert.True("""{"value":5}"""u8.SequenceEqual(utf8));
         var decoded = serializer.Deserialize<Dictionary<string, int>>(utf8.AsSpan());
         Assert.Equal(5, decoded!["value"]);
 
         var element = serializer.SerializeToElement(original);
+        Assert.Equal("""{"value":5}""", element.GetRawText());
         Assert.Equal(5, serializer.Deserialize<Dictionary<string, int>>(element)!["value"]);
 
         using var stream = new MemoryStream(utf8);

@@ -180,9 +180,8 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             Key = CacheKey.Default(key),
             PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
         };
-        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
-        return BufferKit.ToOwnedBytes(bodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+        return BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
     }
 
     /// <summary>Writes the first <paramref name="visibleLength" /> bytes to a temporary segment file and runs the assertion against an open handle.</summary>

@@ -18,4 +18,10 @@
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Core.*" />
 
+  <!-- Test-isolation (unit-test-isolation cycle 2): storage unit tests must not
+       reach transport adapters or DI/host composition. Node.Services/App collaborators
+       stay allowed: storage recovery tests are sociable by design. -->
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Hosting.*" />
+
 </NsDepCopConfig>

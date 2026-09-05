@@ -165,7 +165,11 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         // The adapter should report the node's own topology fingerprint and configuration generation,
         // not the caller-supplied header values.
-        var expectedFingerprint = TopologyFingerprint.CreateFromTopology(topology, mtls).ToString();
+        // Golden oracle: precomputed SHA-256 over the documented canonical layout for the
+        // single-peer topology above (node-a, https://localhost:6001, generation 1).
+        // Must stay a constant: recomputing it via TopologyFingerprint here would mask
+        // a broken fingerprint implementation identically on both sides.
+        const string expectedFingerprint = "1DE62DAF83BD5D2129BFF07DFDCEF1DAA7C3361B48F565688FF2D5800EC133A5";
         var actualFingerprint = Convert.ToHexString(result.TopologyFingerprint.ToByteArray());
         Assert.Equal(expectedFingerprint, actualFingerprint, StringComparer.Ordinal);
         Assert.Equal(topology.ConfigurationGeneration, result.ConfigurationGeneration);

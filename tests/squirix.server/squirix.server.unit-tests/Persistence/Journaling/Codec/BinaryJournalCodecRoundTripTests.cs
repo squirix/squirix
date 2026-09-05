@@ -168,7 +168,23 @@ public sealed class BinaryJournalCodecRoundTripTests
     {
         var record = CreateRecord(operation);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
-        Assert.Equal(BinaryJournalCodec.ComputeFrameBodyLength(record), prepared.BodyLength);
+
+        // Golden frame-body lengths from the documented wire layout
+        // (FixedPrefixSize 25 + UTF-8 key bytes + operation payload), not from
+        // BinaryJournalCodec.ComputeFrameBodyLength: both helpers share the same
+        // EncodeContext.From path, so comparing them could never fail.
+        var expectedBodyLength = operation switch
+        {
+            // 25 + "ns"(2) + "codec-key"(9) + TestKit put payload (fixture bytes,
+            // serializer-dependent, so pinned via the materialized record).
+            JournalOperationKind.Put => BinaryJournalCodec.FixedPrefixSize + 2 + 9 + record.PutEntryBytes.Length,
+            JournalOperationKind.Remove => 36,
+            JournalOperationKind.RemoveExpiration => 36,
+            JournalOperationKind.TouchExpiration => 44,
+            JournalOperationKind.IdempotencyOutcome => 103,
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No golden body length for operation."),
+        };
+        Assert.Equal(expectedBodyLength, prepared.BodyLength);
 
         var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
 

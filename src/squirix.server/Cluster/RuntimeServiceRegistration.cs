@@ -255,6 +255,7 @@ internal static class RuntimeServiceRegistration
         internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions options)
         {
             ArgumentNullException.ThrowIfNull(locator);
+            ArgumentNullException.ThrowIfNull(options);
             _locator = locator;
             SelfNodeId = options.NodeId;
         }

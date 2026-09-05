@@ -56,6 +56,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     {
         // A dedicated null arm detects actual null presence for unconstrained T; comparing against
         // default(T) would also zero-size valid payloads such as 0 or default-valued structs.
+        // Numeric arms live in EstimateNumericOrFallbackBytes so this dispatch stays small.
         return value switch
         {
             null => 0,
@@ -63,12 +64,17 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             byte[] bytes => bytes.LongLength,
             bool => 1,
             char => 2,
-            sbyte or byte => 1,
-            short or ushort => 2,
-            int or uint or float => 4,
-            long or ulong or double => 8,
             decimal => 16,
-            _ => UnknownTypedPayloadFallbackBytes,
+            _ => EstimateNumericOrFallbackBytes(value),
         };
     }
+
+    private static long EstimateNumericOrFallbackBytes(T? value) => value switch
+    {
+        sbyte or byte => 1,
+        short or ushort => 2,
+        int or uint or float => 4,
+        long or ulong or double => 8,
+        _ => UnknownTypedPayloadFallbackBytes,
+    };
 }

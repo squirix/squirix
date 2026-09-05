@@ -39,7 +39,10 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     {
         var prepared = JournalEntryPayload.PrepareEncode(new NodeCacheEntry<string> { Value = "lease", Version = 1 });
         var lease = JournalEntryPayload.Encode(in prepared);
-        Assert.Equal(prepared.EncodedLength, lease.Span.Length);
+
+        // Golden lengths: flags (2) + version (8) + empty tags (2) + string value (1 + 4 + 5).
+        Assert.Equal(22, prepared.EncodedLength);
+        Assert.Equal(22, lease.Span.Length);
         lease.Dispose();
         lease.Dispose();
         lease.Dispose();
@@ -51,6 +54,10 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     {
         var entry = new NodeCacheEntry<string>("segmented-value", 1_234_567_890_123L, new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc), tags: EntryTagsKit.RegionWest);
         var prepared = JournalEntryPayload.PrepareEncode(entry);
+
+        // Golden length: expiry (1 + 8) + no-expiration flag (1) + version (8) +
+        // one tag (2 + 2 + 6 + 2 + 4) + string value (1 + 4 + 15).
+        Assert.Equal(54, prepared.EncodedLength);
         using var buffer = JournalEntryPayload.Encode(in prepared);
         Assert.True(JournalEntryPayload.TryDecode<string>(buffer.Span, out var roundTrip));
         Assert.NotNull(roundTrip);
@@ -66,6 +73,9 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     {
         var entry = new NodeCacheEntry<string> { Value = "journal-value", Version = 4 };
         var prepared = JournalEntryPayload.PrepareEncode(entry);
+
+        // Golden length: flags (2) + version (8) + empty tags (2) + string value (1 + 4 + 13).
+        Assert.Equal(30, prepared.EncodedLength);
         using var buffer = JournalEntryPayload.Encode(in prepared);
         Assert.True(JournalEntryPayload.TryDecode<string>(buffer.Span, out var roundTrip));
         Assert.NotNull(roundTrip);

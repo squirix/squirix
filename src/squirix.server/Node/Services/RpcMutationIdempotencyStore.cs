@@ -85,7 +85,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    internal void RestoreSnapshotRecords(IReadOnlyList<PersistedIdempotencyRecord> records)
+    internal void RestoreSnapshotRecords(IReadOnlyList<PersistedIdempotencyRecord?> records)
     {
         ArgumentNullException.ThrowIfNull(records);
 
@@ -95,15 +95,17 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             SweepExpiredLocked(utcNow);
             for (var i = 0; i < records.Count; i++)
             {
-                if (_records.TryGetValue(records[i].OperationId, out var existing))
+                var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
+#pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
+                if (_records.TryGetValue(record.OperationId, out _))
+#pragma warning restore MA0160
                 {
-                    _ = existing.OperationId;
-                    _records[records[i].OperationId] = records[i];
+                    _records[record.OperationId] = record;
                     continue;
                 }
 
                 EnsureCapacityForNewRecordLocked(utcNow);
-                _records[records[i].OperationId] = records[i];
+                _records[record.OperationId] = record;
             }
         }
     }
