@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
@@ -19,14 +19,16 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
     private readonly IdempotencyOptions _options;
-    private readonly ConcurrentDictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
 
     internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentNullException.ThrowIfNull(metrics);
         options.Validate();
         _options = options;
-        _nodeId = string.IsNullOrWhiteSpace(nodeId) ? "local" : nodeId;
+        _nodeId = nodeId;
         _metrics = metrics;
     }
 
@@ -40,16 +42,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     }
 
     void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow) => ExportSnapshotCore(destination, utcNow);
-
-    internal static byte[] SerializeResponseBytes(IMessage response)
-    {
-        ArgumentNullException.ThrowIfNull(response);
-
-        var size = response.CalculateSize();
-        var bytes = BufferEx.Owned(size);
-        response.WriteTo(bytes);
-        return bytes;
-    }
 
     internal void RecordSuccess(string operationId, string fingerprint, byte[] responseBytes)
     {
@@ -191,11 +183,21 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
     private void SweepExpiredLocked(DateTime utcNow)
     {
+        // Collect first: Dictionary forbids removal during enumeration.
+        List<string>? expired = null;
         foreach (var (key, value) in _records)
         {
-            if (utcNow - value.CreatedUtc > _options.Retention)
-                _ = _records.TryRemove(key, out _);
+            if (utcNow - value.CreatedUtc <= _options.Retention)
+                continue;
+            expired ??= [];
+            expired.Add(key);
         }
+
+        if (expired == null)
+            return;
+
+        foreach (var key in CollectionsMarshal.AsSpan(expired))
+            _ = _records.Remove(key);
     }
 
     private bool TryEvictOldestLocked()
@@ -214,6 +216,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         if (oldestKey == null)
             return false;
 
-        return _records.TryRemove(oldestKey, out _);
+        return _records.Remove(oldestKey);
     }
 }

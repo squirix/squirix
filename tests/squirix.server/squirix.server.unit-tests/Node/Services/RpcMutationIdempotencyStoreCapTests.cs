@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTestBase
 {
-    private static readonly byte[] ResponseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+    private static readonly byte[] ResponseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
     private readonly Meter _testMeter = new("test");
 

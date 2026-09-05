@@ -35,7 +35,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var snapshotState = Assert.IsType<IJournalCoordinatorSnapshotState>(journal, false);
         var gateGuard = await snapshotState.MutationGate.LockAsync(DefaultCancellationToken);
 
-        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         var initialSequence = journal.NextSequence;
         var appendTask = journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, responseBytes, DefaultCancellationToken).AsTask();
 

@@ -100,7 +100,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true));
         await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
-        var bytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }

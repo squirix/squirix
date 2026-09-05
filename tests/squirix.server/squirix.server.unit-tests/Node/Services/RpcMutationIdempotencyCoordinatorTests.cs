@@ -58,7 +58,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
         Assert.False(operation.IsCompleted);
 
         // Recovery restores the idempotency record and opens the startup gate.
-        store.RestoreRecord(ValidOperationId, "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original), DateTime.UtcNow);
+        store.RestoreRecord(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original), DateTime.UtcNow);
         journal.ReleaseStartupGate();
 
         var response = await operation;
@@ -72,7 +72,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task ExpiredRecordsAreNotReplayed()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter));
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
         await Task.Delay(100, DefaultCancellationToken);
 
@@ -87,7 +87,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public void FingerprintMismatchThrowsTypedException()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
         var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
             store,
@@ -106,7 +106,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var original = new TryAddAsyncResponse { Added = true };
-        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original));
+        store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original));
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
@@ -216,7 +216,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public void RestoredExpiredRecordIsNotReplayed()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter));
-        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         store.RestoreRecord("op-1", "fp-1", responseBytes, DateTime.UtcNow.AddMinutes(-20));
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);

@@ -45,7 +45,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     public async Task IdempotencyZeroUnixMsUsesWallClock()
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-zero");
-        var bytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         var id = BinaryJournalTestSegmentWriter.BuildIdempotencyRecord("op-zero", "fp-zero", bytes, 0L, 1UL);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, id);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2 }, DefaultCancellationToken);

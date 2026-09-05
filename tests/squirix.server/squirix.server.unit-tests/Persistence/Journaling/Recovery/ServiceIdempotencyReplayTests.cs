@@ -103,7 +103,7 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         await journal.AppendIdempotencyOutcomeAsync(
             OperationId,
             Fingerprint,
-            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+            IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
             DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }
