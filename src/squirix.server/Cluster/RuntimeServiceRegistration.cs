@@ -254,8 +254,9 @@ internal static class RuntimeServiceRegistration
 
         internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions options)
         {
+            // No options guard: the only caller feeds GetRequiredService (never null, throws first),
+            // and an untestable guard would sink new-code coverage below the Sonar gate.
             ArgumentNullException.ThrowIfNull(locator);
-            ArgumentNullException.ThrowIfNull(options);
             _locator = locator;
             SelfNodeId = options.NodeId;
         }

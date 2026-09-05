@@ -106,6 +106,17 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         Assert.Equal(cap, store.RecordCount);
     }
 
+    /// <summary>Snapshot restore rejects null records with a contract exception.</summary>
+    [Fact]
+    public void RestoreSnapshotRecordsRejectsNullElement()
+    {
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "test-node", new IdempotencyMetrics(_testMeter));
+
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(store, static s => s.RestoreSnapshotRecords([null]));
+
+        Assert.Contains("must not be null", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 }
