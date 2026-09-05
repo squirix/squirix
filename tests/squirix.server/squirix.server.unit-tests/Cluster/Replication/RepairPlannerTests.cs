@@ -90,5 +90,17 @@ public sealed class RepairPlannerTests : ServerUnitTestBase
         await service.StopAsync(DefaultCancellationToken);
     }
 
+    /// <summary>An empty leader log at the genesis index selects a valid empty entries batch.</summary>
+    [Fact]
+    public void EmptyLeaderLogAtGenesisSelectsEmptyBatch()
+    {
+        var planner = new ReplicaRepairPlanner(2);
+
+        var selection = planner.SelectRepair([], 1UL, null);
+
+        Assert.Equal(ReplicaRepairSelectionKind.Entries, selection.Kind);
+        Assert.True(selection.Batch.Entries.IsEmpty);
+    }
+
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) => new(index, term, Encoding.UTF8.GetBytes(payload));
 }

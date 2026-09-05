@@ -92,6 +92,11 @@ internal sealed class ReplicaRepairPlanner
             if (latestSnapshot is { } snapshot && snapshot.LastIncludedIndex >= nextIndex)
                 return new ReplicaRepairSelection(ReplicaRepairSelectionKind.Snapshot, default, snapshot);
 
+            // A new replica group retains nothing yet: an empty leader log at the genesis index is a
+            // valid empty repair, not a compaction gap.
+            if (leaderEntries.Count == 0 && nextIndex == 1UL)
+                return new ReplicaRepairSelection(ReplicaRepairSelectionKind.Entries, SelectBatch(leaderEntries, nextIndex), null);
+
             throw new InvalidOperationException($"Leader has compacted repair index '{nextIndex}' without an installable snapshot.");
         }
 

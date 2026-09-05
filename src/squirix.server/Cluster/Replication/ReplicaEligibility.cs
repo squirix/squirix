@@ -92,8 +92,21 @@ internal sealed class ReplicaEligibility
         ValidateIndex(replicaIndex);
         lock (_sync)
         {
-            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined || !progress.IsValid)
+            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined)
                 return false;
+
+            if (!progress.IsValid)
+            {
+                // A participant that reports structurally invalid progress cannot be trusted to hold
+                // its ready verdict: demote it back to catch-up instead of letting it keep authority.
+                if (_states[replicaIndex] == ReplicaParticipantState.Ready)
+                {
+                    _progress[replicaIndex] = default;
+                    _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+                }
+
+                return false;
+            }
 
             var previous = _progress[replicaIndex];
             if (!previous.TopologyFingerprint.IsEmpty && !progress.MatchesTopology(in previous))
@@ -123,8 +136,19 @@ internal sealed class ReplicaEligibility
         ValidateIndex(replicaIndex);
         lock (_sync)
         {
-            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined || !observed.IsValid || !expected.IsValid)
+            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined)
                 return false;
+
+            if (!observed.IsValid || !expected.IsValid)
+            {
+                if (_states[replicaIndex] == ReplicaParticipantState.Ready)
+                {
+                    _progress[replicaIndex] = default;
+                    _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+                }
+
+                return false;
+            }
 
             var previous = _progress[replicaIndex];
             if ((!previous.TopologyFingerprint.IsEmpty && !observed.MatchesTopology(in previous)) || !observed.MatchesTopology(in expected))

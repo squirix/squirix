@@ -28,36 +28,56 @@ internal sealed record ReplicaSnapshotTransfer(
 {
     /// <summary>Creates a transfer descriptor from a fully validated published snapshot.</summary>
     /// <param name="snapshot">Published snapshot.</param>
+    /// <param name="maxSnapshotBytes">Maximum accepted payload length; bounds the pooled rent.</param>
     /// <returns>The self-describing transfer contract.</returns>
-    internal static ReplicaSnapshotTransfer Create(in GroupSnapshot snapshot)
+    internal static ReplicaSnapshotTransfer Create(in GroupSnapshot snapshot, int maxSnapshotBytes = GroupSnapshotStore.DefaultMaxSnapshotBytes)
     {
-        var integrity = GroupSnapshotStore.ComputePayloadIntegrity(snapshot);
+        ArgumentNullException.ThrowIfNull(snapshot.CommittedOutcomes);
+
+        // CommittedOutcomes is caller-owned and may keep mutating: materialize it once so the sizing pass,
+        // the encoding pass, and every later IsValidFor read observe identical elements.
+        var stable = snapshot with
+        {
+            CommittedOutcomes = [.. snapshot.CommittedOutcomes],
+            TopologyFingerprint = snapshot.TopologyFingerprint.ToArray(),
+        };
+        var integrity = GroupSnapshotStore.ComputePayloadIntegrity(stable, maxSnapshotBytes);
         return new ReplicaSnapshotTransfer(
-            snapshot.GroupId,
-            snapshot.TopologyFingerprint.ToArray(),
-            snapshot.ConfigurationGeneration,
-            snapshot.LastIncludedTerm,
-            snapshot.LastIncludedIndex,
-            snapshot.CommitIndex,
+            stable.GroupId,
+            stable.TopologyFingerprint.ToArray(),
+            stable.ConfigurationGeneration,
+            stable.LastIncludedTerm,
+            stable.LastIncludedIndex,
+            stable.CommitIndex,
             integrity.Length,
             integrity.Checksum,
-            snapshot with { TopologyFingerprint = snapshot.TopologyFingerprint.ToArray() });
+            stable);
     }
 
     /// <summary>Validates descriptor fields and canonical payload integrity for the target group.</summary>
     /// <param name="expectedGroupId">Target replica group.</param>
+    /// <param name="maxSnapshotBytes">Maximum accepted payload length; bounds the pooled rent.</param>
     /// <returns><see langword="true" /> when all identity, boundary, length, and checksum fields match.</returns>
-    internal bool IsValidFor(string expectedGroupId)
+    internal bool IsValidFor(string expectedGroupId, int maxSnapshotBytes = GroupSnapshotStore.DefaultMaxSnapshotBytes)
     {
         if (!string.Equals(GroupId, expectedGroupId, StringComparison.Ordinal) || !string.Equals(GroupId, Snapshot.GroupId, StringComparison.Ordinal) || PayloadLength <= 0 ||
-            ConfigurationGeneration == 0UL || LastIncludedIndex == 0UL || LastIncludedTerm == 0UL || CommitIndex < LastIncludedIndex)
+            PayloadLength > maxSnapshotBytes || ConfigurationGeneration == 0UL || LastIncludedIndex == 0UL || LastIncludedTerm == 0UL || CommitIndex < LastIncludedIndex)
             return false;
 
         if (ConfigurationGeneration != Snapshot.ConfigurationGeneration || LastIncludedTerm != Snapshot.LastIncludedTerm || LastIncludedIndex != Snapshot.LastIncludedIndex ||
             CommitIndex != Snapshot.CommitIndex || !TopologyFingerprint.Span.SequenceEqual(Snapshot.TopologyFingerprint.Span))
             return false;
 
-        var integrity = GroupSnapshotStore.ComputePayloadIntegrity(Snapshot);
+        GroupSnapshotPayloadIntegrity integrity;
+        try
+        {
+            integrity = GroupSnapshotStore.ComputePayloadIntegrity(Snapshot, maxSnapshotBytes);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
         return PayloadLength == integrity.Length && PayloadChecksum == integrity.Checksum;
     }
 }

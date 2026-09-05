@@ -194,12 +194,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, CancellationToken cancellationToken)
+    public async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogReconcileResult(false, FollowerLogRefusal.NotReady, _lastLogIndex, 0, Readiness == FollowerLogReadiness.Failed);
+
+        // A stale leader term authorizes nothing: unlike the append path, repair never advances the
+        // current term, it only refuses instructions from deposed leaders.
+        if (leaderTerm < _meta.CurrentTerm)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.StaleTerm, _lastLogIndex, 0, false);
 
         // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it would cross the
         // durable commit boundary. No leader response may destructively revise a committed prefix.

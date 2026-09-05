@@ -39,11 +39,16 @@ internal sealed class ReplicaSnapshotCatchUpSession
         var transfer = request.Snapshot;
         var expected = request.Expected;
         if (!transfer.IsValidFor(_follower.GroupId) || !transfer.TopologyFingerprint.Span.SequenceEqual(expected.TopologyFingerprint.Span) ||
-            transfer.ConfigurationGeneration != expected.ConfigurationGeneration || transfer.CommitIndex > expected.CommitIndex)
+            transfer.ConfigurationGeneration != expected.ConfigurationGeneration)
         {
             _eligibility.Quarantine(_replicaIndex);
             return false;
         }
+
+        // A commit index beyond the verified target is leader staleness skew, not a trust violation:
+        // reject it through the same non-quarantining input-defect path as a malformed target.
+        if (transfer.CommitIndex > expected.CommitIndex)
+            return false;
 
         // A malformed readiness target can never match, so reject it before any storage I/O.
         // Unlike a topology mismatch it proves nothing about this follower, hence no quarantine.

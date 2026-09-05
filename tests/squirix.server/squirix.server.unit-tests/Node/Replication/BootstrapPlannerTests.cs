@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage;
@@ -104,7 +103,7 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-bootstrap-lock");
         var lockPath = Path.Join(dir, "bootstrap.lock");
-        using SafeFileHandle ownership = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var ownership = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
             new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken)));

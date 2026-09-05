@@ -71,13 +71,17 @@ internal sealed class ReplicaRepairService : BackgroundService
     {
         ArgumentNullException.ThrowIfNull(repair);
         var work = new RepairWork(repair, cancellationToken);
+
+        // Reserve the count before publishing: a synchronously draining reader must never observe
+        // the item without its reservation.
+        _ = Interlocked.Increment(ref _pendingCount);
         if (!_queue.Writer.TryWrite(work))
         {
+            _ = Interlocked.Decrement(ref _pendingCount);
             completion = Task.CompletedTask;
             return false;
         }
 
-        _ = Interlocked.Increment(ref _pendingCount);
         completion = work.Completion;
         return true;
     }

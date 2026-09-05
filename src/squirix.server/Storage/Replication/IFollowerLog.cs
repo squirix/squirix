@@ -37,9 +37,10 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <summary>Durably removes an uncommitted tail during leader-driven repair.</summary>
     /// <param name="fromIndex">First divergent index to remove.</param>
     /// <param name="prevLogTerm">Term the leader observed at the index preceding <paramref name="fromIndex" />.</param>
+    /// <param name="leaderTerm">Leader term authorizing the repair; stale terms are refused.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The reconciliation outcome.</returns>
-    Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, CancellationToken cancellationToken);
+    Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken);
 
     /// <summary>Installs a validated snapshot through atomic storage publication.</summary>
     /// <param name="snapshot">Snapshot to install.</param>

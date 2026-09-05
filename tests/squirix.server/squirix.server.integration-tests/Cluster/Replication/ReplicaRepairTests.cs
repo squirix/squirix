@@ -62,7 +62,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
             _ = log.Idempotency.Reserve("client", "pending", new byte[] { 4 }, GroupRecordKind.UserMutation, 2UL, 1UL);
             faults.Arm();
 
-            var reconcile = log.ReconcileTailAsync(2UL, 1UL, DefaultCancellationToken);
+            var reconcile = log.ReconcileTailAsync(2UL, 1UL, 1UL, DefaultCancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<IOException>(reconcile);
             Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "pending", new byte[] { 4 }, out _));
             Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
@@ -85,7 +85,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
         Assert.True((await log.AppendAsync(Append(2UL, 1UL, "stale"), DefaultCancellationToken)).Success);
 
-        var reconcile = await log.ReconcileTailAsync(2UL, 2UL, DefaultCancellationToken);
+        var reconcile = await log.ReconcileTailAsync(2UL, 2UL, 1UL, DefaultCancellationToken);
 
         Assert.False(reconcile.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, reconcile.RefusalCode);
@@ -103,12 +103,85 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         await log.OpenAsync(DefaultCancellationToken);
         Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
 
-        var reconcile = await log.ReconcileTailAsync(0UL, 0UL, DefaultCancellationToken);
+        var reconcile = await log.ReconcileTailAsync(0UL, 0UL, 1UL, DefaultCancellationToken);
 
         Assert.False(reconcile.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, reconcile.RefusalCode);
         Assert.False(reconcile.Quarantined);
         Assert.NotEqual(FollowerLogReadiness.Failed, log.Readiness);
+    }
+
+    /// <summary>A repair instruction from a stale leader term is refused without truncating.</summary>
+    [Fact]
+    public async Task ReconcileRejectsStaleLeaderTerm()
+    {
+        using var dir = new TempDirectory("squirix-repair-stale-term");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "stale"), DefaultCancellationToken)).Success);
+
+        var reconcile = await log.ReconcileTailAsync(2UL, 1UL, 0UL, DefaultCancellationToken);
+
+        Assert.False(reconcile.Success);
+        Assert.Equal(FollowerLogRefusal.StaleTerm, reconcile.RefusalCode);
+        Assert.False(reconcile.Quarantined);
+        Assert.NotEqual(FollowerLogReadiness.Failed, log.Readiness);
+        Assert.Equal(2, (await log.GetUncommittedTailAsync(DefaultCancellationToken)).Count);
+    }
+
+    /// <summary>A repair instruction at or below the committed boundary quarantines storage.</summary>
+    [Fact]
+    public async Task QuarantineOnCommittedBoundary()
+    {
+        using var dir = new TempDirectory("squirix-repair-committed");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
+
+        var reconcile = await log.ReconcileTailAsync(1UL, 0UL, 1UL, DefaultCancellationToken);
+
+        Assert.False(reconcile.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, reconcile.RefusalCode);
+        Assert.True(reconcile.Quarantined);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+    }
+
+    /// <summary>A predecessor-term conflict at the commit boundary quarantines storage.</summary>
+    [Fact]
+    public async Task PredecessorConflictAtCommitQuarantines()
+    {
+        using var dir = new TempDirectory("squirix-repair-diverged");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 2UL, "diverged"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
+
+        var reconcile = await log.ReconcileTailAsync(2UL, 2UL, 2UL, DefaultCancellationToken);
+
+        Assert.False(reconcile.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, reconcile.RefusalCode);
+        Assert.True(reconcile.Quarantined);
+        Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+    }
+
+    /// <summary>Reconciling an already-absent tail succeeds without side effects.</summary>
+    [Fact]
+    public async Task ReconcileNoOpAtTailSucceeds()
+    {
+        using var dir = new TempDirectory("squirix-repair-noop");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "tail"), DefaultCancellationToken)).Success);
+
+        var reconcile = await log.ReconcileTailAsync(3UL, 1UL, 1UL, DefaultCancellationToken);
+
+        Assert.True(reconcile.Success);
+        Assert.False(reconcile.Quarantined);
+        Assert.Equal(0, reconcile.ReleasedReservations);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(

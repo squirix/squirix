@@ -108,6 +108,40 @@ public sealed class ReplicaEligibilityTests
         Assert.Equal(0UL, quorum.FindCommitIndex(0, 1));
     }
 
+    /// <summary>An invalid catch-up report demotes a ready participant and revokes authority.</summary>
+    [Fact]
+    public void InvalidCatchUpDemotesReadyParticipant()
+    {
+        var eligibility = new ReplicaEligibility(1);
+        var target = Progress(2, 1, 1, 1, 7, 42);
+        Assert.True(eligibility.TryMarkReady(0, in target, in target));
+        var invalid = target with { NextIndex = 99 };
+
+        Assert.False(eligibility.TryMarkCatchingUp(0, in invalid));
+        Assert.Equal(ReplicaParticipantState.CatchingUp, eligibility.StateFor(0));
+        Assert.Equal(default, eligibility.ProgressFor(0));
+        Assert.False(eligibility.CanVote(0));
+        Assert.False(eligibility.CanBePromoted(0));
+        Assert.False(eligibility.CanCountInWriteQuorum(0));
+    }
+
+    /// <summary>An invalid readiness report demotes a ready participant and revokes authority.</summary>
+    [Fact]
+    public void InvalidReadinessDemotesReadyParticipant()
+    {
+        var eligibility = new ReplicaEligibility(1);
+        var target = Progress(2, 1, 1, 1, 7, 42);
+        Assert.True(eligibility.TryMarkReady(0, in target, in target));
+        var invalid = target with { AppliedIndex = 99 };
+
+        Assert.False(eligibility.TryMarkReady(0, in invalid, in target));
+        Assert.Equal(ReplicaParticipantState.CatchingUp, eligibility.StateFor(0));
+        Assert.Equal(default, eligibility.ProgressFor(0));
+        Assert.False(eligibility.CanVote(0));
+        Assert.False(eligibility.CanBePromoted(0));
+        Assert.False(eligibility.CanCountInWriteQuorum(0));
+    }
+
     private static ReplicaDurableAcknowledgement Acknowledgement(PreparedReplicaMutation mutation) => new(
         mutation.GroupId,
         mutation.Term,

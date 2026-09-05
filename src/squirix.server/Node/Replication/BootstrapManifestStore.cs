@@ -22,6 +22,7 @@ internal sealed class BootstrapManifestStore
     private const int ChecksumLength = 4;
     private const int MaximumManifestBytes = 16 * 1024 * 1024;
     private const int MaximumGroups = 100_000;
+    private const int MaximumStringBytes = 4096;
     private readonly string _tempPath;
 
     /// <summary>Initializes a new instance of the <see cref="BootstrapManifestStore" /> class.</summary>
@@ -157,6 +158,18 @@ internal sealed class BootstrapManifestStore
     [SuppressMessage("Usage", "MA0045:Use async disposable", Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     private static byte[] Encode(BootstrapManifest manifest)
     {
+        // Reject reader-incompatible shapes before allocating the payload buffer, mirroring the Decode
+        // limits, so Encode never produces a file this reader classifies as corrupt.
+        if (manifest.Groups.Count > MaximumGroups)
+            throw new InvalidOperationException("Bootstrap manifest group count exceeds the maximum.");
+        if (Encoding.UTF8.GetByteCount(manifest.SourceClusterId) > MaximumStringBytes)
+            throw new InvalidOperationException("Bootstrap manifest source cluster identifier exceeds the maximum length.");
+        for (var index = 0; index < manifest.Groups.Count; index++)
+        {
+            if (Encoding.UTF8.GetByteCount(manifest.Groups[index].GroupId) > MaximumStringBytes)
+                throw new InvalidOperationException("Bootstrap manifest group identifier exceeds the maximum length.");
+        }
+
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
@@ -202,7 +215,7 @@ internal sealed class BootstrapManifestStore
     private static string ReadString(BinaryReader reader)
     {
         var length = reader.ReadInt32();
-        if (length is <= 0 or > 4096)
+        if (length is <= 0 or > MaximumStringBytes)
             throw new InvalidDataException("Bootstrap manifest string length is invalid.");
         var bytes = reader.ReadBytes(length);
         if (bytes.Length != length)
