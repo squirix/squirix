@@ -122,20 +122,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
             else
             {
-                var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-                    : GroupRecordKind.UserMutation;
-                var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, recordKind, mutation.LogIndex, mutation.Term);
-
-                if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
-                    throw new InvalidOperationException("Group idempotency capacity is exhausted.");
-                if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
-                    throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
-
-                var attempt = new CommitAttempt();
-                var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedAsync(key, mutation, timeout, attempt, cancellationToken));
-                operation = new CommitOperation(attempt, starter.Unwrap());
-                _operations[key] = operation;
-                pendingStarter = starter;
+                (operation, pendingStarter) = ReserveOperationLocked(key, mutation, timeout, cancellationToken);
             }
 
             OwnCore(operation.Resolution);
@@ -176,6 +163,36 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
         var aggregate = followerTask.Exception;
         return new FollowerCompletion(replicaIndex, null, aggregate?.InnerException ?? aggregate);
+    }
+
+    /// <summary>Reserves idempotency and registers the commit operation.</summary>
+    /// <param name="key">Operation identity key.</param>
+    /// <param name="mutation">Prepared mutation to execute.</param>
+    /// <param name="timeout">Reservation timeout budget.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The registered operation and its starter task.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when idempotency capacity is exhausted or the operation identifier is reused with a different fingerprint.</exception>
+    /// <remarks>Must be called under <see cref="_ownedSync" />.</remarks>
+    private (CommitOperation Operation, Task<Task<ReadOnlyMemory<byte>>> Starter) ReserveOperationLocked(
+        OperationKey key,
+        PreparedReplicaMutation mutation,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
+            : GroupRecordKind.UserMutation;
+        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, recordKind, mutation.LogIndex, mutation.Term);
+
+        if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
+            throw new InvalidOperationException("Group idempotency capacity is exhausted.");
+        if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
+            throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
+
+        var attempt = new CommitAttempt();
+        var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedAsync(key, mutation, timeout, attempt, cancellationToken));
+        var operation = new CommitOperation(attempt, starter.Unwrap());
+        _operations[key] = operation;
+        return (operation, starter);
     }
 
     private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)

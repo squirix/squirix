@@ -95,9 +95,7 @@ internal sealed class ReplicaCommitQuorum
         if (replicaIndex < 0 || replicaIndex >= ReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaIndex));
 
-        if (!acknowledgement.IsDurable || !acknowledgement.IsReady || !string.Equals(acknowledgement.GroupId, expected.GroupId, StringComparison.Ordinal) ||
-            acknowledgement.Term != expected.Term || acknowledgement.LogIndex != expected.LogIndex || acknowledgement.PayloadChecksum != expected.PayloadChecksum ||
-            !acknowledgement.OperationFingerprint.Span.SequenceEqual(expected.OperationFingerprint.Span))
+        if (!acknowledgement.Matches(expected))
             return false;
 
         lock (_sync)

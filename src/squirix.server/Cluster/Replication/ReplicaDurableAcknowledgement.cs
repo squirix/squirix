@@ -19,4 +19,12 @@ internal readonly record struct ReplicaDurableAcknowledgement(
     ReadOnlyMemory<byte> OperationFingerprint,
     uint PayloadChecksum,
     bool IsDurable,
-    bool IsReady);
+    bool IsReady)
+{
+    /// <summary>Checks this acknowledgement identity against the prepared mutation.</summary>
+    /// <param name="expected">Prepared mutation whose identity must match.</param>
+    /// <returns><see langword="true" /> when the acknowledgement may be recorded.</returns>
+    internal bool Matches(PreparedReplicaMutation expected) => IsDurable && IsReady && string.Equals(GroupId, expected.GroupId, StringComparison.Ordinal) &&
+                                                               Term == expected.Term && LogIndex == expected.LogIndex && PayloadChecksum == expected.PayloadChecksum &&
+                                                               OperationFingerprint.Span.SequenceEqual(expected.OperationFingerprint.Span);
+}
