@@ -17,7 +17,7 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
     public async Task ExpiredFlowCommitsBeforeMiss()
     {
         var pipeline = new ImmediatePipeline();
-        await using var commit = new ReplicaCommitCoordinator(3, 0, 0, 1, pipeline, NoOpHooks.Instance, new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        await using var commit = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 1), pipeline, NoOpHooks.Instance, new GroupIdempotencyState(4, TimeSpan.MaxValue));
         await using var expiration = new ReplicaExpirationCoordinator(commit, true, 1);
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
 

@@ -19,7 +19,7 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
     public async Task CancellationAfterAppendIsUnknown()
     {
         var pipeline = new BlockingFollowerPipeline();
-        await using var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 1, pipeline, NoOpHooks.Instance, new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 1), pipeline, NoOpHooks.Instance, new GroupIdempotencyState(4, TimeSpan.MaxValue));
         var mutation = CreateMutation();
         try
         {
