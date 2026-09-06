@@ -25,7 +25,7 @@ concurrency:
 jobs:
     changes:
         name: Detect Changes
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 5
         outputs:
             code: ${{ steps.filter.outputs.code }}
@@ -109,7 +109,7 @@ jobs:
 
     markdownlint:
         name: Documentation Lint (Markdownlint)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 10
         needs: changes
         if: |
@@ -132,7 +132,7 @@ jobs:
     # Push, schedule, and workflow_dispatch: full solution.
     verify-coding-conventions:
         name: Verify Coding Conventions (.editorconfig)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 15
         needs: changes
         if: |
@@ -182,7 +182,7 @@ jobs:
     # Pull requests: fail when changed text files are committed with CRLF (LF required by .editorconfig).
     verify-line-endings:
         name: Verify Line Endings (LF)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 5
         if: github.event_name == 'pull_request'
         steps:
@@ -198,7 +198,7 @@ jobs:
 
     docker-build:
         name: Docker Build
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 20
         needs: changes
         if: |
@@ -211,24 +211,22 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Set Up Docker Buildx
-                uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+            - name: Setup Blacksmith Builder
+              uses: useblacksmith/setup-docker-builder@9309da73a81f66976a6d750572e221508b1e2682 # v1
 
             -   name: Build Image
-                uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+                uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2
                 with:
                     context: .
                     file: docker/Dockerfile
                     push: false
                     tags: squirix-server:ci
-                    cache-from: type=gha
-                    cache-to: type=gha,mode=max
 
     # Per-OS builds so ubuntu consumers are not blocked on Windows/macOS restore+build.
     # Keep display names identical to the former matrix jobs for branch-protection continuity.
     build-ubuntu:
         name: Build (ubuntu-latest / net10.0)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 45
         needs: changes
         if: |
@@ -259,7 +257,7 @@ jobs:
 
     build-windows:
         name: Build (windows-latest / net10.0)
-        runs-on: windows-latest
+        runs-on: blacksmith-4vcpu-windows-2025
         timeout-minutes: 45
         needs: changes
         if: |
@@ -292,7 +290,7 @@ jobs:
 
     build-macos:
         name: Build (macos-latest / net10.0)
-        runs-on: macos-latest
+        runs-on: blacksmith-6vcpu-macos-15
         timeout-minutes: 45
         needs: changes
         if: |
@@ -325,7 +323,7 @@ jobs:
 
     smoke-fast-fail:
         name: Smoke Fast-Fail (Ubuntu / Net10.0)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 20
         needs: build-ubuntu
         env:
@@ -443,7 +441,7 @@ jobs:
     # Full 52-row wire-alloc matrix stays local — docs/benchmarks/e2e-benchmarks.md / wire-alloc-baseline.md.
     benchmarks-fast:
         name: Benchmarks Fast (Ubuntu / Wire Alloc)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 10
         permissions:
             contents: read
@@ -530,7 +528,7 @@ jobs:
     # Per-OS test matrices: ubuntu waits for smoke; Windows/macOS start as soon as their build finishes.
     test-ubuntu:
         name: Test (ubuntu-latest / net10.0 / ${{ matrix.suite }})
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 20
         needs: [ build-ubuntu, smoke-fast-fail ]
         strategy:
@@ -563,7 +561,7 @@ jobs:
 
     test-windows:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
-        runs-on: windows-latest
+        runs-on: blacksmith-4vcpu-windows-2025
         timeout-minutes: 20
         needs: [ build-windows ]
         if: |
@@ -602,7 +600,7 @@ jobs:
 
     test-macos:
         name: Test (macos-latest / net10.0 / ${{ matrix.suite }})
-        runs-on: macos-latest
+        runs-on: blacksmith-6vcpu-macos-15
         timeout-minutes: 20
         needs: [ build-macos ]
         if: |
@@ -642,7 +640,7 @@ jobs:
     # Full-profile explorer (~15s): safe run + three required broken-rule counterexamples.
     protocol-model-explorer:
         name: Protocol Model Explorer (Ubuntu / Full)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 10
         needs: [ build-ubuntu, smoke-fast-fail ]
         steps:
@@ -739,7 +737,7 @@ jobs:
 
     verify-test-discovery:
         name: Verify Test Discovery (Ubuntu / Net10.0)
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 15
         needs: [ build-ubuntu, smoke-fast-fail ]
         steps:
@@ -829,7 +827,7 @@ jobs:
 
     coverage:
         name: Coverage Report
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 20
         needs: [ changes, markdownlint, verify-coding-conventions, smoke-fast-fail, test-ubuntu, verify-test-discovery ]
         if: |
@@ -927,7 +925,7 @@ jobs:
 
     test-duration-summary:
         name: Test Duration Summary
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 10
         needs: [ smoke-fast-fail, test-ubuntu, test-windows, test-macos ]
         if: always()
@@ -1029,7 +1027,7 @@ jobs:
     #   → assign to project key squirix → then re-enable wait=true below.
     sonarcloud:
         name: SonarCloud
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 45
         permissions:
             contents: read
@@ -1177,7 +1175,7 @@ jobs:
     # license is NOT baked in; it is activated at runtime via credentials.
     pvs-studio:
         name: PVS-Studio
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         container:
             # Pin the immutable image digest instead of the mutable :latest tag so
             # CI always runs the reviewed build. Because the image is released via
@@ -1392,7 +1390,7 @@ jobs:
     # The action uploads an `ndepend` artifact and posts a summary comment on same-repo PRs.
     ndepend:
         name: NDepend
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 60
         permissions:
             contents: read
@@ -1464,7 +1462,7 @@ jobs:
 
     ci-success:
         name: CI success
-        runs-on: ubuntu-latest
+        runs-on: blacksmith-4vcpu-ubuntu-2404
         timeout-minutes: 5
         needs:
             - changes
@@ -1618,7 +1616,7 @@ jobs:
     stability-stress:
         name: Stability Stress (Weekly / Manual)
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        runs-on: windows-latest
+        runs-on: blacksmith-4vcpu-windows-2025
         timeout-minutes: 60
         steps:
             -   name: Checkout
