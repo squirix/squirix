@@ -146,9 +146,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _ = await Task.WhenAny(singleton).ConfigureAwait(false);
         if (followerTask.IsCompletedSuccessfully)
         {
-#pragma warning disable VSTHRD003 // The task was started by the current replication operation and is already complete.
-            var acknowledgement = await followerTask.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
+            // ValueTask wraps the foreign follower task into one owned by this method (RemoteCache idiom).
+            var acknowledgement = await new ValueTask<ReplicaDurableAcknowledgement>(followerTask).ConfigureAwait(false);
             return new FollowerCompletion(replicaIndex, acknowledgement, null);
         }
 

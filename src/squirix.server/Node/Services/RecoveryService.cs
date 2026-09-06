@@ -78,12 +78,9 @@ internal sealed class RecoveryService<T> : IHostedService
 
         try
         {
-#pragma warning disable VSTHRD003
-
             // The replay task is owned by this hosted service and is awaited during shutdown.
             // ApplicationStopping is signaled before hosted-service StopAsync, which cancels replay.
             await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-#pragma warning restore VSTHRD003
         }
         catch (OperationCanceledException ex)
         {

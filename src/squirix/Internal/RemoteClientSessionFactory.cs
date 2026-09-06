@@ -42,9 +42,7 @@ internal static class RemoteClientSessionFactory
         ClientPool? pool = null;
         try
         {
-#pragma warning disable CA2000
             pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
-#pragma warning restore CA2000
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
             var connected = pool;

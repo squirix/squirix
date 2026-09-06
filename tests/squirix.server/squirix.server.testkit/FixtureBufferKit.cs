@@ -11,9 +11,7 @@ internal static class FixtureBufferKit
     internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
     {
         // ZA0302: owned test fixture escape; the buffer outlives the borrowed encode scratch.
-#pragma warning disable ZA0302
         var owned = new byte[source.Length];
-#pragma warning restore ZA0302
         source.CopyTo(owned);
         return owned;
     }
