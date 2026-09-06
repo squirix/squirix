@@ -109,14 +109,12 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
 
         Assert.NotNull(activity);
 
-        var call = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(callerHeaders)), capture.OnContinueAsync);
+        using var call = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(callerHeaders)), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
         Assert.Contains(capture.Headers, static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase));
         AssertEntriesEqual(before, SnapshotEntries(callerHeaders));
         Assert.DoesNotContain(callerHeaders, static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase));
-
-        call.Dispose();
     }
 
     /// <summary>Ensures concurrent calls sharing one metadata instance do not bleed headers.</summary>
@@ -176,7 +174,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
 
         Assert.NotNull(activity);
 
-        var call = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
+        using var call = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
 
         var headers = capture.Headers;
         Assert.NotNull(headers);
@@ -192,23 +190,14 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         capture.Complete("ok");
         var response = await call.ResponseAsync;
         Assert.Equal("ok", response);
-
-        call.Dispose();
     }
 
     private static async Task InvokeCallAsync(ConcurrentCallState state, CancellationToken cancellationToken)
     {
         await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         using var activity = ActivitySourceHolder.StartClient(state.Method.FullName);
-        var call = state.Interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(state.Method, "localhost", new CallOptions(state.SharedHeaders)), state.Capture.OnContinueAsync);
-        try
-        {
-            _ = await call.ResponseAsync.ConfigureAwait(false);
-        }
-        finally
-        {
-            call.Dispose();
-        }
+        using var call = state.Interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(state.Method, "localhost", new CallOptions(state.SharedHeaders)), state.Capture.OnContinueAsync);
+        _ = await call.ResponseAsync.ConfigureAwait(false);
     }
 
     private static void AssertEntriesEqual(List<string> expected, List<string> actual)
