@@ -59,7 +59,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <returns>The committed records for the group.</returns>
     internal async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedRecordsAsync(string groupId, CancellationToken cancellationToken)
     {
-        var lease = TryAcquireLog(groupId);
+        var lease = AcquireLog(groupId);
         if (lease == null)
             return [];
 
@@ -86,7 +86,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// </remarks>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>A lease on the log, or <see langword="null" /> when the group is not open or the coordinator is disposed.</returns>
-    internal LogLease? TryAcquireLog(string groupId)
+    internal LogLease? AcquireLog(string groupId)
     {
         lock (_gate)
         {
@@ -99,6 +99,30 @@ internal sealed class GroupRecovery : IAsyncDisposable
             _leaseCounts[log] = _leaseCounts.TryGetValue(log, out var count) ? count + 1 : 1;
             return new LogLease(log, this);
         }
+    }
+
+    /// <summary>Releases a lease acquired by <see cref="AcquireLog" />, disposing retired logs whose last lease ends.</summary>
+    /// <param name="log">The leased follower log.</param>
+    /// <returns>A task that completes when the release (and any resulting disposal) finishes.</returns>
+    internal async ValueTask ReleaseAsync(IFollowerLog log)
+    {
+        IFollowerLog? toDispose = null;
+        lock (_gate)
+        {
+            if (!_leaseCounts.TryGetValue(log, out var count) || count <= 0)
+                return;
+
+            if (count == 1)
+                _ = _leaseCounts.Remove(log);
+            else
+                _leaseCounts[log] = count - 1;
+
+            if (count == 1 && _retired.Remove(log))
+                toDispose = log;
+        }
+
+        if (toDispose != null)
+            await toDispose.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Opens and recovers the committed prefix for every group in the local composition.</summary>
@@ -156,30 +180,6 @@ internal sealed class GroupRecovery : IAsyncDisposable
     /// <returns>A follower log for the group.</returns>
     private FollowerLog CreateLog(string groupId) => new(_persistenceRoot, groupId, _composition);
 
-    /// <summary>Releases a lease acquired by <see cref="TryAcquireLog" />, disposing retired logs whose last lease ends.</summary>
-    /// <param name="log">The leased follower log.</param>
-    /// <returns>A task that completes when the release (and any resulting disposal) finishes.</returns>
-    private async ValueTask ReleaseAsync(IFollowerLog log)
-    {
-        IFollowerLog? toDispose = null;
-        lock (_gate)
-        {
-            if (!_leaseCounts.TryGetValue(log, out var count) || count <= 0)
-                return;
-
-            if (count == 1)
-                _ = _leaseCounts.Remove(log);
-            else
-                _leaseCounts[log] = count - 1;
-
-            if (count == 1 && _retired.Remove(log))
-                toDispose = log;
-        }
-
-        if (toDispose != null)
-            await toDispose.DisposeAsync().ConfigureAwait(false);
-    }
-
     /// <summary>Opens and recovers every group log in the composition, disposing the already-opened set on failure.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The recovered follower logs.</returns>
@@ -221,34 +221,6 @@ internal sealed class GroupRecovery : IAsyncDisposable
                 snapshot[opened[i].GroupId] = opened[i];
             Volatile.Write(ref _logs, snapshot);
             return ValueTask.FromResult(true);
-        }
-    }
-
-    /// <summary>A reference-counted handle on a follower log that defers disposal until released.</summary>
-    internal sealed class LogLease : IAsyncDisposable
-    {
-        private readonly GroupRecovery _owner;
-        private int _released;
-
-        internal LogLease(IFollowerLog log, GroupRecovery owner)
-        {
-            ArgumentNullException.ThrowIfNull(log);
-            ArgumentNullException.ThrowIfNull(owner);
-            Log = log;
-            _owner = owner;
-        }
-
-        /// <summary>Gets the leased follower log.</summary>
-        /// <returns>The leased follower log.</returns>
-        internal IFollowerLog Log { get; }
-
-        /// <inheritdoc />
-        public async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _released, 1) != 0)
-                return;
-
-            await _owner.ReleaseAsync(Log).ConfigureAwait(false);
         }
     }
 }

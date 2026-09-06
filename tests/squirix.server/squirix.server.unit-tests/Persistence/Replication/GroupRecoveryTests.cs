@@ -85,7 +85,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
         await recovery.RecoverAllAsync(DefaultCancellationToken);
 
-        var lease = recovery.TryAcquireLog("grp-1");
+        var lease = recovery.AcquireLog("grp-1");
         Assert.NotNull(lease);
         var leased = lease.Log;
         await using (lease)
@@ -106,16 +106,16 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
 
     /// <summary>Acquiring an unknown group or a disposed coordinator returns no lease.</summary>
     [Fact]
-    public async Task TryAcquireReturnsNullWhenUnusable()
+    public async Task AcquireReturnsNullWhenUnusable()
     {
         await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
-        Assert.Null(recovery.TryAcquireLog("unknown"));
+        Assert.Null(recovery.AcquireLog("unknown"));
 
         await recovery.RecoverAllAsync(DefaultCancellationToken);
-        Assert.Null(recovery.TryAcquireLog("unknown"));
+        Assert.Null(recovery.AcquireLog("unknown"));
 
         await recovery.DisposeAsync();
-        Assert.Null(recovery.TryAcquireLog("grp-1"));
+        Assert.Null(recovery.AcquireLog("grp-1"));
     }
 
     private static FollowerLogAppendRequest AppendRequest() => new(

@@ -22,7 +22,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
     public void InterceptorLeavesCallerHeadersUnmodified()
     {
         var capture = new HeaderCapture();
-        var interceptor = new ServiceRegistration.InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor();
         var method = CreateUnaryStringMethod();
         var callerHeaders = new Metadata { { "x-shared", "yes" }, { "x-binary-bin", [1, 2, 3] } };
         var before = SnapshotEntries(callerHeaders);
@@ -44,7 +44,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
     [Fact]
     public async Task SharedMetadataCallsDoNotBleedAsync()
     {
-        var interceptor = new ServiceRegistration.InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor();
         var method = CreateUnaryStringMethod();
         var sharedHeaders = new Metadata { { "x-shared", "yes" } };
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,7 +133,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
 
     private sealed class ConcurrentCallState
     {
-        internal ConcurrentCallState(ServiceRegistration.InternalOwnerClientInterceptor interceptor, Method<string, string> method, Metadata sharedHeaders, Task gate, HeaderCapture capture)
+        internal ConcurrentCallState(InternalOwnerClientInterceptor interceptor, Method<string, string> method, Metadata sharedHeaders, Task gate, HeaderCapture capture)
         {
             Interceptor = interceptor;
             Method = method;
@@ -146,7 +146,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
 
         internal Task Gate { get; }
 
-        internal ServiceRegistration.InternalOwnerClientInterceptor Interceptor { get; }
+        internal InternalOwnerClientInterceptor Interceptor { get; }
 
         internal Method<string, string> Method { get; }
 
