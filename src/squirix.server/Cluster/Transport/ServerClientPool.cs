@@ -94,6 +94,8 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
 
+    public GrpcChannel OpenChannel(string nodeId) => _channels[nodeId];
+
     [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     private static GrpcChannelOptions CreateChannelOptions(
         string nodeId,

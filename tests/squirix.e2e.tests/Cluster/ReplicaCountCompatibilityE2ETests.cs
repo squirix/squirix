@@ -1,8 +1,6 @@
-using System;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.E2ETests.Cache.MultiNode;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
@@ -11,7 +9,7 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cluster;
 
-/// <summary>REQ-COMPAT-001: RF=1 preserves preview.7 behavior; RF&gt;1 is refused before activation.</summary>
+/// <summary>REQ-COMPAT-001: RF=1 preserves preview.7 behavior; RF&gt;1 activates with persistence and mTLS.</summary>
 [Immutable]
 public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
 {
@@ -41,26 +39,25 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         Assert.False(host.HasInterNodeMtlsListener);
     }
 
-    /// <summary>RF=2 is rejected before replication activation.</summary>
+    /// <summary>RF=2 starts with prerequisites and opens its inter-node mTLS listener.</summary>
     [Fact]
-    public async Task RfTwoIsRejectedBeforeActivation()
+    public async Task RfTwoStartsWithPrerequisites()
     {
         var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
         var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
         using var mtls = new ClusterTls();
         using var dataDir = new TempDirectory("squirix-e2e-rf2");
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                uriA,
-                [("nodeA", uriA), ("nodeB", uriB)],
-                new TestNodeHostStartOptions
-                {
-                    ReplicaCount = 2,
-                    DataDir = dataDir.Path,
-                },
-                mtls,
-                DefaultCancellationToken));
-        Assert.Contains("not activated", ex.Message, StringComparison.OrdinalIgnoreCase);
+        await using var host = await TestNodeHostFactory.StartNodeAsync(
+            "nodeA",
+            uriA,
+            [("nodeA", uriA), ("nodeB", uriB)],
+            new TestNodeHostStartOptions
+            {
+                ReplicaCount = 2,
+                DataDir = dataDir.Path,
+            },
+            mtls,
+            DefaultCancellationToken);
+        Assert.True(host.HasInterNodeMtlsListener);
     }
 }

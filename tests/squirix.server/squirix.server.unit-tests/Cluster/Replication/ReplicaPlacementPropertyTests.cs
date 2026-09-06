@@ -51,6 +51,19 @@ public sealed class ReplicaPlacementPropertyTests
         Assert.True(matched >= 10, "Expected enough keys owned by node-a.");
     }
 
+    /// <summary>RF=1/2/3/5 replica groups hold the owner plus ordinal successors with wrap.</summary>
+    [Fact]
+    public void ReplicaGroupMatrixCoversOneTwoThreeFive()
+    {
+        var ring = new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]);
+
+        AssertGroup(ring, "n3", 1, ["n3"]);
+        AssertGroup(ring, "n3", 2, ["n3", "n4"]);
+        AssertGroup(ring, "n3", 3, ["n3", "n4", "n5"]);
+        AssertGroup(ring, "n4", 3, ["n4", "n5", "n1"]);
+        AssertGroup(ring, "n3", 5, ["n3", "n4", "n5", "n1", "n2"]);
+    }
+
     /// <summary>Whitespace-only and duplicate peer ids are filtered before sorting.</summary>
     [Fact]
     public void FiltersWhitespaceAndDuplicates()
@@ -190,6 +203,13 @@ public sealed class ReplicaPlacementPropertyTests
         Assert.Equal("node-d", group[0]);
         Assert.Equal("node-a", group[1]);
         Assert.Equal("node-b", group[2]);
+    }
+
+    private static void AssertGroup(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
+    {
+        var group = new string[replicaCount];
+        ring.WriteReplicaGroup(owner, replicaCount, group);
+        Assert.Equal(expected, group);
     }
 
     private static int CountOccurrences(ReadOnlySpan<string> values, string expected)

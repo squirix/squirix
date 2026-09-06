@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Net.Http;
@@ -20,6 +21,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
@@ -60,6 +62,12 @@ internal static class ServerHostingComposition
         ArgumentNullException.ThrowIfNull(app);
 
         LogManager.Configure(app.Services.GetRequiredService<ILoggerFactory>());
+
+        // The replica group registry is opened eagerly during composition but resolved lazily. Touch it
+        // here so the container tracks the instance and disposes follower-log durability workers on host
+        // shutdown even when no cache operation ever resolved it first; otherwise group files stay locked
+        // and a restart on the same directory fails to open them.
+        _ = app.Services.GetService<ReplicaGroupRegistry>();
 
         _ = app.Use(static async (context, next) =>
         {
@@ -110,12 +118,89 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
         _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
         _ = services.AddSingleton(static _ => new BootstrapPlanner());
-        if (args.FoundationOnly)
+        if (args.FoundationOnly || cluster.ReplicaCount > 1)
         {
             _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
                 sp.GetRequiredService<TopologyOptions>(),
                 sp.GetRequiredService<MtlsOptions>(),
-                sp.GetRequiredService<MtlsCertificateMaterial>()));
+                sp.GetRequiredService<MtlsCertificateMaterial>(),
+                sp.GetService<ReplicaGroupRegistry>()));
+            _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
+        }
+    }
+
+    /// <summary>Opens the replica group logs for an activated node and registers replication services.</summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="persistence">Resolved persistence options.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when every group log is ready.</returns>
+    /// <remarks>
+    /// One group per peer: every group whose replica set can include this node is served locally.
+    /// Logs open eagerly, so any replication RPC fails closed until its log is ready.
+    /// </remarks>
+    private static async Task AddReplicaGroupRegistryAsync(IServiceCollection services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions, CancellationToken cancellationToken)
+    {
+        ImmutableArray<byte> fingerprint = [.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes];
+        await EnsureActivatedTopologyAsync(persistence.DataDir, fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken).ConfigureAwait(false);
+
+        var groupIds = new string[cluster.Peers.Length];
+        for (var i = 0; i < groupIds.Length; i++)
+            groupIds[i] = cluster.Peers[i].NodeId;
+
+        var registry = new ReplicaGroupRegistry(persistence.DataDir, groupIds, cluster.ReplicaCount, fingerprint.AsMemory(), cluster.ConfigurationGeneration);
+        try
+        {
+            await registry.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await registry.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        // Factory overloads transfer disposal ownership to the container: the registry closes
+        // follower-log durability workers and the committer drains its coordinator on host shutdown.
+        // AddSingleton(instance) would leak both past shutdown and keep group files locked.
+        _ = services.AddSingleton(_ => registry);
+        _ = services.AddSingleton(sp => new ReplicaGroupCommitter(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<IReplicaGroupLocator>(),
+            sp.GetRequiredService<IReplicaRpcGateway>(),
+            sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
+            sp.GetRequiredService<TopologyOptions>().NodeId,
+            fingerprint.AsMemory(),
+            sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration));
+    }
+
+    /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
+    /// <param name="dataDir">Exclusive node data directory.</param>
+    /// <param name="fingerprint">Configured static topology fingerprint.</param>
+    /// <param name="generation">Configured configuration generation.</param>
+    /// <param name="replicaCount">Configured replica factor.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the configured identity is authorized.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the configured identity differs from the stamped one.</exception>
+    /// <remarks>
+    /// Only an offline bootstrap rewrites the stamp, so live and stopped topology changes outside
+    /// the authorized migration path fail startup instead of splitting the replica set.
+    /// </remarks>
+    private static async Task EnsureActivatedTopologyAsync(string dataDir, ReadOnlyMemory<byte> fingerprint, ulong generation, int replicaCount, CancellationToken cancellationToken)
+    {
+        var store = new ActivatedTopologyStampStore(dataDir);
+        var current = new ActivatedTopologyStamp { Generation = generation, Fingerprint = fingerprint, ReplicaCount = replicaCount };
+        var stamped = await store.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (stamped == null)
+        {
+            await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!stamped.Matches(current))
+        {
+            throw new InvalidOperationException(
+                $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
         }
     }
 
@@ -167,6 +252,9 @@ internal static class ServerHostingComposition
             // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
             _ = builder.Services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
         }
+
+        if (cluster.ReplicaCount > 1 && persistenceEnabled && !args.FoundationOnly)
+            await AddReplicaGroupRegistryAsync(builder.Services, cluster, persistence!, mtlsOptions, cancellationToken).ConfigureAwait(false);
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.ProtocolModel;
@@ -30,8 +31,8 @@ internal static class ConformanceTestKit
         Assert.True(ExploreRunner.AcceptsCommitTrace(modelTrace), "The production trace is not accepted by the protocol model transition system.");
     }
 
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4) => new(
-        new ReplicaCommitCoordinatorOptions(3, 0, 0, maxInFlight),
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4, int replicaCount = 3) => new(
+        new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight),
         pipeline,
         NoOpHooks.Instance,
         new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue));
@@ -53,12 +54,14 @@ internal static class ConformanceTestKit
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _lagging = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private readonly int _laggingReplica;
+        private readonly int _unavailableReplica;
         private int _localAppendCalls;
 
-        internal Pipeline(int laggingReplica = -1, bool blockFirstLocalAppend = false)
+        internal Pipeline(int laggingReplica = -1, bool blockFirstLocalAppend = false, int unavailableReplica = -1)
         {
             _laggingReplica = laggingReplica;
             _blockFirstLocalAppend = blockFirstLocalAppend;
+            _unavailableReplica = unavailableReplica;
         }
 
         internal ulong AppliedIndex { get; private set; }
@@ -85,6 +88,12 @@ internal static class ConformanceTestKit
         {
             _ = cancellationToken;
             FollowerCalls++;
+
+            // A faulted task, not a synchronous throw: production gateways are async, so transport
+            // failures surface as faulted follower tasks that the coordinator records as lagging.
+            if (replicaIndex == _unavailableReplica)
+                return ValueTask.FromException<ReplicaDurableAcknowledgement>(new IOException("Simulated replica unavailable."));
+
             return replicaIndex == _laggingReplica ? new ValueTask<ReplicaDurableAcknowledgement>(_lagging.Task) : ValueTask.FromResult(Acknowledge(mutation));
         }
 

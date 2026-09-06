@@ -59,11 +59,28 @@ internal sealed class BootstrapPlanner
             {
                 if (!MatchesAttempt(existing, candidate))
                     throw new InvalidOperationException("Existing bootstrap manifest targets a different topology or generation.");
-                return new BootstrapPreparationResult(existing, true, store.ManifestPath);
+            }
+            else
+            {
+                await store.PublishAsync(candidate, cancellationToken).ConfigureAwait(false);
             }
 
-            await store.PublishAsync(candidate, cancellationToken).ConfigureAwait(false);
-            return new BootstrapPreparationResult(candidate, false, store.ManifestPath);
+            // Authorize the target identity for the next startup: the activated-topology stamp is the
+            // only writer besides first activation, so a generation change with a bootstrap prepares
+            // cleanly while one without is refused. Publishing on resume too closes a crash between
+            // the manifest write and a previous stamp write; the content is identical either way.
+            var authorized = existing ?? candidate;
+            await new ActivatedTopologyStampStore(persistence.DataDir).PublishAsync(
+                new ActivatedTopologyStamp
+                {
+                    Generation = authorized.TargetGeneration,
+                    Fingerprint = authorized.TargetFingerprint,
+                    ReplicaCount = authorized.TargetReplicaCount,
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return existing != null ? new BootstrapPreparationResult(existing, true, store.ManifestPath)
+                : new BootstrapPreparationResult(candidate, false, store.ManifestPath);
         }
     }
 

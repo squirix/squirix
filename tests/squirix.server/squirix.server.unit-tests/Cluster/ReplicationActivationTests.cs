@@ -28,13 +28,13 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
         Assert.Equal([ReplicationActivationGuard.MtlsRequired], missingMtls);
     }
 
-    /// <summary>RF=2 with prerequisites still refuses activation until M8-09.</summary>
+    /// <summary>RF=2 with both prerequisites present activates networking with no failures.</summary>
     [Fact]
-    public void RfTwoRemainsDisabledBeforeActivation()
+    public void RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
         ReplicationActivationGuard.CollectFailures(failures, 2, true, true);
-        Assert.Equal([ReplicationActivationGuard.NotActivated], failures);
+        Assert.Empty(failures);
     }
 
     /// <summary>RF=1 registers planning services with network replication disabled.</summary>

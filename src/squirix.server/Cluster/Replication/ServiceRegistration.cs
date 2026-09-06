@@ -1,4 +1,3 @@
-using System;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -14,7 +13,6 @@ internal static class ServiceRegistration
         /// When <see langword="true" />, maps the closed replication service for transport tests without enabling RF&gt;1 mutations.
         /// </param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when network replication is enabled before M8-09.</exception>
         internal IServiceCollection AddSquirixClusterReplication(TopologyOptions cluster, bool foundationOnly = false)
         {
             var physicalRing = new PhysicalNodeRing(GetPeerNodeIds(cluster));
@@ -23,9 +21,15 @@ internal static class ServiceRegistration
 
             // AddSingleton<T>(T) is constrained to class; two-arg instance descriptor boxes the struct.
             // Do not pass ServiceLifetime — that binds the keyed (serviceType, serviceKey, instance) ctor.
-            var featureState = foundationOnly ? FeatureState.Foundation : FeatureState.Disabled;
-            if (featureState.NetworkReplicationEnabled)
-                throw new InvalidOperationException("Network replication must stay disabled until M8-09 activation.");
+            // Reaching registration with RF>1 means the activation guard already accepted the persistence
+            // and mTLS prerequisites, so networking is activated; otherwise the host stays disabled.
+            FeatureState featureState;
+            if (foundationOnly)
+                featureState = FeatureState.Foundation;
+            else if (cluster.ReplicaCount > 1)
+                featureState = FeatureState.Activated;
+            else
+                featureState = FeatureState.Disabled;
 
             services.Add(new ServiceDescriptor(typeof(FeatureState), featureState));
             _ = services.AddSingleton(sp => TopologyFingerprint.CreateFromTopology(cluster, sp.GetRequiredService<MtlsOptions>()));

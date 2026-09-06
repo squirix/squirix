@@ -82,6 +82,14 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         }
     }
 
+    /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
+    /// <param name="fileBytes">The entire snapshot file bytes.</param>
+    /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
+    /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
+    /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
+    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot) =>
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _);
+
     /// <summary>Writes a snapshot to a temp file, flushes it, and atomically publishes it.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

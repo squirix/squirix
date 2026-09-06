@@ -1,5 +1,7 @@
 using System;
+using System.Buffers;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
@@ -8,21 +10,23 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
-/// <summary>Closed replication gRPC adapter. Identity-checked; durable follow-up lands in later M8 tasks.</summary>
+/// <summary>Closed replication gRPC adapter. Identity-checked; without a group registry it stays a refusing stub.</summary>
 [Immutable]
 internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
 {
     private readonly ulong _configurationGeneration;
+    private readonly ReplicaFollower? _follower;
     private readonly MtlsCertificateMaterial _mtlsMaterial;
     private readonly MtlsOptions _mtlsOptions;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
 
-    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial, ReplicaGroupRegistry? groups = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
@@ -30,61 +34,91 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _mtlsOptions = mtlsOptions;
         _mtlsMaterial = mtlsMaterial;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
+        _follower = groups == null ? null : new ReplicaFollower(groups);
 
         _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
-    public override Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
+    public override async Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
-        var result = new AdvanceReplicaCommitResponse
-        {
-            Term = header.Term,
+        if (_follower == null)
+            return StubCommitRefusal(header);
 
-            // When refusing to advance the commit, report the follower's actual commit index. This stub follower has no committed log; return 0
-            // rather than echoing the leader's CommitIndex which would mislead the leader.
-            CommitIndex = 0,
-            Success = false,
-            RefusalCode = RefusalCodes.NotReady,
+        var result = await _follower.AdvanceCommitAsync(
+            header.GroupId,
+            header.TopologyFingerprint.ToByteArray(),
+            header.ConfigurationGeneration,
+            request.CommitIndex,
+            header.Term,
+            context.CancellationToken).ConfigureAwait(false);
+        var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
+        return new AdvanceReplicaCommitResponse
+        {
+            Term = status?.CurrentTerm ?? 0,
+            CommitIndex = result.CommitIndex,
+            Success = result.Success,
+            RefusalCode = result.RefusalCode,
         };
-        return Task.FromResult(result);
     }
 
-    public override Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
+    public override async Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
-        var result = new AppendReplicaEntriesResponse
-        {
-            Term = header.Term,
+        if (_follower == null)
+            return StubAppendRefusal(header);
 
-            // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
-            // echoing the leader's PrevLogIndex which would mislead the leader.
-            LastLogIndex = 0,
-            Success = false,
-            RefusalCode = RefusalCodes.NotReady,
+        var records = new ReplicaLogRecord[request.Entries.Count];
+        for (var i = 0; i < records.Length; i++)
+            records[i] = MapRecord(request.Entries[i]);
+
+        var batch = new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
+        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, batch, context.CancellationToken)
+                                    .ConfigureAwait(false);
+        return new AppendReplicaEntriesResponse
+        {
+            Term = result.CurrentTerm,
+            LastLogIndex = result.LastLogIndex,
+            Success = result.Success,
+            RefusalCode = result.RefusalCode,
         };
-        return Task.FromResult(result);
     }
 
-    public override Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
+    public override async Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
-        var response = new GetReplicaStatusResponse
+        var status = _follower == null ? null : await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
+        if (status == null)
         {
-            Term = header.Term,
-            Role = "follower",
-            LastLogIndex = 0,
-            CommitIndex = 0,
+            return new GetReplicaStatusResponse
+            {
+                Term = header.Term,
 
-            // Report an explicit readiness state for the node. This stub node is not yet serving; use a distinct readiness marker rather than conflating
-            // with the refusal code. Tests assert RefusalCode separately.
-            Readiness = "unknown",
-            TopologyFingerprint = ByteString.CopyFrom(_topologyFingerprint.Bytes),
-            ConfigurationGeneration = _configurationGeneration,
-            RefusalCode = RefusalCodes.NotReady,
+                // When refusing to report status, keep the stub shape: an explicit unknown readiness
+                // rather than conflating with the refusal code. Tests assert RefusalCode separately.
+                Role = "follower",
+                LastLogIndex = 0,
+                CommitIndex = 0,
+                Readiness = "unknown",
+                TopologyFingerprint = ByteString.CopyFrom(_topologyFingerprint.Bytes),
+                ConfigurationGeneration = _configurationGeneration,
+                RefusalCode = RefusalCodes.NotReady,
+            };
+        }
+
+        var current = status.Value;
+        return new GetReplicaStatusResponse
+        {
+            Term = current.CurrentTerm,
+            Role = "follower",
+            LastLogIndex = current.LastLogIndex,
+            CommitIndex = current.CommitIndex,
+            Readiness = MapReadiness(current.Readiness),
+            TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.ToArray()),
+            ConfigurationGeneration = current.ConfigurationGeneration,
+            RefusalCode = string.Empty,
         };
-        return Task.FromResult(response);
     }
 
     public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream, ServerCallContext context)
@@ -95,7 +129,65 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
 
         var header = EnsureHeader(requestStream.Current.Header, context, true);
+        var first = requestStream.Current;
+        if (_follower == null)
+            return await DrainStubInstallAsync(requestStream, header, context.CancellationToken).ConfigureAwait(false);
+
+        var file = new ArrayBufferWriter<byte>();
+        AccumulateChunk(file, first, header);
         while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
+            AccumulateChunk(file, requestStream.Current, header);
+
+        if (ulong.CreateChecked(file.WrittenCount) != first.TotalBytes)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream length differs from the declared total bytes."));
+
+        var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
+        var result = await _follower.InstallSnapshotUploadAsync(
+            header.GroupId,
+            header.TopologyFingerprint.ToByteArray(),
+            header.ConfigurationGeneration,
+            upload,
+            header.Term,
+            context.CancellationToken).ConfigureAwait(false);
+        var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
+        return new InstallReplicaSnapshotResponse
+        {
+            Term = status?.CurrentTerm ?? 0,
+            Success = result.Success,
+            RefusalCode = result.Refusal,
+        };
+    }
+
+    private static void AccumulateChunk(ArrayBufferWriter<byte> file, InstallReplicaSnapshotRequest chunk, ReplicationEnvelopeHeader header)
+    {
+        var chunkHeader = chunk.Header;
+        if (chunkHeader != null)
+        {
+            if (!string.Equals(chunkHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
+
+            if (!string.Equals(chunkHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
+
+            if (!string.Equals(chunkHeader.GroupId, header.GroupId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
+        }
+
+        if (chunk.Chunk.IsEmpty)
+            return;
+
+        if (file.WrittenCount + chunk.Chunk.Length > GroupSnapshotStore.DefaultMaxSnapshotBytes)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream exceeds the maximum snapshot size."));
+
+        file.Write(chunk.Chunk.Span);
+    }
+
+    private static async Task<InstallReplicaSnapshotResponse> DrainStubInstallAsync(
+        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
+        ReplicationEnvelopeHeader header,
+        CancellationToken cancellationToken)
+    {
+        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
         {
             var currentHeader = requestStream.Current.Header;
             if (currentHeader == null)
@@ -106,6 +198,9 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
             if (!string.Equals(currentHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
+
+            if (!string.Equals(currentHeader.GroupId, header.GroupId, StringComparison.Ordinal))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
         }
 
         return new InstallReplicaSnapshotResponse
@@ -115,6 +210,53 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             RefusalCode = RefusalCodes.NotReady,
         };
     }
+
+    private static string MapReadiness(FollowerLogReadiness readiness) => readiness switch
+    {
+        FollowerLogReadiness.Ready => "ready",
+        FollowerLogReadiness.Failed => "failed",
+        FollowerLogReadiness.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported follower readiness."),
+    };
+
+    private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
+        entry.LogIndex,
+        entry.Term,
+        entry.OperationId,
+        entry.OperationScope,
+        entry.OperationFingerprint.ToByteArray(),
+        entry.RecordKind,
+        entry.CacheName,
+        entry.KeyPayload.ToByteArray(),
+        entry.MutationKind,
+        entry.MutationPayload.ToByteArray(),
+        entry.OutcomePayload.ToByteArray(),
+        entry.ExpiresUtcTicks,
+        entry.CreatedUtcTicks,
+        entry.ResolvedUtcTicks,
+        entry.PayloadChecksum);
+
+    private static AppendReplicaEntriesResponse StubAppendRefusal(ReplicationEnvelopeHeader header) => new()
+    {
+        Term = header.Term,
+
+        // When refusing to append entries, report the follower's last log index as a conflict hint. This stub follower has no log; return 0 rather than
+        // echoing the leader's PrevLogIndex which would mislead the leader.
+        LastLogIndex = 0,
+        Success = false,
+        RefusalCode = RefusalCodes.NotReady,
+    };
+
+    private static AdvanceReplicaCommitResponse StubCommitRefusal(ReplicationEnvelopeHeader header) => new()
+    {
+        Term = header.Term,
+
+        // When refusing to advance the commit, report the follower's actual commit index. This stub follower has no committed log; return 0
+        // rather than echoing the leader's CommitIndex which would mislead the leader.
+        CommitIndex = 0,
+        Success = false,
+        RefusalCode = RefusalCodes.NotReady,
+    };
 
     private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {

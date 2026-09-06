@@ -12,7 +12,7 @@ internal sealed record PreparedReplicaMutation
     /// <param name="term">Replica term that owns the mutation.</param>
     /// <param name="logIndex">Reserved group log index.</param>
     /// <param name="payload">Canonical payloads.</param>
-    /// <param name="expiresUtcTicks">Expiration time expressed as UTC ticks.</param>
+    /// <param name="expiresUtcTicks">Mutation-specific expiration wire value: a <see cref="TimeSpan" /> duration in ticks for Touch mutations, an absolute UTC timestamp in ticks otherwise.</param>
     internal PreparedReplicaMutation(ReplicaOperationIdentity identity, ulong term, ulong logIndex, ReplicaMutationPayload payload, long expiresUtcTicks)
     {
         ArgumentNullException.ThrowIfNull(identity);

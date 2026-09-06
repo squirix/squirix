@@ -44,9 +44,9 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
-    private const int ReadinessUnknownValue = 0;
-    private const int ReadinessReadyValue = 1;
     private const int ReadinessFailedValue = 2;
+    private const int ReadinessReadyValue = 1;
+    private const int ReadinessUnknownValue = 0;
 
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
@@ -175,6 +175,33 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
         return await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+
+        // A stale leader term authorizes nothing: it must not expose additional committed entries.
+        if (leaderTerm < _meta.CurrentTerm)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
+
+        // Commit index moves only monotonically.
+        if (commitIndex <= _meta.CommitIndex)
+            return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
+
+        // Never beyond the locally durable last index.
+        if (commitIndex > _lastLogIndex)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+
+        var candidate = _meta with { CommitIndex = commitIndex };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        SetMeta(candidate);
+        _faults.OnCommitAdvanced();
+        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
     }
 
     /// <inheritdoc />

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -18,18 +19,27 @@ internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
+    private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TempDirectory? _dataDir;
     private readonly ClusterTls? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
+    private readonly string[] _nodeIds;
+    private readonly TwoNodeStartOptions _startOptions;
+    private readonly FrozenDictionary<string, Uri> _uris;
+    private readonly bool _usePersistence;
     private int _disposed;
 
-    private HostedCluster(Dictionary<string, TestNode> nodes, ClusterTls? mtls, TempDirectory? dataDir)
+    private HostedCluster(Dictionary<string, TestNode> nodes, ClusterTls? mtls, TempDirectory? dataDir, string[] nodeIds, TwoNodeStartOptions startOptions, FrozenDictionary<string, Uri> uris, bool usePersistence)
     {
         _nodes = nodes;
         _mtls = mtls;
         _dataDir = dataDir;
+        _nodeIds = nodeIds;
+        _startOptions = startOptions;
+        _uris = uris;
+        _usePersistence = usePersistence;
     }
 
     public async ValueTask DisposeAsync()
@@ -70,6 +80,18 @@ internal sealed class HostedCluster : IAsyncDisposable
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
 
+    /// <summary>Starts a three-node cluster for RF=3 quorum scenarios.</summary>
+    /// <param name="testName">Label used when creating a persistence temp directory.</param>
+    /// <param name="options">Replica count, security, and mTLS profile overrides.</param>
+    /// <param name="usePersistence">When <see langword="true" />, each node gets an isolated data directory.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A hosted cluster owning the started nodes.</returns>
+    internal static ValueTask<HostedCluster> StartThreeNodeAsync(
+        string? testName = null,
+        TwoNodeStartOptions? options = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(ThreeNodeIds, options, testName, usePersistence, cancellationToken);
+
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
         var uri = _nodes[nodeId].Uri;
@@ -89,6 +111,23 @@ internal sealed class HostedCluster : IAsyncDisposable
             throw new InvalidOperationException("Requested node is not running.");
 
         return node.DisposeAsync();
+    }
+
+    /// <summary>Restarts a stopped node on its original address and data directory.</summary>
+    /// <param name="nodeId">Node identifier to restart.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the node is running again.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is unknown or still running.</exception>
+    internal async ValueTask RestartNodeAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        if (Array.IndexOf(_nodeIds, nodeId) < 0 || _nodes.ContainsKey(nodeId))
+            throw new InvalidOperationException("Requested node is unknown or still running.");
+
+        var topology = new (string NodeId, Uri Uri)[_nodeIds.Length];
+        for (var i = 0; i < _nodeIds.Length; i++)
+            topology[i] = (_nodeIds[i], _uris[_nodeIds[i]]);
+
+        _nodes[nodeId] = new TestNode(await StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
     }
 
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
@@ -137,23 +176,17 @@ internal sealed class HostedCluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
                 topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
+            var cluster = new HostedCluster(nodes, mtls, dataDir, nodeIds, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
-                var hostOptions = new TestNodeHostStartOptions
-                {
-                    DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
-                    Security = startOptions.Security,
-                    MtlsProfile = startOptions.GetProfile(nodeId),
-                    TimeProvider = startOptions.TimeProvider,
-                };
 
                 // Release this node's held port so Kestrel can bind it, then start the node immediately.
                 pool.ReleasePort(reserved[i]);
-                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, mtls, cancellationToken));
+                nodes[nodeId] = new TestNode(await cluster.StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
             }
 
-            return new HostedCluster(nodes, mtls, dataDir);
+            return cluster;
         }
         catch
         {
@@ -170,6 +203,20 @@ internal sealed class HostedCluster : IAsyncDisposable
             dataDir?.Dispose();
             throw;
         }
+    }
+
+    private ValueTask<TestNodeHost> StartOneAsync(string nodeId, (string NodeId, Uri Uri)[] topology, CancellationToken cancellationToken)
+    {
+        var hostOptions = new TestNodeHostStartOptions
+        {
+            DataDir = _usePersistence ? BuildDataDir(_dataDir!, nodeId) : null,
+            ReplicaCount = _startOptions.ReplicaCount,
+            Security = _startOptions.Security,
+            MtlsProfile = _startOptions.GetProfile(nodeId),
+            TimeProvider = _startOptions.TimeProvider,
+        };
+
+        return TestNodeHostFactory.StartNodeAsync(nodeId, _uris[nodeId], topology, hostOptions, _mtls, cancellationToken);
     }
 
     /// <summary>Represents a started test node.</summary>
