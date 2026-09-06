@@ -6,6 +6,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -144,6 +145,19 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         Assert.Equal("v2", Assert.IsType<string>(read.Value));
     }
 
+    /// <summary>A prepare that faults while reading the local entry propagates the fault, so the reserved log index is left unconsumed for a retry.</summary>
+    [Fact]
+    public async Task FailedPreparePropagatesFault()
+    {
+        var fault = new InvalidOperationException("local read failed");
+        var factory = new ReplicaMutationFactory(new FaultingCache(fault), "g1", 1UL);
+
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+            factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, DefaultCancellationToken));
+
+        Assert.Same(fault, thrown);
+    }
+
     private static ReplicaLogRecord DecodeRecord(PreparedReplicaMutation mutation)
     {
         var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
@@ -232,5 +246,40 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         }
 
         private static string Key(string cacheName, string key) => cacheName + "\x1F" + key;
+    }
+
+    /// <summary>Logical cache whose entry reads always fault, modeling a prepare-time failure.</summary>
+    private sealed class FaultingCache : ILogicalNamespacedCache<object?>
+    {
+        private readonly Exception _fault;
+
+        internal FaultingCache(Exception fault)
+        {
+            _fault = fault;
+        }
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+            => ValueTask.FromException<NodeCacheEntry<object?>?>(_fault);
+
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
     }
 }

@@ -99,7 +99,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, TakeNextIndex(), cancellationToken).ConfigureAwait(false);
+        var index = PeekNextIndex();
+        var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
+        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return await DecodeRemoveAsync(outcome).ConfigureAwait(false);
     }
@@ -115,7 +117,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, TakeNextIndex(), cancellationToken).ConfigureAwait(false);
+        var index = PeekNextIndex();
+        var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
+        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return DecodeApplied(outcome);
     }
@@ -132,7 +136,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = factory.PrepareSet(operationId, cacheName, key, entry, TakeNextIndex());
+        var index = PeekNextIndex();
+        var mutation = factory.PrepareSet(operationId, cacheName, key, entry, index);
+        AdvanceNextIndex();
         _ = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
     }
 
@@ -148,7 +154,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, TakeNextIndex(), cancellationToken).ConfigureAwait(false);
+        var index = PeekNextIndex();
+        var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, index, cancellationToken).ConfigureAwait(false);
+        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return DecodeApplied(outcome);
     }
@@ -165,7 +173,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, TakeNextIndex(), cancellationToken).ConfigureAwait(false);
+        var index = PeekNextIndex();
+        var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, index, cancellationToken).ConfigureAwait(false);
+        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return DecodeApplied(outcome);
     }
@@ -182,7 +192,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, TakeNextIndex(), cancellationToken).ConfigureAwait(false);
+        var index = PeekNextIndex();
+        var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
+        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return DecodeApplied(outcome);
     }
@@ -266,7 +278,15 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _started = true;
     }
 
-    private ulong TakeNextIndex() => _nextIndex++;
+    /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>
+    private ulong PeekNextIndex() => _nextIndex;
+
+    /// <summary>Consumes the next group log index after a mutation prepared successfully.</summary>
+    /// <remarks>
+    /// The index is advanced only once preparation succeeds, so a cancelled or failed prepare leaves the
+    /// reservation for the retry and the durable log stays dense regardless of how the caller observed it.
+    /// </remarks>
+    private void AdvanceNextIndex() => _nextIndex++;
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
