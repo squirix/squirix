@@ -36,6 +36,9 @@ internal sealed class ReplicaRepairService : BackgroundService
     /// <summary>Gets queued and active work count.</summary>
     internal int PendingCount => Volatile.Read(ref _pendingCount);
 
+    /// <summary>Gets the queue completion task that completes when the worker terminates. Test seam.</summary>
+    internal Task ReaderCompletion => _queue.Reader.Completion;
+
     /// <inheritdoc />
     public override Task StopAsync(CancellationToken cancellationToken)
     {
@@ -80,6 +83,13 @@ internal sealed class ReplicaRepairService : BackgroundService
         {
             // Host shutdown cancels the active operation. The finally block drains queued work as canceled.
         }
+        catch (Exception)
+        {
+            // Unexpected worker death: complete the writer before draining, so TryQueue rejects
+            // late arrivals instead of accepting repair work no reader will ever run.
+            _ = _queue.Writer.TryComplete();
+            throw;
+        }
         finally
         {
             while (_queue.Reader.TryRead(out var work))
@@ -109,7 +119,7 @@ internal sealed class ReplicaRepairService : BackgroundService
             // disposal, and cancellation faults are all expected from follower repair work. An
             // OperationCanceledException outside the linked scope means foreign cancellation, which is
             // still a per-operation failure rather than a loop defect. Anything else is a programming
-            // bug and fails fast rather than silently continuing on corrupt state.
+            // bug and fails fast rather than silently continuing in a corrupt state.
             work.Fail(exception);
         }
         catch (Exception exception)

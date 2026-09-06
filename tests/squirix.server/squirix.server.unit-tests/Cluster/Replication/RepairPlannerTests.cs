@@ -44,7 +44,7 @@ public sealed class RepairPlannerTests : ServerUnitTestBase
         await service.StopAsync(DefaultCancellationToken);
     }
 
-    /// <summary>An unexpected repair fault completes its caller faulted while the loop fails fast.</summary>
+    /// <summary>An unexpected repair fault rejects repairs submitted after worker termination instead of leaving them unsettled.</summary>
     [Fact]
     public async Task UnexpectedRepairFailsCompletionAndLoop()
     {
@@ -54,9 +54,14 @@ public sealed class RepairPlannerTests : ServerUnitTestBase
         Assert.True(service.TryQueue(static _ => throw new NotSupportedException("simulated repair bug"), DefaultCancellationToken, out var failed));
         _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(failed);
 
-        // The faulted loop never dequeues again: a subsequently queued repair never runs.
-        Assert.True(service.TryQueue(static _ => ValueTask.CompletedTask, DefaultCancellationToken, out var pending));
-        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(pending.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken));
+        // The faulted loop completes the writer on its way out. The channel completion synchronizes
+        // with worker termination, so a later submission is deterministically rejected. StopAsync would
+        // complete the writer itself and mask a missing completion, so it runs only after the assert.
+        await service.ReaderCompletion.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+
+        Assert.False(service.TryQueue(static _ => ValueTask.CompletedTask, DefaultCancellationToken, out var rejected));
+        Assert.True(rejected.IsCompletedSuccessfully);
+        Assert.Equal(0, service.PendingCount);
 
         await service.StopAsync(DefaultCancellationToken);
     }
