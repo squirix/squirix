@@ -84,6 +84,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return;
         }
 
+        // Only Lease.Dispose calls here, and it releases each lease at most once, so this
+        // fallback cannot double-release a slot. It stays (rather than becoming a no-op) for
+        // the detach race: the entry may be removed by RemoveIdleClient between GetOrAdd and
+        // AcquireLease, while the lease still holds one slot and one in-flight unit that must
+        // be returned here.
         AdjustInFlight(-1);
         _ = _slots.Release();
     }
