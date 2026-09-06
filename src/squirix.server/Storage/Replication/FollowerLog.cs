@@ -1118,8 +1118,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         private const int FrameHeaderByteCount = 9;
 
-        internal static void PruneAppliedEntries(FollowerLogJournal journal, IFollowerLogContext owner) => journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
-
         internal static async Task RecoverLogFileAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
         {
             // A published snapshot restores the committed baseline; the durable log then continues from its included
@@ -1214,6 +1212,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 EnsureCommittedPrefixCovered(owner, snapshotBase);
             }
         }
+
+        /// <summary>Releases the applied entry payloads from memory, retaining their durable frame offsets.</summary>
+        /// <param name="journal">The journal to release from.</param>
+        /// <param name="owner">The log being recovered.</param>
+        private static void PruneAppliedEntries(FollowerLogJournal journal, IFollowerLogContext owner) => journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
 
         /// <summary>Fails recovery for a gap within the committed region.</summary>
         /// <param name="owner">The log being recovered.</param>
