@@ -175,9 +175,12 @@ internal sealed class Coordinator
     /// Encapsulates snapshot trigger evaluation, latency-throttle tracking, and baseline bookkeeping.
     /// Callers pass the current in-flight flag so this type stays independent of the snapshot-in-flight
     /// state owned by <see cref="Coordinator" />.
+    /// Evaluations and baseline updates are serialized on an internal gate so concurrent trigger checks
+    /// cannot race on the trigger fields; only the CAS winner in <see cref="Coordinator" /> records success.
     /// </summary>
     private sealed class TriggerState
     {
+        private readonly Lock _gate = new();
         private readonly IJournalMetrics _journal;
         private readonly TriggerOptions _opt;
         private long _bytesAtLast;
@@ -192,15 +195,22 @@ internal sealed class Coordinator
         }
 
         /// <summary>Resets the latency throttle so the next evaluation may proceed normally.</summary>
-        internal void ClearLatencyThrottle() => _latencyThrottledUntilUtc = DateTime.MinValue;
+        internal void ClearLatencyThrottle()
+        {
+            lock (_gate)
+                _latencyThrottledUntilUtc = DateTime.MinValue;
+        }
 
         /// <summary>Records the journal baseline after a successful snapshot.</summary>
         /// <param name="now">UTC time of the completed snapshot.</param>
         internal void RecordSuccess(DateTime now)
         {
-            _lastSnapshotUtc = now;
-            _opsAtLast = _journal.AppendedOps;
-            _bytesAtLast = _journal.AppendedBytes;
+            lock (_gate)
+            {
+                _lastSnapshotUtc = now;
+                _opsAtLast = _journal.AppendedOps;
+                _bytesAtLast = _journal.AppendedBytes;
+            }
         }
 
         /// <summary>
@@ -211,15 +221,18 @@ internal sealed class Coordinator
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
         internal bool ShouldTrigger(DateTime utcNow, bool isInFlight)
         {
-            if (IsBlockedFromTriggering(utcNow, isInFlight))
-                return false;
+            lock (_gate)
+            {
+                if (IsBlockedFromTriggering(utcNow, isInFlight))
+                    return false;
 
-            var opsDelta = _journal.AppendedOps - _opsAtLast;
-            var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
-            if (_opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes)
-                return false;
+                var opsDelta = _journal.AppendedOps - _opsAtLast;
+                var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
+                if (_opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes)
+                    return false;
 
-            return MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+                return MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+            }
         }
 
         private bool IsBlockedFromTriggering(DateTime utcNow, bool isInFlight)

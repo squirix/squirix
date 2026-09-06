@@ -1,8 +1,12 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -46,6 +50,25 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
         Assert.Equal(ThrowingClientPool.RemoteCallMessage, exception.Message);
         Assert.Equal(0, local.SetEntryCalls);
         Assert.Equal(1, clients.ForNodeCalls);
+    }
+
+    /// <summary>A pool disposal racing remote execution surfaces Unavailable instead of ObjectDisposedException.</summary>
+    [Fact]
+    public async Task DisposedPolicyMapsToUnavailable()
+    {
+        using var meter = new Meter("test-clustered-cache-disposed");
+        var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter));
+        var policy = new ServerCallPolicy(instrumentation, peer: "node-b");
+        await policy.DisposeAsync();
+
+        var peers = new ServerPeer[] { new() { NodeId = "node-b", Uri = new Uri("https://localhost:6500") } };
+        await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter));
+        var cache = new ClusteredCache<string>(Self, new RecordingCache(), new FixedOwnerLocator("node-b"), pool);
+
+        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(
+            cache.GetEntryAsync(CacheName, Key, DefaultCancellationToken));
+
+        Assert.Equal(StatusCode.Unavailable, exception.StatusCode);
     }
 
     private static ClusteredCache<string> CreateCache(string owner, RecordingCache local, IServerClientPool clients) =>

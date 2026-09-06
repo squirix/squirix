@@ -44,6 +44,10 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
+    private const int ReadinessUnknownValue = 0;
+    private const int ReadinessReadyValue = 1;
+    private const int ReadinessFailedValue = 2;
+
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
     private readonly GroupComposition _composition;
@@ -65,6 +69,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     private long _logLength;
     private GroupLogMetadata _meta;
+
+    /// <summary>
+    /// The published readiness as its raw enum value. Writers hold <c language="csharp">_gate</c>, but external
+    /// pollers read <see cref="Readiness" /> without taking the gate, so every access goes through a volatile
+    /// barrier and the value is never observed stale.
+    /// </summary>
+    private int _readiness = ReadinessUnknownValue;
 
     internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, FollowerLogOptions? options = null)
     {
@@ -109,7 +120,30 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     GroupLogMetadata IFollowerLogState.Meta => _meta;
 
-    public FollowerLogReadiness Readiness { get; private set; } = FollowerLogReadiness.Unknown;
+    public FollowerLogReadiness Readiness
+    {
+        get => Volatile.Read(ref _readiness) switch
+        {
+            ReadinessReadyValue => FollowerLogReadiness.Ready,
+            ReadinessFailedValue => FollowerLogReadiness.Failed,
+            _ => FollowerLogReadiness.Unknown,
+        };
+        private set
+        {
+            Volatile.Write(ref _readiness, ToValue(value));
+
+            static int ToValue(FollowerLogReadiness readiness)
+            {
+                return readiness switch
+                {
+                    FollowerLogReadiness.Unknown => ReadinessUnknownValue,
+                    FollowerLogReadiness.Ready => ReadinessReadyValue,
+                    FollowerLogReadiness.Failed => ReadinessFailedValue,
+                    _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported enum value."),
+                };
+            }
+        }
+    }
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }

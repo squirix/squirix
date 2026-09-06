@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -228,14 +229,26 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
             return await ServerProtoEx.MapCacheValueAsync<T>(value).ConfigureAwait(false);
         }
 
-        private ValueTask<TResponse> ExecuteOwnerAsync<TState, TResponse>(
+        private async ValueTask<TResponse> ExecuteOwnerAsync<TState, TResponse>(
             string owner,
             TState state,
             Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResponse>> action,
             CancellationToken cancellationToken)
         {
-            var client = _clients.ForNode(owner);
-            return _clients.PolicyFor(owner).ExecuteAsync((Client: client, State: state, Action: action), static (s, ct) => s.Action(s.Client, s.State, ct), cancellationToken);
+            try
+            {
+                var client = _clients.ForNode(owner);
+                return await _clients.PolicyFor(owner)
+                    .ExecuteAsync((Client: client, State: state, Action: action), static (s, ct) => s.Action(s.Client, s.State, ct), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // A concurrent pool disposal can dispose the policy between the ForNode/PolicyFor lookups
+                // and execution. Surface the same Unavailable failure the draining policy produces instead
+                // of leaking a raw ObjectDisposedException.
+                throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is disposed."));
+            }
         }
     }
 }
