@@ -93,7 +93,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
             if (Volatile.Read(ref _disposed) != 0)
                 return null;
 
-            if (!Volatile.Read(ref _logs).TryGetValue(groupId, out var log) || log == null)
+            if (!Volatile.Read(ref _logs).TryGetValue(groupId, out var log))
                 return null;
 
             _leaseCounts[log] = _leaseCounts.TryGetValue(log, out var count) ? count + 1 : 1;

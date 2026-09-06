@@ -214,11 +214,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
                 return;
             }
 
-            if (_accountedEntryBytes.TryAdd(key, newBytes))
-            {
-                _accounting.AddEntry(newBytes);
-                return;
-            }
+            if (!_accountedEntryBytes.TryAdd(key, newBytes))
+                continue;
+            _accounting.AddEntry(newBytes);
+            return;
         }
     }
 
