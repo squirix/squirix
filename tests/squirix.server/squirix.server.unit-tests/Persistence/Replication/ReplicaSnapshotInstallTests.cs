@@ -43,7 +43,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 1UL, 1UL, new List<GroupIdempotencyRecord> { outcome });
 
             faults.Arm();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(log.InstallSnapshotAsync(snapshot, DefaultCancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(log.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken));
 
             Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "op-A", new byte[] { 1 }, out _));
             Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "op-B", new byte[] { 2 }, out _));
@@ -80,7 +80,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 5UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
 
-        var result = await log.InstallSnapshotAsync(malformed, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(malformed, 1UL, DefaultCancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
@@ -103,7 +103,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, 5UL, 5UL, Array.Empty<GroupIdempotencyRecord>());
 
-        var result = await log.InstallSnapshotAsync(malformed, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(malformed, 1UL, DefaultCancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
@@ -126,7 +126,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(3UL, DefaultCancellationToken);
 
         var snapshot = await log.CreateSnapshotAsync(3UL, DefaultCancellationToken);
-        var result = await log.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
 
         Assert.True(result.Success);
         var status = await log.GetStatusAsync(DefaultCancellationToken);
@@ -151,7 +151,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         await using var target = new FollowerLog(targetDir, GroupId, composition);
         await target.OpenAsync(DefaultCancellationToken);
-        var result = await target.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+        var result = await target.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
 
         Assert.True(result.Success);
         var status = await target.GetStatusAsync(DefaultCancellationToken);
@@ -184,7 +184,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, new[] { unresolved });
 
-        var result = await log.InstallSnapshotAsync(malformed, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(malformed, 1UL, DefaultCancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
@@ -211,7 +211,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 9 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, new[] { outcome });
 
-        var result = await log.InstallSnapshotAsync(malformed, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(malformed, 1UL, DefaultCancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
@@ -247,7 +247,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         };
         var oversized = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 3UL, 3UL, outcomes);
 
-        var result = await log.InstallSnapshotAsync(oversized, DefaultCancellationToken);
+        var result = await log.InstallSnapshotAsync(oversized, 1UL, DefaultCancellationToken);
 
         Assert.False(result.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
@@ -255,6 +255,55 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         // The capacity refusal ran before any durable write: nothing was published.
         Assert.False(new GroupSnapshotStore(dir, GroupId).SnapshotExists);
+    }
+
+    /// <summary>Install refuses a snapshot from a deposed leader without touching durable state.</summary>
+    [Fact]
+    public async Task InstallRefusesStaleLeaderTerm()
+    {
+        using var dir = new TempDirectory("squirix-install-stale-term");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        var second = new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, new byte[] { 98 })]));
+        _ = await log.AppendAsync(second, DefaultCancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+
+        var result = await log.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.StaleTerm, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+        Assert.False(new GroupSnapshotStore(dir, GroupId).SnapshotExists);
+    }
+
+    /// <summary>Install durably persists a higher leader term before publishing the snapshot.</summary>
+    [Fact]
+    public async Task InstallPersistsHigherLeaderTerm()
+    {
+        using var dir = new TempDirectory("squirix-install-higher-term");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
+
+            var result = await log.InstallSnapshotAsync(snapshot, 5UL, DefaultCancellationToken);
+
+            Assert.True(result.Success);
+            Assert.Equal(5UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await reopened.OpenAsync(DefaultCancellationToken);
+
+        Assert.Equal(5UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);

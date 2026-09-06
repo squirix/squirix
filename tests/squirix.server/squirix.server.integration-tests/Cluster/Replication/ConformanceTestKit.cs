@@ -31,10 +31,7 @@ internal static class ConformanceTestKit
     }
 
     internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4) => new(
-        3,
-        0,
-        0,
-        maxInFlight,
+        new ReplicaCommitCoordinatorOptions(3, 0, 0, maxInFlight),
         pipeline,
         NoOpHooks.Instance,
         new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue));

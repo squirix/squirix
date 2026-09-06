@@ -158,7 +158,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await target.OpenAsync(DefaultCancellationToken);
             Assert.Equal("node-1", (await target.GetStatusAsync(DefaultCancellationToken)).VotedFor);
 
-            var result = await target.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+            var result = await target.InstallSnapshotAsync(snapshot, 3UL, DefaultCancellationToken);
             var status = await target.GetStatusAsync(DefaultCancellationToken);
 
             Assert.True(result.Success);
@@ -197,7 +197,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(2UL, "target-2"), DefaultCancellationToken);
             _ = await target.AppendAsync(Append(3UL, "target-tail"), DefaultCancellationToken);
 
-            var result = await target.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+            var result = await target.InstallSnapshotAsync(snapshot, 2UL, DefaultCancellationToken);
             Assert.True(result.Success);
             Assert.Equal(2UL, (await target.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
             Assert.Empty(await target.GetUncommittedTailAsync(DefaultCancellationToken));
@@ -236,7 +236,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await target.AppendAsync(Append(3UL, "old-tail"), DefaultCancellationToken);
         _ = target.Idempotency.Reserve("client", "pending-tail", new byte[] { 4 }, GroupRecordKind.UserMutation, 3UL, 1UL);
 
-        var result = await target.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+        var result = await target.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
         var status = await target.GetStatusAsync(DefaultCancellationToken);
 
         Assert.True(result.Success);
@@ -275,7 +275,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using (var target = new FollowerLog(targetDir, GroupId, composition))
         {
             await target.OpenAsync(DefaultCancellationToken);
-            var result = await target.InstallSnapshotAsync(snapshot, DefaultCancellationToken);
+            var result = await target.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
             Assert.True(result.Success);
         }
 

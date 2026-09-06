@@ -76,7 +76,7 @@ public class ReplicaSnapshotBenchmarks
     public async Task InstallReplicaSnapshotAsync()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        var result = await target.InstallSnapshotAsync(_snapshot, CancellationToken.None).ConfigureAwait(false);
+        var result = await target.InstallSnapshotAsync(_snapshot, 1UL, CancellationToken.None).ConfigureAwait(false);
         if (!result.Success)
             throw new InvalidOperationException($"Snapshot install was refused: {result.Refusal}.");
     }

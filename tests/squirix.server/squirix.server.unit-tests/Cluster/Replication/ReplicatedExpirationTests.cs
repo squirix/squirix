@@ -187,12 +187,10 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(
             expiration.CommitExpiredMissAsync(CreateRequest(new DateTime(expiresUtc.Ticks, DateTimeKind.Local), TimeSpan.FromSeconds(2))));
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException, bool>(expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.Zero)));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(
-            expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), string.Empty)));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), string.Empty)));
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(
             expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), cacheName: string.Empty)));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(
-            expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), key: string.Empty)));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), key: string.Empty)));
         return;
 
         static ReplicaExpirationRequest CreateRequest(DateTime utcNow, TimeSpan timeout, string groupId = "group-a", string cacheName = "default", string key = "key-a")
@@ -259,10 +257,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     }
 
     private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline) => new(
-        3,
-        0,
-        0,
-        2,
+        new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
         pipeline,
         NoOpHooks.Instance,
         new GroupIdempotencyState(8, TimeSpan.MaxValue));

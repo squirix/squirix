@@ -1,9 +1,11 @@
 using System;
 using System.Threading;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Exclusive reservation for the next group log index.</summary>
+[ThreadSafe]
 internal sealed class ReplicaIndexReservation : IDisposable
 {
     private ReplicaLogIndexSequencer? _owner;

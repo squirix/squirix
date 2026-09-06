@@ -690,7 +690,10 @@
         &lt;/Entry&gt;
 
         &lt;!-- SA1201: plain structs + records (incl. record struct) before nested classes.
-             Rider does not treat record struct as Kind=Struct; it is Kind=Record. --&gt;
+             StyleCop orders record struct as struct and record as class, but
+             Rider reports both as Kind=Record, so Kind.Order cannot separate them.
+             Record classes are never readonly while this repo uses readonly record
+             structs only, hence Readonly sorts record structs before records. --&gt;
         &lt;Entry DisplayName="Nested Structs And Records"&gt;
             &lt;Entry.Match&gt;
                 &lt;Or&gt;
@@ -707,6 +710,7 @@
                 &lt;/Kind&gt;
                 &lt;Static /&gt;
                 &lt;Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" /&gt;
+                &lt;Readonly /&gt;
                 &lt;Name /&gt;
             &lt;/Entry.SortBy&gt;
         &lt;/Entry&gt;

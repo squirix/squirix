@@ -23,23 +23,6 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The durability readiness state.</returns>
     FollowerLogReadiness Readiness { get; }
 
-    /// <summary>Gets a snapshot of the durable log state.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A snapshot of the durable log state.</returns>
-    ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken);
-
-    /// <summary>Appends an ordered batch of entries following the consistency checks of the replication protocol.</summary>
-    /// <param name="request">The append request.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome of the append attempt.</returns>
-    Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
-
-    /// <summary>Advances the committed index monotonically and never beyond the durable last index.</summary>
-    /// <param name="commitIndex">The target committed index.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome of the commit advance.</returns>
-    Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, CancellationToken cancellationToken);
-
     /// <summary>
     /// Advances the applied index monotonically, never beyond the committed index, and releases the applied
     /// entry payloads from memory. The byte offsets of applied entries are retained so a later divergence at or
@@ -50,6 +33,18 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The outcome of the applied advance.</returns>
     Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken);
 
+    /// <summary>Advances the committed index monotonically and never beyond the durable last index.</summary>
+    /// <param name="commitIndex">The target committed index.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome of the commit advance.</returns>
+    Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, CancellationToken cancellationToken);
+
+    /// <summary>Appends an ordered batch of entries following the consistency checks of the replication protocol.</summary>
+    /// <param name="request">The append request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome of the append attempt.</returns>
+    Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
+
     /// <summary>
     /// Returns the committed entries in the exclusive <c language="csharp">LastAppliedIndex</c> to inclusive <c language="csharp">CommitIndex</c>
     /// range, rather than the full committed prefix, because applied payloads are released from memory.
@@ -58,8 +53,28 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Gets a snapshot of the durable log state.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A snapshot of the durable log state.</returns>
+    ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken);
+
     /// <summary>Returns the uncommitted tail of the log, used to rebuild pending operations after a restart.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The uncommitted tail entries of the log.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken);
+
+    /// <summary>Installs a validated snapshot through atomic storage publication.</summary>
+    /// <param name="snapshot">Snapshot to install.</param>
+    /// <param name="leaderTerm">Leader term authorizing the install; stale terms are refused.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The installation outcome.</returns>
+    Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken);
+
+    /// <summary>Durably removes an uncommitted tail during leader-driven repair.</summary>
+    /// <param name="fromIndex">First divergent index to remove.</param>
+    /// <param name="prevLogTerm">Term the leader observed at the index preceding <paramref name="fromIndex" />.</param>
+    /// <param name="leaderTerm">Leader term authorizing the repair; stale terms are refused.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The reconciliation outcome.</returns>
+    Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken);
 }
