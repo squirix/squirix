@@ -23,12 +23,14 @@ internal sealed class AsyncLock : IDisposable
 
     internal async ValueTask<AsyncLockHolder> LockAsync(CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _released) != 0, this);
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new AsyncLockHolder(_semaphore);
     }
 
     internal bool TryLock(out AsyncLockHolder holder, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _released) != 0, this);
         if (_semaphore.Wait(0, cancellationToken))
         {
             holder = new AsyncLockHolder(_semaphore);

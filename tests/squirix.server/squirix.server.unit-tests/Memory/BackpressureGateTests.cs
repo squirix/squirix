@@ -97,9 +97,9 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         Assert.True(observedMax[0] <= maxInFlight);
     }
 
-    /// <summary>Verifies disposing the same lease twice follows current release behavior.</summary>
+    /// <summary>Verifies disposing the same lease twice releases its slot exactly once.</summary>
     [Fact]
-    public async Task LeaseDoubleDisposeKeepsCurrentBehavior()
+    public async Task LeaseDoubleDisposeReleasesOnce()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -115,7 +115,11 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken)).Lease;
         lease.Dispose();
-        _ = NodeExceptionAssert.For<SemaphoreFullException>().Throws(lease, static value => value.Dispose());
+        lease.Dispose();
+
+        var (decision, secondLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken);
+        using (secondLease)
+            Assert.True(decision.IsAccepted);
     }
 
     /// <summary>Verifies requests are rejected once the hard threshold is reached while another request is queued.</summary>
