@@ -122,12 +122,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     public FollowerLogReadiness Readiness
     {
-        get => Volatile.Read(ref _readiness) switch
-        {
-            ReadinessReadyValue => FollowerLogReadiness.Ready,
-            ReadinessFailedValue => FollowerLogReadiness.Failed,
-            _ => FollowerLogReadiness.Unknown,
-        };
+        get =>
+            Volatile.Read(ref _readiness) switch
+            {
+                ReadinessReadyValue => FollowerLogReadiness.Ready,
+                ReadinessFailedValue => FollowerLogReadiness.Failed,
+                _ => FollowerLogReadiness.Unknown,
+            };
         private set
         {
             Volatile.Write(ref _readiness, ToValue(value));
@@ -222,6 +223,27 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
+        var lastLogTerm = 0UL;
+        if (_lastLogIndex == 0UL)
+        {
+            return new FollowerLogStatus(
+                GroupId,
+                _meta.TopologyFingerprint,
+                _meta.ConfigurationGeneration,
+                _meta.CurrentTerm,
+                _meta.VotedFor,
+                _lastLogIndex,
+                lastLogTerm,
+                _meta.CommitIndex,
+                _meta.LastAppliedIndex,
+                Readiness);
+        }
+
+        if (_journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
+            lastLogTerm = location.Term;
+        else if (_journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex)
+            lastLogTerm = _journal.SnapshotBaseline.LastIncludedTerm;
+
         return new FollowerLogStatus(
             GroupId,
             _meta.TopologyFingerprint,
@@ -229,7 +251,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             _meta.CurrentTerm,
             _meta.VotedFor,
             _lastLogIndex,
-            LastLogTerm(),
+            lastLogTerm,
             _meta.CommitIndex,
             _meta.LastAppliedIndex,
             Readiness);
@@ -267,7 +289,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         if (fromIndex <= _meta.CommitIndex)
         {
-            SetReadiness(FollowerLogReadiness.Failed);
+            Readiness = FollowerLogReadiness.Failed;
             return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
         }
 
@@ -280,7 +302,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             if (fromIndex - 1UL > _meta.CommitIndex)
                 return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
-            SetReadiness(FollowerLogReadiness.Failed);
+            Readiness = FollowerLogReadiness.Failed;
             return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
         }
 
@@ -300,7 +322,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
             // repair path additionally quarantines storage because the caller cannot prove which durable boundary
             // survived an I/O fault until restart recovery scans the file again.
-            SetReadiness(FollowerLogReadiness.Failed);
+            Readiness = FollowerLogReadiness.Failed;
             throw;
         }
     }
@@ -314,16 +336,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
     /// <inheritdoc />
-    void IFollowerLogState.SetLastLogIndex(ulong logIndex) => SetLastLogIndex(logIndex);
+    void IFollowerLogState.SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
 
     /// <inheritdoc />
-    void IFollowerLogState.SetLogLength(long logLength) => SetLogLength(logLength);
+    void IFollowerLogState.SetLogLength(long logLength) => _logLength = logLength;
 
     /// <inheritdoc />
-    void IFollowerLogState.SetMeta(GroupLogMetadata meta) => SetMeta(meta);
+    void IFollowerLogState.SetMeta(GroupLogMetadata meta) => _meta = meta;
 
     /// <inheritdoc />
-    void IFollowerLogState.SetReadiness(FollowerLogReadiness readiness) => SetReadiness(readiness);
+    void IFollowerLogState.SetReadiness(FollowerLogReadiness readiness) => Readiness = readiness;
 
     /// <summary>Compacts the journal prefix covered by the published snapshot, retaining the installable state.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -381,7 +403,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
         var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
         await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        SetMeta(candidate);
+        _meta = candidate;
         return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
@@ -413,15 +435,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return false;
     }
 
-    private ulong LastLogTerm()
-    {
-        if (_lastLogIndex == 0UL)
-            return 0UL;
-        if (_journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
-            return location.Term;
-        return _journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex ? _journal.SnapshotBaseline.LastIncludedTerm : 0UL;
-    }
-
     private async Task OpenCoreAsync(CancellationToken cancellationToken)
     {
         if (!_composition.Contains(GroupId))
@@ -439,9 +452,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             case false when !logExists && !_journal.Snapshot.SnapshotExists:
                 var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
                 await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, fresh, cancellationToken).ConfigureAwait(false);
-                SetMeta(fresh);
-                SetLastLogIndex(0);
-                SetLogLength(0);
+                _meta = fresh;
+                _lastLogIndex = 0;
+                _logLength = 0;
                 _durability.Open(_journal.Paths.LogPath, _logLength);
                 Readiness = FollowerLogReadiness.Ready;
                 return;
@@ -449,7 +462,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             case false when !logExists:
                 // A published snapshot is durable state even when metadata and the log are absent. Seed recovery with
                 // empty metadata so RestoreSnapshotBaseAsync validates the snapshot instead of creating zeroed ready state.
-                SetMeta(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL));
+                _meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
                 await FollowerLogRecovery.RecoverLogFileAsync(_journal, this, cancellationToken).ConfigureAwait(false);
                 _durability.Open(_journal.Paths.LogPath, _logLength);
                 Readiness = FollowerLogReadiness.Ready;
@@ -462,7 +475,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     throw new InvalidDataException($"Replica group '{GroupId}' metadata is corrupt.");
                 }
 
-                SetMeta(decoded);
+                _meta = decoded;
                 break;
 
             default:
@@ -477,14 +490,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _durability.Open(_journal.Paths.LogPath, _logLength);
         Readiness = FollowerLogReadiness.Ready;
     }
-
-    private void SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
-
-    private void SetLogLength(long logLength) => _logLength = logLength;
-
-    private void SetMeta(GroupLogMetadata meta) => _meta = meta;
-
-    private void SetReadiness(FollowerLogReadiness readiness) => Readiness = readiness;
 
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend
