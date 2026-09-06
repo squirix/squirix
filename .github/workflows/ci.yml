@@ -212,10 +212,10 @@ jobs:
                     persist-credentials: false
 
             - name: Setup Blacksmith Builder
-              uses: useblacksmith/setup-docker-builder@v1
+              uses: useblacksmith/setup-docker-builder@9309da73a81f66976a6d750572e221508b1e2682 # v1
 
             -   name: Build Image
-                uses: useblacksmith/build-push-action@v2
+                uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2
                 with:
                     context: .
                     file: docker/Dockerfile
