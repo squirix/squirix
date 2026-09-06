@@ -178,7 +178,7 @@ internal static class GroupLogCodec
         if (!TryReadFrameCore(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength))
             return false;
 
-        entry = new FollowerLogEntry(logIndex, term, OwnedBufferKit.CopyToOwned(buffer.Slice(payloadStart, payloadLength)));
+        entry = new FollowerLogEntry(logIndex, term, BufferEx.CopyToOwned(buffer.Slice(payloadStart, payloadLength)));
         return true;
     }
 
@@ -232,7 +232,7 @@ internal static class GroupLogCodec
         if (length < 0 || length > buffer.Length - offset)
             return false;
 
-        value = OwnedBufferKit.CopyToOwned(buffer.Slice(offset, length));
+        value = BufferEx.CopyToOwned(buffer.Slice(offset, length));
         offset += length;
         return true;
     }
@@ -385,17 +385,4 @@ internal static class GroupLogCodec
     [StructLayout(LayoutKind.Auto)]
     [Immutable]
     private readonly record struct MetaFixedFields(ulong ConfigurationGeneration, ulong CurrentTerm, ulong LastLogIndex, ulong CommitIndex, ulong LastAppliedIndex);
-
-    /// <summary>Exact-size owned byte buffer helpers for replica-group encoding.</summary>
-    private static class OwnedBufferKit
-    {
-#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the caller retains ownership.
-        internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
-        {
-            var owned = new byte[source.Length];
-            source.CopyTo(owned);
-            return owned;
-        }
-#pragma warning restore ZA0302
-    }
 }

@@ -36,9 +36,7 @@ internal static class BufferEx
     /// <summary>Allocates an exact-size owned byte buffer that must outlive the current span.</summary>
     /// <param name="length">Exact buffer length.</param>
     /// <returns>An owned byte array of the requested length.</returns>
-#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the caller fills the buffer and retains ownership.
     internal static byte[] Owned(int length) => new byte[length];
-#pragma warning restore ZA0302
 
     /// <summary>Copies a span into an exact-size owned byte buffer.</summary>
     /// <param name="source">Source bytes to copy.</param>

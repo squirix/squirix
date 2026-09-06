@@ -791,7 +791,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (length < 0 || length > buffer.Length - offset)
                 return false;
 
-            value = OwnedBufferKit.CopyToOwned(buffer.Slice(offset, length));
+            value = BufferEx.CopyToOwned(buffer.Slice(offset, length));
             offset += length;
             return true;
         }
@@ -841,19 +841,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             value = Encoding.UTF8.GetString(buffer.Slice(offset, length));
             offset += length;
             return true;
-        }
-
-        /// <summary>Exact-size owned byte buffer helpers for replica-group encoding.</summary>
-        private static class OwnedBufferKit
-        {
-#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the caller retains ownership.
-            internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
-            {
-                var owned = new byte[source.Length];
-                source.CopyTo(owned);
-                return owned;
-            }
-#pragma warning restore ZA0302
         }
     }
 }

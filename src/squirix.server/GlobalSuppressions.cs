@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-#pragma warning disable IDE0076
+#pragma warning disable IDE0076 // Assembly-level targets use NDepend shorthand, not Roslyn documentation IDs.
 [assembly:
     SuppressMessage(
         "NDepend",

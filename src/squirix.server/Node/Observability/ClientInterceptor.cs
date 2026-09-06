@@ -159,13 +159,12 @@ internal sealed class ClientInterceptor : Interceptor
         {
             try
             {
-#pragma warning disable VSTHRD003
-
                 // Scope, owned client Activity, and rented headers must live until the outbound unary call completes.
                 // The rented bag is returned only from this completion path: an early outer dispose must not
                 // recycle it while the transport may still read it.
-                return await _inner.ResponseAsync.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
+                // ValueTask wraps the foreign gRPC task into one owned by this method (RemoteCache idiom).
+                var responseAsync = _inner.ResponseAsync;
+                return await new ValueTask<TResponse>(responseAsync).ConfigureAwait(false);
             }
             finally
             {
