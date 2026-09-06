@@ -32,39 +32,23 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         Assert.False(ReplicaOutcomeCodec.TryDecode(new byte[] { 1, 9, 0, 0, 0 }, out _, out _));
     }
 
-    /// <summary>A prepared set applies and reads back through the record.</summary>
+    /// <summary>Expiration removal reports whether an expiration was present.</summary>
     [Fact]
-    public async Task SetAppliesThroughRecord()
+    public async Task RemoveExpirationReportsPresence()
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
-        var entry = new NodeCacheEntry<object?> { Value = "v1" };
+        var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
+        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(plain), DefaultCancellationToken));
 
-        var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
-        var record = DecodeRecord(mutation);
+        var absent = await factory.PrepareRemoveExpirationAsync("op-2", "cache", "k", 2UL, DefaultCancellationToken);
+        Assert.False(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(absent), DefaultCancellationToken));
 
-        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, record, DefaultCancellationToken));
-        var read = await cache.GetValueAsync("cache", "k", DefaultCancellationToken);
-        Assert.True(read.Found);
-        Assert.Equal("v1", Assert.IsType<string>(read.Value));
-    }
+        var timed = factory.PrepareSet("op-3", "cache", "timed", new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = DateTime.UtcNow.AddHours(1) }, 3UL);
+        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(timed), DefaultCancellationToken));
 
-    /// <summary>A second try-add for the same key reports false with a matching outcome.</summary>
-    [Fact]
-    public async Task TryAddSecondFails()
-    {
-        var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
-
-        var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL, DefaultCancellationToken);
-        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(first), DefaultCancellationToken));
-        Assert.True(ReplicaOutcomeCodec.TryDecode(first.OutcomePayload, out var firstApplied, out _));
-        Assert.True(firstApplied);
-
-        var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v2" }, 2UL, DefaultCancellationToken);
-        Assert.False(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(second), DefaultCancellationToken));
-        Assert.True(ReplicaOutcomeCodec.TryDecode(second.OutcomePayload, out var secondApplied, out _));
-        Assert.False(secondApplied);
+        var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, DefaultCancellationToken);
+        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(present), DefaultCancellationToken));
     }
 
     /// <summary>Remove returns the observed previous value, then reports missing.</summary>
@@ -88,6 +72,23 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         Assert.False(removedAgain);
     }
 
+    /// <summary>A prepared set applies and reads back through the record.</summary>
+    [Fact]
+    public async Task SetAppliesThroughRecord()
+    {
+        var cache = new MemoryCache();
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
+        var entry = new NodeCacheEntry<object?> { Value = "v1" };
+
+        var mutation = factory.PrepareSet("op-1", "cache", "k", entry, 1UL);
+        var record = DecodeRecord(mutation);
+
+        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, record, DefaultCancellationToken));
+        var read = await cache.GetValueAsync("cache", "k", DefaultCancellationToken);
+        Assert.True(read.Found);
+        Assert.Equal("v1", Assert.IsType<string>(read.Value));
+    }
+
     /// <summary>Touch succeeds only for present keys.</summary>
     [Fact]
     public async Task TouchRequiresPresentKey()
@@ -103,6 +104,24 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         var touch = await factory.PrepareTouchAsync("op-3", "cache", "k", TimeSpan.FromMinutes(5), 3UL, DefaultCancellationToken);
         Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(touch), DefaultCancellationToken));
+    }
+
+    /// <summary>A second try-add for the same key reports false with a matching outcome.</summary>
+    [Fact]
+    public async Task TryAddSecondFails()
+    {
+        var cache = new MemoryCache();
+        var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
+
+        var first = await factory.PrepareTryAddAsync("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL, DefaultCancellationToken);
+        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(first), DefaultCancellationToken));
+        Assert.True(ReplicaOutcomeCodec.TryDecode(first.OutcomePayload, out var firstApplied, out _));
+        Assert.True(firstApplied);
+
+        var second = await factory.PrepareTryAddAsync("op-2", "cache", "k", new NodeCacheEntry<object?> { Value = "v2" }, 2UL, DefaultCancellationToken);
+        Assert.False(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(second), DefaultCancellationToken));
+        Assert.True(ReplicaOutcomeCodec.TryDecode(second.OutcomePayload, out var secondApplied, out _));
+        Assert.False(secondApplied);
     }
 
     /// <summary>Update replaces the value of a present key only.</summary>
@@ -125,30 +144,6 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         Assert.Equal("v2", Assert.IsType<string>(read.Value));
     }
 
-    /// <summary>Expiration removal reports whether an expiration was present.</summary>
-    [Fact]
-    public async Task RemoveExpirationReportsPresence()
-    {
-        var cache = new MemoryCache();
-        var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
-        var plain = factory.PrepareSet("op-1", "cache", "k", new NodeCacheEntry<object?> { Value = "v1" }, 1UL);
-        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(plain), DefaultCancellationToken));
-
-        var absent = await factory.PrepareRemoveExpirationAsync("op-2", "cache", "k", 2UL, DefaultCancellationToken);
-        Assert.False(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(absent), DefaultCancellationToken));
-
-        var timed = factory.PrepareSet(
-            "op-3",
-            "cache",
-            "timed",
-            new NodeCacheEntry<object?> { Value = "v1", ExpiresUtc = DateTime.UtcNow.AddHours(1) },
-            3UL);
-        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(timed), DefaultCancellationToken));
-
-        var present = await factory.PrepareRemoveExpirationAsync("op-4", "cache", "timed", 4UL, DefaultCancellationToken);
-        Assert.True(await ReplicaCacheApplier.ApplyAsync(cache, DecodeRecord(present), DefaultCancellationToken));
-    }
-
     private static ReplicaLogRecord DecodeRecord(PreparedReplicaMutation mutation)
     {
         var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
@@ -163,15 +158,14 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             _ = cancellationToken;
-            return ValueTask.FromResult<NodeCacheEntry<object?>?>(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);
+            return ValueTask.FromResult(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);
         }
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             _ = cancellationToken;
-            return _entries.TryGetValue(Key(cacheName, key), out var entry)
-                ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
-                : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, default));
+            return _entries.TryGetValue(Key(cacheName, key), out var entry) ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
+                : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
         }
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
@@ -179,7 +173,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
             _ = operationId;
             _ = cancellationToken;
             if (!_entries.Remove(Key(cacheName, key), out var previous))
-                return ValueTask.FromResult(new CacheRemoveResult<object?>(false, default));
+                return ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
 
             return ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value));
         }
@@ -219,10 +213,9 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
             _ = operationId;
             _ = cancellationToken;
             var cacheKey = Key(cacheName, key);
-            if (_entries.ContainsKey(cacheKey))
+            if (!_entries.TryAdd(cacheKey, entry))
                 return ValueTask.FromResult(false);
 
-            _entries[cacheKey] = entry;
             return ValueTask.FromResult(true);
         }
 

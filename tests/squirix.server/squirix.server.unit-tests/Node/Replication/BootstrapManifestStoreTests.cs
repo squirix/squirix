@@ -13,19 +13,6 @@ namespace Squirix.Server.UnitTests.Node.Replication;
 /// <summary>Bootstrap manifest store boundary enforcement and round-trips.</summary>
 public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
 {
-    /// <summary>Publication rejects group counts above the reader maximum before encoding.</summary>
-    [Fact]
-    public async Task PublishRejectsOverMaximumGroupCount()
-    {
-        using var dir = new TempDirectory("squirix-manifest-groups-over");
-        var store = new BootstrapManifestStore(dir);
-        var groups = new List<BootstrapGroupProgress>(100_001);
-        for (var i = 0; i < 100_001; i++)
-            groups.Add(new BootstrapGroupProgress($"group-{i}", BootstrapGroupState.Pending));
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(Manifest(groups), DefaultCancellationToken));
-    }
-
     /// <summary>Publication accepts exactly the maximum group count and reads it back.</summary>
     [Fact]
     public async Task PublishAcceptsMaximumGroupCount()
@@ -41,17 +28,6 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
 
         Assert.NotNull(decoded);
         Assert.Equal(100_000, decoded.Groups.Count);
-    }
-
-    /// <summary>Publication rejects group identifiers above the reader string limit before encoding.</summary>
-    [Fact]
-    public async Task PublishRejectsOverMaximumStringLength()
-    {
-        using var dir = new TempDirectory("squirix-manifest-string-over");
-        var store = new BootstrapManifestStore(dir);
-        var manifest = Manifest([new BootstrapGroupProgress(new string('g', 4097), BootstrapGroupState.Pending)]);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(manifest, DefaultCancellationToken));
     }
 
     /// <summary>Publication accepts exactly the maximum string length and reads it back.</summary>
@@ -82,20 +58,6 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(Manifest(groups), DefaultCancellationToken));
     }
 
-    /// <summary>Reading a manifest beyond the size limit fails before allocating its contents.</summary>
-    [Fact]
-    public async Task ReadRejectsOversizedManifest()
-    {
-        using var dir = new TempDirectory("squirix-manifest-oversize-read");
-        var store = new BootstrapManifestStore(dir);
-        await store.PublishAsync(Manifest([new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)]), DefaultCancellationToken);
-
-        using (var handle = File.OpenHandle(store.ManifestPath, FileMode.Open, FileAccess.Write, FileShare.None, FileOptions.None))
-            RandomAccess.SetLength(handle, (16L * 1024 * 1024) + 1);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(DefaultCancellationToken));
-    }
-
     /// <summary>Publication rejects source and target fingerprints that are not exactly 32 bytes.</summary>
     /// <param name="sourceLength">Source fingerprint length in bytes.</param>
     /// <param name="targetLength">Target fingerprint length in bytes.</param>
@@ -108,12 +70,47 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-manifest-fingerprint-length");
         var store = new BootstrapManifestStore(dir);
-        var manifest = Manifest(
-            [new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)],
-            new byte[sourceLength],
-            new byte[targetLength]);
+        var manifest = Manifest([new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)], new byte[sourceLength], new byte[targetLength]);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(manifest, DefaultCancellationToken));
+    }
+
+    /// <summary>Publication rejects group counts above the reader maximum before encoding.</summary>
+    [Fact]
+    public async Task PublishRejectsOverMaximumGroupCount()
+    {
+        using var dir = new TempDirectory("squirix-manifest-groups-over");
+        var store = new BootstrapManifestStore(dir);
+        var groups = new List<BootstrapGroupProgress>(100_001);
+        for (var i = 0; i < 100_001; i++)
+            groups.Add(new BootstrapGroupProgress($"group-{i}", BootstrapGroupState.Pending));
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(Manifest(groups), DefaultCancellationToken));
+    }
+
+    /// <summary>Publication rejects group identifiers above the reader string limit before encoding.</summary>
+    [Fact]
+    public async Task PublishRejectsOverMaximumStringLength()
+    {
+        using var dir = new TempDirectory("squirix-manifest-string-over");
+        var store = new BootstrapManifestStore(dir);
+        var manifest = Manifest([new BootstrapGroupProgress(new string('g', 4097), BootstrapGroupState.Pending)]);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(manifest, DefaultCancellationToken));
+    }
+
+    /// <summary>Reading a manifest beyond the size limit fails before allocating its contents.</summary>
+    [Fact]
+    public async Task ReadRejectsOversizedManifest()
+    {
+        using var dir = new TempDirectory("squirix-manifest-oversize-read");
+        var store = new BootstrapManifestStore(dir);
+        await store.PublishAsync(Manifest([new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)]), DefaultCancellationToken);
+
+        using (var handle = File.OpenHandle(store.ManifestPath, FileMode.Open, FileAccess.Write, FileShare.None))
+            RandomAccess.SetLength(handle, (16L * 1024 * 1024) + 1);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(DefaultCancellationToken));
     }
 
     private static BootstrapManifest Manifest(IReadOnlyList<BootstrapGroupProgress> groups) => Manifest(groups, new byte[32], new byte[32]);

@@ -17,14 +17,14 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 {
+    private readonly ulong _generation;
     private readonly string[] _groupIds;
     private readonly FollowerLogOptions? _options;
     private readonly string _persistenceRoot;
     private readonly int _replicaCount;
     private readonly ReadOnlyMemory<byte> _topologyFingerprint;
-    private readonly ulong _generation;
-    private FrozenDictionary<string, GroupState>? _groups;
     private int _disposed;
+    private FrozenDictionary<string, GroupState>? _groups;
     private int _opened;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupRegistry" /> class.</summary>
@@ -112,7 +112,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     // durable state means a restart, which stays recovering until a repair session
                     // verifies it.
                     var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                    if (status.LastLogIndex == 0 && status.CommitIndex == 0 && log.SnapshotPath == null)
+                    if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
                     {
                         var zero = new ReplicaProgress(1, 0, 0, 0, 0, _topologyFingerprint, _generation, 0);
                         for (var r = 0; r < eligibility.ReplicaCount; r++)

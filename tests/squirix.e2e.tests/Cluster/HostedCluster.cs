@@ -18,25 +18,29 @@ namespace Squirix.E2ETests.Cluster;
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
-    private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
     private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
+    private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TempDirectory? _dataDir;
     private readonly ClusterTls? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
-    private readonly string[] _nodeIds;
     private readonly TwoNodeStartOptions _startOptions;
     private readonly FrozenDictionary<string, Uri> _uris;
     private readonly bool _usePersistence;
     private int _disposed;
 
-    private HostedCluster(Dictionary<string, TestNode> nodes, ClusterTls? mtls, TempDirectory? dataDir, string[] nodeIds, TwoNodeStartOptions startOptions, FrozenDictionary<string, Uri> uris, bool usePersistence)
+    private HostedCluster(
+        Dictionary<string, TestNode> nodes,
+        ClusterTls? mtls,
+        TempDirectory? dataDir,
+        TwoNodeStartOptions startOptions,
+        FrozenDictionary<string, Uri> uris,
+        bool usePersistence)
     {
         _nodes = nodes;
         _mtls = mtls;
         _dataDir = dataDir;
-        _nodeIds = nodeIds;
         _startOptions = startOptions;
         _uris = uris;
         _usePersistence = usePersistence;
@@ -68,18 +72,6 @@ internal sealed class HostedCluster : IAsyncDisposable
         return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
     }
 
-    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
-        string? testName = null,
-        TestNodeSecurityOptions? security = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
-
-    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
-        TwoNodeStartOptions? options,
-        string? testName = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
-
     /// <summary>Starts a three-node cluster for RF=3 quorum scenarios.</summary>
     /// <param name="testName">Label used when creating a persistence temp directory.</param>
     /// <param name="options">Replica count, security, and mTLS profile overrides.</param>
@@ -91,6 +83,18 @@ internal sealed class HostedCluster : IAsyncDisposable
         TwoNodeStartOptions? options = null,
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(ThreeNodeIds, options, testName, usePersistence, cancellationToken);
+
+    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
+        string? testName = null,
+        TestNodeSecurityOptions? security = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+
+    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
+        TwoNodeStartOptions? options,
+        string? testName = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
 
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
@@ -111,23 +115,6 @@ internal sealed class HostedCluster : IAsyncDisposable
             throw new InvalidOperationException("Requested node is not running.");
 
         return node.DisposeAsync();
-    }
-
-    /// <summary>Restarts a stopped node on its original address and data directory.</summary>
-    /// <param name="nodeId">Node identifier to restart.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the node is running again.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is unknown or still running.</exception>
-    internal async ValueTask RestartNodeAsync(string nodeId, CancellationToken cancellationToken = default)
-    {
-        if (Array.IndexOf(_nodeIds, nodeId) < 0 || _nodes.ContainsKey(nodeId))
-            throw new InvalidOperationException("Requested node is unknown or still running.");
-
-        var topology = new (string NodeId, Uri Uri)[_nodeIds.Length];
-        for (var i = 0; i < _nodeIds.Length; i++)
-            topology[i] = (_nodeIds[i], _uris[_nodeIds[i]]);
-
-        _nodes[nodeId] = new TestNode(await StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
     }
 
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
@@ -176,7 +163,7 @@ internal sealed class HostedCluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
                 topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
-            var cluster = new HostedCluster(nodes, mtls, dataDir, nodeIds, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
+            var cluster = new HostedCluster(nodes, mtls, dataDir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];

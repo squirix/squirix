@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -21,13 +20,15 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
     private TempDirectory? _dataDir;
+    private ClusterTls? _mtls;
     private TestNodeHost? _nodeA;
     private TestNodeHost? _nodeB;
-    private ClusterTls? _mtls;
     private int _offset;
 
-    /// <summary>Gets the consumer used to prevent dead-code elimination.</summary>
-    protected Consumer Consumer { get; } = new();
+    /// <summary>Stops the benchmark cluster.</summary>
+    /// <returns>A task that completes after cleanup.</returns>
+    [GlobalCleanup]
+    public Task CleanupAsync() => DisposeClusterAsync();
 
     /// <summary>Measures replicated SetAsync through owner quorum commit.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
@@ -40,7 +41,7 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
         for (var i = 0; i < Batch; i++)
         {
             await cache.SetAsync(NodeInvariantIndexStrings.FormatPrefixedPadded("commit", offset + i, "D10", 10), "v", cancellationToken: CancellationToken.None)
-                .ConfigureAwait(false);
+                       .ConfigureAwait(false);
         }
     }
 
@@ -80,11 +81,6 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
             throw;
         }
     }
-
-    /// <summary>Stops the benchmark cluster.</summary>
-    /// <returns>A task that completes after cleanup.</returns>
-    [GlobalCleanup]
-    public Task CleanupAsync() => DisposeClusterAsync();
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

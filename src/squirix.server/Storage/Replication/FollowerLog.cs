@@ -132,6 +132,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private set
         {
             Volatile.Write(ref _readiness, ToValue(value));
+            return;
 
             static int ToValue(FollowerLogReadiness readiness)
             {
@@ -188,6 +189,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // A stale leader term authorizes nothing: it must not expose additional committed entries.
         if (leaderTerm < _meta.CurrentTerm)
             return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
+
+        // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
+        // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
+        // answered against an out-of-date in-memory term and the higher term would never be persisted.
+        if (leaderTerm > _meta.CurrentTerm)
+        {
+            var termCandidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, termCandidate, cancellationToken).ConfigureAwait(false);
+            SetMeta(termCandidate);
+        }
 
         // Commit index moves only monotonically.
         if (commitIndex <= _meta.CommitIndex)

@@ -176,10 +176,7 @@ internal sealed class ReplicaFollower
 
     private static string? TopologyMismatch(in FollowerLogStatus status, ReadOnlyMemory<byte> fingerprint, ulong generation)
     {
-        if (!status.TopologyFingerprint.IsEmpty && !status.TopologyFingerprint.Span.SequenceEqual(fingerprint.Span))
-            return FollowerLogRefusal.TopologyMismatch;
-
-        if (generation < status.ConfigurationGeneration)
+        if (generation < status.ConfigurationGeneration || (!status.TopologyFingerprint.IsEmpty && !status.TopologyFingerprint.Span.SequenceEqual(fingerprint.Span)))
             return FollowerLogRefusal.TopologyMismatch;
 
         return null;

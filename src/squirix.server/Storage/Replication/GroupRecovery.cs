@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -28,6 +29,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
 
     /// <summary>Logs displaced from the map while leased, guarded by <see cref="_gate" />.</summary>
     private readonly HashSet<IFollowerLog> _retired = [];
+
     private int _disposed;
 
     /// <summary>
@@ -51,6 +53,29 @@ internal sealed class GroupRecovery : IAsyncDisposable
             return;
 
         await CloseLogsAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Acquires a lease on the recovered follower log for <paramref name="groupId" />.</summary>
+    /// <remarks>
+    /// A leased log is not disposed by <see cref="CloseLogsAsync" /> until the last lease is released, so the
+    /// fetch-then-use sequence cannot race disposal. Prefer this over <see cref="GetLog" />, which returns a
+    /// point-in-time snapshot without lifetime protection.
+    /// </remarks>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>A lease on the log, or <see langword="null" /> when the group is not open or the coordinator is disposed.</returns>
+    internal LogLease? AcquireLog(string groupId)
+    {
+        lock (_gate)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return null;
+
+            if (!Volatile.Read(ref _logs).TryGetValue(groupId, out var log))
+                return null;
+
+            _leaseCounts[log] = _leaseCounts.TryGetValue(log, out var count) ? count + 1 : 1;
+            return new LogLease(log, this);
+        }
     }
 
     /// <summary>Returns the recovered committed records for <paramref name="groupId" />.</summary>
@@ -203,6 +228,30 @@ internal sealed class GroupRecovery : IAsyncDisposable
         }
 
         return opened;
+    }
+
+    /// <summary>Releases a lease acquired by <see cref="AcquireLog" />, disposing retired logs whose last lease ends.</summary>
+    /// <param name="log">The leased follower log.</param>
+    /// <returns>A task that completes when the release (and any resulting disposal) finishes.</returns>
+    private async ValueTask ReleaseAsync(IFollowerLog log)
+    {
+        IFollowerLog? toDispose = null;
+        lock (_gate)
+        {
+            if (!_leaseCounts.TryGetValue(log, out var count) || count <= 0)
+                return;
+
+            if (count == 1)
+                _ = _leaseCounts.Remove(log);
+            else
+                _leaseCounts[log] = count - 1;
+
+            if (count == 1 && _retired.Remove(log))
+                toDispose = log;
+        }
+
+        if (toDispose != null)
+            await toDispose.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Atomically publishes <paramref name="opened" /> as the current snapshot, unless the coordinator was disposed.</summary>

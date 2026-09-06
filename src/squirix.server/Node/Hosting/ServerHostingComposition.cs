@@ -98,37 +98,6 @@ internal static class ServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    /// <summary>
-    /// Registers cluster locator, inter-node transport, and replication planning services.
-    /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
-    /// </summary>
-    /// <remarks>
-    /// Repair and bootstrap planning stay registered on every node, including RF=1 and foundation-only
-    /// hosts: activation discovers them when a stopped cluster is seeded for RF&gt;1, and the idle repair
-    /// service parks on its queue read without burning a thread.
-    /// </remarks>
-    /// <param name="services">DI service collection.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
-    {
-        _ = services.AddSquirixClusterLocator(cluster);
-        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
-        _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
-        _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
-        _ = services.AddSingleton(static _ => new BootstrapPlanner());
-        if (args.FoundationOnly || cluster.ReplicaCount > 1)
-        {
-            _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<MtlsOptions>(),
-                sp.GetRequiredService<MtlsCertificateMaterial>(),
-                sp.GetService<ReplicaGroupRegistry>()));
-            _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
-        }
-    }
-
     /// <summary>Opens the replica group logs for an activated node and registers replication services.</summary>
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -140,10 +109,16 @@ internal static class ServerHostingComposition
     /// One group per peer: every group whose replica set can include this node is served locally.
     /// Logs open eagerly, so any replication RPC fails closed until its log is ready.
     /// </remarks>
-    private static async Task AddReplicaGroupRegistryAsync(IServiceCollection services, TopologyOptions cluster, PersistenceOptions persistence, MtlsOptions mtlsOptions, CancellationToken cancellationToken)
+    private static async Task AddReplicaGroupRegistryAsync(
+        IServiceCollection services,
+        TopologyOptions cluster,
+        PersistenceOptions persistence,
+        MtlsOptions mtlsOptions,
+        CancellationToken cancellationToken)
     {
         ImmutableArray<byte> fingerprint = [.. TopologyFingerprint.CreateFromTopology(cluster, mtlsOptions).Bytes];
-        await EnsureActivatedTopologyAsync(persistence.DataDir, fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken).ConfigureAwait(false);
+        await EnsureActivatedTopologyAsync(persistence.DataDir, fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+           .ConfigureAwait(false);
 
         var groupIds = new string[cluster.Peers.Length];
         for (var i = 0; i < groupIds.Length; i++)
@@ -174,34 +149,34 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration));
     }
 
-    /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
-    /// <param name="dataDir">Exclusive node data directory.</param>
-    /// <param name="fingerprint">Configured static topology fingerprint.</param>
-    /// <param name="generation">Configured configuration generation.</param>
-    /// <param name="replicaCount">Configured replica factor.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the configured identity is authorized.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the configured identity differs from the stamped one.</exception>
+    /// <summary>
+    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
+    /// </summary>
     /// <remarks>
-    /// Only an offline bootstrap rewrites the stamp, so live and stopped topology changes outside
-    /// the authorized migration path fail startup instead of splitting the replica set.
+    /// Repair and bootstrap planning stay registered on every node, including RF=1 and foundation-only
+    /// hosts: activation discovers them when a stopped cluster is seeded for RF&gt;1, and the idle repair
+    /// service parks on its queue read without burning a thread.
     /// </remarks>
-    private static async Task EnsureActivatedTopologyAsync(string dataDir, ReadOnlyMemory<byte> fingerprint, ulong generation, int replicaCount, CancellationToken cancellationToken)
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
     {
-        var store = new ActivatedTopologyStampStore(dataDir);
-        var current = new ActivatedTopologyStamp { Generation = generation, Fingerprint = fingerprint, ReplicaCount = replicaCount };
-        var stamped = await store.ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (stamped == null)
-        {
-            await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
+        _ = services.AddSquirixClusterLocator(cluster);
+        _ = services.AddSquirixClusterTransport(cluster, null, args.PeerHandlerFactory);
+        _ = services.AddSquirixClusterReplication(cluster, args.FoundationOnly);
+        _ = services.AddSingleton(static _ => new ReplicaRepairService(RepairQueueCapacity));
+        _ = services.AddHostedService(static sp => sp.GetRequiredService<ReplicaRepairService>());
+        _ = services.AddSingleton(static _ => new BootstrapPlanner());
+        if (!args.FoundationOnly && cluster.ReplicaCount <= 1)
             return;
-        }
-
-        if (!stamped.Matches(current))
-        {
-            throw new InvalidOperationException(
-                $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
-        }
+        _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
+            sp.GetRequiredService<TopologyOptions>(),
+            sp.GetRequiredService<MtlsOptions>(),
+            sp.GetRequiredService<MtlsCertificateMaterial>(),
+            sp.GetService<ReplicaGroupRegistry>()));
+        _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
     [SuppressMessage(
@@ -267,6 +242,41 @@ internal static class ServerHostingComposition
         if (args.Extensions != null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
+    }
+
+    /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
+    /// <param name="dataDir">Exclusive node data directory.</param>
+    /// <param name="fingerprint">Configured static topology fingerprint.</param>
+    /// <param name="generation">Configured configuration generation.</param>
+    /// <param name="replicaCount">Configured replica factor.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the configured identity is authorized.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the configured identity differs from the stamped one.</exception>
+    /// <remarks>
+    /// Only an offline bootstrap rewrites the stamp, so live and stopped topology changes outside
+    /// the authorized migration path fail startup instead of splitting the replica set.
+    /// </remarks>
+    private static async Task EnsureActivatedTopologyAsync(
+        string dataDir,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        int replicaCount,
+        CancellationToken cancellationToken)
+    {
+        var store = new ActivatedTopologyStampStore(dataDir);
+        var current = new ActivatedTopologyStamp { Generation = generation, Fingerprint = fingerprint, ReplicaCount = replicaCount };
+        var stamped = await store.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (stamped == null)
+        {
+            await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!stamped.Matches(current))
+        {
+            throw new InvalidOperationException(
+                $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
+        }
     }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)

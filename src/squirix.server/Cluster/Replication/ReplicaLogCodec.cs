@@ -19,11 +19,45 @@ internal static class ReplicaLogCodec
 {
     private const ushort Version = 1;
 
+    /// <summary>Decodes canonical bytes back to a record.</summary>
+    /// <param name="bytes">The canonical payload bytes.</param>
+    /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
+    internal static ReplicaLogRecord? Decode(ReadOnlyMemory<byte> bytes)
+    {
+        var span = bytes.Span;
+        if (span.Length < 2 || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
+            return null;
+
+        var decoder = new Decoder(bytes[2..]);
+        if (decoder.ReadHead() is not { } head || decoder.ReadMiddle() is not { } middle || decoder.ReadTail() is not { } tail || !decoder.AtEnd)
+            return null;
+
+        return new ReplicaLogRecord(
+            head.LogIndex,
+            head.Term,
+            head.OperationId,
+            head.OperationScope,
+            head.OperationFingerprint,
+            head.RecordKind,
+            head.CacheName,
+            middle.KeyPayload,
+            middle.MutationKind,
+            middle.MutationPayload,
+            middle.OutcomePayload,
+            tail.ExpiresUtcTicks,
+            tail.CreatedUtcTicks,
+            tail.ResolvedUtcTicks,
+            tail.PayloadChecksum);
+    }
+
     /// <summary>Encodes a record to its canonical bytes.</summary>
     /// <param name="record">The record to encode.</param>
     /// <returns>The canonical payload bytes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when a field exceeds the 32-bit length prefix.</exception>
-    [SuppressMessage("Usage", "MA0045:Use async disposable", Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
+    [SuppressMessage(
+        "Usage",
+        "MA0045:Use async disposable",
+        Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     internal static byte[] Encode(in ReplicaLogRecord record)
     {
         // Project the exact payload length before serializing so a pathological record is rejected
@@ -62,38 +96,6 @@ internal static class ReplicaLogCodec
         }
 
         return stream.ToArray();
-    }
-
-    /// <summary>Decodes canonical bytes back to a record.</summary>
-    /// <param name="bytes">The canonical payload bytes.</param>
-    /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
-    internal static ReplicaLogRecord? Decode(ReadOnlyMemory<byte> bytes)
-    {
-        var span = bytes.Span;
-        if (span.Length < 2 || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
-            return null;
-
-        var decoder = new Decoder(bytes.Slice(2));
-        if (decoder.ReadHead() is not { } head || decoder.ReadMiddle() is not { } middle ||
-            decoder.ReadTail() is not { } tail || !decoder.AtEnd)
-            return null;
-
-        return new ReplicaLogRecord(
-            head.LogIndex,
-            head.Term,
-            head.OperationId,
-            head.OperationScope,
-            head.OperationFingerprint,
-            head.RecordKind,
-            head.CacheName,
-            middle.KeyPayload,
-            middle.MutationKind,
-            middle.MutationPayload,
-            middle.OutcomePayload,
-            tail.ExpiresUtcTicks,
-            tail.CreatedUtcTicks,
-            tail.ResolvedUtcTicks,
-            tail.PayloadChecksum);
     }
 
     private static void WriteBytes(BinaryWriter writer, ReadOnlySpan<byte> value)
@@ -141,46 +143,33 @@ internal static class ReplicaLogCodec
 
         internal (ulong LogIndex, ulong Term, string OperationId, string OperationScope, ReadOnlyMemory<byte> OperationFingerprint, string RecordKind, string CacheName)? ReadHead()
         {
-            if (!TryTake(8, out var logIndexBytes) || !TryTake(8, out var termBytes) ||
-                !TryTakeLengthPrefixed(out var operationIdBytes) || !TryTakeLengthPrefixed(out var operationScopeBytes) ||
-                !TryTakeLengthPrefixed(out var fingerprintBytes) || !TryTakeLengthPrefixed(out var recordKindBytes) ||
+            if (!TryTake(8, out var logIndexBytes) || !TryTake(8, out var termBytes) || !TryTakeLengthPrefixed(out var operationIdBytes) ||
+                !TryTakeLengthPrefixed(out var operationScopeBytes) || !TryTakeLengthPrefixed(out var fingerprintBytes) || !TryTakeLengthPrefixed(out var recordKindBytes) ||
                 !TryTakeLengthPrefixed(out var cacheNameBytes))
                 return null;
 
-            return (
-                BinaryPrimitives.ReadUInt64LittleEndian(logIndexBytes),
-                BinaryPrimitives.ReadUInt64LittleEndian(termBytes),
-                Encoding.UTF8.GetString(operationIdBytes),
-                Encoding.UTF8.GetString(operationScopeBytes),
-                OwnedBufferKit.CopyToOwned(fingerprintBytes),
-                Encoding.UTF8.GetString(recordKindBytes),
+            return (BinaryPrimitives.ReadUInt64LittleEndian(logIndexBytes), BinaryPrimitives.ReadUInt64LittleEndian(termBytes), Encoding.UTF8.GetString(operationIdBytes),
+                Encoding.UTF8.GetString(operationScopeBytes), OwnedBufferKit.CopyToOwned(fingerprintBytes), Encoding.UTF8.GetString(recordKindBytes),
                 Encoding.UTF8.GetString(cacheNameBytes));
         }
 
         internal (ReadOnlyMemory<byte> KeyPayload, string MutationKind, ReadOnlyMemory<byte> MutationPayload, ReadOnlyMemory<byte> OutcomePayload)? ReadMiddle()
         {
-            if (!TryTakeLengthPrefixed(out var keyBytes) || !TryTakeLengthPrefixed(out var mutationKindBytes) ||
-                !TryTakeLengthPrefixed(out var mutationBytes) || !TryTakeLengthPrefixed(out var outcomeBytes))
+            if (!TryTakeLengthPrefixed(out var keyBytes) || !TryTakeLengthPrefixed(out var mutationKindBytes) || !TryTakeLengthPrefixed(out var mutationBytes) ||
+                !TryTakeLengthPrefixed(out var outcomeBytes))
                 return null;
 
-            return (
-                OwnedBufferKit.CopyToOwned(keyBytes),
-                Encoding.UTF8.GetString(mutationKindBytes),
-                OwnedBufferKit.CopyToOwned(mutationBytes),
+            return (OwnedBufferKit.CopyToOwned(keyBytes), Encoding.UTF8.GetString(mutationKindBytes), OwnedBufferKit.CopyToOwned(mutationBytes),
                 OwnedBufferKit.CopyToOwned(outcomeBytes));
         }
 
         internal (long ExpiresUtcTicks, long CreatedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum)? ReadTail()
         {
-            if (!TryTake(8, out var expiresBytes) || !TryTake(8, out var createdBytes) ||
-                !TryTake(8, out var resolvedBytes) || !TryTake(4, out var checksumBytes))
+            if (!TryTake(8, out var expiresBytes) || !TryTake(8, out var createdBytes) || !TryTake(8, out var resolvedBytes) || !TryTake(4, out var checksumBytes))
                 return null;
 
-            return (
-                BinaryPrimitives.ReadInt64LittleEndian(expiresBytes),
-                BinaryPrimitives.ReadInt64LittleEndian(createdBytes),
-                BinaryPrimitives.ReadInt64LittleEndian(resolvedBytes),
-                BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes));
+            return (BinaryPrimitives.ReadInt64LittleEndian(expiresBytes), BinaryPrimitives.ReadInt64LittleEndian(createdBytes),
+                BinaryPrimitives.ReadInt64LittleEndian(resolvedBytes), BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes));
         }
 
         private bool TryTake(int size, out ReadOnlySpan<byte> slice)

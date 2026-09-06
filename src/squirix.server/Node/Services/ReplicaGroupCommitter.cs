@@ -16,8 +16,8 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Serialized owner-side replicated commits for the group owned by this node.</summary>
 /// <remarks>
 /// Commits run one at a time per group under <see cref="AsyncLock" />: log indexes stay dense with no
-/// gaps, prepare-time reads stay exact through the ordered apply, and the coordinator never observes
-/// admission pressure or turn waits. The coordinator itself is never cancelled; a fixed commit budget
+/// gaps, prepare-time reads stay exact through the ordered applying, and the coordinator never observes
+/// admission pressure or turn waits. The coordinator itself is never canceled; a fixed commit budget
 /// bounds every attempt and idempotent retries recover unknown outcomes.
 /// </remarks>
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
@@ -79,7 +79,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return;
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
-        // the semaphore before it is disposed. New admissions fail closed via ThrowIfDisposed.
+        // the semaphore before it is disposed of. New admissions fail closed via ThrowIfDisposed.
         var drain = await _gate.LockAsync(CancellationToken.None).ConfigureAwait(false);
         drain.Dispose();
 
@@ -120,7 +120,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return DecodeApplied(outcome);
     }
 
-    /// <summary>Commits a replicated unconditional write.</summary>
+    /// <summary>Commits a replicated unconditional writing.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -153,7 +153,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return DecodeApplied(outcome);
     }
 
-    /// <summary>Commits a replicated conditional add and returns whether the key was absent.</summary>
+    /// <summary>Commits a replicated conditional adding and returns whether the key was absent.</summary>
     /// <param name="operationId">Client operation identifier.</param>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -201,7 +201,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             throw new InvalidOperationException("Committed remove outcome payload is malformed.");
 
         if (!removed)
-            return new CacheRemoveResult<object?>(false, default);
+            return new CacheRemoveResult<object?>(false, null);
 
         var entry = CacheEntryWire.Parser.ParseFrom(new ReadOnlySequence<byte>(previous));
         var mapped = await entry.MapFromProtoAsync<object?>().ConfigureAwait(false);
@@ -219,7 +219,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch (Exception error) when (!IsPostAppendOutcome(error))
         {
-            // The local append was refused before anything was marked appended: the reserved
+            // The local appending was refused before anything was marked appended: the reserved
             // _nextIndex no longer matches the durable log, so drop the started state and rebuild
             // from status.LastLogIndex on the next attempt. Post-append outcomes (a durable
             // majority may exist) keep the reservation and sequencing untouched.
@@ -242,7 +242,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (!_registry.TryGetLog(_selfId, out var log) || log == null)
+        if (!_registry.TryGetLog(_selfId, out var log))
             throw new InvalidOperationException($"This node does not serve its owned replica group '{_selfId}'.");
 
         if (_coordinator != null)
@@ -289,8 +289,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>
     /// All calls originate from the single owning coordinator's serialized ordered body, except
     /// <see cref="RecordLaggingReplica" />, which the coordinator also invokes from background follower
-    /// observation. The coordinator serializes whole commit bodies under its commit gate and the committer
-    /// drives one commit at a time, so the fan-out for mutation N always runs between the local appends
+    /// observation. The coordinator serializes whole commit bodies under its commit gate, and the committer
+    /// drives one commit at a time, so the fan-out for mutation N always runs between the local appending
     /// of N and N+1: the fan-out snapshot below always describes the batch it accompanies. Only the commit
     /// watermark is shared across the background path and stays monotonic; every other field is written
     /// solely by the serialized body.
@@ -311,7 +311,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
         /// <param name="local">Local cache pipeline used for memory applies.</param>
-        /// <param name="log">Owned group log for local durable appends.</param>
+        /// <param name="log">Owned group log for local durable appending.</param>
         /// <param name="rpc">Follower replication RPCs.</param>
         /// <param name="members">Ordered group members; index zero is this node.</param>
         /// <param name="selfId">This node identifier, matching <paramref name="members" /> index zero.</param>
@@ -363,9 +363,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (decoded is not { } append)
                 throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
 
-            var header = _header;
             var batch = new FollowerBatch(new[] { append }, _selfId, mutation.Term, _fanoutPrevIndex, _fanoutPrevTerm, _commitIndex);
-            var result = await _rpc.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+            var result = await _rpc.AppendEntriesAsync(nodeId, _header, batch, cancellationToken).ConfigureAwait(false);
             if (!result.Success)
                 throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.");
 
@@ -382,7 +381,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             if (!result.Success)
                 throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
 
-            // Snapshot the pre-append positions for this mutation's fan-out, then advance. The fan-out
+            // Snapshot the pre-appended positions for this mutation's fan-out, then advance. The fan-out
             // carries this very entry, so it must name the predecessor, not the entry itself.
             _fanoutPrevIndex = _prevLogIndex;
             _fanoutPrevTerm = _prevLogTerm;
@@ -407,7 +406,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             _ = logIndex;
 
             // Repair driving lands in a later milestone; the coordinator already observes stragglers
-            // in the background and a lagging replica simply stops counting toward the majority.
+            // in the background, and a lagging replica simply stops counting toward the majority.
         }
     }
 }
