@@ -19,6 +19,9 @@ internal static class ReplicaLogCodec
 {
     private const ushort Version = 1;
 
+    /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
     /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
@@ -29,25 +32,34 @@ internal static class ReplicaLogCodec
             return null;
 
         var decoder = new Decoder(bytes[2..]);
-        if (decoder.ReadHead() is not { } head || decoder.ReadMiddle() is not { } middle || decoder.ReadTail() is not { } tail || !decoder.AtEnd)
-            return null;
+        try
+        {
+            if (decoder.ReadHead() is not { } head || decoder.ReadMiddle() is not { } middle || decoder.ReadTail() is not { } tail || !decoder.AtEnd)
+                return null;
 
-        return new ReplicaLogRecord(
-            head.LogIndex,
-            head.Term,
-            head.OperationId,
-            head.OperationScope,
-            head.OperationFingerprint,
-            head.RecordKind,
-            head.CacheName,
-            middle.KeyPayload,
-            middle.MutationKind,
-            middle.MutationPayload,
-            middle.OutcomePayload,
-            tail.ExpiresUtcTicks,
-            tail.CreatedUtcTicks,
-            tail.ResolvedUtcTicks,
-            tail.PayloadChecksum);
+            return new ReplicaLogRecord(
+                head.LogIndex,
+                head.Term,
+                head.OperationId,
+                head.OperationScope,
+                head.OperationFingerprint,
+                head.RecordKind,
+                head.CacheName,
+                middle.KeyPayload,
+                middle.MutationKind,
+                middle.MutationPayload,
+                middle.OutcomePayload,
+                tail.ExpiresUtcTicks,
+                tail.CreatedUtcTicks,
+                tail.ResolvedUtcTicks,
+                tail.PayloadChecksum);
+        }
+        catch (DecoderFallbackException)
+        {
+            // Malformed UTF-8 inside a length-prefixed string field marks the canonical payload as corrupt
+            // and is refused exactly like any other structurally invalid payload.
+            return null;
+        }
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -74,7 +86,7 @@ internal static class ReplicaLogCodec
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
-        using var stream = new MemoryStream();
+        using var stream = new MemoryStream(int.CreateChecked(length));
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write(Version);
@@ -95,7 +107,9 @@ internal static class ReplicaLogCodec
             writer.Write(record.PayloadChecksum);
         }
 
-        return stream.ToArray();
+        // The byte count was projected exactly before writing, so the underlying allocated buffer holds
+        // precisely the encoded payload; return it directly instead of copying via ToArray().
+        return stream.GetBuffer();
     }
 
     private static void WriteBytes(BinaryWriter writer, ReadOnlySpan<byte> value)
@@ -148,9 +162,9 @@ internal static class ReplicaLogCodec
                 !TryTakeLengthPrefixed(out var cacheNameBytes))
                 return null;
 
-            return (BinaryPrimitives.ReadUInt64LittleEndian(logIndexBytes), BinaryPrimitives.ReadUInt64LittleEndian(termBytes), Encoding.UTF8.GetString(operationIdBytes),
-                Encoding.UTF8.GetString(operationScopeBytes), OwnedBufferKit.CopyToOwned(fingerprintBytes), Encoding.UTF8.GetString(recordKindBytes),
-                Encoding.UTF8.GetString(cacheNameBytes));
+            return (BinaryPrimitives.ReadUInt64LittleEndian(logIndexBytes), BinaryPrimitives.ReadUInt64LittleEndian(termBytes), StrictUtf8.GetString(operationIdBytes),
+                StrictUtf8.GetString(operationScopeBytes), OwnedBufferKit.CopyToOwned(fingerprintBytes), StrictUtf8.GetString(recordKindBytes),
+                StrictUtf8.GetString(cacheNameBytes));
         }
 
         internal (ReadOnlyMemory<byte> KeyPayload, string MutationKind, ReadOnlyMemory<byte> MutationPayload, ReadOnlyMemory<byte> OutcomePayload)? ReadMiddle()
@@ -159,7 +173,7 @@ internal static class ReplicaLogCodec
                 !TryTakeLengthPrefixed(out var outcomeBytes))
                 return null;
 
-            return (OwnedBufferKit.CopyToOwned(keyBytes), Encoding.UTF8.GetString(mutationKindBytes), OwnedBufferKit.CopyToOwned(mutationBytes),
+            return (OwnedBufferKit.CopyToOwned(keyBytes), StrictUtf8.GetString(mutationKindBytes), OwnedBufferKit.CopyToOwned(mutationBytes),
                 OwnedBufferKit.CopyToOwned(outcomeBytes));
         }
 
