@@ -186,33 +186,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
-        // A stale leader term authorizes nothing: it must not expose additional committed entries.
-        if (leaderTerm < _meta.CurrentTerm)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
-
-        // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
-        // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
-        // answered against an out-of-date in-memory term and the higher term would never be persisted.
-        if (leaderTerm > _meta.CurrentTerm)
-        {
-            var termCandidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, termCandidate, cancellationToken).ConfigureAwait(false);
-            SetMeta(termCandidate);
-        }
-
-        // Commit index moves only monotonically.
-        if (commitIndex <= _meta.CommitIndex)
-            return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
-
-        // Never beyond the locally durable last index.
-        if (commitIndex > _lastLogIndex)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
-
-        var candidate = _meta with { CommitIndex = commitIndex };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        SetMeta(candidate);
-        _faults.OnCommitAdvanced();
-        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        return await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -574,6 +548,30 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.SetMeta(candidate);
             owner.Faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        }
+
+        internal static async Task<FollowerLogCommitResult> AdvanceCommitWithTermAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong commitIndex,
+            ulong leaderTerm,
+            CancellationToken cancellationToken)
+        {
+            // A stale leader term authorizes nothing: it must not expose additional committed entries.
+            if (leaderTerm < owner.Meta.CurrentTerm)
+                return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CommitIndex);
+
+            // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
+            // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
+            // answered against an out-of-date in-memory term and the higher term would never be persisted.
+            if (leaderTerm > owner.Meta.CurrentTerm)
+            {
+                var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+                await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
+                owner.SetMeta(termCandidate);
+            }
+
+            return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
         }
 
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(
