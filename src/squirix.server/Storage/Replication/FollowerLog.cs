@@ -425,13 +425,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (leaderTerm < _meta.CurrentTerm)
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.StaleTerm);
 
-        if (leaderTerm > _meta.CurrentTerm)
-        {
-            var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-            SetMeta(candidate);
-        }
-
+        if (leaderTerm <= _meta.CurrentTerm)
+            return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
+        var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        SetMeta(candidate);
         return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
     }
 
