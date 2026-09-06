@@ -162,21 +162,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
 
-        // Applied index moves only monotonically.
-        if (appliedIndex <= _meta.LastAppliedIndex)
-            return new FollowerLogAppliedResult(true, string.Empty, _meta.LastAppliedIndex);
-
-        // Never applied beyond the committed index.
-        if (appliedIndex > _meta.CommitIndex)
-            return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
-
-        // The watermark is persisted before the payloads are released; on a crash between the two, restart
-        // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
-        var candidate = _meta with { LastAppliedIndex = appliedIndex };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        SetMeta(candidate);
-        FollowerLogRecovery.PruneAppliedEntries(_journal, this);
-        return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
+        return await FollowerLogAppend.AdvanceAppliedMonotonicAsync(_journal, this, appliedIndex, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -187,19 +173,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
-        // Commit index moves only monotonically.
-        if (commitIndex <= _meta.CommitIndex)
-            return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
-
-        // Never beyond the locally durable last index.
-        if (commitIndex > _lastLogIndex)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
-
-        var candidate = _meta with { CommitIndex = commitIndex };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        SetMeta(candidate);
-        _faults.OnCommitAdvanced();
-        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        return await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -240,21 +214,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         _faults.OnBeforeMemoryApply();
-        var result = new List<FollowerLogEntry>();
-        foreach (var pair in _journal.Entries)
-        {
-            if (pair.Key > _meta.CommitIndex)
-                break;
-
-            // Applied entries were released from memory; their keys can still be present right after a
-            // restart, so the working set is bounded below by the durable applied watermark.
-            if (pair.Key <= _meta.LastAppliedIndex)
-                continue;
-
-            result.Add(pair.Value);
-        }
-
-        return result;
+        return _journal.CollectCommittedEntries(_meta.CommitIndex, _meta.LastAppliedIndex);
     }
 
     /// <inheritdoc />
@@ -276,19 +236,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
-    {
-        var result = new List<FollowerLogEntry>();
-        foreach (var pair in _journal.Entries)
-        {
-            if (pair.Key <= _meta.CommitIndex)
-                continue;
-
-            result.Add(pair.Value);
-        }
-
-        return ValueTask.FromResult<IReadOnlyList<FollowerLogEntry>>(result);
-    }
+    public ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken) =>
+        ValueTask.FromResult<IReadOnlyList<FollowerLogEntry>>(_journal.CollectUncommittedTail(_meta.CommitIndex));
 
     /// <inheritdoc />
     Task<GroupSnapshotInstallResult> IFollowerLog.InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken) =>
@@ -537,6 +486,50 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend
     {
+        internal static async Task<FollowerLogAppliedResult> AdvanceAppliedMonotonicAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong appliedIndex,
+            CancellationToken cancellationToken)
+        {
+            // Applied index moves only monotonically.
+            if (appliedIndex <= owner.Meta.LastAppliedIndex)
+                return new FollowerLogAppliedResult(true, string.Empty, owner.Meta.LastAppliedIndex);
+
+            // Never applied beyond the committed index.
+            if (appliedIndex > owner.Meta.CommitIndex)
+                return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, owner.Meta.LastAppliedIndex);
+
+            // The watermark is persisted before the payloads are released; on a crash between the two, restart
+            // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
+            var candidate = owner.Meta with { LastAppliedIndex = appliedIndex };
+            await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(candidate);
+            journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
+            return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
+        }
+
+        internal static async Task<FollowerLogCommitResult> AdvanceCommitMonotonicAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong commitIndex,
+            CancellationToken cancellationToken)
+        {
+            // Commit index moves only monotonically.
+            if (commitIndex <= owner.Meta.CommitIndex)
+                return new FollowerLogCommitResult(true, string.Empty, owner.Meta.CommitIndex);
+
+            // Never beyond the locally durable last index.
+            if (commitIndex > owner.LastLogIndex)
+                return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, owner.Meta.CommitIndex);
+
+            var candidate = owner.Meta with { CommitIndex = commitIndex };
+            await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(candidate);
+            owner.Faults.OnCommitAdvanced();
+            return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        }
+
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(
             FollowerLogJournal journal,
             IFollowerLogContext owner,
