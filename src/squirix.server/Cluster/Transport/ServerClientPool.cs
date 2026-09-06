@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -59,6 +58,7 @@ internal sealed class ServerClientPool : IServerClientPool
             return;
 
         BeginDrain();
+#pragma warning disable CA1031 // Shutdown drain: one bad peer must not leak the remaining peers.
         for (var i = 0; i < _nodeIds.Length; i++)
         {
             var nodeId = _nodeIds[i];
@@ -66,7 +66,7 @@ internal sealed class ServerClientPool : IServerClientPool
             {
                 await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is ObjectDisposedException or IOException)
+            catch (Exception exception)
             {
                 if (_logger != null)
                     LogManager.ClientPoolPolicyDisposeFailed(_logger, exception, nodeId);
@@ -81,12 +81,13 @@ internal sealed class ServerClientPool : IServerClientPool
                 _channels[nodeId].Dispose();
                 _metrics.AddDisposal();
             }
-            catch (Exception exception) when (exception is ObjectDisposedException or IOException)
+            catch (Exception exception)
             {
                 if (_logger != null)
                     LogManager.ClientPoolChannelDisposeFailed(_logger, exception, nodeId);
             }
         }
+#pragma warning restore CA1031
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];

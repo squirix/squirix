@@ -77,4 +77,52 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         var only = Assert.Single(committed);
         Assert.Equal("durable", Encoding.UTF8.GetString(only.Payload.Span));
     }
+
+    /// <summary>A log leased across disposal stays usable until the lease is released, then it is disposed.</summary>
+    [Fact]
+    public async Task LeasedLogSurvivesCloseUntilReleased()
+    {
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
+        await recovery.RecoverAllAsync(DefaultCancellationToken);
+
+        var lease = recovery.TryAcquireLog("grp-1");
+        Assert.NotNull(lease);
+        var leased = lease.Log;
+        await using (lease)
+        {
+            await recovery.DisposeAsync();
+            Assert.Null(recovery.GetLog("grp-1"));
+
+            // The retired log is not disposed while leased, so fetch-then-use still succeeds.
+            var appended = await leased.AppendAsync(AppendRequest(), DefaultCancellationToken);
+            Assert.True(appended.Success);
+        }
+
+        // The last release disposes the retired log.
+        var rejected = await leased.AppendAsync(AppendRequest(), DefaultCancellationToken);
+        Assert.False(rejected.Success);
+        Assert.Equal(FollowerLogRefusal.NotReady, rejected.RefusalCode);
+    }
+
+    /// <summary>Acquiring an unknown group or a disposed coordinator returns no lease.</summary>
+    [Fact]
+    public async Task TryAcquireReturnsNullWhenUnusable()
+    {
+        await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1"));
+        Assert.Null(recovery.TryAcquireLog("unknown"));
+
+        await recovery.RecoverAllAsync(DefaultCancellationToken);
+        Assert.Null(recovery.TryAcquireLog("unknown"));
+
+        await recovery.DisposeAsync();
+        Assert.Null(recovery.TryAcquireLog("grp-1"));
+    }
+
+    private static FollowerLogAppendRequest AppendRequest() => new(
+        "leader-1",
+        1UL,
+        0UL,
+        0UL,
+        0UL,
+        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("leased"))]));
 }
