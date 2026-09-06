@@ -236,8 +236,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken) =>
-        ValueTask.FromResult<IReadOnlyList<FollowerLogEntry>>(_journal.CollectUncommittedTail(_meta.CommitIndex));
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _journal.CollectUncommittedTail(_meta.CommitIndex);
+    }
 
     /// <inheritdoc />
     Task<GroupSnapshotInstallResult> IFollowerLog.InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken) =>
