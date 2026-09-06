@@ -1,9 +1,11 @@
 using System;
 using System.Threading;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Owned capacity and key-stripe lease.</summary>
+[ThreadSafe]
 internal sealed class ReplicaMutationLease : IDisposable
 {
     private readonly SemaphoreSlim _stripe;

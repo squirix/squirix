@@ -373,6 +373,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Version { get; set; }
     }
 
+    [Immutable]
     private sealed class PhysicalCacheRawReader : ILocalCacheRawReader<T>
     {
         private readonly PhysicalCache<T> _owner;

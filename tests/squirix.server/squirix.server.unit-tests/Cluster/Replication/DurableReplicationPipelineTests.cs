@@ -21,7 +21,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 4, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
         var mutation = CreateMutation();
         try
         {
@@ -62,7 +62,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(0);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 4, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
         var mutation = CreateMutation();
         using var cancellation = new CancellationTokenSource();
         try
@@ -84,13 +84,62 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>A catching-up follower contributes no quorum copy until a repair session marks it ready.</summary>
+    [Fact]
+    public async Task CatchingUpFollowerCountsOnlyWhenReady()
+    {
+        var eligibility = new ReplicaEligibility(3);
+        var ready = Progress(1UL, 0UL, 0UL, 0UL, 1UL);
+        Assert.True(eligibility.TryMarkReady(0, in ready, in ready));
+
+        var stalledPipeline = new RecordingPipeline(1);
+        var stalledHooks = new RecordingHooks(stalledPipeline.Trace);
+        var stalled = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
+            stalledPipeline,
+            stalledHooks,
+            new GroupIdempotencyState(10, TimeSpan.MaxValue),
+            eligibility);
+        try
+        {
+            var stalledCommit = stalled.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(200), DefaultCancellationToken);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(stalledCommit);
+            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            stalledPipeline.ReleaseFollowers();
+            await stalled.DisposeAsync();
+        }
+
+        Assert.True(eligibility.TryMarkReady(1, in ready, in ready));
+        var pipeline = new RecordingPipeline(1);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
+            pipeline,
+            hooks,
+            new GroupIdempotencyState(10, TimeSpan.MaxValue),
+            eligibility);
+        try
+        {
+            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
     /// <summary>Disposal closes admission before draining an in-flight operation.</summary>
     [Fact]
     public async Task DisposeStopsAndDrains()
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 4, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
         Task? disposal = null;
         try
         {
@@ -122,7 +171,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task ExceptionalFanOutStillOwnsFollowerTasks()
     {
         var pipeline = new RecordingPipeline(0);
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 4, pipeline, ThrowOnFanOutHooks.Instance, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
+            pipeline,
+            ThrowOnFanOutHooks.Instance,
+            new GroupIdempotencyState(10, TimeSpan.MaxValue));
         Task? disposal = null;
         try
         {
@@ -140,6 +193,29 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             if (disposal == null)
                 await coordinator.DisposeAsync();
         }
+    }
+
+    /// <summary>A memory-apply failure after the commit index advances is retried by the next commit.</summary>
+    [Fact]
+    public async Task FailedMemoryApplyIsRetriedByLaterCommit()
+    {
+        var pipeline = new FlakyMemoryPipeline();
+        var coordinator = CreateCoordinator(3, pipeline);
+        try
+        {
+            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
+            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
+
+            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+        }
+        finally
+        {
+            await coordinator.DisposeAsync();
+        }
+
+        Assert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
     /// <summary>A late acknowledgement advances its replica before that replica's next acknowledgement is released.</summary>
@@ -227,29 +303,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         Assert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
-    /// <summary>A memory-apply failure after the commit index advances is retried by the next commit.</summary>
-    [Fact]
-    public async Task FailedMemoryApplyIsRetriedByLaterCommit()
-    {
-        var pipeline = new FlakyMemoryPipeline();
-        var coordinator = CreateCoordinator(3, pipeline);
-        try
-        {
-            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
-
-            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
-        }
-        finally
-        {
-            await coordinator.DisposeAsync();
-        }
-
-        Assert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
-    }
-
     /// <summary>A recovered uncommitted tail must be reconciled before new writes are admitted.</summary>
     [Fact]
     public void RejectsUnreconciledDurableTail()
@@ -260,7 +313,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(
             pipeline,
             hooks,
-            static (value, faultHooks) => _ = new ReplicaCommitCoordinator(3, 2, 1, 4, value, faultHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue)));
+            static (value, faultHooks) => _ = new ReplicaCommitCoordinator(
+                new ReplicaCommitCoordinatorOptions(3, 2, 1, 4),
+                value,
+                faultHooks,
+                new GroupIdempotencyState(10, TimeSpan.MaxValue)));
     }
 
     /// <summary>One shared task instance cannot count as acknowledgements from multiple replicas.</summary>
@@ -289,7 +346,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(3, 0, 0, 4, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
         try
         {
             var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), DefaultCancellationToken);
@@ -305,10 +362,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null) => new(
-        replicaCount,
-        0,
-        0,
-        8,
+        new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8),
         pipeline,
         hooks ?? NoOpHooks.Instance,
         new GroupIdempotencyState(16, TimeSpan.MaxValue));
@@ -319,6 +373,16 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         logIndex,
         new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42),
         0);
+
+    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm) => new(
+        nextIndex,
+        matchIndex,
+        commitIndex,
+        appliedIndex,
+        lastTerm,
+        new byte[] { 9 },
+        1UL,
+        7U);
 
     private static async Task WaitForMatchIndexAsync(ReplicaCommitCoordinator coordinator, int replicaIndex, ulong matchIndex, CancellationToken cancellationToken)
     {
@@ -385,55 +449,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     [Mutable]
-    private sealed class GatedFollowersPipeline : IReplicaCommitPipeline
-    {
-        private readonly TaskCompletionSource<bool> _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal List<ulong> AppliedIndexes { get; } = [];
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = replicaIndex;
-            return new ValueTask<ReplicaDurableAcknowledgement>(WaitAndAcknowledgeAsync(mutation, cancellationToken));
-        }
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = cancellationToken;
-            AppliedIndexes.Add(mutation.LogIndex);
-            return ValueTask.CompletedTask;
-        }
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-            _ = replicaIndex;
-            _ = logIndex;
-        }
-
-        internal void ReleaseFollowers() => _ = _released.TrySetResult(true);
-
-        private async Task<ReplicaDurableAcknowledgement> WaitAndAcknowledgeAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
-        }
-    }
-
-    [Mutable]
     private sealed class FlakyMemoryPipeline : IReplicaCommitPipeline
     {
         private bool _failedOnce;
@@ -479,6 +494,55 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         {
             _ = replicaIndex;
             _ = logIndex;
+        }
+    }
+
+    [Mutable]
+    private sealed class GatedFollowersPipeline : IReplicaCommitPipeline
+    {
+        private readonly TaskCompletionSource<bool> _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal List<ulong> AppliedIndexes { get; } = [];
+
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
+        {
+            _ = commitIndex;
+            _ = cancellationToken;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            _ = replicaIndex;
+            return new ValueTask<ReplicaDurableAcknowledgement>(WaitAndAcknowledgeAsync(mutation, cancellationToken));
+        }
+
+        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            _ = mutation;
+            _ = cancellationToken;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            AppliedIndexes.Add(mutation.LogIndex);
+            return ValueTask.CompletedTask;
+        }
+
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
+        {
+            _ = replicaIndex;
+            _ = logIndex;
+        }
+
+        internal void ReleaseFollowers() => _ = _released.TrySetResult(true);
+
+        private async Task<ReplicaDurableAcknowledgement> WaitAndAcknowledgeAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            _ = await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
         }
     }
 

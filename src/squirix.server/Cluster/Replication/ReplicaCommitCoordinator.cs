@@ -31,41 +31,35 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     private Task? _disposeTask;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitCoordinator" /> class.</summary>
-    /// <param name="replicaCount">Fixed replica count greater than one.</param>
-    /// <param name="initialLogIndex">Recovered the last durable log index.</param>
-    /// <param name="initialCommitIndex">Recovered durable commit index.</param>
-    /// <param name="maxInFlight">Maximum admitted mutations.</param>
+    /// <param name="options">Fixed group configuration.</param>
     /// <param name="pipeline">Durable and memory pipeline.</param>
     /// <param name="faultHooks">Fault-injection hooks.</param>
     /// <param name="idempotency">Bounded durable group idempotency state.</param>
+    /// <param name="eligibility">
+    /// Shared participation authority, also handed to repair sessions. When provided, replicas excluded by it
+    /// contribute neither acknowledgements nor write-quorum copies until a repair session marks them ready.
+    /// Activation wiring (RF&gt;1) owns the shared instance; <see langword="null" /> preserves the pre-activation behavior.
+    /// </param>
     internal ReplicaCommitCoordinator(
-        int replicaCount,
-        ulong initialLogIndex,
-        ulong initialCommitIndex,
-        int maxInFlight,
+        ReplicaCommitCoordinatorOptions options,
         IReplicaCommitPipeline pipeline,
         IReplicaCommitFaultHooks faultHooks,
-        GroupIdempotencyState idempotency)
+        GroupIdempotencyState idempotency,
+        ReplicaEligibility? eligibility = null)
     {
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(faultHooks);
         ArgumentNullException.ThrowIfNull(idempotency);
-        if (replicaCount < 2)
-            throw new ArgumentOutOfRangeException(nameof(replicaCount), "The majority coordinator is reserved for RF greater than one.");
-
-        if (initialCommitIndex > initialLogIndex)
-            throw new ArgumentOutOfRangeException(nameof(initialCommitIndex), "Commit index cannot exceed the last log index.");
-        if (initialCommitIndex != initialLogIndex)
-            throw new ArgumentException("The durable log tail must be reconciled to the commit index before the coordinator starts.", nameof(initialLogIndex));
 
         _pipeline = pipeline;
         _faultHooks = faultHooks;
         _idempotency = idempotency;
-        _quorum = new ReplicaCommitQuorum(replicaCount, initialCommitIndex);
-        _sequencer = new ReplicaLogIndexSequencer(initialLogIndex);
-        _turn = new ReplicaLogTurn(initialLogIndex);
-        _admission = new ReplicaMutationGate(maxInFlight);
-        _commitIndex = initialCommitIndex;
+        _quorum = new ReplicaCommitQuorum(options.ReplicaCount, options.InitialCommitIndex, eligibility);
+        _sequencer = new ReplicaLogIndexSequencer(options.InitialLogIndex);
+        _turn = new ReplicaLogTurn(options.InitialLogIndex);
+        _admission = new ReplicaMutationGate(options.MaxInFlight);
+        _commitIndex = options.InitialCommitIndex;
     }
 
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>
@@ -80,12 +74,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             return new ValueTask(_disposeTask);
         }
     }
-
-    /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <returns>The replica match index.</returns>
-    /// <remarks>Test seam observing <see cref="ReplicaCommitQuorum.TryRecord" /> progress; production paths never poll it.</remarks>
-    internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
 
     /// <summary>Commits a prepared mutation or reports an ambiguous post-appended outcome.</summary>
     /// <param name="mutation">Fully prepared immutable mutation.</param>
@@ -143,6 +131,12 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <returns>The replica match index.</returns>
+    /// <remarks>Test seam observing <see cref="ReplicaCommitQuorum.TryRecord" /> progress; production paths never poll it.</remarks>
+    internal ulong MatchIndexFor(int replicaIndex) => _quorum.MatchIndexFor(replicaIndex);
+
     private static async Task<FollowerCompletion> AwaitFollowerAsync(int replicaIndex, Task<ReplicaDurableAcknowledgement> followerTask)
     {
         // The raw follower task is observed without deadline cancellation: aborting the majority loop
@@ -165,34 +159,31 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         return new FollowerCompletion(replicaIndex, null, aggregate?.InnerException ?? aggregate);
     }
 
-    /// <summary>Reserves idempotency and registers the commit operation.</summary>
-    /// <param name="key">Operation identity key.</param>
-    /// <param name="mutation">Prepared mutation to execute.</param>
-    /// <param name="timeout">Reservation timeout budget.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The registered operation and its starter task.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when idempotency capacity is exhausted or the operation identifier is reused with a different fingerprint.</exception>
-    /// <remarks>Must be called under <see cref="_ownedSync" />.</remarks>
-    private (CommitOperation Operation, Task<Task<ReadOnlyMemory<byte>>> Starter) ReserveOperationLocked(
-        OperationKey key,
-        PreparedReplicaMutation mutation,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
+    private async Task ApplyPendingRangeAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
-        var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
-            : GroupRecordKind.UserMutation;
-        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, recordKind, mutation.LogIndex, mutation.Term);
+        // Apply every retained entry at or below the new commit index in order, including entries
+        // left behind when a prior ApplyMemoryAsync failure or cancellation interrupted the loop. (Those would otherwise be skipped by a range starting right after the previous commit index.)
+        List<ulong>? due = null;
+        foreach (var retained in _pendingApply.Keys)
+        {
+            if (retained > commitIndex)
+                break;
 
-        if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
-            throw new InvalidOperationException("Group idempotency capacity is exhausted.");
-        if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
-            throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
+            due ??= [];
+            due.Add(retained);
+        }
 
-        var attempt = new CommitAttempt();
-        var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedAsync(key, mutation, timeout, attempt, cancellationToken));
-        var operation = new CommitOperation(attempt, starter.Unwrap());
-        _operations[key] = operation;
-        return (operation, starter);
+        if (due == null)
+            return;
+
+        foreach (var index in due)
+        {
+            if (!_pendingApply.TryGetValue(index, out var pending))
+                continue;
+
+            await _pipeline.ApplyMemoryAsync(pending, cancellationToken).ConfigureAwait(false);
+            _ = _pendingApply.Remove(index);
+        }
     }
 
     private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
@@ -238,7 +229,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         try
         {
             // Bounded drain so disposal completes even when a follower task never finishes
-            // (e.g. a pipeline ignoring cancellation). Remaining tasks keep exception observation.
+            // (e.g., a pipeline ignoring cancellation). Remaining tasks keep exception observation.
             while (true)
             {
                 List<Task> tasks;
@@ -263,7 +254,14 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 catch (TimeoutException)
                 {
                     foreach (var remaining in CollectionsMarshal.AsSpan(tasks))
-                        _ = remaining.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    {
+                        _ = remaining.ContinueWith(
+                            static t => _ = t.Exception,
+                            CancellationToken.None,
+                            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                            TaskScheduler.Default);
+                    }
+
                     break;
                 }
             }
@@ -330,34 +328,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         return mutation.OutcomePayload;
     }
 
-    private async Task ApplyPendingRangeAsync(ulong commitIndex, CancellationToken cancellationToken)
-    {
-        // Apply every retained entry at or below the new commit index in order, including entries
-        // left behind when a prior ApplyMemoryAsync failure or cancellation interrupted the loop
-        // (those would otherwise be skipped by a range starting right after the previous commit index).
-        List<ulong>? due = null;
-        foreach (var retained in _pendingApply.Keys)
-        {
-            if (retained > commitIndex)
-                break;
-
-            due ??= [];
-            due.Add(retained);
-        }
-
-        if (due == null)
-            return;
-
-        foreach (var index in due)
-        {
-            if (!_pendingApply.TryGetValue(index, out var pending))
-                continue;
-
-            await _pipeline.ApplyMemoryAsync(pending, cancellationToken).ConfigureAwait(false);
-            _ = _pendingApply.Remove(index);
-        }
-    }
-
     private async Task<ReadOnlyMemory<byte>> ExecuteReservedAsync(
         OperationKey key,
         PreparedReplicaMutation mutation,
@@ -401,7 +371,14 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             catch (TimeoutException)
             {
                 foreach (var remaining in CollectionsMarshal.AsSpan(pending))
-                    _ = remaining.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                {
+                    _ = remaining.ContinueWith(
+                        static t => _ = t.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                }
+
                 break;
             }
 
@@ -450,6 +427,36 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         var follower = await completed.ConfigureAwait(false);
         _ = pendingReplicaIndexes.Remove(follower.ReplicaIndex);
         RecordAcknowledgement(in follower, mutation);
+    }
+
+    /// <summary>Reserves idempotency and registers the commit operation.</summary>
+    /// <param name="key">Operation identity key.</param>
+    /// <param name="mutation">Prepared mutation to execute.</param>
+    /// <param name="timeout">Reservation timeout budget.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The registered operation and its starter task.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when idempotency capacity is exhausted or the operation identifier is reused with a different fingerprint.</exception>
+    /// <remarks>Must be called under <see cref="_ownedSync" />.</remarks>
+    private (CommitOperation Operation, Task<Task<ReadOnlyMemory<byte>>> Starter) ReserveOperationLocked(
+        OperationKey key,
+        PreparedReplicaMutation mutation,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
+            : GroupRecordKind.UserMutation;
+        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, recordKind, mutation.LogIndex, mutation.Term);
+
+        if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
+            throw new InvalidOperationException("Group idempotency capacity is exhausted.");
+        if (reserved == GroupIdempotencyReserveResult.FingerprintMismatch)
+            throw new InvalidOperationException("Operation identifier was reused with a different fingerprint.");
+
+        var attempt = new CommitAttempt();
+        var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedAsync(key, mutation, timeout, attempt, cancellationToken));
+        var operation = new CommitOperation(attempt, starter.Unwrap());
+        _operations[key] = operation;
+        return (operation, starter);
     }
 
     [Immutable]

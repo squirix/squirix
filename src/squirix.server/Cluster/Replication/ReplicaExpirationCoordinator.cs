@@ -107,6 +107,7 @@ internal sealed class ReplicaExpirationCoordinator : IAsyncDisposable
             _ = _drained.TrySetResult(true);
     }
 
+    [ThreadSafe]
     private sealed class OperationLease : IDisposable
     {
         private ReplicaExpirationCoordinator? _owner;

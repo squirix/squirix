@@ -12,10 +12,7 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 internal static class ReplicaCommitTestKit
 {
     internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null) => new(
-        3,
-        0,
-        0,
-        2,
+        new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
         pipeline,
         Hooks.Instance,
         idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue));
