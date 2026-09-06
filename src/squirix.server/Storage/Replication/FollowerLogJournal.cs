@@ -104,6 +104,47 @@ internal sealed class FollowerLogJournal : IFollowerLogStorage
     /// <returns><see langword="true" /> when the index carries retained frame metadata.</returns>
     internal bool TryGetEntryOffset(ulong index, out (long Offset, ulong Term) location) => _entryOffsets.TryGetValue(index, out location);
 
+    /// <summary>Collects the committed entries in the exclusive <paramref name="appliedIndex" /> to inclusive <paramref name="commitIndex" /> range.</summary>
+    /// <remarks>Callers hold the owning log's gate; applied payloads were released from memory, so the working set is bounded below by the durable applied watermark.</remarks>
+    /// <param name="commitIndex">The inclusive committed index.</param>
+    /// <param name="appliedIndex">The exclusive applied watermark.</param>
+    /// <returns>The committed entries not yet applied.</returns>
+    internal List<FollowerLogEntry> CollectCommittedEntries(ulong commitIndex, ulong appliedIndex)
+    {
+        var result = new List<FollowerLogEntry>();
+        foreach (var pair in _entries)
+        {
+            if (pair.Key > commitIndex)
+                break;
+
+            // Applied entries were released from memory; their keys can still be present right after a
+            // restart, so the working set is bounded below by the durable applied watermark.
+            if (pair.Key <= appliedIndex)
+                continue;
+
+            result.Add(pair.Value);
+        }
+
+        return result;
+    }
+
+    /// <summary>Collects the uncommitted tail above <paramref name="commitIndex" />.</summary>
+    /// <param name="commitIndex">The committed index bounding the tail below.</param>
+    /// <returns>The uncommitted tail entries.</returns>
+    internal List<FollowerLogEntry> CollectUncommittedTail(ulong commitIndex)
+    {
+        var result = new List<FollowerLogEntry>();
+        foreach (var pair in _entries)
+        {
+            if (pair.Key <= commitIndex)
+                continue;
+
+            result.Add(pair.Value);
+        }
+
+        return result;
+    }
+
     /// <summary>Removes every entry and its matching offset at indexes strictly above <paramref name="index" />.</summary>
     /// <remarks>
     /// The removal is driven from the offset index because it is the superset: applied frames may hold an offset
