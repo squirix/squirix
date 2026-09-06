@@ -86,22 +86,10 @@ internal static class ServiceRegistration
             var metadata = new Metadata();
             var callerHeaders = options.Headers;
             if (callerHeaders != null)
-                CopyInto(metadata, callerHeaders);
+                GrpcMetadata.CopyInto(metadata, callerHeaders);
 
             Upsert(metadata, RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue);
             return new CallOptions(metadata, options.Deadline, options.CancellationToken, options.WriteOptions, options.PropagationToken, options.Credentials);
-        }
-
-        private static void CopyInto(Metadata target, Metadata source)
-        {
-            for (var i = 0; i < source.Count; i++)
-            {
-                var entry = source[i];
-                if (entry.IsBinary)
-                    target.Add(entry.Key, entry.ValueBytes);
-                else
-                    target.Add(entry.Key, entry.Value);
-            }
         }
 
         private static void Upsert(Metadata metadata, string key, string value)

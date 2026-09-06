@@ -56,7 +56,7 @@ internal sealed class ClientInterceptor : Interceptor
         rentedHeaders = metadata;
         var callerHeaders = options.Headers;
         if (callerHeaders != null)
-            CopyInto(metadata, callerHeaders);
+            GrpcMetadata.CopyInto(metadata, callerHeaders);
 
         var traceParent = activity.Id;
         if (!string.IsNullOrEmpty(traceParent))
@@ -73,18 +73,6 @@ internal sealed class ClientInterceptor : Interceptor
             options.WriteOptions,
             options.PropagationToken,
             options.Credentials);
-    }
-
-    private static void CopyInto(Metadata target, Metadata source)
-    {
-        for (var i = 0; i < source.Count; i++)
-        {
-            var entry = source[i];
-            if (entry.IsBinary)
-                target.Add(entry.Key, entry.ValueBytes);
-            else
-                target.Add(entry.Key, entry.Value);
-        }
     }
 
     private static void Upsert(Metadata metadata, string key, string value)
