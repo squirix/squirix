@@ -50,16 +50,13 @@ internal sealed class ClientInterceptor : Interceptor
         if (activity == null)
             return options;
 
-        Metadata metadata;
-        if (options.Headers == null)
-        {
-            metadata = GrpcMetadataPool.Rent();
-            rentedHeaders = metadata;
-        }
-        else
-        {
-            metadata = options.Headers;
-        }
+        // Clone caller headers into a freshly rented bag; never mutate options.Headers in place,
+        // so a Metadata instance shared across calls cannot bleed trace headers or race.
+        var metadata = GrpcMetadataPool.Rent();
+        rentedHeaders = metadata;
+        var callerHeaders = options.Headers;
+        if (callerHeaders != null)
+            CopyInto(metadata, callerHeaders);
 
         var traceParent = activity.Id;
         if (!string.IsNullOrEmpty(traceParent))
@@ -76,6 +73,18 @@ internal sealed class ClientInterceptor : Interceptor
             options.WriteOptions,
             options.PropagationToken,
             options.Credentials);
+    }
+
+    private static void CopyInto(Metadata target, Metadata source)
+    {
+        for (var i = 0; i < source.Count; i++)
+        {
+            var entry = source[i];
+            if (entry.IsBinary)
+                target.Add(entry.Key, entry.ValueBytes);
+            else
+                target.Add(entry.Key, entry.Value);
+        }
     }
 
     private static void Upsert(Metadata metadata, string key, string value)
@@ -145,18 +154,17 @@ internal sealed class ClientInterceptor : Interceptor
 
         private void DisposeCall()
         {
-            DisposeOnce();
+            DisposeScope();
             _inner.Dispose();
         }
 
-        private void DisposeOnce()
+        private void DisposeScope()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
             _scope.Dispose();
             _ownedActivity?.Dispose();
-            GrpcMetadataPool.Return(_rentedHeaders);
         }
 
         private async Task<TResponse> ResponseAsync()
@@ -166,12 +174,15 @@ internal sealed class ClientInterceptor : Interceptor
 #pragma warning disable VSTHRD003
 
                 // Scope, owned client Activity, and rented headers must live until the outbound unary call completes.
+                // The rented bag is returned only from this completion path: an early outer dispose must not
+                // recycle it while the transport may still read it.
                 return await _inner.ResponseAsync.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
             }
             finally
             {
-                DisposeOnce();
+                DisposeScope();
+                GrpcMetadataPool.Return(_rentedHeaders);
             }
         }
     }
