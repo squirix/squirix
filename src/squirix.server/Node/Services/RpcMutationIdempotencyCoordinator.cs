@@ -52,18 +52,72 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             return cached;
         }
 
-        if (_journal != null)
+        // Write-ahead intent: record that execution is starting before running the handler so a retry after a
+        // crash, or a concurrent duplicate, never re-executes a mutation whose outcome was lost.
+        var reservation = _store.ReserveIntent(operationId, fingerprint);
+        if (reservation == IdempotencyReserveResult.AlreadyCompleted)
         {
-            using var scope = RpcMutationIdempotencyExecutionScope.Begin(_store, operationId, fingerprint, _journal);
-            var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-            await scope.CompleteBeforeDurabilityAsync(durableResponse, cancellationToken).ConfigureAwait(false);
-            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            return durableResponse;
+            // A concurrent call completed between the replay probe and the reservation; replay its outcome.
+            if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed))
+                return completed!;
+
+            throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome.");
         }
 
-        var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-        _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
-        return memoryOnlyResponse;
+        if (reservation != IdempotencyReserveResult.Acquired)
+            throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
+
+        return await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<TResponse> ExecuteAcquiredAsync<TState, TResponse>(
+        string operationId,
+        string fingerprint,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : class, IMessage<TResponse>, new()
+    {
+        if (_journal != null)
+        {
+            using var scope = RpcMutationIdempotencyExecutionScope.Begin(operationId, fingerprint, _journal);
+            try
+            {
+                var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+                var responseBytes = await scope.AppendOutcomeAsync(durableResponse, cancellationToken).ConfigureAwait(false);
+                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+
+                // The in-memory outcome is recorded only after the outcome frame is appended and
+                // durability is confirmed: a failure above must leave no Completed record so that
+                // a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of replaying an unconfirmed outcome.
+                _store.RecordSuccess(operationId, fingerprint, responseBytes);
+                return durableResponse;
+            }
+            catch
+            {
+                // Release the reservation only when no mutation frame was stamped in this scope. Once a
+                // stamped Put/Remove frame is enqueued, the mutation may already be durable: the Started
+                // record must survive, so a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+                // The scope is still active here, so the ambient frame reliably reports whether stamping happened.
+                // Reserved intents reconstructed from journal frames carry no fingerprint and are never released here.
+                if (!RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope))
+                    _store.ReleaseIntent(operationId, fingerprint);
+                throw;
+            }
+        }
+
+        try
+        {
+            var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+            _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
+            return memoryOnlyResponse;
+        }
+        catch
+        {
+            // The in-memory path never produces a durable outcome, so releasing the reservation is safe.
+            _store.ReleaseIntent(operationId, fingerprint);
+            throw;
+        }
     }
 
     private static class DefaultParser<T>
@@ -79,11 +133,9 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         private readonly string _fingerprint;
         private readonly IJournalCoordinator _journal;
         private readonly string _operationId;
-        private readonly RpcMutationIdempotencyStore _store;
 
-        private RpcMutationIdempotencyExecutionScope(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
+        private RpcMutationIdempotencyExecutionScope(string operationId, string fingerprint, IJournalCoordinator journal)
         {
-            _store = store;
             _operationId = operationId;
             _fingerprint = fingerprint;
             _journal = journal;
@@ -91,26 +143,25 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
 
-        internal static RpcMutationIdempotencyExecutionScope Begin(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
+        internal static RpcMutationIdempotencyExecutionScope Begin(string operationId, string fingerprint, IJournalCoordinator journal)
         {
-            ArgumentNullException.ThrowIfNull(store);
             ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
             ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
             ArgumentNullException.ThrowIfNull(journal);
 
-            var scope = new RpcMutationIdempotencyExecutionScope(store, operationId, fingerprint, journal);
-            RpcMutationIdempotencyExecutionAmbient.Activate(scope);
+            var scope = new RpcMutationIdempotencyExecutionScope(operationId, fingerprint, journal);
+            RpcMutationIdempotencyExecutionAmbient.Activate(scope, operationId);
             return scope;
         }
 
-        internal ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
+        internal async ValueTask<byte[]> AppendOutcomeAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
             where TResponse : class, IMessage<TResponse>
         {
             ArgumentNullException.ThrowIfNull(response);
 
             var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(response);
-            _store.RecordSuccess(_operationId, _fingerprint, responseBytes);
-            return _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken);
+            await _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+            return responseBytes;
         }
     }
 }

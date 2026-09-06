@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
@@ -13,6 +15,21 @@ namespace Squirix.Server.Node.Observability;
 [Immutable]
 internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTracer
 {
+    private static readonly FrozenDictionary<JournalOperationKind, string> SpanNames = new Dictionary<JournalOperationKind, string>
+    {
+        [JournalOperationKind.Put] = "journal.put",
+        [JournalOperationKind.Remove] = "journal.remove",
+        [JournalOperationKind.RemoveExpiration] = "journal.remove_expiration",
+        [JournalOperationKind.TouchExpiration] = "journal.touch_expiration",
+        [JournalOperationKind.IdempotencyOutcome] = "journal.idempotency_outcome",
+        [JournalOperationKind.IdempotencyStarted] = "journal.idempotency_started",
+        [JournalOperationKind.AwaitDurabilityCommit] = "journal.await_durability",
+        [JournalOperationKind.WaitForStartup] = "journal.wait_startup",
+        [JournalOperationKind.MaintenanceExclusive] = "journal.maintenance",
+        [JournalOperationKind.SnapshotCut] = "journal.snapshot_cut",
+        [JournalOperationKind.UnderSnapshotBarrier] = "journal.snapshot_barrier",
+    }.ToFrozenDictionary();
+
     /// <inheritdoc />
     IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
     {
@@ -47,20 +64,10 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
             _ = activity.SetTag("journal.group_commit", ActivityTagValues.Bool(groupCommitEnabled));
     }
 
-    private static string GetSpanName(JournalOperationKind kind) => kind switch
-    {
-        JournalOperationKind.Remove => "journal.remove",
-        JournalOperationKind.RemoveExpiration => "journal.remove_expiration",
-        JournalOperationKind.TouchExpiration => "journal.touch_expiration",
-        JournalOperationKind.Put => "journal.put",
-        JournalOperationKind.IdempotencyOutcome => "journal.idempotency_outcome",
-        JournalOperationKind.AwaitDurabilityCommit => "journal.await_durability",
-        JournalOperationKind.WaitForStartup => "journal.wait_startup",
-        JournalOperationKind.MaintenanceExclusive => "journal.maintenance",
-        JournalOperationKind.SnapshotCut => "journal.snapshot_cut",
-        JournalOperationKind.UnderSnapshotBarrier => "journal.snapshot_barrier",
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), "Unsupported journal operation kind."),
-    };
+    private static string GetSpanName(JournalOperationKind kind) =>
+        SpanNames.TryGetValue(kind, out var name)
+            ? name
+            : throw new ArgumentOutOfRangeException(nameof(kind), "Unsupported journal operation kind.");
 
     [Immutable]
     private sealed class OpenTelemetryJournalOperationTraceScope : IJournalOperationTraceScope

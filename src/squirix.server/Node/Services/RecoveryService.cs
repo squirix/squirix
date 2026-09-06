@@ -108,13 +108,30 @@ internal sealed class RecoveryService<T> : IHostedService
     private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
         record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
+    private void RestoreStartedMutation(JournalRecord record)
+    {
+        if (record.MutationOperationId is not { } operationId)
+            return;
+
+        _idempotency.RestoreStarted(operationId, ResolveIdempotencyCreatedUtc(record));
+    }
+
+    /// <summary>Restores the write-ahead started intent for a mutation frame and normalizes its cache key.</summary>
+    /// <param name="record">The journal record being replayed.</param>
+    /// <returns>The normalized cache key.</returns>
+    private CacheKey PrepareMutationKey(JournalRecord record)
+    {
+        RestoreStartedMutation(record);
+        return record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+    }
+
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
             {
-                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var key = PrepareMutationKey(record);
                 var putEntryBytes = record.PutEntryBytes;
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
                     throw CreateJournalDecodeFailure();
@@ -129,21 +146,21 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.Remove:
             {
-                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var key = PrepareMutationKey(record);
                 _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.RemoveExpiration:
             {
-                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var key = PrepareMutationKey(record);
                 _ = await _localCache.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.TouchExpiration:
             {
-                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var key = PrepareMutationKey(record);
                 var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
                 _ = await _localCache.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
@@ -151,6 +168,10 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.IdempotencyOutcome:
                 _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, ResolveIdempotencyCreatedUtc(record));
+                break;
+
+            case JournalOperationKind.IdempotencyStarted:
+                _idempotency.RestoreStarted(record.IdempotencyOperationId!, record.IdempotencyFingerprint, ResolveIdempotencyCreatedUtc(record));
                 break;
 
             case JournalOperationKind.AwaitDurabilityCommit:

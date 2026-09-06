@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -51,6 +52,38 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
         var expectedCreatedUtc = DateTimeOffset.FromUnixTimeMilliseconds(journalUnixMs).UtcDateTime;
         Assert.Equal(OperationId, exportedRecord.OperationId);
         Assert.Equal(expectedCreatedUtc, exportedRecord.CreatedUtc);
+
+        var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
+        Assert.True(replayed);
+        Assert.NotNull(response);
+        Assert.True(response.Added);
+    }
+
+    /// <summary>Replay of a mutation frame carrying the write-ahead operation id reconstructs a started-unknown record.</summary>
+    [Fact]
+    public async Task ReplayRestoresStartedFromMutationFrame()
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-started");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WriteStartedMutationAsync(scenario, persistence, false);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
+
+        Assert.False(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _));
+        Assert.Equal(IdempotencyReserveResult.AlreadyStarted, idempotencyStore.ReserveIntent(OperationId, Fingerprint));
+    }
+
+    /// <summary>Replay supersedes the write-ahead started marker with the durable outcome when both frames exist.</summary>
+    [Fact]
+    public async Task ReplaySupersedesStartedWithOutcome()
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-started-outcome");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WriteStartedMutationAsync(scenario, persistence, true);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
         Assert.True(replayed);
@@ -105,6 +138,37 @@ public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
             Fingerprint,
             IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
             DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+    }
+
+    private static async Task WriteStartedMutationAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, bool appendOutcome)
+    {
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            scenario.Ledger,
+            new AsyncManualResetEvent(true));
+
+        var ambientScope = new object();
+        RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
+        try
+        {
+            await journal.AppendPutAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
+        }
+        finally
+        {
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(ambientScope);
+        }
+
+        if (appendOutcome)
+        {
+            await journal.AppendIdempotencyOutcomeAsync(
+                OperationId,
+                Fingerprint,
+                IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+                DefaultCancellationToken);
+        }
+
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }
 }

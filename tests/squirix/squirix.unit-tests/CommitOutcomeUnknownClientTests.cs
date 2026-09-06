@@ -40,9 +40,9 @@ public sealed class CommitOutcomeUnknownClientTests
         Assert.Null(error);
     }
 
-    /// <summary>Retries one immutable RemoteCache mutation within the configured attempt budget and keeps the operation id.</summary>
+    /// <summary>Surfaces an ambiguous outcome immediately without consuming the retry budget, keeping the operation id.</summary>
     [Fact]
-    public async Task RetryKeepsOperationIdAndBudgetAsync()
+    public async Task UnknownOutcomeStopsWithoutRetryingAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var transport = new UnknownOutcomeTransport();
@@ -54,11 +54,8 @@ public sealed class CommitOutcomeUnknownClientTests
 
         Assert.Equal(CommitOutcomeUnknownException.StableDetail, error.Message);
         Assert.Same(transport.Failures[^1], error.InnerException);
-        Assert.Equal(3, transport.OperationIds.Count);
-        var operationId = transport.OperationIds[0];
+        var operationId = Assert.Single(transport.OperationIds);
         Assert.False(string.IsNullOrEmpty(operationId));
-        for (var index = 1; index < transport.OperationIds.Count; index++)
-            Assert.Equal(operationId, transport.OperationIds[index]);
     }
 
     private static async ValueTask<bool> SetAndProjectAsync(RemoteCache<string> cache)

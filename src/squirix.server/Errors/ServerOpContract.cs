@@ -4,7 +4,7 @@ namespace Squirix.Server.Errors;
 
 internal static class ServerOpContract
 {
-    private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+    internal const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
 
     private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
 

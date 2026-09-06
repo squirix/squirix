@@ -47,6 +47,34 @@ internal static class JournalCompactor
 
     private static void Apply(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
     {
+        if (TryApplyMutation(record, state, idempotencyState))
+            return;
+
+        switch (record.Operation)
+        {
+            case JournalOperationKind.IdempotencyOutcome:
+                ApplyIdempotencyOutcome(record, idempotencyState);
+                break;
+            case JournalOperationKind.IdempotencyStarted:
+                ApplyIdempotencyStarted(record, idempotencyState);
+                break;
+            case JournalOperationKind.AwaitDurabilityCommit:
+            case JournalOperationKind.WaitForStartup:
+            case JournalOperationKind.MaintenanceExclusive:
+            case JournalOperationKind.SnapshotCut:
+            case JournalOperationKind.UnderSnapshotBarrier:
+            default:
+                throw new ArgumentOutOfRangeException(nameof(record), "Unsupported journal op.");
+        }
+    }
+
+    /// <summary>Applies a cache mutation to the compaction state and records its write-ahead idempotency intent.</summary>
+    /// <param name="record">The journal record to apply.</param>
+    /// <param name="state">The compacted cache entries.</param>
+    /// <param name="idempotencyState">The compacted idempotency records.</param>
+    /// <returns><see langword="true" /> when the record was a cache mutation; otherwise <see langword="false" />.</returns>
+    private static bool TryApplyMutation(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
+    {
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
@@ -61,17 +89,42 @@ internal static class JournalCompactor
             case JournalOperationKind.TouchExpiration:
                 ApplyTouchExpiration(record, state);
                 break;
-            case JournalOperationKind.IdempotencyOutcome:
-                ApplyIdempotencyOutcome(record, idempotencyState);
-                break;
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
             default:
-                throw new ArgumentOutOfRangeException(nameof(record), "Unsupported journal op.");
+                return false;
         }
+
+        ApplyIdempotencyStartedMarker(record.MutationOperationId, null, record.UnixMs, idempotencyState);
+        return true;
+    }
+
+    private static void ApplyIdempotencyStartedMarker(string? mutationOperationId, string? fingerprint, long unixMs, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
+    {
+        if (mutationOperationId == null)
+            return;
+
+        if (string.IsNullOrEmpty(fingerprint))
+            fingerprint = null;
+
+        if (idempotencyState.TryGetValue(mutationOperationId, out var existing))
+        {
+            if (!existing.IsStarted)
+                return;
+
+            // A mutation marker carries no fingerprint: preserve the fingerprint already recorded for
+            // the started intent so a post-compaction retry still rejects operation-id reuse with a
+            // mismatched fingerprint instead of surfacing a wildcard COMMIT_OUTCOME_UNKNOWN.
+            fingerprint ??= existing.Fingerprint;
+            if (string.Equals(fingerprint, existing.Fingerprint, StringComparison.Ordinal) && existing.UnixMs == unixMs)
+                return;
+        }
+
+        idempotencyState[mutationOperationId] = new CompactedIdempotencyRecord(mutationOperationId, fingerprint, [], true, unixMs);
+    }
+
+    private static void ApplyIdempotencyStarted(JournalRecord record, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
+    {
+        var operationId = record.IdempotencyOperationId ?? ThrowHelper.Throw<string>(CreateCompactionDecodeFailure());
+        ApplyIdempotencyStartedMarker(operationId, record.IdempotencyFingerprint, record.UnixMs, idempotencyState);
     }
 
     private static void ApplyIdempotencyOutcome(JournalRecord record, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
@@ -81,7 +134,7 @@ internal static class JournalCompactor
         var responseBytes = record.IdempotencyResponseBytes;
 
         var copy = BufferEx.CopyToOwned(responseBytes.Span);
-        idempotencyState[operationId] = new CompactedIdempotencyRecord(operationId, fingerprint, copy, record.UnixMs);
+        idempotencyState[operationId] = new CompactedIdempotencyRecord(operationId, fingerprint, copy, false, record.UnixMs);
     }
 
     private static void ApplyPut(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
@@ -135,7 +188,12 @@ internal static class JournalCompactor
             {
                 var record = ThrowHelper.Required(snapshot.IdempotencyRecords[i], "Idempotency record must not be null.");
                 var unixMs = new DateTimeOffset(DateTime.SpecifyKind(record.CreatedUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
-                idempotencyState[record.OperationId] = new CompactedIdempotencyRecord(record.OperationId, record.Fingerprint, record.ResponseBytes, unixMs);
+                idempotencyState[record.OperationId] = new CompactedIdempotencyRecord(
+                    record.OperationId,
+                    record.Fingerprint,
+                    record.ResponseBytes,
+                    record.State == IdempotencyRecordState.Started,
+                    unixMs);
             }
         }
 
@@ -235,6 +293,45 @@ internal static class JournalCompactor
         return (sequence + 1UL, offset + frameLen);
     }
 
+    private static async Task<(ulong Sequence, long Offset)> WriteCompactedIdempotencyStartedAsync(
+        SafeFileHandle handle,
+        CompactedIdempotencyRecord record,
+        ulong sequence,
+        long offset,
+        CancellationToken cancellationToken)
+    {
+        var journalRecord = new JournalRecord
+        {
+            Sequence = sequence,
+            UnixMs = record.UnixMs,
+            Operation = JournalOperationKind.IdempotencyStarted,
+            Key = new CacheKey(string.Empty, string.Empty),
+            IdempotencyOperationId = record.OperationId,
+            IdempotencyFingerprint = record.Fingerprint,
+        };
+
+        var encode = BinaryJournalCodec.PrepareEncode(journalRecord);
+        var bodyLen = encode.BodyLength;
+        var frameLen = JournalFraming.FrameTotalLength(bodyLen);
+        var frame = ArrayPool<byte>.Shared.Rent(frameLen);
+        try
+        {
+            const int bodyOffset = JournalFraming.FrameHeaderSize;
+            var encodedLength = BinaryJournalCodec.Encode(journalRecord, frame.AsSpan(bodyOffset, bodyLen), in encode);
+            if (encodedLength != bodyLen)
+                throw new InvalidOperationException("unexpected journal frame length after encode.");
+
+            JournalFraming.WriteFrame(frame.AsSpan(0, frameLen), frame.AsSpan(bodyOffset, bodyLen));
+            await RandomAccess.WriteAsync(handle, frame.AsMemory(0, frameLen), offset, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(frame);
+        }
+
+        return (sequence + 1UL, offset + frameLen);
+    }
+
     private static async Task<ulong> WriteCompactedJournalAsync(
         string tmpPath,
         Dictionary<CacheKey, NodeCacheEntry<object?>> state,
@@ -267,7 +364,9 @@ internal static class JournalCompactor
 
             foreach (var pair in idempotencyState)
             {
-                (seq, offset) = await WriteCompactedIdempotencyOutcomeAsync(handle, pair.Value, seq, offset, cancellationToken).ConfigureAwait(false);
+                (seq, offset) = pair.Value.IsStarted
+                    ? await WriteCompactedIdempotencyStartedAsync(handle, pair.Value, seq, offset, cancellationToken).ConfigureAwait(false)
+                    : await WriteCompactedIdempotencyOutcomeAsync(handle, pair.Value, seq, offset, cancellationToken).ConfigureAwait(false);
                 wroteAny = true;
             }
 
@@ -330,15 +429,18 @@ internal static class JournalCompactor
     [Immutable]
     private sealed class CompactedIdempotencyRecord
     {
-        internal CompactedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs)
+        internal CompactedIdempotencyRecord(string operationId, string? fingerprint, byte[] responseBytes, bool isStarted, long unixMs)
         {
             OperationId = operationId;
             Fingerprint = fingerprint;
             ResponseBytes = responseBytes;
+            IsStarted = isStarted;
             UnixMs = unixMs;
         }
 
-        internal string Fingerprint { get; }
+        internal string? Fingerprint { get; }
+
+        internal bool IsStarted { get; }
 
         internal string OperationId { get; }
 

@@ -32,15 +32,21 @@ internal sealed record EncodeContext
         return new EncodeContext(keyUtf8, payloadUtf8Length);
     }
 
-    private static int GetOperationPayloadLength(JournalRecord record) => record.Operation switch
+    private static int GetOperationPayloadLength(JournalRecord record)
     {
-        JournalOperationKind.Put => record.PutEntryBytes.Length,
-        JournalOperationKind.TouchExpiration => 8,
-        JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => 0,
-        JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                                                   Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
-        _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
-    };
+        var mutationOperationIdPrefix = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(record.MutationOperationId);
+        return record.Operation switch
+        {
+            JournalOperationKind.Put => mutationOperationIdPrefix + record.PutEntryBytes.Length,
+            JournalOperationKind.TouchExpiration => mutationOperationIdPrefix + 8,
+            JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => mutationOperationIdPrefix,
+            JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
+                                                       Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
+            JournalOperationKind.IdempotencyStarted => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
+                                                       Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty),
+            _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
+        };
+    }
 
     [Immutable]
     private sealed record Utf8KeyLengths

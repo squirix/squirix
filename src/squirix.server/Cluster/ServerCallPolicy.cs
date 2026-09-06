@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Attributes;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
 
@@ -331,6 +332,12 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
+            // A mutation may have committed durably even though its outcome is unknown (write-ahead idempotency
+            // intent). Re-sending the same operation would re-execute it, so the caller must stop retrying and
+            // let the replication/result layer resolve the ambiguous commit by journal index.
+            if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Status.Detail))
+                return AttemptOutcome<T>.Stop(rx);
+
             var canRetry = attempt < _maxAttempts && ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);

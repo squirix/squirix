@@ -62,10 +62,94 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
+        // Sweep and capacity-check against wall clock: the frame timestamp only dates the restored
+        // record. Sweeping with a stale frame time would retain entries that are expired relative to now
+        // and admit capacity pressure incorrectly.
+        var utcNow = DateTime.UtcNow;
         lock (_capacityGate)
         {
-            SweepExpiredLocked(createdUtc);
-            UpsertLocked(operationId, CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), createdUtc);
+            SweepExpiredLocked(utcNow);
+            UpsertLocked(operationId, CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), utcNow);
+        }
+    }
+
+    /// <summary>Records a write-ahead intent for an operation about to execute; the caller replays a completed outcome or surfaces the ambiguous outcome to the RPC layer.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <returns>The reservation outcome for this caller.</returns>
+    /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
+    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+
+        var utcNow = DateTime.UtcNow;
+        lock (_capacityGate)
+        {
+            SweepExpiredLocked(utcNow);
+
+            if (_records.TryGetValue(operationId, out var existing))
+            {
+                ThrowIfFingerprintMismatch(existing, fingerprint);
+                return existing.State == IdempotencyRecordState.Completed ? IdempotencyReserveResult.AlreadyCompleted : IdempotencyReserveResult.AlreadyStarted;
+            }
+
+            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), utcNow);
+            return IdempotencyReserveResult.Acquired;
+        }
+    }
+
+    internal void RestoreStarted(string operationId, DateTime createdUtc) => RestoreStarted(operationId, null, createdUtc);
+
+    /// <summary>Releases a write-ahead reservation when its execution failed without producing a durable outcome.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The mutation fingerprint the reservation was acquired with.</param>
+    internal void ReleaseIntent(string operationId, string fingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+
+        lock (_capacityGate)
+        {
+            if (!_records.TryGetValue(operationId, out var existing))
+                return;
+
+            if (existing.State != IdempotencyRecordState.Started)
+                return;
+
+            // Reservations reconstructed from journal mutation frames carry no fingerprint and must outlive the
+            // failed attempt: their mutation may already be durably committed.
+            if (existing.Fingerprint == null)
+                return;
+
+            if (!string.Equals(existing.Fingerprint, fingerprint, StringComparison.Ordinal))
+                return;
+
+            _ = _records.Remove(operationId);
+        }
+    }
+
+    /// <summary>Restores a write-ahead started record (write-ahead intent) reconstructed from a compaction/journal frame.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The mutation fingerprint when the frame carries one; otherwise <see langword="null" /> or an empty string.</param>
+    /// <param name="createdUtc">The frame timestamp.</param>
+    internal void RestoreStarted(string operationId, string? fingerprint, DateTime createdUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+
+        if (string.IsNullOrEmpty(fingerprint))
+            fingerprint = null;
+
+        // Sweep and capacity-check against wall clock; the frame timestamp only dates the restored record.
+        var utcNow = DateTime.UtcNow;
+        lock (_capacityGate)
+        {
+            SweepExpiredLocked(utcNow);
+
+            if (_records.ContainsKey(operationId))
+                return;
+
+            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), utcNow);
         }
     }
 
@@ -103,20 +187,26 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             SweepExpiredLocked(DateTime.UtcNow);
 
-            if (!_records.TryGetValue(operationId, out var stored))
+            if (!_records.TryGetValue(operationId, out var stored) || stored.State == IdempotencyRecordState.Started)
             {
                 response = default;
                 return false;
             }
 
-            if (!string.Equals(stored.Fingerprint, fingerprint, StringComparison.Ordinal))
-                throw new ServerOpIdMismatchException();
-
+            ThrowIfFingerprintMismatch(stored, fingerprint);
             responseBytes = stored.ResponseBytes;
         }
 
         response = parser.ParseFrom(responseBytes);
         return true;
+    }
+
+    private static void ThrowIfFingerprintMismatch(PersistedIdempotencyRecord stored, string fingerprint)
+    {
+        if (stored.Fingerprint == null || string.Equals(stored.Fingerprint, fingerprint, StringComparison.Ordinal))
+            return;
+
+        throw new ServerOpIdMismatchException();
     }
 
     private static PersistedIdempotencyRecord CreateRecord(string operationId, string fingerprint, byte[] responseBytes, DateTime createdUtc) =>

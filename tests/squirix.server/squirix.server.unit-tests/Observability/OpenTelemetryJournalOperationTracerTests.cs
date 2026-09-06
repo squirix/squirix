@@ -68,11 +68,40 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         Assert.Null(activity.GetTagItem("journal.group_commit"));
     }
 
+    /// <summary>Ensures every journal operation kind maps to a span name, including write-ahead intents.</summary>
+    [Fact]
+    public void BeginMapsAllOperationKinds()
+    {
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
+
+        IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
+
+        AssertSpanName(journalTracer, JournalOperationKind.Put, "journal.put");
+        AssertSpanName(journalTracer, JournalOperationKind.Remove, "journal.remove");
+        AssertSpanName(journalTracer, JournalOperationKind.RemoveExpiration, "journal.remove_expiration");
+        AssertSpanName(journalTracer, JournalOperationKind.TouchExpiration, "journal.touch_expiration");
+        AssertSpanName(journalTracer, JournalOperationKind.IdempotencyOutcome, "journal.idempotency_outcome");
+        AssertSpanName(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
+        AssertSpanName(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");
+        AssertSpanName(journalTracer, JournalOperationKind.WaitForStartup, "journal.wait_startup");
+        AssertSpanName(journalTracer, JournalOperationKind.MaintenanceExclusive, "journal.maintenance");
+        AssertSpanName(journalTracer, JournalOperationKind.SnapshotCut, "journal.snapshot_cut");
+        AssertSpanName(journalTracer, JournalOperationKind.UnderSnapshotBarrier, "journal.snapshot_barrier");
+    }
+
     private static Activity AssertActivity(string expectedDisplayName)
     {
         var activity = Activity.Current;
         Assert.NotNull(activity);
         Assert.Equal(expectedDisplayName, activity.DisplayName);
         return activity;
+    }
+
+    private static void AssertSpanName(IJournalOperationTracer journalTracer, JournalOperationKind kind, string expectedDisplayName)
+    {
+        using var scope = journalTracer.Begin(kind, null);
+
+        Assert.NotNull(scope);
+        _ = AssertActivity(expectedDisplayName);
     }
 }
