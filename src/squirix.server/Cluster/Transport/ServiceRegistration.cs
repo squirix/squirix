@@ -67,7 +67,7 @@ internal static class ServiceRegistration
     }
 
     /// <summary>Marks outbound cluster owner-routing gRPC calls for trusted internode authentication.</summary>
-    private sealed class InternalOwnerClientInterceptor : Interceptor
+    internal sealed class InternalOwnerClientInterceptor : Interceptor
     {
         public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
             TRequest request,
@@ -81,8 +81,13 @@ internal static class ServiceRegistration
 
         private static CallOptions AttachInternalOwnerHeader(CallOptions options)
         {
-            // Prefer mutating caller headers. A fresh Metadata is only allocated when the call had none.
-            var metadata = options.Headers ?? [];
+            // Clone caller headers into a fresh bag; never mutate options.Headers in place,
+            // so a Metadata instance shared across calls cannot bleed internal headers or race.
+            var metadata = new Metadata();
+            var callerHeaders = options.Headers;
+            if (callerHeaders != null)
+                GrpcMetadata.CopyInto(metadata, callerHeaders);
+
             Upsert(metadata, RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue);
             return new CallOptions(metadata, options.Deadline, options.CancellationToken, options.WriteOptions, options.PropagationToken, options.Credentials);
         }
