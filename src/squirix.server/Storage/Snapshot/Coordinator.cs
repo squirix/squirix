@@ -125,7 +125,13 @@ internal sealed class Coordinator
         var updated = new State
         {
             Format = prev.Format,
-            CurrentJournal = prev.CurrentJournal,
+
+            // The publish runs outside the mutation-gate barrier, so prev.CurrentJournal can skew
+            // either way: a roll whose manifest publish is still queued leaves it behind the
+            // captured segment, while a roll published during the file write moves it ahead.
+            // Persist the monotonic maximum so the manifest never moves CurrentJournal backward
+            // and never falls behind the snapshot's own replay pointer.
+            CurrentJournal = Math.Max(prev.CurrentJournal, captured.ReplayFromJournalSegmentAtFlush),
             NextSequence = captured.NextSequenceAtFlush,
             LastSnapshot = new SnapshotRef
             {
