@@ -9,8 +9,8 @@ namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Canonical binary encoding of <see cref="ReplicaLogRecord" /> for durable log payloads.</summary>
 /// <remarks>
-/// The encoding is explicit field order with 32-bit little-endian length prefixes; decoding rejects
-/// truncated buffers, trailing bytes, and unknown versions. The payload checksum rides opaquely inside
+/// The encoding is an explicit field order with 32-bit little-endian length prefixes; decoding rejects
+/// truncated buffers, trailing bytes, and unknown versions. The payload checksums ride opaquely inside
 /// the encoding (journal frames add their own CRC); owner, follower log, and follower applier observe
 /// identical bytes without sharing anything but this codec.
 /// </remarks>
@@ -20,7 +20,7 @@ internal static class ReplicaLogCodec
     private const ushort Version = 1;
 
     /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>

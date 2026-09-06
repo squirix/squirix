@@ -30,6 +30,7 @@ using Squirix.Server.Node.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -268,6 +269,16 @@ internal static class ServerHostingComposition
         var stamped = await store.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (stamped == null)
         {
+            // A truly empty data directory is a first activation: record the configured identity and proceed.
+            // A directory that already carries durable cache journal state belonged to an RF=1 node; starting it
+            // as RF>1 without an offline bootstrap would silently authorize an unauthorized topology transition,
+            // so refuse startup and require BootstrapPlanner to rewrite the stamp first.
+            if (replicaCount > 1 && HasDurableCacheJournalState(dataDir))
+            {
+                throw new InvalidOperationException(
+                    "Activated topology identity is missing while durable cache journal state exists; the RF=1 to RF>1 transition requires an offline bootstrap.");
+            }
+
             await store.PublishAsync(current, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -278,6 +289,11 @@ internal static class ServerHostingComposition
                 $"Activated topology identity changed without an offline bootstrap (RF=1 to RF>1): stamped generation {stamped.Generation}, replica count {stamped.ReplicaCount}; configured generation {generation}, replica count {replicaCount}.");
         }
     }
+
+    /// <summary>Determines whether the data directory already holds durable cache journal segments.</summary>
+    /// <param name="dataDir">Exclusive node data directory.</param>
+    /// <returns><see langword="true" /> when durable journal segments exist.</returns>
+    private static bool HasDurableCacheJournalState(string dataDir) => JournalReader.EnumerateSegments(dataDir, 1).Length > 0;
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
