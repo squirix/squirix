@@ -555,6 +555,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
                 return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
 
+            // A replayed grant for the recorded candidate needs no durable rewrite: the vote was
+            // persisted before the first grant was reported, so the file already records it.
+            if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+
             // The granted vote is persisted before reporting success so a restart never grants a second vote.
             var granted = owner.Meta with { VotedFor = request.CandidateId };
             await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);

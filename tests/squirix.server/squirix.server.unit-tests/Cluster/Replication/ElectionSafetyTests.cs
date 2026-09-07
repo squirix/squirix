@@ -37,8 +37,11 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         Assert.Equal(FollowerLogRefusal.AlreadyVoted, second.RefusalCode);
         Assert.Equal(2UL, second.CurrentTerm);
 
+        var replayMetaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var replayBefore = await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken);
         var replay = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.True(replay.Granted);
+        Assert.Equal(replayBefore, await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken));
 
         var staleTerm = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.False(staleTerm.Granted);
