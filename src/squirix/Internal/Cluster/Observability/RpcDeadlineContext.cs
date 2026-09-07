@@ -14,4 +14,31 @@ internal static class RpcDeadlineContext
         var deadline = CurrentDeadlineUtc;
         return deadline == null ? null : deadline.Value - nowUtc;
     }
+
+    internal static IDisposable Push(DateTime? deadlineUtc)
+    {
+        var previous = DeadlineUtc.Value;
+        DeadlineUtc.Value = Normalize(deadlineUtc);
+        return new Scope(previous);
+    }
+
+    private static DateTime? Normalize(DateTime? deadlineUtc)
+    {
+        if (deadlineUtc == null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
+            return null;
+
+        return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
+    }
+
+    private sealed class Scope : IDisposable
+    {
+        private readonly DateTime? _previous;
+
+        internal Scope(DateTime? previous)
+        {
+            _previous = previous;
+        }
+
+        public void Dispose() => DeadlineUtc.Value = _previous;
+    }
 }
