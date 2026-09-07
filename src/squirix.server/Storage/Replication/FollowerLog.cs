@@ -310,7 +310,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // instead of costing another repair round-trip through the append consistency check.
         // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
         // quarantine; a term conflict at or below the commit boundary fails readiness.
-        if (!CheckPrevTerm(fromIndex - 1UL, prevLogTerm))
+        if (!FollowerLogAppend.PrevTermMatches(_journal, fromIndex - 1UL, prevLogTerm))
         {
             if (fromIndex - 1UL > _meta.CommitIndex)
                 return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
@@ -433,20 +433,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await OpenCoreAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private bool CheckPrevTerm(ulong prev, ulong expected)
-    {
-        if (prev == 0UL)
-            return expected == 0UL;
-
-        if (_journal.EntryOffsets.TryGetValue(prev, out var location))
-            return location.Term == expected;
-
-        if (_journal.SnapshotBaseline.LastIncludedIndex == prev)
-            return _journal.SnapshotBaseline.LastIncludedTerm == expected;
-
-        return false;
-    }
-
     private async Task OpenCoreAsync(CancellationToken cancellationToken)
     {
         if (!_composition.Contains(GroupId))
@@ -564,13 +550,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
             // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
             // answered against an out-of-date in-memory term and the higher term would never be persisted.
-            if (leaderTerm > owner.Meta.CurrentTerm)
-            {
-                var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-                await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
-                owner.SetMeta(termCandidate);
-            }
-
+            if (leaderTerm <= owner.Meta.CurrentTerm)
+                return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
+            var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+            await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(termCandidate);
             return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
         }
 
@@ -646,6 +630,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.SetReadiness(FollowerLogReadiness.Failed);
                 throw;
             }
+        }
+
+        internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
+        {
+            if (prev == 0UL)
+                return expected == 0UL;
+
+            if (journal.EntryOffsets.TryGetValue(prev, out var location))
+                return location.Term == expected;
+
+            if (journal.SnapshotBaseline.LastIncludedIndex == prev)
+                return journal.SnapshotBaseline.LastIncludedTerm == expected;
+
+            return false;
         }
 
         internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, FollowerLogAppendRequest request)
