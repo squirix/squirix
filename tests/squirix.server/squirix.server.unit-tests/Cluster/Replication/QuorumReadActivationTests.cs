@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit.Hosting;
@@ -32,6 +33,15 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         var optionsType = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "SquirixServerOptions.cs"), DefaultCancellationToken);
         Assert.DoesNotContain("QuorumRead", optionsType, StringComparison.Ordinal);
         Assert.DoesNotContain("AutomaticFailover", optionsType, StringComparison.Ordinal);
+    }
+
+    /// <summary>With quorum reads disabled, an RF=3 current read without quorum confirmation is rejected.</summary>
+    [Fact]
+    public void DisabledFlagRejectsRfThreeCurrentRead()
+    {
+        var rejected = LeaderAuthorityGate.CheckRead(3, true, true, 7, 7, new LeaderReadState(false, 9, 9));
+        Assert.False(rejected.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.QuorumNotConfirmed, rejected.Denial);
     }
 
     /// <summary>RF=3 reads are served locally even after every follower stops.</summary>
