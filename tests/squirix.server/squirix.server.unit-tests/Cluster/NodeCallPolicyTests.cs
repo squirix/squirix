@@ -8,6 +8,7 @@ using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -86,6 +87,29 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         await cts.CancelAsync();
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(pending);
+        Assert.Equal(1, attempts.Count);
+    }
+
+    /// <summary>Ensures the write-ahead ambiguous outcome is not retried: the caller stops and surfaces it.</summary>
+    [Fact]
+    public async Task CommitOutcomeUnknownStopsRetries()
+    {
+        await using var policy = CreatePolicy(peer: "peer-unknown", timeProvider: TimeProvider.System);
+        var attempts = new InvocationCounter();
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                attempts,
+                static (counter, cancellationToken) =>
+                {
+                    _ = cancellationToken;
+                    _ = counter.Increment();
+                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, ServerOpContract.CommitOutcomeUnknownDetail)));
+                },
+                DefaultCancellationToken));
+
+        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+        Assert.Equal(ServerOpContract.CommitOutcomeUnknownDetail, ex.Status.Detail);
         Assert.Equal(1, attempts.Count);
     }
 

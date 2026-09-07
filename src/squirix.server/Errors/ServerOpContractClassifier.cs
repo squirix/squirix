@@ -7,6 +7,13 @@ namespace Squirix.Server.Errors;
 internal static class ServerOpContractClassifier
 {
     /// <summary>
+    /// When <paramref name="detail" /> matches the unknown-commit-outcome contract, returns <see langword="true" />.
+    /// </summary>
+    /// <param name="detail">The gRPC status detail string.</param>
+    /// <returns><see langword="true" /> when <paramref name="detail" /> identifies an outcome that may have committed.</returns>
+    internal static bool IsCommitOutcomeUnknownDetail(string? detail) => string.Equals(detail, ServerOpContract.CommitOutcomeUnknownDetail, StringComparison.Ordinal);
+
+    /// <summary>
     /// When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.
     /// </summary>
     /// <param name="detail">The gRPC status detail string.</param>

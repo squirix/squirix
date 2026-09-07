@@ -54,6 +54,7 @@ internal sealed class EndpointFailover
                 return result;
             }
             catch (RpcException ex) when ((ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded || ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.ResourceExhausted) &&
+                                           !IsCommitOutcomeUnknown(ex) &&
                                            attempt < _bootstrapNodeIds.Count - 1)
             {
                 lastFailure = ex;
@@ -70,6 +71,16 @@ internal sealed class EndpointFailover
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
+
+    /// <summary>
+    /// Determines whether <paramref name="ex" /> reports an ambiguous durable commit outcome that must never
+    /// fail over: the mutation may already be committed on this endpoint, and the next endpoint holds no
+    /// idempotency record that would gate a re-execution.
+    /// </summary>
+    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <returns><see langword="true" /> when the status detail is the exact stable ambiguous-commit contract.</returns>
+    private static bool IsCommitOutcomeUnknown(RpcException ex) =>
+        string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
 
     private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {

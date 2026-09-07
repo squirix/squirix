@@ -305,6 +305,12 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
+            // A mutation may have committed durably even though its outcome is unknown (server write-ahead
+            // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
+            // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
+            if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
+                return AttemptOutcome<T>.Stop(rx);
+
             var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
@@ -425,6 +431,10 @@ internal sealed class CallPolicy : ICallPolicy
         {
             internal const string Canceled = "canceled";
             internal const string DeadlineExceeded = "deadline_exceeded";
+
+            private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+
+            internal static bool IsCommitOutcomeUnknownStatus(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownDetail, StringComparison.Ordinal);
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {

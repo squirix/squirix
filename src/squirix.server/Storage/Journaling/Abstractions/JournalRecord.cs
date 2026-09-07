@@ -18,6 +18,9 @@ internal sealed class JournalRecord
     /// <summary>Gets or sets idempotency response bytes; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
     internal ReadOnlyMemory<byte> IdempotencyResponseBytes { get; set; }
 
+    /// <summary>Gets or sets cache mutation operation id; set for mutation records appended inside an idempotent RPC scope.</summary>
+    internal string? MutationOperationId { get; set; }
+
     /// <summary>Gets or sets the cache key for the operation.</summary>
     internal CacheKey Key { get; set; } = CacheKey.Default(string.Empty);
 
@@ -42,6 +45,7 @@ internal sealed class JournalRecord
     {
         PutEntryBytes = default;
         TouchExpirationUtc = null;
+        MutationOperationId = null;
         IdempotencyOperationId = null;
         IdempotencyFingerprint = null;
         IdempotencyResponseBytes = default;

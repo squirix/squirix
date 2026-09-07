@@ -47,6 +47,31 @@ public sealed class EndpointFailoverTests : UnitTestBase
         Assert.Equal(StatusCode.NotFound, error.StatusCode);
     }
 
+    /// <summary>
+    /// Verifies an ambiguous commit outcome never fails over: the next endpoint holds no idempotency
+    /// record that would gate a re-execution of the already-possibly-committed mutation.
+    /// </summary>
+    [Fact]
+    public async Task NoFailOverOnCommitOutcomeUnknown()
+    {
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
+        var callCount = new MutableCallCount();
+
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            failover.ExecuteAsync<MutableCallCount, int>(
+                static (_, state, _) =>
+                {
+                    state.Value++;
+                    throw new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
+                },
+                callCount,
+                DefaultCancellationToken));
+
+        Assert.Equal(StatusCode.Unavailable, error.StatusCode);
+        Assert.Equal(CommitOutcomeUnknownException.StableDetail, error.Status.Detail);
+        Assert.Equal(1, callCount.Value);
+    }
+
     private sealed class MutableCallCount
     {
         internal int Value { get; set; }

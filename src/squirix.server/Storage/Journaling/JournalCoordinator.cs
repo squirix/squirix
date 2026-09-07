@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
@@ -275,10 +276,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
-        TState state,
-        Func<TState, CancellationToken, ValueTask> action,
-        CancellationToken cancellationToken)
+    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
@@ -384,6 +382,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
         {
+            var idempotencyStamped = StampIdempotencyOperationId(record);
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -405,6 +404,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
                 var startedMs = Environment.TickCount64;
                 await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
+                if (idempotencyStamped)
+                    RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
@@ -415,6 +416,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         internal async ValueTask AppendRecordWithDurabilityCoreAsync(JournalRecord record, CancellationToken cancellationToken)
         {
+            var idempotencyStamped = StampIdempotencyOperationId(record);
             _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
             await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -440,6 +442,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 {
                     var ackWaitTask = ack.AwaitAsync(CancellationToken.None);
                     await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
+                    if (idempotencyStamped)
+                        RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
                     await ackWaitTask.ConfigureAwait(false);
                 }
                 finally
@@ -453,6 +457,34 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 record.ReturnToAppendPool();
             }
+        }
+
+        /// <summary>
+        /// Stamps mutation frames appended inside an idempotent RPC scope with the active operation id. The durable
+        /// frame becomes the write-ahead intent: recovery can reconstruct "started but outcome unknown" records from
+        /// it and refuse to re-execute the mutation after a crash.
+        /// </summary>
+        /// <param name="record">The record about to be encoded and enqueued.</param>
+        /// <returns>
+        /// <see langword="true" /> when the record was stamped from the ambient scope. The caller reports it via
+        /// <see cref="RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped"/> only after the frame is
+        /// successfully enqueued: a failure before enqueue (encode, gate, or ring) leaves the idempotency
+        /// reservation retryable instead of pinning it as outcome-unknown.
+        /// </returns>
+        private static bool StampIdempotencyOperationId(JournalRecord record)
+        {
+            if (record.MutationOperationId != null)
+                return false;
+
+            var stampedOperationId = record.Operation switch
+            {
+                JournalOperationKind.Put or JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration or JournalOperationKind.TouchExpiration =>
+                    RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue,
+                _ => record.MutationOperationId,
+            };
+
+            record.MutationOperationId = stampedOperationId;
+            return stampedOperationId != null;
         }
 
         private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
