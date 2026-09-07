@@ -72,8 +72,15 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var allowed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
         Assert.True(allowed.Allowed);
 
+        // The barrier parks on the fake clock below the read index, then serves once applied.
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        await LeaderReadBarrier.WaitUntilAppliedAsync(static () => 9UL, 9UL, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+        var applied = 4UL;
+        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied, 9UL, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+        Assert.False(wait.IsCompleted);
+
+        applied = 9UL;
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        await wait;
 
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);

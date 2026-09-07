@@ -14,9 +14,18 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
 {
     /// <summary>Lagging rejoin stays fenced until the log reaches the leader commit index.</summary>
     [Fact]
-    public void LaggingRejoinStaysIneligible()
+    public async Task LaggingRejoinStaysIneligible()
     {
-        var lagging = FailoverActivationGate.CheckElection(3, true, true, false, 4, 4);
+        using var dir = new TempDirectory("squirix-rejoin-lagging");
+        await using var log = new FollowerLog(dir, "rejoin-lagging", GroupComposition.Create("rejoin-lagging"));
+        await log.OpenAsync(DefaultCancellationToken);
+
+        const ulong leaderCommitIndex = 2UL;
+        var status = await log.GetStatusAsync(DefaultCancellationToken);
+        var caughtUp = status.LastLogIndex >= leaderCommitIndex;
+        Assert.False(caughtUp);
+
+        var lagging = FailoverActivationGate.CheckElection(3, true, true, caughtUp, 4, 4);
         Assert.False(lagging.Eligible);
         Assert.Equal(FailoverDenial.LogNotCaughtUp, lagging.Denial);
     }
@@ -41,8 +50,14 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
         var granted = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.True(granted.Granted);
 
-        var caughtUp = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm);
-        Assert.True(caughtUp.Eligible);
+        // The catch-up flag is derived from the replicated log state, not passed literally.
+        const ulong leaderCommitIndex = 1UL;
+        var status = await log.GetStatusAsync(DefaultCancellationToken);
+        var caughtUp = status.LastLogIndex >= leaderCommitIndex;
+        Assert.True(caughtUp);
+
+        var eligible = FailoverActivationGate.CheckElection(3, true, true, caughtUp, granted.CurrentTerm, granted.CurrentTerm);
+        Assert.True(eligible.Eligible);
 
         var deposed = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm + 1);
         Assert.False(deposed.Eligible);

@@ -11,7 +11,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
-/// <summary>End-to-end failover benchmarks over a two-node RF=2 cluster.</summary>
+/// <summary>End-to-end failover benchmarks over a three-node RF=3 cluster.</summary>
 [BenchmarkCategory("e2e", "failover", "write")]
 public class FailoverBenchmarks : IAsyncDisposable
 {
@@ -23,6 +23,7 @@ public class FailoverBenchmarks : IAsyncDisposable
     private ClusterTls? _mtls;
     private TestNodeHost? _nodeA;
     private TestNodeHost? _nodeB;
+    private TestNodeHost? _nodeC;
     private int _offset;
 
     /// <summary>Stops the benchmark cluster.</summary>
@@ -45,30 +46,38 @@ public class FailoverBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>Starts a two-node RF=2 cluster and opens the public client.</summary>
+    /// <summary>Starts a three-node RF=3 cluster and opens the public client.</summary>
     /// <returns>A task that completes when the cluster is ready.</returns>
     [GlobalSetup]
     public async Task SetupAsync()
     {
         var uriA = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
         var uriB = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
+        var uriC = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
         _mtls = new ClusterTls();
         _dataDir = new TempDirectory("squirix-e2e-failover");
-        var topology = new[] { ("nodeA", uriA), ("nodeB", uriB) };
+        var topology = new[] { ("nodeA", uriA), ("nodeB", uriB), ("nodeC", uriC) };
         try
         {
             _nodeA = await TestNodeHostFactory.StartNodeAsync(
                 "nodeA",
                 uriA,
                 topology,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
                 _mtls,
                 CancellationToken.None).ConfigureAwait(false);
             _nodeB = await TestNodeHostFactory.StartNodeAsync(
                 "nodeB",
                 uriB,
                 topology,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
+                _mtls,
+                CancellationToken.None).ConfigureAwait(false);
+            _nodeC = await TestNodeHostFactory.StartNodeAsync(
+                "nodeC",
+                uriC,
+                topology,
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeC") },
                 _mtls,
                 CancellationToken.None).ConfigureAwait(false);
 
@@ -103,6 +112,10 @@ public class FailoverBenchmarks : IAsyncDisposable
         if (_nodeB != null)
             await _nodeB.DisposeAsync().ConfigureAwait(false);
         _nodeB = null;
+
+        if (_nodeC != null)
+            await _nodeC.DisposeAsync().ConfigureAwait(false);
+        _nodeC = null;
 
         _mtls?.Dispose();
         _mtls = null;
