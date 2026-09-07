@@ -216,21 +216,7 @@ internal static class ServerHostingComposition
 
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
-        if (persistenceEnabled)
-        {
-            _ = await builder.Services.AddPersistenceServicesAsync(persistence!, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
-
-            // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
-            // materialized; group membership is derived in a later milestone. Registered only when persistence is
-            // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
-            // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
-            // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
-            // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
-            _ = builder.Services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
-        }
-
-        if (cluster.ReplicaCount > 1 && persistenceEnabled && !args.FoundationOnly)
-            await AddReplicaGroupRegistryAsync(builder.Services, cluster, persistence!, mtlsOptions, cancellationToken).ConfigureAwait(false);
+        await RegisterPersistenceAndReplicationAsync(builder.Services, cluster, persistence, serverMeter, mtlsOptions, args, cancellationToken).ConfigureAwait(false);
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
@@ -243,6 +229,41 @@ internal static class ServerHostingComposition
         if (args.Extensions != null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
+    }
+
+    /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="persistence">Resolved persistence options; <see langword="null" /> when persistence is disabled.</param>
+    /// <param name="serverMeter">The per-host Meter singleton owned by the container.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
+    /// <param name="args">Composition arguments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the replication stack is registered.</returns>
+    private static async Task RegisterPersistenceAndReplicationAsync(
+        IServiceCollection services,
+        TopologyOptions cluster,
+        PersistenceOptions? persistence,
+        Meter serverMeter,
+        MtlsOptions mtlsOptions,
+        ICompositionArgs args,
+        CancellationToken cancellationToken)
+    {
+        if (persistence == null)
+            return;
+
+        _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+
+        // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
+        // materialized; group membership is derived in a later milestone. Registered only when persistence is
+        // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
+        // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
+        // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
+        // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
+        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+
+        if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
+            await AddReplicaGroupRegistryAsync(services, cluster, persistence, mtlsOptions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>

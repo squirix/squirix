@@ -46,13 +46,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (_follower == null)
             return StubCommitRefusal(header);
 
-        var result = await _follower.AdvanceCommitAsync(
-            header.GroupId,
-            header.TopologyFingerprint.ToByteArray(),
-            header.ConfigurationGeneration,
-            request.CommitIndex,
-            header.Term,
-            context.CancellationToken).ConfigureAwait(false);
+        var result = await CommitReplicaAdvanceAsync(_follower, header, request.CommitIndex, context.CancellationToken).ConfigureAwait(false);
         var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
         return new AdvanceReplicaCommitResponse
         {
@@ -69,11 +63,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (_follower == null)
             return StubAppendRefusal(header);
 
-        var records = new ReplicaLogRecord[request.Entries.Count];
-        for (var i = 0; i < records.Length; i++)
-            records[i] = MapRecord(request.Entries[i]);
-
-        var batch = new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
+        var batch = BuildFollowerBatch(request, header);
         var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, batch, context.CancellationToken)
                                     .ConfigureAwait(false);
         return new AppendReplicaEntriesResponse
@@ -133,29 +123,48 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (_follower == null)
             return await DrainStubInstallAsync(requestStream, header, context.CancellationToken).ConfigureAwait(false);
 
-        var file = new ArrayBufferWriter<byte>();
-        AccumulateChunk(file, first, header);
-        while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
-            AccumulateChunk(file, requestStream.Current, header);
-
-        if (ulong.CreateChecked(file.WrittenCount) != first.TotalBytes)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream length differs from the declared total bytes."));
-
-        var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
-        var result = await _follower.InstallSnapshotUploadAsync(
-            header.GroupId,
-            header.TopologyFingerprint.ToByteArray(),
-            header.ConfigurationGeneration,
-            upload,
-            header.Term,
-            context.CancellationToken).ConfigureAwait(false);
-        var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
+        var (result, status) = await ReadAndInstallSnapshotAsync(_follower, requestStream, first, header, context.CancellationToken).ConfigureAwait(false);
         return new InstallReplicaSnapshotResponse
         {
             Term = status?.CurrentTerm ?? 0,
             Success = result.Success,
             RefusalCode = result.Refusal,
         };
+    }
+
+    /// <summary>Accumulates the snapshot chunks and drives the follower install.</summary>
+    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
+    /// <param name="requestStream">The snapshot chunk stream.</param>
+    /// <param name="first">The first chunk, already validated as present.</param>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The install outcome and the follower status after the install.</returns>
+    /// <exception cref="RpcException">Thrown when the chunk stream length differs from the declared total bytes.</exception>
+    private static async Task<(GroupSnapshotInstallResult Result, FollowerLogStatus? Status)> ReadAndInstallSnapshotAsync(
+        ReplicaFollower follower,
+        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
+        InstallReplicaSnapshotRequest first,
+        ReplicationEnvelopeHeader header,
+        CancellationToken cancellationToken)
+    {
+        var file = new ArrayBufferWriter<byte>();
+        AccumulateChunk(file, first, header);
+        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
+            AccumulateChunk(file, requestStream.Current, header);
+
+        if (ulong.CreateChecked(file.WrittenCount) != first.TotalBytes)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream length differs from the declared total bytes."));
+
+        var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
+        var result = await follower.InstallSnapshotUploadAsync(
+            header.GroupId,
+            header.TopologyFingerprint.ToByteArray(),
+            header.ConfigurationGeneration,
+            upload,
+            header.Term,
+            cancellationToken).ConfigureAwait(false);
+        var status = await follower.GetStatusAsync(header.GroupId, cancellationToken).ConfigureAwait(false);
+        return (result, status);
     }
 
     private static void AccumulateChunk(ArrayBufferWriter<byte> file, InstallReplicaSnapshotRequest chunk, ReplicationEnvelopeHeader header)
@@ -181,6 +190,37 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         file.Write(chunk.Chunk.Span);
     }
+
+    /// <summary>Builds the follower append batch from a wire request.</summary>
+    /// <param name="request">The append request.</param>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <returns>The follower batch to append.</returns>
+    private static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
+    {
+        var records = new ReplicaLogRecord[request.Entries.Count];
+        for (var i = 0; i < records.Length; i++)
+            records[i] = MapRecord(request.Entries[i]);
+
+        return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
+    }
+
+    /// <summary>Advances the follower commit for a verified replication caller.</summary>
+    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <param name="commitIndex">Target commit index to advance to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The follower commit advance result.</returns>
+    private static Task<FollowerLogCommitResult> CommitReplicaAdvanceAsync(
+        ReplicaFollower follower,
+        ReplicationEnvelopeHeader header,
+        ulong commitIndex,
+        CancellationToken cancellationToken) => follower.AdvanceCommitAsync(
+        header.GroupId,
+        header.TopologyFingerprint.ToByteArray(),
+        header.ConfigurationGeneration,
+        commitIndex,
+        header.Term,
+        cancellationToken);
 
     private static async Task<InstallReplicaSnapshotResponse> DrainStubInstallAsync(
         IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
