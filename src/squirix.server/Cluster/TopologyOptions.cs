@@ -24,6 +24,9 @@ internal sealed class TopologyOptions
     /// <summary>Gets a value indicating whether automatic failover may trigger leader election. Always disabled until failover activation.</summary>
     internal bool AutomaticFailoverEnabled { get; init; }
 
+    /// <summary>Gets a value indicating whether quorum reads require majority confirmation. Always disabled until quorum-read activation.</summary>
+    internal bool QuorumReadsEnabled { get; init; }
+
     /// <summary>Gets the stopped-topology configuration generation (must be greater than zero).</summary>
     internal ulong ConfigurationGeneration { get; init; } = 1;
 

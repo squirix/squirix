@@ -79,6 +79,54 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         Assert.Equal("v", Assert.IsType<string>(loneRead.Value));
     }
 
+    /// <summary>Explicit post-proof opt-in serves quorum reads only after verified quorum and applied index.</summary>
+    [Fact]
+    public void QuorumReadsEnableAfterProofMatrix()
+    {
+        var uri = new Uri("https://localhost:6001");
+        var proof = new TopologyOptions(
+            [
+                new ServerPeer { NodeId = "node-a", Uri = uri },
+                new ServerPeer { NodeId = "node-b", Uri = uri },
+                new ServerPeer { NodeId = "node-c", Uri = uri },
+            ])
+        {
+            ClusterId = "cluster",
+            NodeId = "node-a",
+            Uri = uri,
+            ReplicaCount = 3,
+            AutomaticFailoverEnabled = true,
+            QuorumReadsEnabled = true,
+        };
+        Assert.True(proof.QuorumReadsEnabled);
+
+        var gated = FailoverActivationGate.CheckQuorumRead(false, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
+        Assert.False(gated.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.QuorumNotConfirmed, gated.Denial);
+
+        var single = FailoverActivationGate.CheckQuorumRead(true, 1, false, false, 1, 1, new LeaderReadState(false, 0, 7));
+        Assert.True(single.Allowed);
+
+        var allowed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
+        Assert.True(allowed.Allowed);
+
+        var unconfirmed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(false, 9, 9));
+        Assert.False(unconfirmed.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.QuorumNotConfirmed, unconfirmed.Denial);
+
+        var lagging = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(true, 4, 5));
+        Assert.False(lagging.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.ReadIndexNotApplied, lagging.Denial);
+
+        var minority = FailoverActivationGate.CheckQuorumRead(true, 3, false, true, 6, 6, new LeaderReadState(true, 9, 9));
+        Assert.False(minority.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.MinorityFenced, minority.Denial);
+
+        var deposed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 7, new LeaderReadState(true, 9, 9));
+        Assert.False(deposed.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.StaleTerm, deposed.Denial);
+    }
+
     private static string FindKeyOwnedBy(TestNodeHost host, string cacheName, string owner)
     {
         var locator = host.Services.GetRequiredService<INodeLocator>();
