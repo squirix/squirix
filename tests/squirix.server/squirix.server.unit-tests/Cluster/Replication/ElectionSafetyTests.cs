@@ -88,6 +88,31 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         Assert.Equal(5UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
     }
 
+    /// <summary>A zero-term request is refused on both paths and persists no vote.</summary>
+    [Fact]
+    public async Task ZeroTermRequestGrantsNoVote()
+    {
+        using var dir = new TempDirectory("squirix-election-safety-zero-term");
+        await using var log = OpenLog(dir);
+        await log.OpenAsync(DefaultCancellationToken);
+
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken);
+
+        var vote = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
+        Assert.False(vote.Granted);
+        Assert.Equal(FollowerLogRefusal.StaleTerm, vote.RefusalCode);
+
+        var probe = await log.TryCheckPreVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
+        Assert.False(probe.Granted);
+        Assert.Equal(FollowerLogRefusal.StaleTerm, probe.RefusalCode);
+
+        var status = await log.GetStatusAsync(DefaultCancellationToken);
+        Assert.Equal(0UL, status.CurrentTerm);
+        Assert.Equal(string.Empty, status.VotedFor);
+        Assert.Equal(before, await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken));
+    }
+
     /// <summary>An old-term majority waits: commit requires a current-term entry through the candidate index.</summary>
     [Fact]
     public void OldTermMajorityWaitsForCurrentTermEntry()

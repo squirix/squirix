@@ -73,6 +73,7 @@ internal sealed class ElectionTimer : IDisposable
 
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             _elapsed = elapsed;
             _timer ??= _timeProvider.CreateTimer(OnTick, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             _ = _timer.Change(_timeout, Timeout.InfiniteTimeSpan);

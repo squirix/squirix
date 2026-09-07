@@ -348,6 +348,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
 
+        // Terms start at one: a zero-term request can never win and must not persist a vote.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
+
         return await FollowerLogElection.TryRequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
@@ -359,6 +363,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
+
+        // Terms start at one: a zero-term probe authorizes nothing.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
 
         return FollowerLogElection.CheckPreVote(_journal, this, request);
     }
