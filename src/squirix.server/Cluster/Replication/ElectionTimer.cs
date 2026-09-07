@@ -26,7 +26,7 @@ internal sealed class ElectionTimer : IDisposable
     /// <summary>Initializes a new instance of the <see cref="ElectionTimer" /> class.</summary>
     /// <param name="timeout">The one-shot election timeout; must be positive.</param>
     /// <param name="timeProvider">The time source driving the timer; <see langword="null" /> selects <see cref="TimeProvider.System" />.</param>
-    internal ElectionTimer(TimeSpan timeout, TimeProvider? timeProvider = null)
+    private ElectionTimer(TimeSpan timeout, TimeProvider? timeProvider = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
 
