@@ -28,4 +28,10 @@ internal static class FollowerLogRefusal
 
     /// <summary>The request targets a group this node does not participate in.</summary>
     internal const string NotMember = "not-member";
+
+    /// <summary>The current term vote was already granted to a different candidate.</summary>
+    internal const string AlreadyVoted = "already-voted";
+
+    /// <summary>The candidate log is behind the voter log and cannot win the election.</summary>
+    internal const string StaleLog = "stale-log";
 }

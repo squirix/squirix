@@ -85,4 +85,19 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The reconciliation outcome.</returns>
     Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Evaluates a ballot request against the durable term, vote, and log freshness, persisting the higher term
+    /// and the granted vote before reporting success so a restart never forgets a cast vote.
+    /// </summary>
+    /// <param name="request">The ballot request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ballot outcome.</returns>
+    Task<FollowerLogVoteResult> TryRequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Evaluates a pre-vote probe without persisting term or vote state.</summary>
+    /// <param name="request">The prospective ballot request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The prospective ballot outcome at the current durable term.</returns>
+    Task<FollowerLogVoteResult> TryCheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken);
 }

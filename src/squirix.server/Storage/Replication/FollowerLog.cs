@@ -339,6 +339,38 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
     }
 
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> TryRequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
+
+        // Terms start at one: a zero-term request can never win and must not persist a vote.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
+
+        return await FollowerLogElection.TryRequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> TryCheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
+
+        // Terms start at one: a zero-term probe authorizes nothing.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
+
+        return FollowerLogElection.CheckPreVote(_journal, this, request);
+    }
+
     /// <summary>
     /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
     /// lifecycle is owned separately: snapshot publication retains the covered prefix until the applied watermark
@@ -489,6 +521,87 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         Readiness = FollowerLogReadiness.Ready;
     }
 
+    /// <summary>Election voting operations for a follower log.</summary>
+    /// <remarks>
+    /// The caller holds the log gate; term and vote transitions persist durably through the owner before
+    /// any granted result is reported, so a restart never observes a phantom term or a second vote.
+    /// </remarks>
+    private static class FollowerLogElection
+    {
+        internal static async Task<FollowerLogVoteResult> TryRequestVoteAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ElectionVoteRequest request,
+            CancellationToken cancellationToken)
+        {
+            // A stale candidate term authorizes nothing and never touches durable state.
+            if (request.Term < owner.Meta.CurrentTerm)
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
+
+            // A higher term is persisted durably, clearing any previous vote, before the grant decision:
+            // a crash between the step and the grant must still recover the higher term without a phantom vote.
+            if (request.Term > owner.Meta.CurrentTerm)
+            {
+                var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
+                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
+                owner.SetMeta(stepped);
+            }
+
+            // At most one vote per term: only the recorded candidate may be re-granted.
+            if (owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
+
+            // A candidate whose log trails the voter log cannot win the election.
+            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
+
+            // A replayed grant for the recorded candidate needs no durable rewrite: the vote was
+            // persisted before the first grant was reported, so the file already records it.
+            if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+
+            // The granted vote is persisted before reporting success so a restart never grants a second vote.
+            var granted = owner.Meta with { VotedFor = request.CandidateId };
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(granted);
+            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+        }
+
+        internal static FollowerLogVoteResult CheckPreVote(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ElectionVoteRequest request)
+        {
+            // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate
+            // its durable term, and the reported term always stays the locally persisted one.
+            if (request.Term < owner.Meta.CurrentTerm)
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
+
+            if (request.Term == owner.Meta.CurrentTerm && owner.Meta.VotedFor.Length != 0 &&
+                !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
+
+            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
+
+            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+        }
+
+        private static ulong CurrentLastLogTerm(FollowerLogJournal journal, IFollowerLogContext owner)
+        {
+            if (owner.LastLogIndex == 0UL)
+                return 0UL;
+
+            if (journal.TryGetEntryOffset(owner.LastLogIndex, out var location))
+                return location.Term;
+
+            if (journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex)
+                return journal.SnapshotBaseline.LastIncludedTerm;
+
+            return 0UL;
+        }
+    }
+
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend
     {
@@ -630,6 +743,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.SetReadiness(FollowerLogReadiness.Failed);
                 throw;
             }
+        }
+
+        internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex)
+        {
+            if (candidateLastTerm != localLastTerm)
+                return candidateLastTerm > localLastTerm;
+
+            return candidateLastIndex >= localLastIndex;
         }
 
         internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)

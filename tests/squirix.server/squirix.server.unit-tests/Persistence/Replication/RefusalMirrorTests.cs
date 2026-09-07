@@ -37,4 +37,12 @@ public sealed class RefusalMirrorTests : ServerUnitTestBase
     /// <summary>Not-member marker matches across both namespaces.</summary>
     [Fact]
     public void NotMemberMirrors() => Assert.Equal(RefusalCodes.NotMember, FollowerLogRefusal.NotMember);
+
+    /// <summary>Already-voted marker matches across both namespaces.</summary>
+    [Fact]
+    public void AlreadyVotedMirrors() => Assert.Equal(RefusalCodes.AlreadyVoted, FollowerLogRefusal.AlreadyVoted);
+
+    /// <summary>Stale-log marker matches across both namespaces.</summary>
+    [Fact]
+    public void StaleLogMirrors() => Assert.Equal(RefusalCodes.StaleLog, FollowerLogRefusal.StaleLog);
 }
