@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.ProtocolModel;
 using Squirix.Server.IntegrationTests.Support;
 using Xunit;
 
@@ -26,4 +27,12 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         pipeline.Trace);
         ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
     }
+
+    /// <summary>Production conformance pins the protocol model version it was verified against.</summary>
+    /// <remarks>
+    /// Update the pinned hash only together with a model transition or invariant change;
+    /// a silent drift between the verified model and production is a conformance failure.
+    /// </remarks>
+    [Fact]
+    public void ProtocolVersionMatchesModelManifest() => Assert.Equal("f0e518fc4db3ce67", ExploreRunner.ModelVersionHash);
 }

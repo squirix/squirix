@@ -39,79 +39,6 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
     }
 
-    /// <summary>An oversized frame body length in the committed group log is rejected during recovery instead of renting a multi-GB buffer.</summary>
-    [Fact]
-    public async Task RejectsOversizedFrameBodyLength()
-    {
-        using var dir = new TempDirectory("squirix-follower-log-oversized");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using (var log = new FollowerLog(dir, GroupId, composition))
-        {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
-        }
-
-        var path = GroupStoragePaths.GetLogPath(dir, GroupId);
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-
-        // Frame header follows the 5-byte file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.
-        const int bodyLengthOffset = 5 + 4 + 1;
-        bytes[bodyLengthOffset] = 0xFF;
-        bytes[bodyLengthOffset + 1] = 0xFF;
-        bytes[bodyLengthOffset + 2] = 0xFF;
-        bytes[bodyLengthOffset + 3] = 0x7F;
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
-
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
-        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
-    }
-
-    /// <summary>A frame header declaring a body shorter than the fixed fields is rejected without allocating.</summary>
-    [Fact]
-    public void GroupLogRejectsHeaderBodyTooShort()
-    {
-        Span<byte> header = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
-        Assert.False(GroupLogCodec.TryReadFrameHeaderLength(header, out _));
-    }
-
-    /// <summary>A frame body declared larger than the maximum bound is rejected during core validation.</summary>
-    [Fact]
-    public void GroupLogRejectsCoreBodyTooLarge()
-    {
-        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0xFF, 0xFF, 0xFF, 0x7F];
-        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
-    }
-
-    /// <summary>A frame whose declared body cannot fit the available buffer is rejected during core validation.</summary>
-    [Fact]
-    public void GroupLogRejectsCoreBodyTruncated()
-    {
-        Span<byte> buffer = stackalloc byte[15];
-        buffer[0] = 0x53;
-        buffer[1] = 0x51;
-        buffer[2] = 0x52;
-        buffer[3] = 0x4C;
-        buffer[4] = 0x01;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer[5..], 20);
-        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
-    }
-
-    /// <summary>A frame body declared shorter than the fixed fields is rejected during core validation.</summary>
-    [Fact]
-    public void GroupLogRejectsCoreBodyTooShort()
-    {
-        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
-        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
-    }
-
-    /// <summary>An oversized payload is rejected while sizing the encoded buffer, before any pool rent.</summary>
-    [Fact]
-    public void GroupLogRejectsOversizedPayloadLength() =>
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(static () => GroupLogCodec.ComputeFrameEncodedLength(int.MaxValue));
-
     /// <summary>A stale batch replaying already-durable entries within the local tail is still acknowledged idempotently.</summary>
     [Fact]
     public async Task AcknowledgesStaleBatchWithinLocalTail()
@@ -258,6 +185,35 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2, (await log.GetUncommittedTailAsync(DefaultCancellationToken)).Count);
     }
 
+    /// <summary>
+    /// After application releases the base frame's payload, a retransmission of the snapshot-base entry is
+    /// acknowledged through the retained-frame term check alone: Leader Completeness forbids a conflicting
+    /// term at an applied index.
+    /// </summary>
+    [Fact]
+    public async Task AppliedBaseDuplicateAcceptedByTerm()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-base-duplicate-applied");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken)).Success);
+
+        // CreateSnapshotAsync installs the baseline without compacting the journal, so the released frame
+        // keeps its offset in EntryOffsets and a retransmission must be an exact duplicate, not a conflict.
+        var snapshot = await log.CreateSnapshotAsync(1UL, DefaultCancellationToken);
+        Assert.Equal(1UL, snapshot.LastIncludedIndex);
+
+        var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+
+        Assert.True(retransmission.Success);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
     /// <summary>A batch entry claiming a conflicting term at an applied index fails readiness instead of being silently accepted.</summary>
     [Fact]
     public async Task AppliedConflictInBatchFailsReadiness()
@@ -308,6 +264,30 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
         Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
+    /// <summary>A batch whose first entry does not follow the declared predecessor is rejected as malformed.</summary>
+    [Fact]
+    public async Task BatchMustFollowDeclaredPredecessor()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-predecessor");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
+
+        // Declares index 1 as predecessor but skips index 2: the batch starts at index 3.
+        var memory = new ReadOnlyMemory<FollowerLogEntry>(
+            [new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, Encoding.UTF8.GetBytes("d"))]);
+        var malformed = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
+        var result = await log.AppendAsync(malformed, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
     /// <summary>The commit index never moves backward even when a lower request arrives.</summary>
@@ -371,37 +351,6 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
-    /// <summary>
-    /// A compacted snapshot base is refused because the probe lies below the snapshot boundary: the frame was
-    /// compacted away and its term is unverifiable, so the below-boundary rule (not a payload comparison) produces
-    /// the LogMismatch refusal while Readiness stays Ready.
-    /// </summary>
-    [Fact]
-    public async Task ProbeBelowCompactedBoundaryRejected()
-    {
-        using var dir = new TempDirectory("squirix-follower-log-compacted-snapshot-base-conflict");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
-        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
-        Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
-        Assert.True((await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken)).Success);
-        Assert.Equal(2UL, (await log.CreateSnapshotAsync(2UL, DefaultCancellationToken)).LastIncludedIndex);
-        var compact = await log.CompactAsync(DefaultCancellationToken);
-        Assert.True(compact.Success);
-
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
-        var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
-        var result = await log.AppendAsync(request, DefaultCancellationToken);
-
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
-        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
-    }
-
     /// <summary>A commit index beyond the durable last index is refused.</summary>
     [Fact]
     public async Task DoesNotCommitBeyondDurableLastIndex()
@@ -446,35 +395,6 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
     }
 
-    /// <summary>
-    /// After application releases the base frame's payload, a retransmission of the snapshot-base entry is
-    /// acknowledged through the retained-frame term check alone: Leader Completeness forbids a conflicting
-    /// term at an applied index.
-    /// </summary>
-    [Fact]
-    public async Task AppliedBaseDuplicateAcceptedByTerm()
-    {
-        using var dir = new TempDirectory("squirix-follower-log-base-duplicate-applied");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
-        Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
-        Assert.True((await log.AdvanceAppliedAsync(1UL, DefaultCancellationToken)).Success);
-
-        // CreateSnapshotAsync installs the baseline without compacting the journal, so the released frame
-        // keeps its offset in EntryOffsets and a retransmission must be an exact duplicate, not a conflict.
-        var snapshot = await log.CreateSnapshotAsync(1UL, DefaultCancellationToken);
-        Assert.Equal(1UL, snapshot.LastIncludedIndex);
-
-        var retransmission = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-
-        Assert.True(retransmission.Success);
-        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
-        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
-    }
-
     /// <summary>A duplicate-prefix request cannot commit entries beyond the prefix it validates.</summary>
     [Fact]
     public async Task DuplicatePrefixBlocksUnvalidatedTail()
@@ -514,6 +434,49 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.StartsWith(dir, path, StringComparison.Ordinal);
     }
 
+    /// <summary>A frame body declared larger than the maximum bound is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTooLarge()
+    {
+        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0xFF, 0xFF, 0xFF, 0x7F];
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>A frame body declared shorter than the fixed fields is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTooShort()
+    {
+        Span<byte> buffer = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>A frame whose declared body cannot fit the available buffer is rejected during core validation.</summary>
+    [Fact]
+    public void GroupLogRejectsCoreBodyTruncated()
+    {
+        Span<byte> buffer = stackalloc byte[15];
+        buffer[0] = 0x53;
+        buffer[1] = 0x51;
+        buffer[2] = 0x52;
+        buffer[3] = 0x4C;
+        buffer[4] = 0x01;
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[5..], 20);
+        Assert.False(GroupLogCodec.TryReadFrame(buffer, out _));
+    }
+
+    /// <summary>A frame header declaring a body shorter than the fixed fields is rejected without allocating.</summary>
+    [Fact]
+    public void GroupLogRejectsHeaderBodyTooShort()
+    {
+        Span<byte> header = [0x53, 0x51, 0x52, 0x4C, 0x01, 0x0A, 0x00, 0x00, 0x00];
+        Assert.False(GroupLogCodec.TryReadFrameHeaderLength(header, out _));
+    }
+
+    /// <summary>An oversized payload is rejected while sizing the encoded buffer, before any pool rent.</summary>
+    [Fact]
+    public void GroupLogRejectsOversizedPayloadLength() =>
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(static () => GroupLogCodec.ComputeFrameEncodedLength(int.MaxValue));
+
     /// <summary>A heartbeat with a high commit index does not commit a retained divergent suffix beyond the verified predecessor.</summary>
     [Fact]
     public async Task HeartbeatIgnoresDivergentSuffix()
@@ -538,6 +501,77 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Equal(2, (await log.GetCommittedEntriesAsync(DefaultCancellationToken)).Count);
     }
 
+    /// <summary>A commit request from a higher-term leader adopts the term durably even when the commit index is monotonic,
+    /// and subsequent delayed requests are evaluated against the persisted term.</summary>
+    [Fact]
+    public async Task HigherTermCommitAdoptsTermOnNoOp()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-higher-term-commit");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+
+            // A higher-term leader sends a commit already satisfied monotonically; the term must still be adopted.
+            var noOp = await log.AdvanceCommitAsync(1UL, 2UL, DefaultCancellationToken);
+            Assert.True(noOp.Success);
+
+            var status = await log.GetStatusAsync(DefaultCancellationToken);
+            Assert.Equal(2UL, status.CurrentTerm);
+            Assert.Equal(string.Empty, status.VotedFor);
+
+            // A delayed request from the deposed lower-term leader is now rejected against the persisted term.
+            var stale = await log.AdvanceCommitAsync(1UL, 1UL, DefaultCancellationToken);
+            Assert.False(stale.Success);
+            Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
+        }
+
+        // The adopted term survives restart and still governs stale-term rejections.
+        await using (var reopened = new FollowerLog(dir, GroupId, composition))
+        {
+            await reopened.OpenAsync(DefaultCancellationToken);
+            Assert.Equal(2UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+
+            var stale = await reopened.AdvanceCommitAsync(1UL, 1UL, DefaultCancellationToken);
+            Assert.False(stale.Success);
+            Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
+        }
+    }
+
+    /// <summary>
+    /// A compacted snapshot base is refused because the probe lies below the snapshot boundary: the frame was
+    /// compacted away and its term is unverifiable, so the below-boundary rule (not a payload comparison) produces
+    /// the LogMismatch refusal while Readiness stays Ready.
+    /// </summary>
+    [Fact]
+    public async Task ProbeBelowCompactedBoundaryRejected()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-compacted-snapshot-base-conflict");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(DefaultCancellationToken);
+        Assert.True((await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
+        Assert.True((await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken)).Success);
+        Assert.Equal(2UL, (await log.CreateSnapshotAsync(2UL, DefaultCancellationToken)).LastIncludedIndex);
+        var compact = await log.CompactAsync(DefaultCancellationToken);
+        Assert.True(compact.Success);
+
+        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
+        var result = await log.AppendAsync(request, DefaultCancellationToken);
+
+        Assert.False(result.Success);
+        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
+        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
+        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
     /// <summary>Re-appending an already-applied entry is acknowledged idempotently without failing readiness.</summary>
     [Fact]
     public async Task ReappliedEntryAcknowledgedOnce()
@@ -558,30 +592,6 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.Empty(await log.GetCommittedEntriesAsync(DefaultCancellationToken));
     }
 
-    /// <summary>A batch whose first entry does not follow the declared predecessor is rejected as malformed.</summary>
-    [Fact]
-    public async Task BatchMustFollowDeclaredPredecessor()
-    {
-        using var dir = new TempDirectory("squirix-follower-log-predecessor");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
-
-        // Declares index 1 as predecessor but skips index 2: the batch starts at index 3.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>(
-            [new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, Encoding.UTF8.GetBytes("d"))]);
-        var malformed = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
-        var result = await log.AppendAsync(malformed, DefaultCancellationToken);
-
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(3UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
-    }
-
     /// <summary>A gap in the batch is rejected without any appending.</summary>
     [Fact]
     public async Task RejectsGapWithoutAppend()
@@ -597,6 +607,36 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         Assert.False(gap.Success);
         Assert.Equal(FollowerLogRefusal.LogMismatch, gap.RefusalCode);
         Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+    }
+
+    /// <summary>An oversized frame body length in the committed group log is rejected during recovery instead of renting a multi-GB buffer.</summary>
+    [Fact]
+    public async Task RejectsOversizedFrameBodyLength()
+    {
+        using var dir = new TempDirectory("squirix-follower-log-oversized");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(DefaultCancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+        }
+
+        var path = GroupStoragePaths.GetLogPath(dir, GroupId);
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+
+        // Frame header follows the 5-byte file header: magic(4) | version(1) | bodyLength(4). Overwrite bodyLength with a multi-GB value.
+        const int bodyLengthOffset = 5 + 4 + 1;
+        bytes[bodyLengthOffset] = 0xFF;
+        bytes[bodyLengthOffset + 1] = 0xFF;
+        bytes[bodyLengthOffset + 2] = 0xFF;
+        bytes[bodyLengthOffset + 3] = 0x7F;
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
+        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
     }
 
     /// <summary>An appending carrying a lower term than the durable term is rejected before any mutation.</summary>

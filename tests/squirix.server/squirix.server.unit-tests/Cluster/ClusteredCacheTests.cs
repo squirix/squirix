@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Grpc.Net.Client;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -119,6 +120,8 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
         }
 
         public IServerCallPolicy PolicyFor(string nodeId) => throw new InvalidOperationException(RemoteCallMessage);
+
+        public GrpcChannel OpenChannel(string nodeId) => throw new InvalidOperationException(RemoteCallMessage);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

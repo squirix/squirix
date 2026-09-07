@@ -118,7 +118,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
     /// <summary>Verifies that a disabled mTLS material makes the internal listener unavailable.</summary>
     [Fact]
-    public void DisabledMtlsMaterialIsRejected()
+    public async Task DisabledMtlsMaterialIsRejected()
     {
         var adapter = new SquirixReplicationServiceAdapter(
             CreateTopology(),
@@ -126,7 +126,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             MtlsCertificateMaterial.Load(new MtlsOptions(), null, false));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(adapter, request, new TestServerCallContext(), static (a, req, context) => _ = a.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
     }
@@ -243,11 +243,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             },
         };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            request,
-            new TestServerCallContext(null, httpContext),
-            static (adapter, req, context) => _ = adapter.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -258,11 +254,8 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     {
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            new GetReplicaStatusRequest(),
-            new TestServerCallContext(null, fixture.CreateHttpContext()),
-            static (adapter, request, context) => _ = adapter.GetReplicaStatus(request, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            fixture.Adapter.GetReplicaStatus(new GetReplicaStatusRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
     }
@@ -277,11 +270,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeCodec.SchemaVersion, SenderNodeId = " " },
         };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            request,
-            new TestServerCallContext(null, fixture.CreateHttpContext()),
-            static (adapter, req, context) => _ = adapter.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
     }
@@ -293,11 +282,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-b") };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            request,
-            new TestServerCallContext(null, fixture.CreateHttpContext()),
-            static (adapter, req, context) => _ = adapter.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -323,11 +308,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             },
         };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            adapter,
-            request,
-            new TestServerCallContext(null, httpContext),
-            static (a, req, context) => _ = a.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -342,11 +323,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             Header = new ReplicationEnvelopeHeader { SchemaVersion = 99, SenderNodeId = "node-a" },
         };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            request,
-            new TestServerCallContext(null, fixture.CreateHttpContext()),
-            static (adapter, req, context) => _ = adapter.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
     }
@@ -366,11 +343,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             },
         };
 
-        var ex = NodeExceptionAssert.For<RpcException>().Throws(
-            fixture.Adapter,
-            request,
-            new TestServerCallContext(null, httpContext),
-            static (adapter, req, context) => _ = adapter.GetReplicaStatus(req, context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
         Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
     }

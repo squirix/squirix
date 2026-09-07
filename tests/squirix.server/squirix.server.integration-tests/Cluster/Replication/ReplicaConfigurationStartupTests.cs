@@ -26,24 +26,25 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
     }
 
-    /// <summary>RF=2 fails before replication activation even with persistence and mTLS.</summary>
+    /// <summary>RF=2 starts with network replication activated when persistence and mTLS are present.</summary>
     [Fact]
-    public async Task RfTwoFailsBeforeReplicationActivation()
+    public async Task RfTwoStartsWithPrerequisites()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(
-                uriA,
-                peers,
-                new NodeStartOptions
-                {
-                    ReplicaCount = 2,
-                    UsePersistence = true,
-                    ExtraScope = "rf2-activation",
-                }));
-        Assert.Contains(ReplicationActivationGuard.NotActivated, ex.Message, StringComparison.Ordinal);
+        await using var host = await StartNodeAsync(
+            uriA,
+            peers,
+            new NodeStartOptions
+            {
+                ReplicaCount = 2,
+                UsePersistence = true,
+                ExtraScope = "rf2-activation",
+            });
+        var featureState = host.Services.GetRequiredService<FeatureState>();
+        Assert.True(featureState.NetworkReplicationEnabled);
+        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
     }
 
     /// <summary>RF=2 without persistence reports the persistence prerequisite first.</summary>
@@ -55,10 +56,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(StartNodeAsync(uriA, peers, new NodeStartOptions { ReplicaCount = 2 }));
         Assert.Contains(ReplicationActivationGuard.PersistenceRequired, ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(ReplicationActivationGuard.NotActivated, ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>RF=2 with persistence but without mTLS reports mTLS before activation refusal.</summary>
+    /// <summary>RF=2 with persistence but without mTLS reports the mTLS prerequisite.</summary>
     [Fact]
     public async Task RfTwoRequiresMtlsBeforeActivation()
     {
@@ -85,7 +85,6 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
                 },
                 DefaultCancellationToken));
         Assert.Contains(ReplicationActivationGuard.MtlsRequired, ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(ReplicationActivationGuard.NotActivated, ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Settings JSON round-trips ReplicaCount and ConfigurationGeneration.</summary>

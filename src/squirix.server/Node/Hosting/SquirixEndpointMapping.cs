@@ -44,8 +44,9 @@ internal static class SquirixEndpointMapping
         string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
         _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
 
-        // Closed replication service: internal listener only, and only when FoundationOnly is enabled (testkit).
-        if (featureState.FoundationOnly)
+        // Closed replication service: internal listener only, for foundation transport tests
+        // and on network-replication-activated hosts.
+        if (featureState.FoundationOnly || featureState.NetworkReplicationEnabled)
             _ = app.MapGrpcService<ReplicationServiceAdapter>().RequireHost(internalHostFilter).AllowAnonymous();
 
         return app;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -17,19 +18,32 @@ namespace Squirix.E2ETests.Cluster;
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
+    private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TempDirectory? _dataDir;
     private readonly ClusterTls? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
+    private readonly TwoNodeStartOptions _startOptions;
+    private readonly FrozenDictionary<string, Uri> _uris;
+    private readonly bool _usePersistence;
     private int _disposed;
 
-    private HostedCluster(Dictionary<string, TestNode> nodes, ClusterTls? mtls, TempDirectory? dataDir)
+    private HostedCluster(
+        Dictionary<string, TestNode> nodes,
+        ClusterTls? mtls,
+        TempDirectory? dataDir,
+        TwoNodeStartOptions startOptions,
+        FrozenDictionary<string, Uri> uris,
+        bool usePersistence)
     {
         _nodes = nodes;
         _mtls = mtls;
         _dataDir = dataDir;
+        _startOptions = startOptions;
+        _uris = uris;
+        _usePersistence = usePersistence;
     }
 
     public async ValueTask DisposeAsync()
@@ -57,6 +71,18 @@ internal sealed class HostedCluster : IAsyncDisposable
         var options = new TwoNodeStartOptions { Security = security, TimeProvider = timeProvider };
         return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
     }
+
+    /// <summary>Starts a three-node cluster for RF=3 quorum scenarios.</summary>
+    /// <param name="testName">Label used when creating a persistence temp directory.</param>
+    /// <param name="options">Replica count, security, and mTLS profile overrides.</param>
+    /// <param name="usePersistence">When <see langword="true" />, each node gets an isolated data directory.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A hosted cluster owning the started nodes.</returns>
+    internal static ValueTask<HostedCluster> StartThreeNodeAsync(
+        string? testName = null,
+        TwoNodeStartOptions? options = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(ThreeNodeIds, options, testName, usePersistence, cancellationToken);
 
     internal static ValueTask<HostedCluster> StartTwoNodeAsync(
         string? testName = null,
@@ -137,23 +163,17 @@ internal sealed class HostedCluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
                 topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
+            var cluster = new HostedCluster(nodes, mtls, dataDir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
-                var hostOptions = new TestNodeHostStartOptions
-                {
-                    DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
-                    Security = startOptions.Security,
-                    MtlsProfile = startOptions.GetProfile(nodeId),
-                    TimeProvider = startOptions.TimeProvider,
-                };
 
                 // Release this node's held port so Kestrel can bind it, then start the node immediately.
                 pool.ReleasePort(reserved[i]);
-                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, mtls, cancellationToken));
+                nodes[nodeId] = new TestNode(await cluster.StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
             }
 
-            return new HostedCluster(nodes, mtls, dataDir);
+            return cluster;
         }
         catch
         {
@@ -170,6 +190,20 @@ internal sealed class HostedCluster : IAsyncDisposable
             dataDir?.Dispose();
             throw;
         }
+    }
+
+    private ValueTask<TestNodeHost> StartOneAsync(string nodeId, (string NodeId, Uri Uri)[] topology, CancellationToken cancellationToken)
+    {
+        var hostOptions = new TestNodeHostStartOptions
+        {
+            DataDir = _usePersistence ? BuildDataDir(_dataDir!, nodeId) : null,
+            ReplicaCount = _startOptions.ReplicaCount,
+            Security = _startOptions.Security,
+            MtlsProfile = _startOptions.GetProfile(nodeId),
+            TimeProvider = _startOptions.TimeProvider,
+        };
+
+        return TestNodeHostFactory.StartNodeAsync(nodeId, _uris[nodeId], topology, hostOptions, _mtls, cancellationToken);
     }
 
     /// <summary>Represents a started test node.</summary>

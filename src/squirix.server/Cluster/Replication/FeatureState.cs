@@ -10,9 +10,12 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal readonly record struct FeatureState(bool NetworkReplicationEnabled, bool FoundationOnly)
 {
-    /// <summary>Gets the shared disabled state until M8-09 activates RF&gt;1 networking.</summary>
+    /// <summary>Gets the shared disabled state for RF=1 hosts.</summary>
     internal static FeatureState Disabled { get; } = new(false, false);
 
-    /// <summary>Gets foundation-only state used by testkit before M8-09.</summary>
+    /// <summary>Gets the activated state for RF&gt;1 hosts whose persistence and mTLS prerequisites passed.</summary>
+    internal static FeatureState Activated { get; } = new(true, false);
+
+    /// <summary>Gets foundation-only state used by testkit for transport tests without RF&gt;1 mutations.</summary>
     internal static FeatureState Foundation { get; } = new(false, true);
 }

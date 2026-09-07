@@ -14,6 +14,9 @@ internal sealed class KeyOwnerHelper
     /// <summary>Shared ring for the default two-node topology (<c language="csharp">nodeA</c>, <c language="csharp">nodeB</c>).</summary>
     internal static readonly KeyOwnerHelper TwoNode = new(["nodeA", "nodeB"]);
 
+    /// <summary>Shared ring for the three-node topology (<c language="csharp">nodeA</c>, <c language="csharp">nodeB</c>, <c language="csharp">nodeC</c>).</summary>
+    internal static readonly KeyOwnerHelper ThreeNode = new(["nodeA", "nodeB", "nodeC"]);
+
     private readonly (ulong Hash, string Node)[] _ring;
 
     private KeyOwnerHelper(ReadOnlySpan<string> nodeIds, int virtualNodes = 128)

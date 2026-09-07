@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
@@ -50,24 +49,23 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
         Assert.Equal("journal", tail.Value);
     }
 
-    /// <summary>RF=2 remains rejected even when the closed follower foundation is available.</summary>
+    /// <summary>RF=2 starts when the closed follower foundation is available with prerequisites.</summary>
     [Fact]
-    public async Task RfTwoStillRejectedWithFoundation()
+    public async Task RfTwoStartsWithFoundation()
     {
         var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
         var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
         using var mtls = new ClusterTls();
         using var dataDirectory = new TempDirectory("squirix-e2e-follower-foundation");
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                uriA,
-                [("nodeA", uriA), ("nodeB", uriB)],
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path },
-                mtls,
-                DefaultCancellationToken));
+        await using var host = await TestNodeHostFactory.StartNodeAsync(
+            "nodeA",
+            uriA,
+            [("nodeA", uriA), ("nodeB", uriB)],
+            new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path },
+            mtls,
+            DefaultCancellationToken);
 
-        Assert.Contains("not activated", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(host.HasInterNodeMtlsListener);
     }
 
     /// <summary>Single persistent node that can be stopped and restarted on the same data directory.</summary>

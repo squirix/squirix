@@ -28,6 +28,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
 
     /// <summary>Logs displaced from the map while leased, guarded by <see cref="_gate" />.</summary>
     private readonly HashSet<IFollowerLog> _retired = [];
+
     private int _disposed;
 
     /// <summary>

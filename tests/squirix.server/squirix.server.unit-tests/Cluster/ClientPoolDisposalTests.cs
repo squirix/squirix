@@ -27,14 +27,11 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var sink = new NodeMeasurementSink(meter);
         var policies = new Dictionary<string, RecordingPolicy>(StringComparer.Ordinal)
         {
-            ["n0"] = new RecordingPolicy(new InvalidOperationException("Unexpected policy disposal failure.")),
-            ["n1"] = new RecordingPolicy(null),
-            ["n2"] = new RecordingPolicy(null),
+            ["n0"] = new(new InvalidOperationException("Unexpected policy disposal failure.")),
+            ["n1"] = new(null),
+            ["n2"] = new(null),
         };
-        var pool = new ServerClientPool(
-            BuildPeers(3),
-            new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] },
-            new ServerClientPoolMetrics(meter));
+        var pool = new ServerClientPool(BuildPeers(3), new ServerClientPoolArgs { PolicyFactory = nodeId => policies[nodeId] }, new ServerClientPoolMetrics(meter));
         await using (pool)
         {
             await pool.DisposeAsync();

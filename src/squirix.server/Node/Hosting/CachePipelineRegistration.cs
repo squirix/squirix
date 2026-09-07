@@ -1,13 +1,16 @@
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -73,9 +76,24 @@ internal static class CachePipelineRegistration
     {
         _ = services.AddSingleton(static sp => new ClusteredCache<object?>(
             sp.GetRequiredService<TopologyOptions>().NodeId,
-            sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
+            ResolveLocalCache(sp),
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<IServerClientPool>()));
+    }
+
+    /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
+    /// <param name="sp">Service provider.</param>
+    /// <returns>The local cache pipeline.</returns>
+    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
+    {
+        var inner = sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
+
+        // FeatureState is the single source of truth: only network-replication-activated hosts commit.
+        // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
+        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
+            return inner;
+
+        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitter>());
     }
 
     private static void AddLogicalNamespacedCache(IServiceCollection services, ExtensionOptions? extensions)

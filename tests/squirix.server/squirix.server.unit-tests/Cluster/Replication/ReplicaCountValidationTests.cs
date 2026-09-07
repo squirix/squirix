@@ -123,13 +123,13 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
         Assert.Contains("ReplicaCount must be greater than zero.", errors, StringComparer.Ordinal);
     }
 
-    /// <summary>RF&gt;1 remains refused even when persistence and mTLS prerequisites are present.</summary>
+    /// <summary>RF&gt;1 activates when persistence and mTLS prerequisites are present.</summary>
     [Fact]
-    public void RfTwoRemainsDisabledBeforeActivation()
+    public void RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
         ReplicationActivationGuard.CollectFailures(failures, 2, true, true);
-        Assert.Equal([ReplicationActivationGuard.NotActivated], failures);
+        Assert.Empty(failures);
     }
 
     /// <summary>RF&gt;1 requires mTLS material when evaluated at hosting time.</summary>

@@ -5,7 +5,7 @@ using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.E2ETests.Cluster;
 
-/// <summary>Optional startup settings for two-node E2E clusters.</summary>
+/// <summary>Optional startup settings for multi-node E2E clusters.</summary>
 [Immutable]
 internal sealed class TwoNodeStartOptions
 {
@@ -14,6 +14,12 @@ internal sealed class TwoNodeStartOptions
 
     /// <summary>Gets the inter-node mTLS profile for node B.</summary>
     internal TestNodeProfile NodeBProfile { private get; init; } = TestNodeProfile.Normal;
+
+    /// <summary>Gets the inter-node mTLS profile for node C.</summary>
+    internal TestNodeProfile NodeCProfile { private get; init; } = TestNodeProfile.Normal;
+
+    /// <summary>Gets the replica factor applied to every node; 1 preserves single-copy routing.</summary>
+    internal int ReplicaCount { get; init; } = 1;
 
     /// <summary>Gets optional external auth settings applied to both nodes.</summary>
     internal TestNodeSecurityOptions? Security { get; init; }
@@ -25,6 +31,7 @@ internal sealed class TwoNodeStartOptions
     {
         "nodeA" => NodeAProfile,
         "nodeB" => NodeBProfile,
+        "nodeC" => NodeCProfile,
         _ => throw new ArgumentOutOfRangeException(nameof(nodeId), nodeId, "Unsupported E2E node identifier."),
     };
 }

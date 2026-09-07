@@ -44,9 +44,9 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
-    private const int ReadinessUnknownValue = 0;
-    private const int ReadinessReadyValue = 1;
     private const int ReadinessFailedValue = 2;
+    private const int ReadinessReadyValue = 1;
+    private const int ReadinessUnknownValue = 0;
 
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
@@ -132,6 +132,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         private set
         {
             Volatile.Write(ref _readiness, ToValue(value));
+            return;
 
             static int ToValue(FollowerLogReadiness readiness)
             {
@@ -175,6 +176,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
 
         return await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogCommitResult> AdvanceCommitAsync(ulong commitIndex, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+
+        return await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -298,7 +310,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // instead of costing another repair round-trip through the append consistency check.
         // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
         // quarantine; a term conflict at or below the commit boundary fails readiness.
-        if (!CheckPrevTerm(fromIndex - 1UL, prevLogTerm))
+        if (!FollowerLogAppend.PrevTermMatches(_journal, fromIndex - 1UL, prevLogTerm))
         {
             if (fromIndex - 1UL > _meta.CommitIndex)
                 return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
@@ -421,20 +433,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await OpenCoreAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private bool CheckPrevTerm(ulong prev, ulong expected)
-    {
-        if (prev == 0UL)
-            return expected == 0UL;
-
-        if (_journal.EntryOffsets.TryGetValue(prev, out var location))
-            return location.Term == expected;
-
-        if (_journal.SnapshotBaseline.LastIncludedIndex == prev)
-            return _journal.SnapshotBaseline.LastIncludedTerm == expected;
-
-        return false;
-    }
-
     private async Task OpenCoreAsync(CancellationToken cancellationToken)
     {
         if (!_composition.Contains(GroupId))
@@ -538,6 +536,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
         }
 
+        internal static async Task<FollowerLogCommitResult> AdvanceCommitWithTermAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ulong commitIndex,
+            ulong leaderTerm,
+            CancellationToken cancellationToken)
+        {
+            // A stale leader term authorizes nothing: it must not expose additional committed entries.
+            if (leaderTerm < owner.Meta.CurrentTerm)
+                return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CommitIndex);
+
+            // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
+            // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
+            // answered against an out-of-date in-memory term and the higher term would never be persisted.
+            if (leaderTerm <= owner.Meta.CurrentTerm)
+                return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
+            var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+            await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(termCandidate);
+            return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
+        }
+
         internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(
             FollowerLogJournal journal,
             IFollowerLogContext owner,
@@ -610,6 +630,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.SetReadiness(FollowerLogReadiness.Failed);
                 throw;
             }
+        }
+
+        internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
+        {
+            if (prev == 0UL)
+                return expected == 0UL;
+
+            if (journal.EntryOffsets.TryGetValue(prev, out var location))
+                return location.Term == expected;
+
+            if (journal.SnapshotBaseline.LastIncludedIndex == prev)
+                return journal.SnapshotBaseline.LastIncludedTerm == expected;
+
+            return false;
         }
 
         internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, FollowerLogAppendRequest request)
