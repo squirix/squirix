@@ -29,6 +29,11 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
         Assert.False(deposedWrite.Allowed);
         Assert.Equal(LeaderAuthorityDenial.StaleTerm, deposedWrite.Denial);
 
+        // A non-leader serves nothing even with majority contact.
+        var followerWrite = LeaderAuthorityGate.CheckWrite(3, true, false, 4, 4);
+        Assert.False(followerWrite.Allowed);
+        Assert.Equal(LeaderAuthorityDenial.NotLeader, followerWrite.Denial);
+
         // An equal observed term steps nothing down: the write stays allowed.
         Assert.True(LeaderAuthorityGate.CheckWrite(3, true, true, 5, 5).Allowed);
     }
