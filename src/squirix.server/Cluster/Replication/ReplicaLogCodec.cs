@@ -19,9 +19,6 @@ internal static class ReplicaLogCodec
 {
     private const ushort Version = 1;
 
-    /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
     /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
@@ -125,26 +122,12 @@ internal static class ReplicaLogCodec
         writer.Write(bytes);
     }
 
-    /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
-    /// <remarks>
-    /// The decoded record outlives the source buffer, so fields need owned copies that the span
-    /// cannot lend. The escape is exact-size and caller-retained.
-    /// </remarks>
-    private static class OwnedBufferKit
-    {
-#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the decoder output retains ownership.
-        internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
-        {
-            var owned = new byte[source.Length];
-            source.CopyTo(owned);
-            return owned;
-        }
-#pragma warning restore ZA0302
-    }
-
     /// <summary>Cursor reader for canonical record fields with bounds checks.</summary>
     private sealed class Decoder
     {
+        /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
+        private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
         private readonly ReadOnlyMemory<byte> _buffer;
         private int _offset;
 
@@ -205,6 +188,23 @@ internal static class ReplicaLogCodec
 
             var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
             return length >= 0 && TryTake(length, out slice);
+        }
+
+        /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
+        /// <remarks>
+        /// The decoded record outlives the source buffer, so fields need owned copies that the span
+        /// cannot lend. The escape is exact-size and caller-retained.
+        /// </remarks>
+        private static class OwnedBufferKit
+        {
+#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the decoder output retains ownership.
+            internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
+            {
+                var owned = new byte[source.Length];
+                source.CopyTo(owned);
+                return owned;
+            }
+#pragma warning restore ZA0302
         }
     }
 }
