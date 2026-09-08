@@ -182,9 +182,15 @@ internal static class Program
 
         private static async Task WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
         {
-            if (!options.PersistenceEnabled || string.IsNullOrWhiteSpace(options.DataDirectory))
+            if (!options.PersistenceEnabled)
             {
                 await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (data directory unavailable)").ConfigureAwait(false);
                 return;
             }
 

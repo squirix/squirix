@@ -87,7 +87,17 @@ internal static class ReplicaDoctorReportBuilder
                 continue;
             }
 
-            var bytes = await File.ReadAllBytesAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            byte[] bytes;
+            try
+            {
+                bytes = await File.ReadAllBytesAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (FileNotFoundException)
+            {
+                lines.Add($"group '{groupId}': no durable state");
+                continue;
+            }
+
             if (!GroupLogCodec.TryDecodeMeta(bytes, out var meta))
             {
                 lines.Add($"group '{groupId}': metadata UNREADABLE (checksum or format mismatch)");

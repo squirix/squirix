@@ -96,7 +96,10 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
                 continue;
 
             if (string.Equals(records[i].Group, group, StringComparison.Ordinal) && string.Equals(records[i].Reason, reason, StringComparison.Ordinal))
+            {
+                Assert.Equal("node-a", records[i].Node);
                 count++;
+            }
         }
 
         Assert.Equal(expectedCount, count);

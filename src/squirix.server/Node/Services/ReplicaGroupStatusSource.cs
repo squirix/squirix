@@ -71,6 +71,10 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
                 readyMembers++;
         }
 
+        // FollowerLogStatus.CurrentTerm is already the highest term this node has observed and
+        // persisted (term validation lives inside the log); no distinct peer-term feed exists yet,
+        // so ObservedTerm mirrors it. The snapshot keeps both fields so ReplicaReadiness.Evaluate
+        // fences stale terms once peer tracking is wired; that path is proven by crafted snapshots.
         return new ReplicaStatusSnapshot(
             _nodeId,
             groupId,

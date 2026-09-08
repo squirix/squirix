@@ -20,17 +20,14 @@ internal sealed class ReplicationMetrics
 
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = new(StringComparer.Ordinal);
-    private readonly Counter2Labels _mismatchTotal;
+    private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
 
     internal ReplicationMetrics(Meter meter)
     {
         ArgumentNullException.ThrowIfNull(meter);
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
-        _mismatchTotal = new Counter2Labels(
-            meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path"),
-            "group",
-            "reason");
+        _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
 
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
@@ -62,9 +59,9 @@ internal sealed class ReplicationMetrics
 
         var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, observation);
         if (topologyRaised)
-            _mismatchTotal.WithLabels(snapshot.GroupId, "topology").Inc(1);
+            AddMismatch(snapshot.NodeId, snapshot.GroupId, "topology");
         if (generationRaised)
-            _mismatchTotal.WithLabels(snapshot.GroupId, "generation").Inc(1);
+            AddMismatch(snapshot.NodeId, snapshot.GroupId, "generation");
     }
 
     private static Measurement<long> MeasureNodeGroup(long value, string nodeId, string groupId)
@@ -85,6 +82,17 @@ internal sealed class ReplicationMetrics
             { "group", groupId },
         };
         return new Measurement<int>(value, in tags);
+    }
+
+    private void AddMismatch(string nodeId, string groupId, string reason)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+            { "reason", reason },
+        };
+        _mismatchTotal.Add(1, in tags);
     }
 
     private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, GroupObservation observation)
@@ -195,11 +203,5 @@ internal sealed class ReplicationMetrics
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
     {
         internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "replication");
-    }
-
-    [Immutable]
-    private sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
-    {
-        internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);
     }
 }
