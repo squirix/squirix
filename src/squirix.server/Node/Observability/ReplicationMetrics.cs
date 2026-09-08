@@ -16,6 +16,8 @@ namespace Squirix.Server.Node.Observability;
 [ThreadSafe]
 internal sealed class ReplicationMetrics
 {
+    private const string IndexUnit = "{index}";
+
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = new(StringComparer.Ordinal);
     private readonly Counter2Labels _mismatchTotal;
@@ -31,10 +33,10 @@ internal sealed class ReplicationMetrics
             "reason");
 
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
-        _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, "{index}", "Durable commit index observed by the replica group log");
-        _ = meter.CreateObservableGauge("squirix_replication_applied_index", ObserveAppliedIndexes, "{index}", "Index last applied to memory observed by the replica group log");
-        _ = meter.CreateObservableGauge("squirix_replication_commit_lag_entries", ObserveCommitLags, "{index}", "Durable entries past the commit index observed by the replica group log");
-        _ = meter.CreateObservableGauge("squirix_replication_apply_lag_entries", ObserveApplyLags, "{index}", "Committed entries not yet applied observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_applied_index", ObserveAppliedIndexes, IndexUnit, "Index last applied to memory observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_commit_lag_entries", ObserveCommitLags, IndexUnit, "Durable entries past the commit index observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_apply_lag_entries", ObserveApplyLags, IndexUnit, "Committed entries not yet applied observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_topology_match", ObserveTopologyMatches, description: "Topology fingerprint agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_generation_match", ObserveGenerationMatches, description: "Configuration generation agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_ready", ObserveReady, description: "Replica group readiness as 1=ready, 0=not ready");

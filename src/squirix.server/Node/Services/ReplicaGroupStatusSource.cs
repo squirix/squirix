@@ -59,7 +59,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
 
     private async ValueTask<ReplicaStatusSnapshot?> TryReadGroupAsync(string groupId, TopologyFingerprint expected, CancellationToken cancellationToken)
     {
-        if (!_registry.TryGetLog(groupId, out var log) || log == null)
+        if (!_registry.TryGetLog(groupId, out var log))
             return null;
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
