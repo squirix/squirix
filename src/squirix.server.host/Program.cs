@@ -71,6 +71,7 @@ internal static class Program
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             return 0;
         }
@@ -151,10 +152,14 @@ internal static class Program
                 return;
             }
 
-            var dataDirectory = options.DataDirectory ?? "<default>";
-            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Persistence: enabled (data dir: unavailable)").ConfigureAwait(false);
                 return;
+            }
+
+            var dataDirectory = options.DataDirectory;
+            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
 
             var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
             try
@@ -173,6 +178,25 @@ internal static class Program
             {
                 await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
             }
+        }
+
+        private static async Task WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        {
+            if (!options.PersistenceEnabled)
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (data directory unavailable)").ConfigureAwait(false);
+                return;
+            }
+
+            var report = await ReplicaDoctor.BuildReportAsync(options, options.DataDirectory, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < report.Lines.Count; i++)
+                await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
         }
 
         private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)

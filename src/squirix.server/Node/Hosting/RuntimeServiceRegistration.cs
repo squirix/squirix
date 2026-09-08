@@ -107,6 +107,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton(static sp => new CompactionMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new IdempotencyMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredService<Meter>()));
+            _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ServerCallPolicyMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ServerClientPoolMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ServerRpcTimeoutMetrics(sp.GetRequiredService<Meter>()));

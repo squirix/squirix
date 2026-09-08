@@ -98,6 +98,12 @@ M:Squirix.Server.Configurator::ResolveValidatedDataDirectory(System.String)
 M:Squirix.Server.Configurator::ResolveValidatedFilePath(System.String)
 M:Squirix.Server.Configurator::TryLoadFromFileAsync(System.String,System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::TryValidateSettingsFileAsync(System.String,System.Boolean,System.Threading.CancellationToken)
+T:Squirix.Server.ReplicaDoctor
+M:Squirix.Server.ReplicaDoctor::BuildReportAsync(Squirix.Server.SquirixServerOptions,System.String,System.Threading.CancellationToken)
+T:Squirix.Server.ReplicaDoctorReport
+M:Squirix.Server.ReplicaDoctorReport::.ctor(System.Boolean,System.Collections.Generic.IReadOnlyList<System.String>)
+P:Squirix.Server.ReplicaDoctorReport::HasMismatch:System.Boolean.get
+P:Squirix.Server.ReplicaDoctorReport::Lines:System.Collections.Generic.IReadOnlyList<System.String>.get
 T:Squirix.Server.Runtime.Contracts.ExtensionOptions
 M:Squirix.Server.Runtime.Contracts.ExtensionOptions::.ctor()
 P:Squirix.Server.Runtime.Contracts.ExtensionOptions::ConfigureServices:System.Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>.get
