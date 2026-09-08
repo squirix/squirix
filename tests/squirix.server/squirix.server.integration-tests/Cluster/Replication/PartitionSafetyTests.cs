@@ -32,6 +32,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var key = FindKeyOwnedBy(nodeA, "partition-safety", "node-a");
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "partition-safety", key, new NodeCacheEntry<object?> { Value = "v" }, DefaultCancellationToken);
 
+        // ReSharper disable once DisposeOnUsingVariable — intentional single loss: the test covers the connected majority keeping service.
         await nodeC.DisposeAsync();
 
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "partition-safety", key, new NodeCacheEntry<object?> { Value = "majority" }, DefaultCancellationToken);

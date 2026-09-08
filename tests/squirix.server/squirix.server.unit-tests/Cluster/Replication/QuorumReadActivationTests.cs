@@ -54,25 +54,27 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         var peers = new[] { ("nodeA", uriA), ("nodeB", uriB), ("nodeC", uriC) };
         using var mtls = new ClusterTls();
         using var root = new TempDirectory("squirix-quorum-read");
-        var options = new Func<string, TestNodeHostStartOptions>(node => new TestNodeHostStartOptions
+        var options = new Func<string, string, TestNodeHostStartOptions>(static (node, dataDirPath) => new TestNodeHostStartOptions
         {
             ReplicaCount = 3,
-            DataDir = NodePathKit.Combine(root.Path, node),
+            DataDir = NodePathKit.Combine(dataDirPath, node),
         });
 
-        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, options("nodeA"), mtls, DefaultCancellationToken);
-        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, peers, options("nodeB"), mtls, DefaultCancellationToken);
-        await using var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, peers, options("nodeC"), mtls, DefaultCancellationToken);
+        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, options("nodeA", root.Path), mtls, DefaultCancellationToken);
+        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, peers, options("nodeB", root.Path), mtls, DefaultCancellationToken);
+        await using var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, peers, options("nodeC", root.Path), mtls, DefaultCancellationToken);
 
         var cache = nodeA.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("quorum-read");
         var key = FindKeyOwnedBy(nodeA, "quorum-read", "nodeA");
         await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, DefaultCancellationToken);
 
+        // ReSharper disable once DisposeOnUsingVariable — intentional follower stop: the test covers reads staying local without a quorum gate.
         await nodeC.DisposeAsync();
         var majorityRead = await cache.GetValueAsync("quorum-read", key, DefaultCancellationToken);
         Assert.True(majorityRead.Found);
 
         // No majority remains, yet the read is still served locally: no quorum gate is consulted.
+        // ReSharper disable once DisposeOnUsingVariable — intentional second follower stop: the test covers lone-node local reads.
         await nodeB.DisposeAsync();
         var loneRead = await cache.GetValueAsync("quorum-read", key, DefaultCancellationToken);
         Assert.True(loneRead.Found);

@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -74,11 +75,11 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 
         // The barrier parks on the fake clock below the read index, then serves once applied.
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var applied = 4UL;
-        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied, 9UL, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+        var applied = new StrongBox<ulong>(4);
+        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 9UL, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
         Assert.False(wait.IsCompleted);
 
-        applied = 9UL;
+        applied.Value = 9UL;
         time.Advance(TimeSpan.FromMilliseconds(10));
         await wait;
 

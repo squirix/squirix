@@ -34,7 +34,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         using var scope = ServerRpcDeadlineContext.Push(deadlineUtc);
 
         var transportRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-        Assert.True(transportRemaining is TimeSpan);
+        _ = Assert.NotNull(transportRemaining);
         var rerouteRemaining = budget.GetRemaining();
         Assert.True(rerouteRemaining > TimeSpan.Zero);
         Assert.True(rerouteRemaining <= TimeSpan.FromSeconds(30));

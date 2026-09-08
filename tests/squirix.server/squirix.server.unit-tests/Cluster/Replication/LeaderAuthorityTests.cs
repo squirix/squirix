@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -69,11 +70,11 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
         Assert.Equal(LeaderAuthorityDenial.ReadIndexNotApplied, gated.Denial);
 
         var time = new FakeTimeProvider();
-        var applied = 4UL;
-        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied, 5, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+        var applied = new StrongBox<ulong>(4);
+        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 5, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
         Assert.False(wait.IsCompleted);
 
-        applied = 5;
+        applied.Value = 5;
         time.Advance(TimeSpan.FromMilliseconds(10));
         return wait;
     }

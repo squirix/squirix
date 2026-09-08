@@ -22,16 +22,20 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
         var options = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-generation" };
         var nodeA = await StartNodeAsync(uriA, peers, options);
-        await using var nodeB = await StartNodeAsync(uriB, peers, options);
-        await nodeA.DisposeAsync();
+        try
+        {
+            await using var nodeB = await StartNodeAsync(uriB, peers, options);
+            await nodeA.DisposeAsync();
 
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(
-                uriA,
-                peers,
-                new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-generation", ConfigurationGeneration = 2 }));
+            var opt = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-generation", ConfigurationGeneration = 2 };
+            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(StartNodeAsync(uriA, peers, opt));
 
-        Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await nodeA.DisposeAsync();
+        }
     }
 
     /// <summary>A restart with the same activated identity starts and its group logs stay ready.</summary>
@@ -43,17 +47,24 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
         var options = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-restart" };
         var nodeA = await StartNodeAsync(uriA, peers, options);
-        await using var nodeB = await StartNodeAsync(uriB, peers, options);
-        await nodeA.DisposeAsync();
+        try
+        {
+            await using var nodeB = await StartNodeAsync(uriB, peers, options);
+            await nodeA.DisposeAsync();
 
-        await using var restarted = await StartNodeAsync(
-            uriA,
-            peers,
-            new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-restart" });
-        var registry = restarted.Services.GetRequiredService<ReplicaGroupRegistry>();
+            await using var restarted = await StartNodeAsync(
+                uriA,
+                peers,
+                new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-restart" });
+            var registry = restarted.Services.GetRequiredService<ReplicaGroupRegistry>();
 
-        Assert.True(registry.TryGetLog("n1", out var log));
-        var status = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(FollowerLogReadiness.Ready, status.Readiness);
+            Assert.True(registry.TryGetLog("n1", out var log));
+            var status = await log.GetStatusAsync(DefaultCancellationToken);
+            Assert.Equal(FollowerLogReadiness.Ready, status.Readiness);
+        }
+        finally
+        {
+            await nodeA.DisposeAsync();
+        }
     }
 }

@@ -97,6 +97,7 @@ internal sealed class ElectionTimer : IDisposable
         lock (_sync)
             elapsed = _elapsed;
 
+        // Direct call on purpose: the null-conditional delegate-call syntax would trip ReplicationUsesNoReflection in Cluster/Replication.
         if (elapsed is not null)
             elapsed();
     }

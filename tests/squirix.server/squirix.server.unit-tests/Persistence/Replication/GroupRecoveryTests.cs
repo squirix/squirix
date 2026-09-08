@@ -21,7 +21,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         await using var recovery = new GroupRecovery(Dir, GroupComposition.Create("grp-1", "grp-2"));
         await recovery.RecoverAllAsync(DefaultCancellationToken);
 
-        // Corrupt grp-2 metadata so the next recovery attempt fails mid-loop.
+        // Corrupt grp-2 metadata, so the next recovery attempt fails mid-loop.
         await File.WriteAllTextAsync(GroupStoragePaths.GetMetadataPath(Dir, "grp-2"), "corrupt", DefaultCancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.RecoverAllAsync(DefaultCancellationToken));
@@ -39,7 +39,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         Assert.NotNull(recovery.GetLog("grp-2"));
     }
 
-    /// <summary>A log leased across disposal stays usable until the lease is released, then it is disposed.</summary>
+    /// <summary>A log leased across disposal stays usable until the lease is released, then it is disposed of.</summary>
     [Fact]
     public async Task LeasedLogSurvivesCloseUntilReleased()
     {
@@ -51,6 +51,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         var leased = lease.Log;
         await using (lease)
         {
+            // ReSharper disable once DisposeOnUsingVariable — intentional early close: the test covers a leased log surviving coordinator disposal.
             await recovery.DisposeAsync();
             Assert.Null(recovery.GetLog("grp-1"));
 
@@ -59,13 +60,13 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
             Assert.True(appended.Success);
         }
 
-        // The last release disposes the retired log.
+        // The last release disposes of the retired log.
         var rejected = await leased.AppendAsync(AppendRequest(), DefaultCancellationToken);
         Assert.False(rejected.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, rejected.RefusalCode);
     }
 
-    /// <summary>RecoverAllAsync can be invoked more than once; prior logs are disposed before reopening.</summary>
+    /// <summary>RecoverAllAsync can be invoked more than once; prior logs are disposed of before reopening.</summary>
     [Fact]
     public async Task RecoverAllAsyncCanRunTwice()
     {
@@ -93,7 +94,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         Assert.NotNull(recovery.GetLog("grp-2"));
         Assert.NotSame(firstGrp1, reopenedGrp1);
 
-        // The original log was disposed during recovery and rejects subsequent operations.
+        // The original log was disposed of during recovery and rejects later operations.
         var rejected = await firstGrp1.AppendAsync(request, DefaultCancellationToken);
         Assert.False(rejected.Success);
         Assert.Equal(FollowerLogRefusal.NotReady, rejected.RefusalCode);
@@ -114,6 +115,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         await recovery.RecoverAllAsync(DefaultCancellationToken);
         Assert.Null(recovery.AcquireLog("unknown"));
 
+        // ReSharper disable once DisposeOnUsingVariable — intentional early dispose: the test covers Acquire returning null after disposal.
         await recovery.DisposeAsync();
         Assert.Null(recovery.AcquireLog("grp-1"));
     }

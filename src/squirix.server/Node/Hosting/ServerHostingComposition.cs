@@ -154,13 +154,12 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddHealthChecks().Add(new HealthCheckRegistration(
-            "replica_readiness",
-            static sp => new ReplicaReadinessHealthCheck(
-                sp.GetRequiredService<IReplicaStatusSource>(),
-                sp.GetRequiredService<ReplicationMetrics>()),
-            HealthStatus.Unhealthy,
-            ["ready"]));
+        _ = services.AddHealthChecks().Add(
+            new HealthCheckRegistration(
+                "replica_readiness",
+                static sp => new ReplicaReadinessHealthCheck(sp.GetRequiredService<IReplicaStatusSource>(), sp.GetRequiredService<ReplicationMetrics>()),
+                HealthStatus.Unhealthy,
+                ["ready"]));
     }
 
     /// <summary>

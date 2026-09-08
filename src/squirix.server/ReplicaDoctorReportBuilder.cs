@@ -47,9 +47,10 @@ internal static class ReplicaDoctorReportBuilder
             $"configuration generation: {expectedGeneration.ToString(CultureInfo.InvariantCulture)}",
         };
 
-        var mismatch = await AppendStampLinesAsync(dataDirectory, expectedGeneration, replicaCount, expectedBytes, lines, cancellationToken).ConfigureAwait(false);
-        if (await AppendGroupLinesAsync(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken).ConfigureAwait(false))
-            mismatch = true;
+        // Both appends have side effects (report lines) and must always run: no short-circuiting here.
+        var stampMismatch = await AppendStampLinesAsync(dataDirectory, expectedGeneration, replicaCount, expectedBytes, lines, cancellationToken).ConfigureAwait(false);
+        var groupMismatch = await AppendGroupLinesAsync(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken).ConfigureAwait(false);
+        var mismatch = stampMismatch || groupMismatch;
 
         return (mismatch, lines);
     }
@@ -60,12 +61,9 @@ internal static class ReplicaDoctorReportBuilder
         var generationMatch = ReplicaTopologyMatch.MatchesGeneration(meta.ConfigurationGeneration, expectedGeneration);
         var applyLag = meta.CommitIndex >= meta.LastAppliedIndex ? meta.CommitIndex - meta.LastAppliedIndex : 0UL;
         lines.Add(
-            $"group '{groupId}': term {meta.CurrentTerm.ToString(CultureInfo.InvariantCulture)}" +
-            $" commit {meta.CommitIndex.ToString(CultureInfo.InvariantCulture)}" +
-            $" applied {meta.LastAppliedIndex.ToString(CultureInfo.InvariantCulture)}" +
-            $" apply-lag {applyLag.ToString(CultureInfo.InvariantCulture)}" +
-            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" +
-            $" generation {(generationMatch ? "match" : "MISMATCH")}");
+            $"group '{groupId}': term {meta.CurrentTerm.ToString(CultureInfo.InvariantCulture)}" + $" commit {meta.CommitIndex.ToString(CultureInfo.InvariantCulture)}" +
+            $" applied {meta.LastAppliedIndex.ToString(CultureInfo.InvariantCulture)}" + $" apply-lag {applyLag.ToString(CultureInfo.InvariantCulture)}" +
+            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}");
     }
 
     private static async Task<bool> AppendGroupLinesAsync(

@@ -52,7 +52,7 @@
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
     <ItemGroup Label="SquirixAnalyzers">
-        <PackageReference Include="squirix.analyzers" PrivateAssets="all" />
+        <PackageReference Include="squirix.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Solution-wide third-party Roslyn analyzers. -->

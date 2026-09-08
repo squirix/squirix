@@ -95,11 +95,10 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             if (!string.Equals(records[i].Name, "squirix_replication_topology_mismatch_total", StringComparison.Ordinal))
                 continue;
 
-            if (string.Equals(records[i].Group, group, StringComparison.Ordinal) && string.Equals(records[i].Reason, reason, StringComparison.Ordinal))
-            {
-                Assert.Equal("node-a", records[i].Node);
-                count++;
-            }
+            if (!string.Equals(records[i].Group, group, StringComparison.Ordinal) || !string.Equals(records[i].Reason, reason, StringComparison.Ordinal))
+                continue;
+            Assert.Equal("node-a", records[i].Node);
+            count++;
         }
 
         Assert.Equal(expectedCount, count);

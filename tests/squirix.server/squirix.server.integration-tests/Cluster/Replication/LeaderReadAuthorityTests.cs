@@ -47,6 +47,7 @@ public sealed class LeaderReadAuthorityTests : NodeIntegrationTestBase
         var key = FindKeyOwnedBy(nodeA, "leader-read", "node-a");
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "leader-read", key, new NodeCacheEntry<object?> { Value = "v" }, DefaultCancellationToken);
 
+        // ReSharper disable once DisposeOnUsingVariable — intentional peer loss: the test covers the RF=2 survivor serving local reads.
         await nodeB.DisposeAsync();
 
         var read = await cache.GetValueAsync("leader-read", key, DefaultCancellationToken);

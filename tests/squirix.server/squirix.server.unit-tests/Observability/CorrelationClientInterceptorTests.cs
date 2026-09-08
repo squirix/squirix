@@ -181,6 +181,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         _ = Assert.Single(CollectHeaderValues(headers, "traceparent"));
 
         // Early dispose before the transport completes: the captured bag must stay intact.
+        // ReSharper disable once DisposeOnUsingVariable — intentional early dispose: the test covers in-flight headers surviving outer disposal.
         call.Dispose();
 
         headers = capture.Headers;
