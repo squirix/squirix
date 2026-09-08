@@ -196,7 +196,14 @@ static Task WriteSettingsFileAsync(string directory, string endpoint, Cancellati
     };
 
 #pragma warning disable ZA1001 // Ad-hoc demo settings DTO; source generation is not worth the ceremony here.
-    var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+    var json = JsonSerializer.Serialize(
+        settings,
+        new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            RespectNullableAnnotations = false,
+            RespectRequiredConstructorParameters = false,
+        });
 #pragma warning restore ZA1001
     return File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken);
 }

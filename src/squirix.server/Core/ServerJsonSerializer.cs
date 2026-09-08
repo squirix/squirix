@@ -57,6 +57,8 @@ internal sealed class ServerJsonSerializer : IServerSerializer
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            RespectNullableAnnotations = false,
+            RespectRequiredConstructorParameters = false,
         };
         options.Converters.Add(new JsonStringEnumConverter());
         options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
