@@ -10,8 +10,8 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Stable low-cardinality replication metrics on the host-scoped <see cref="Meter" />.</summary>
 /// <remarks>
 /// Labels stay bounded: node and group identifiers only, plus closed reason and scope values.
-/// Observable gauges report the last observed per-group snapshot; mismatch counters fire only on the
-/// transition into mismatch so repeated read-path reports never inflate the series.
+/// Observable gauges report the last observed per-group snapshot; each mismatch reason fires only on
+/// its own transition into mismatch so repeated read-path reports never inflate the series.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicationMetrics
@@ -58,15 +58,10 @@ internal sealed class ReplicationMetrics
             snapshot.GenerationMatch,
             verdict == ReplicaReadinessVerdict.Ready);
 
-        var isNewMismatch = GetAndStoreObservation(snapshot.GroupId, observation);
-        var raiseMismatch = observation.IsMismatch && isNewMismatch;
-
-        if (!raiseMismatch)
-            return;
-
-        if (!observation.TopologyMatch)
+        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, observation);
+        if (topologyRaised)
             _mismatchTotal.WithLabels(snapshot.GroupId, "topology").Inc(1);
-        if (!observation.GenerationMatch)
+        if (generationRaised)
             _mismatchTotal.WithLabels(snapshot.GroupId, "generation").Inc(1);
     }
 
@@ -90,13 +85,20 @@ internal sealed class ReplicationMetrics
         return new Measurement<int>(value, in tags);
     }
 
-    private bool GetAndStoreObservation(string groupId, GroupObservation observation)
+    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, GroupObservation observation)
     {
         lock (_gate)
         {
-            var raise = !_groups.TryGetValue(groupId, out var previous) || !previous.IsMismatch;
+            var raiseTopology = !observation.TopologyMatch;
+            var raiseGeneration = !observation.GenerationMatch;
+            if (_groups.TryGetValue(groupId, out var previous))
+            {
+                raiseTopology = raiseTopology && previous.TopologyMatch;
+                raiseGeneration = raiseGeneration && previous.GenerationMatch;
+            }
+
             _groups[groupId] = observation with { GroupId = groupId };
-            return raise;
+            return (raiseTopology, raiseGeneration);
         }
     }
 
@@ -185,8 +187,6 @@ internal sealed class ReplicationMetrics
         bool Ready)
     {
         internal string GroupId { get; init; } = string.Empty;
-
-        internal bool IsMismatch => !TopologyMatch || !GenerationMatch;
     }
 
     [Immutable]

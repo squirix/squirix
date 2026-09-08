@@ -152,10 +152,14 @@ internal static class Program
                 return;
             }
 
-            var dataDirectory = options.DataDirectory ?? "<default>";
-            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Persistence: enabled (data dir: unavailable)").ConfigureAwait(false);
                 return;
+            }
+
+            var dataDirectory = options.DataDirectory;
+            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
 
             var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
             try

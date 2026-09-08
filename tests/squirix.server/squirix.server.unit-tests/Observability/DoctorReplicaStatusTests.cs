@@ -90,6 +90,12 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2);
         await WriteGroupMetadataAsync(dir.Path, "n1", new ReadOnlyMemory<byte>(WrongFingerprintBytes(options, mtls)), 5);
 
+        var beforePaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
+        Array.Sort(beforePaths, StringComparer.Ordinal);
+        var beforeContents = new string[beforePaths.Length];
+        for (var i = 0; i < beforePaths.Length; i++)
+            beforeContents[i] = Convert.ToHexString(await File.ReadAllBytesAsync(beforePaths[i], DefaultCancellationToken));
+
         var report = await BuildReportAsync(options, mtls, dir.Path);
 
         Assert.True(report.HasMismatch);
@@ -98,6 +104,16 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         Assert.Contains("fingerprint MISMATCH", text, StringComparison.Ordinal);
         Assert.Contains("generation match", text, StringComparison.Ordinal);
         Assert.Contains("group 'n2': no durable state", text, StringComparison.Ordinal);
+
+        // Diagnostics are read-only: the durable file set and contents are unchanged.
+        var afterPaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
+        Array.Sort(afterPaths, StringComparer.Ordinal);
+        Assert.Equal(beforePaths.Length, afterPaths.Length);
+        for (var i = 0; i < afterPaths.Length; i++)
+        {
+            Assert.Equal(beforePaths[i], afterPaths[i]);
+            Assert.Equal(beforeContents[i], Convert.ToHexString(await File.ReadAllBytesAsync(afterPaths[i], DefaultCancellationToken)));
+        }
     }
 
     /// <summary>Verifies a stamped generation disagreeing with settings reports mismatch.</summary>

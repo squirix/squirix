@@ -30,11 +30,20 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         var generationMismatch = new ReplicaStatusSnapshot("node-a", "group-c", 3, 6, 6, 3, 3, 3, true, false, true, true, true);
         metrics.ReportGroup(in generationMismatch, ReplicaReadinessVerdict.TopologyMismatch);
 
+        // A staggered mismatch raises each reason exactly once on its own transition.
+        var staggeredTopology = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, true, true, true, true);
+        metrics.ReportGroup(in staggeredTopology, ReplicaReadinessVerdict.TopologyMismatch);
+        var staggeredBoth = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, false, true, true, true);
+        metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
+        metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
+
         listener.RecordObservableInstruments();
 
-        AssertReportsTotal(records, 4);
+        AssertReportsTotal(records, 7);
         AssertMismatchTotal(records, "group-b", "topology", 1);
         AssertMismatchTotal(records, "group-c", "generation", 1);
+        AssertMismatchTotal(records, "group-d", "topology", 1);
+        AssertMismatchTotal(records, "group-d", "generation", 1);
         AssertGauge(records, "squirix_replication_term", "group-a", 4);
         AssertGauge(records, "squirix_replication_commit_index", "group-a", 7);
         AssertGauge(records, "squirix_replication_applied_index", "group-a", 5);

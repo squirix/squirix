@@ -122,9 +122,11 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         Assert.NotNull(started);
         using var process = started;
 
-        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errors = await process.StandardError.ReadToEndAsync(cancellationToken);
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorsTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
+        var output = await outputTask;
+        var errors = await errorsTask;
         return (process.ExitCode, output + errors);
     }
 

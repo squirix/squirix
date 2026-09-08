@@ -15,7 +15,7 @@ public sealed class ReplicaDoctorReport
     {
         ArgumentNullException.ThrowIfNull(lines);
         HasMismatch = hasMismatch;
-        Lines = lines;
+        Lines = [.. lines];
     }
 
     /// <summary>Gets a value indicating whether any identity check disagrees with the configured topology.</summary>
