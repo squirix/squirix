@@ -37,7 +37,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self, _testMeter);
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
-        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
+        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
         var entry = new NodeCacheEntry<object?> { Value = new { Data = new string('y', 250_000) }, Version = 1 };
 
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, DefaultCancellationToken));

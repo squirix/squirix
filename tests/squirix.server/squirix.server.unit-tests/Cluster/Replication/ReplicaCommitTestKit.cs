@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
@@ -11,18 +12,19 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 /// <summary>Focused majority-pipeline doubles shared by contract-named tests.</summary>
 internal static class ReplicaCommitTestKit
 {
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null) => new(
-        new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
-        pipeline,
-        Hooks.Instance,
-        idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue));
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null)
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue));
+    }
 
-    internal static PreparedReplicaMutation CreateMutation() => new(
-        new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 }),
-        1,
-        1,
-        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4),
-        0);
+    internal static PreparedReplicaMutation CreateMutation()
+    {
+        var identity = new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 });
+        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4), 0);
+    }
 
     internal sealed class Pipeline : IReplicaCommitPipeline
     {
@@ -42,16 +44,10 @@ internal static class ReplicaCommitTestKit
 
         internal Task LocalAppended => _localAppended.Task;
 
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             if (_blockFollowers)
             {
                 lock (_blockedSync)
@@ -72,24 +68,15 @@ internal static class ReplicaCommitTestKit
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             LocalAppendCount++;
             _ = _localAppended.TrySetResult();
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
         }
 
         internal void FailBlockedFollowers()
@@ -100,19 +87,6 @@ internal static class ReplicaCommitTestKit
 
             foreach (var source in CollectionsMarshal.AsSpan(sources))
                 _ = source.TrySetException(new TimeoutException("follower timeout"));
-        }
-    }
-
-    private sealed class Hooks : IReplicaCommitFaultHooks
-    {
-        internal static Hooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
         }
     }
 }

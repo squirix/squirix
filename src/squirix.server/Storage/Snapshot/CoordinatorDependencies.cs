@@ -54,9 +54,6 @@ internal sealed class CoordinatorDependencies
         /// <inheritdoc />
         public void RecordDuration(string nodeId, string result, TimeSpan elapsed)
         {
-            _ = nodeId;
-            _ = result;
-            _ = elapsed;
         }
     }
 }

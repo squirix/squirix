@@ -398,7 +398,6 @@ public sealed class ClusterTls : IDisposable
             X509Certificate2 nodeCertificate,
             CancellationToken cancellationToken)
         {
-            _ = nodeId;
             var exportableCertificate = TestCertificates.LoadExportableCertificate(nodeCertificate);
             var pfxPath = NodePathKit.Combine(nodeDirectory, "node.pfx");
             await File.WriteAllBytesAsync(pfxPath, exportableCertificate.Export(X509ContentType.Pfx), cancellationToken).ConfigureAwait(false);

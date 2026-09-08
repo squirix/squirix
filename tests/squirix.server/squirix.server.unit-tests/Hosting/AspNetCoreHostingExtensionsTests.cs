@@ -83,6 +83,60 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         Assert.Equal(Dir.Path, persistence.DataDir);
     }
 
+    /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
+    [Fact]
+    public async Task ExtensionReceivesStateWhenMappingRoutes()
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var state = new AuthorizationStateCapture();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
+        var optionsConfigurer = new UriOptionsConfigurer(port);
+        var extensionsConfigurer = new AuthorizationStateExtensionsConfigurer(state);
+
+        _ = await builder.AddSquirixServerAsync(
+            optionsConfigurer.Apply,
+            loadDiscoveredSettings: false,
+            configureExtensions: extensionsConfigurer.Apply,
+            cancellationToken: DefaultCancellationToken);
+
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+
+        Assert.False(state.AuthEnabled);
+    }
+
+    /// <summary>Ensures optional package extensions can register services and map endpoints through the public hosting API.</summary>
+    [Fact]
+    public async Task ExtensionRegistersServicesAndMapsRoutes()
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var marker = new ExtensionMarker("extension-test");
+        var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
+
+        _ = await builder.AddSquirixServerAsync(
+            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            loadDiscoveredSettings: false,
+            configureExtensions: extensionsConfigurer.Apply,
+            cancellationToken: DefaultCancellationToken);
+
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+
+        var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
+        Assert.Same(marker, registeredMarker);
+        Assert.Equal(marker.Name, registeredMarker.Name);
+        var endpoints = GetMappedEndpoints(app);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
+    }
+
     /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
     [Fact]
     public async Task MapSquirixServerMapsQuotaToHttp429()
@@ -138,60 +192,6 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         Assert.Equal(1, state.CallbackCount);
     }
 
-    /// <summary>Ensures optional package extensions can register services and map endpoints through the public hosting API.</summary>
-    [Fact]
-    public async Task ExtensionRegistersServicesAndMapsRoutes()
-    {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var marker = new ExtensionMarker("extension-test");
-        var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
-
-        _ = await builder.AddSquirixServerAsync(
-            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
-            loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurer.Apply,
-            cancellationToken: DefaultCancellationToken);
-
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
-        Assert.Same(marker, registeredMarker);
-        Assert.Equal(marker.Name, registeredMarker.Name);
-        var endpoints = GetMappedEndpoints(app);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
-    }
-
-    /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
-    [Fact]
-    public async Task ExtensionReceivesStateWhenMappingRoutes()
-    {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var state = new AuthorizationStateCapture();
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurer = new UriOptionsConfigurer(port);
-        var extensionsConfigurer = new AuthorizationStateExtensionsConfigurer(state);
-
-        _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
-            loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurer.Apply,
-            cancellationToken: DefaultCancellationToken);
-
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        Assert.False(state.AuthEnabled);
-    }
-
     private static List<Endpoint> GetMappedEndpoints(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
@@ -231,11 +231,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
         private void ApplyCore(ExtensionOptions extensions) => extensions.MapEndpointsWithAuthorization = CaptureAuthorizationState;
 
-        private void CaptureAuthorizationState(WebApplication application, bool enabled)
-        {
-            _ = application;
-            _state.AuthEnabled = enabled;
-        }
+        private void CaptureAuthorizationState(WebApplication application, bool enabled) => _state.AuthEnabled = enabled;
     }
 
     [Immutable]
@@ -255,7 +251,6 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
 
         private ISquirixServerCachePipeline Decorate(IServiceProvider services, ISquirixServerCachePipeline pipeline)
         {
-            _ = services;
             _state.CallbackCount++;
             return pipeline;
         }

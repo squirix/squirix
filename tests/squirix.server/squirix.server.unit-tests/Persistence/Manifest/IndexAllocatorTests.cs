@@ -9,8 +9,8 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 public sealed class IndexAllocatorTests : ServerUnitTestBase
 {
     /// <summary>
-    /// A cold seed (cache-miss read on an uninitialized allocator) establishes the next index from the published
-    /// index it read from disk, and subsequent allocations continue monotonically from there.
+    /// A cold seed (cache-misread on an uninitialized allocator) establishes the next index from the published
+    /// index it read from disk, and later allocations continue monotonically from there.
     /// </summary>
     [Fact]
     public void ColdSeedEstablishesNextIndex()

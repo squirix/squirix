@@ -18,7 +18,6 @@ internal sealed class ExtensionCachePipelineAdapter<T> : ILogicalNamespacedCache
         ArgumentNullException.ThrowIfNull(core);
         ArgumentNullException.ThrowIfNull(decorated);
         _core = core;
-        _ = decorated;
         _pipeline = decorated as ISquirixServerEntryCachePipeline<T>;
     }
 

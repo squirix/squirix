@@ -11,20 +11,18 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 {
-    private readonly AsyncManualResetEvent _asyncManualResetEvent;
+    private readonly AsyncManualResetEvent _event;
 
-    internal JournalRecoveryReadinessHealthCheck(AsyncManualResetEvent asyncManualResetEvent)
+    internal JournalRecoveryReadinessHealthCheck(AsyncManualResetEvent @event)
     {
-        ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
-        _asyncManualResetEvent = asyncManualResetEvent;
+        ArgumentNullException.ThrowIfNull(@event);
+        _event = @event;
     }
 
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        _ = context;
-        _ = cancellationToken;
-        return Task.FromResult(
-            _asyncManualResetEvent.IsSet ? HealthCheckResult.Healthy("journal recovery is complete.") : HealthCheckResult.Unhealthy("journal recovery is still in progress."));
+        var result = _event.IsSet ? HealthCheckResult.Healthy("journal recovery is complete.") : HealthCheckResult.Unhealthy("journal recovery is still in progress.");
+        return Task.FromResult(result);
     }
 }

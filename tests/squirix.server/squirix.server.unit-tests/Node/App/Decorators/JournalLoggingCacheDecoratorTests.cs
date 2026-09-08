@@ -32,7 +32,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     {
         await using var harness = await CreateHarnessAsync(Self);
         Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
-        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, new FixedOwnerLocator(Self), harness.Cache);
+        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(Self), harness.Cache);
         var before = harness.Journal.AppendedOps;
 
         Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
@@ -161,7 +161,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);
-        var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
+        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, inner, cache);
     }
 
@@ -184,7 +184,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         var physical = new PhysicalCache<string>();
         var inner = new RaceSimulatingInnerCache(physical);
         var executor = new DurableMutationExecutor(journal);
-        var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
+        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, inner, cache);
     }
 

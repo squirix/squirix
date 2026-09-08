@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -52,10 +53,12 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     public async Task PreAppendFailureAllowsSameIndexRetry()
     {
         var pipeline = new RetryLocalPipeline();
+        var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
             pipeline,
-            NoOpHooks.Instance,
+            hooksExpectations.Instance(),
             new GroupIdempotencyState(16, TimeSpan.MaxValue));
         try
         {
@@ -93,13 +96,6 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         1,
         new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 1),
         0);
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-    }
 
     [Mutable]
     private sealed class RetryLocalPipeline : IReplicaCommitPipeline

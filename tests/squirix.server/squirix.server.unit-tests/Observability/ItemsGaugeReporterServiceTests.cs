@@ -25,7 +25,7 @@ public sealed class ItemsGaugeReporterServiceTests
         using var sink = new NodeMeasurementSink();
         using var listener = CreateListener(sink);
 
-        using (var service = new ItemsGaugeReporterService(new StubStats(9), meter))
+        using (var service = new ItemsGaugeReporterService(CreateFixedStats(9), meter))
         {
             await service.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
@@ -33,7 +33,7 @@ public sealed class ItemsGaugeReporterServiceTests
             await service.StopAsync(CancellationToken.None);
         }
 
-        using (var empty = new ItemsGaugeReporterService(new StubStats(0), meter))
+        using (var empty = new ItemsGaugeReporterService(CreateFixedStats(0), meter))
         {
             await empty.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
@@ -41,13 +41,27 @@ public sealed class ItemsGaugeReporterServiceTests
             await empty.StopAsync(CancellationToken.None);
         }
 
-        using var faulting = new ItemsGaugeReporterService(new FaultingStats(), meter);
+        using var faulting = new ItemsGaugeReporterService(CreateFaultingStats(), meter);
         await faulting.StartAsync(CancellationToken.None);
         var aggregate = NodeExceptionAssert.For<AggregateException>().Throws(listener, static value => value.RecordObservableInstruments());
         var inner = Assert.Single(aggregate.InnerExceptions);
         var statsDown = Assert.IsType<InvalidOperationException>(inner);
         Assert.Equal("stats-down", statsDown.Message);
         await faulting.StopAsync(CancellationToken.None);
+    }
+
+    private static ILocalCacheStats CreateFaultingStats()
+    {
+        var expectations = new ILocalCacheStatsCreateExpectations();
+        _ = expectations.Setups.EntryCount.Gets().Throws(new InvalidOperationException("stats-down"));
+        return expectations.Instance();
+    }
+
+    private static ILocalCacheStats CreateFixedStats(int entryCount)
+    {
+        var expectations = new ILocalCacheStatsCreateExpectations();
+        _ = expectations.Setups.EntryCount.Gets().ReturnValue(entryCount);
+        return expectations.Instance();
     }
 
     private static MeterListener CreateListener(NodeMeasurementSink sink)
@@ -66,12 +80,6 @@ public sealed class ItemsGaugeReporterServiceTests
 
         listener.Start();
         return listener;
-    }
-
-    [Immutable]
-    private sealed class FaultingStats : ILocalCacheStats
-    {
-        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 
     [Immutable]
@@ -100,16 +108,5 @@ public sealed class ItemsGaugeReporterServiceTests
         internal List<long> Values { get; } = [];
 
         public void Dispose() => Values.Clear();
-    }
-
-    [Immutable]
-    private sealed class StubStats : ILocalCacheStats
-    {
-        internal StubStats(int entryCount)
-        {
-            EntryCount = entryCount;
-        }
-
-        public int EntryCount { get; }
     }
 }

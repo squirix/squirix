@@ -223,6 +223,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private static bool IsPostAppendOutcome(Exception error) =>
         error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
+    /// <summary>Consumes the next group log index after a mutation prepared successfully.</summary>
+    /// <remarks>
+    /// The index is advanced only once preparation succeeds, so a cancelled or failed prepare leaves the
+    /// reservation for the retry and the durable log stays dense regardless of how the caller observed it.
+    /// </remarks>
+    private void AdvanceNextIndex() => _nextIndex++;
+
     private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
     {
         try
@@ -252,6 +259,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return (_coordinator, _factory);
     }
 
+    /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>
+    private ulong PeekNextIndex() => _nextIndex;
+
     private async Task StartAsync(CancellationToken cancellationToken)
     {
         if (!_registry.TryGetLog(_selfId, out var log))
@@ -278,16 +288,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _started = true;
     }
 
-    /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>
-    private ulong PeekNextIndex() => _nextIndex;
-
-    /// <summary>Consumes the next group log index after a mutation prepared successfully.</summary>
-    /// <remarks>
-    /// The index is advanced only once preparation succeeds, so a cancelled or failed prepare leaves the
-    /// reservation for the retry and the durable log stays dense regardless of how the caller observed it.
-    /// </remarks>
-    private void AdvanceNextIndex() => _nextIndex++;
-
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
@@ -296,13 +296,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         internal static NoOpCommitHooks Instance { get; } = new();
 
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 
     /// <summary>Owner-side commit pipeline: local durable append, follower fan-out, and memory apply.</summary>
@@ -422,9 +416,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         /// <inheritdoc />
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
-
             // Repair driving lands in a later milestone; the coordinator already observes stragglers
             // in the background, and a lagging replica simply stops counting toward the majority.
         }

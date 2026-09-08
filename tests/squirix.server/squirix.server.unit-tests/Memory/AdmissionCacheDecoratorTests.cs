@@ -148,6 +148,56 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         Assert.Equal(1, accounting.ReadEntryCount());
     }
 
+    /// <summary>Ensures RemoveAsync subtracts recorded bytes rather than a stale pre-remove snapshot.</summary>
+    [Fact]
+    public async Task RemoveUsesRecordedBytesNotStale()
+    {
+        const string key = "remove-stale-snapshot";
+        var small = CreateEntry("a");
+        var large = CreateEntry("much-longer-value");
+        var inner = new ScriptedRemoveInner();
+        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+
+        inner.GetResult = null;
+        inner.TryAddResult = true;
+        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, DefaultCancellationToken));
+
+        inner.GetResult = small;
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, DefaultCancellationToken);
+        Assert.Equal(1, accounting.ReadEntryCount());
+
+        inner.GetResult = small;
+        inner.RemoveResult = true;
+        var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, DefaultCancellationToken);
+
+        Assert.True(result.Removed);
+        Assert.Equal(0, accounting.ReadEntryCount());
+        Assert.Equal(0, accounting.ReadEstimatedBytes());
+    }
+
+    /// <summary>Ensures SetEntryAsync accounts the entry when TryAdd loses the race and falls back to overwrite.</summary>
+    [Fact]
+    public async Task SetFallbackAccountsEntry()
+    {
+        const string key = "set-fallback-race";
+        var entry = CreateEntry("v");
+        var inner = new TryAddLosingInner();
+        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
+
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken);
+
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
+        Assert.True(inner.SetCalled);
+    }
+
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task SetReplaceAccountsValueDeltaForLocalKey()
@@ -211,56 +261,6 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         Assert.Equal(1, accounting.ReadEntryCount());
     }
 
-    /// <summary>Ensures RemoveAsync subtracts recorded bytes rather than a stale pre-remove snapshot.</summary>
-    [Fact]
-    public async Task RemoveUsesRecordedBytesNotStale()
-    {
-        const string key = "remove-stale-snapshot";
-        var small = CreateEntry("a");
-        var large = CreateEntry("much-longer-value");
-        var inner = new ScriptedRemoveInner();
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
-
-        inner.GetResult = null;
-        inner.TryAddResult = true;
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, DefaultCancellationToken));
-
-        inner.GetResult = small;
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, DefaultCancellationToken);
-        Assert.Equal(1, accounting.ReadEntryCount());
-
-        inner.GetResult = small;
-        inner.RemoveResult = true;
-        var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, DefaultCancellationToken);
-
-        Assert.True(result.Removed);
-        Assert.Equal(0, accounting.ReadEntryCount());
-        Assert.Equal(0, accounting.ReadEstimatedBytes());
-    }
-
-    /// <summary>Ensures SetEntryAsync accounts the entry when TryAdd loses the race and falls back to overwrite.</summary>
-    [Fact]
-    public async Task SetFallbackAccountsEntry()
-    {
-        const string key = "set-fallback-race";
-        var entry = CreateEntry("v");
-        var inner = new TryAddLosingInner();
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
-        var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
-
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken);
-
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(inner.SetCalled);
-    }
-
     /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task UpdateAccountsValueDeltaForLocalKey()
@@ -294,7 +294,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, self, meter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(self), self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(self), self);
         return (cache, inner, accounting, estimator);
     }
 
@@ -383,29 +383,22 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         internal Func<int, Task<bool>> Update { get; }
 
-        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index)
-        {
-            _ = index;
-            return _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, DefaultCancellationToken).AsTask();
-        }
+        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, DefaultCancellationToken).AsTask();
 
         private Task SetEntryCoreAsync(int index)
         {
-            _ = index;
             var entry = ThrowHelper.Required(_entry, "Entry is required for SetEntryAsync.");
             return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
         }
 
         private Task<bool> TryAddEntryCoreAsync(int index)
         {
-            _ = index;
             var entry = ThrowHelper.Required(_entry, "Entry is required for TryAddEntryAsync.");
             return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
         }
 
         private Task<bool> UpdateCoreAsync(int index)
         {
-            _ = index;
             var updatedValue = ThrowHelper.Required(_updatedValue, "Updated value is required for UpdateAsync.");
             return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, DefaultCancellationToken).AsTask();
         }
@@ -498,6 +491,50 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     }
 
     [Immutable]
+    private sealed class SynchronizedConcurrentRunner<T>
+    {
+        private readonly CancellationToken _cancellationToken;
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Func<int, Task<T>> _operation;
+
+        internal SynchronizedConcurrentRunner(Func<int, Task<T>> operation, CancellationToken cancellationToken)
+        {
+            _operation = operation;
+            _cancellationToken = cancellationToken;
+        }
+
+        internal void Release() => _ = _gate.TrySetResult();
+
+        internal async Task<T> RunAfterGateAsync(int index)
+        {
+            await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
+            return await _operation(index).ConfigureAwait(false);
+        }
+    }
+
+    [Immutable]
+    private sealed class SynchronizedConcurrentVoidRunner
+    {
+        private readonly CancellationToken _cancellationToken;
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Func<int, Task> _operation;
+
+        internal SynchronizedConcurrentVoidRunner(Func<int, Task> operation, CancellationToken cancellationToken)
+        {
+            _operation = operation;
+            _cancellationToken = cancellationToken;
+        }
+
+        internal void Release() => _ = _gate.TrySetResult();
+
+        internal async Task RunAfterGateAsync(int index)
+        {
+            await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
+            await _operation(index).ConfigureAwait(false);
+        }
+    }
+
+    [Immutable]
     private sealed class TryAddLosingInner : ILogicalNamespacedCache<string>
     {
         internal bool SetCalled { get; private set; }
@@ -575,50 +612,6 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             _ = value;
             _ = cancellationToken;
             return ValueTask.FromResult(false);
-        }
-    }
-
-    [Immutable]
-    private sealed class SynchronizedConcurrentRunner<T>
-    {
-        private readonly CancellationToken _cancellationToken;
-        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly Func<int, Task<T>> _operation;
-
-        internal SynchronizedConcurrentRunner(Func<int, Task<T>> operation, CancellationToken cancellationToken)
-        {
-            _operation = operation;
-            _cancellationToken = cancellationToken;
-        }
-
-        internal void Release() => _ = _gate.TrySetResult();
-
-        internal async Task<T> RunAfterGateAsync(int index)
-        {
-            await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
-            return await _operation(index).ConfigureAwait(false);
-        }
-    }
-
-    [Immutable]
-    private sealed class SynchronizedConcurrentVoidRunner
-    {
-        private readonly CancellationToken _cancellationToken;
-        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly Func<int, Task> _operation;
-
-        internal SynchronizedConcurrentVoidRunner(Func<int, Task> operation, CancellationToken cancellationToken)
-        {
-            _operation = operation;
-            _cancellationToken = cancellationToken;
-        }
-
-        internal void Release() => _ = _gate.TrySetResult();
-
-        internal async Task RunAfterGateAsync(int index)
-        {
-            await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
-            await _operation(index).ConfigureAwait(false);
         }
     }
 }

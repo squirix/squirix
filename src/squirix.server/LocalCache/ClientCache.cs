@@ -29,21 +29,14 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetValueAsync(Key(cacheName, key), cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        _ = operationId;
-        return _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
-    }
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        _ = operationId;
-        return _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
-    }
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
 
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        _ = operationId;
         var cacheKey = Key(cacheName, key);
         if (entry.ExpiresUtc == null && entry.Expiration == null)
         {
@@ -55,23 +48,14 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         await _mutation.SetAsync(cacheKey, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-    {
-        _ = operationId;
-        return _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
-    }
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        _ = operationId;
-        return _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
-    }
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
-    {
-        _ = operationId;
-        return _mutation.UpdateAsync(Key(cacheName, key), value, cancellationToken);
-    }
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        _mutation.UpdateAsync(Key(cacheName, key), value, cancellationToken);
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);
 

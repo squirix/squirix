@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
@@ -18,12 +19,11 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
     [Fact(DisplayName = "CancellationAfterLocalAppendReturnsCommitUnknown")]
     public async Task CancellationAfterAppendIsUnknown()
     {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var pipeline = new BlockingFollowerPipeline();
-        await using var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 1),
-            pipeline,
-            NoOpHooks.Instance,
-            new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
+        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
         var mutation = CreateMutation();
         try
         {
@@ -45,12 +45,11 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         }
     }
 
-    private static PreparedReplicaMutation CreateMutation() => new(
-        new ReplicaOperationIdentity("transport-group", "client", "123456789abcdef0123456789abcdef0", new byte[] { 1 }),
-        1,
-        1,
-        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 1),
-        0);
+    private static PreparedReplicaMutation CreateMutation()
+    {
+        var identity = new ReplicaOperationIdentity("transport-group", "client", "123456789abcdef0123456789abcdef0", new byte[] { 1 });
+        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 1), 0);
+    }
 
     private sealed class BlockingFollowerPipeline : IReplicaCommitPipeline
     {
@@ -58,56 +57,24 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
 
         internal TaskCompletionSource<bool> LocalAppended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = replicaIndex;
-            _ = mutation;
-            _ = cancellationToken;
-            return new ValueTask<ReplicaDurableAcknowledgement>(_acknowledgement.Task);
-        }
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            new(_acknowledgement.Task);
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             LocalAppended.SetResult(true);
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
         }
 
         internal void Release(PreparedReplicaMutation mutation) => _ = _acknowledgement.TrySetResult(
             new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
-    }
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
     }
 }

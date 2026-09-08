@@ -42,8 +42,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", DefaultCancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
-        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-a"));
-        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-b"));
+        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
+        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
         var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", DefaultCancellationToken));
         Assert.Equal(SquirixErrorCode.TooManyRequests, rejected.Code);
@@ -74,8 +74,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", DefaultCancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
-        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-a"));
-        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-b"));
+        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
+        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
 
         var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, DefaultCancellationToken));
@@ -88,6 +88,13 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static IBackpressureClientIdResolver CreateClientIdResolver(string clientId)
+    {
+        var expectations = new IBackpressureClientIdResolverCreateExpectations();
+        _ = expectations.Setups.Resolve().ReturnValue(clientId);
+        return expectations.Instance();
+    }
 
     private sealed class CompletingLogicalCache : ILogicalNamespacedCache<string>
     {
@@ -103,9 +110,6 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
             _ = Interlocked.Increment(ref _getValueCalls);
             return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
         }
@@ -117,11 +121,6 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
         {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
             _ = Interlocked.Increment(ref _setEntryCalls);
             return ValueTask.CompletedTask;
         }
@@ -133,18 +132,5 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
             ValueTask.FromResult(false);
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-    }
-
-    [Immutable]
-    private sealed class FixedClientIdResolver : IBackpressureClientIdResolver
-    {
-        private readonly string _clientId;
-
-        internal FixedClientIdResolver(string clientId)
-        {
-            _clientId = clientId;
-        }
-
-        public string Resolve() => _clientId;
     }
 }
