@@ -115,6 +115,7 @@ public sealed class ComposeConfigurationTests : NodeIntegrationTestBase
         Assert.Equal(nodeId, cluster.GetProperty("NodeId").GetString());
         Assert.Equal(3, cluster.GetProperty("ReplicaCount").GetInt32());
         Assert.True(cluster.GetProperty("PersistenceEnabled").GetBoolean());
+        Assert.True(cluster.GetProperty("ReplicationEnabled").GetBoolean());
 
         var uri = cluster.GetProperty("Uri").GetString();
         Assert.False(string.IsNullOrWhiteSpace(uri));

@@ -26,7 +26,8 @@ public static class Configurator
     /// <param name="uri">Optional listen URI override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
+    /// <param name="enableReplication">When <see langword="true" />, opts into RF&gt;1 replication.</param>
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false, bool enableReplication = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -34,6 +35,8 @@ public static class Configurator
             options.Uri = uri;
         if (persist)
             options.UsePersistence();
+        if (enableReplication)
+            options.ReplicationEnabled = true;
         if (dataDirectory != null)
             options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
@@ -68,6 +71,7 @@ public static class Configurator
         target.ConfigurationGeneration = source.ConfigurationGeneration;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
+        target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
@@ -199,20 +203,18 @@ public static class Configurator
     /// <summary>
     /// Attempts to load <c language="csharp">Squirix:Cluster</c> from a settings file.
     /// </summary>
-    /// <param name="settingsFilePath">Path to the settings JSON file.</param>
+    /// <param name="path">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when loading and validation succeed,
     /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(
-        string settingsFilePath,
-        CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(string path, CancellationToken cancellationToken = default)
     {
         string validatedPath;
         try
         {
-            validatedPath = FilePathValidator.ResolveValidatedFilePath(settingsFilePath);
+            validatedPath = FilePathValidator.ResolveValidatedFilePath(path);
         }
         catch (ArgumentException ex)
         {
@@ -306,6 +308,7 @@ public static class Configurator
             Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
             ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.ReplicationEnabled,
             ConfigurationGeneration = options.ConfigurationGeneration,
         };
     }

@@ -20,11 +20,11 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
     public void RfTwoRequiresPersistenceAndMtls()
     {
         var missingPersistence = new List<string>();
-        ReplicationActivationGuard.CollectFailures(missingPersistence, 2, false, false);
+        ReplicationActivationGuard.CollectFailures(missingPersistence, 2, false, false, true);
         Assert.Equal([ReplicationActivationGuard.PersistenceRequired], missingPersistence);
 
         var missingMtls = new List<string>();
-        ReplicationActivationGuard.CollectFailures(missingMtls, 2, true, false);
+        ReplicationActivationGuard.CollectFailures(missingMtls, 2, true, false, true);
         Assert.Equal([ReplicationActivationGuard.MtlsRequired], missingMtls);
     }
 
@@ -33,7 +33,7 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
     public void RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(failures, 2, true, true);
+        ReplicationActivationGuard.CollectFailures(failures, 2, true, true, true);
         Assert.Empty(failures);
     }
 

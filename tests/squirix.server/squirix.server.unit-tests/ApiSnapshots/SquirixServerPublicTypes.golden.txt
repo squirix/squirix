@@ -86,7 +86,7 @@ T:Squirix.Server.AspNetCoreExtensions
 M:Squirix.Server.AspNetCoreExtensions::AddSquirixServerAsync(Microsoft.AspNetCore.Builder.WebApplicationBuilder,System.Action<Squirix.Server.SquirixServerOptions>,System.String,System.Boolean,System.Action<Squirix.Server.Runtime.Contracts.ExtensionOptions>,System.Threading.CancellationToken)
 M:Squirix.Server.AspNetCoreExtensions::MapSquirixServer(Microsoft.AspNetCore.Builder.WebApplication)
 T:Squirix.Server.Configurator
-M:Squirix.Server.Configurator::ApplyCommandLineOverrides(Squirix.Server.SquirixServerOptions,System.Uri,System.String,System.Boolean)
+M:Squirix.Server.Configurator::ApplyCommandLineOverrides(Squirix.Server.SquirixServerOptions,System.Uri,System.String,System.Boolean,System.Boolean)
 M:Squirix.Server.Configurator::ApplyRuntimeDefaults(Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.Configurator::CopyOptions(Squirix.Server.SquirixServerOptions,Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.Configurator::CreateHostingOptionsAsync(System.Action<Squirix.Server.SquirixServerOptions>,System.String,System.Boolean,System.Threading.CancellationToken)
@@ -133,6 +133,8 @@ P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.get
 P:Squirix.Server.SquirixServerOptions::ReplicaCount:System.Int32.set
+P:Squirix.Server.SquirixServerOptions::ReplicationEnabled:System.Boolean.get
+P:Squirix.Server.SquirixServerOptions::ReplicationEnabled:System.Boolean.set
 P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.get
 P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.set
 P:Squirix.Server.SquirixServerOptions::VirtualNodes:System.Int32.get

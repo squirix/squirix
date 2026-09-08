@@ -211,6 +211,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         ReplicaCount = 2,
         ConfigurationGeneration = 5,
         PersistenceEnabled = true,
+        ReplicationEnabled = true,
         Peers =
         [
             new SquirixServerPeerOptions { NodeId = "n1", Uri = new Uri("https://localhost:6121") },

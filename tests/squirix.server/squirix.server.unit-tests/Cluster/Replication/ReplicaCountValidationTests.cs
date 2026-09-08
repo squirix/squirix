@@ -128,7 +128,7 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
     public void RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(failures, 2, true, true);
+        ReplicationActivationGuard.CollectFailures(failures, 2, true, true, true);
         Assert.Empty(failures);
     }
 
@@ -137,7 +137,7 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
     public void RfTwoRequiresMtls()
     {
         var failures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(failures, 2, true, false);
+        ReplicationActivationGuard.CollectFailures(failures, 2, true, false, true);
         Assert.Contains(ReplicationActivationGuard.MtlsRequired, failures, StringComparer.Ordinal);
     }
 

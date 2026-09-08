@@ -15,7 +15,7 @@ internal static class Program
 
     private static class SquirixServerProcess
     {
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
                                         "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
 
@@ -98,7 +98,7 @@ internal static class Program
         {
             var settingsPath = ResolveSettingsPath(command);
             var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist);
+            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
             return options;
         }
 
@@ -221,9 +221,10 @@ internal static class Program
         /// <param name="Uri">Optional listen URI override from <c language="csharp">--urls</c>.</param>
         /// <param name="DataDirectory">Optional data directory override from <c language="csharp">--data-dir</c>.</param>
         /// <param name="Persist">Whether persistence was requested via <c language="csharp">--persist</c>.</param>
+        /// <param name="EnableReplication">Whether replication was requested via <c language="csharp">--enable-replication</c>.</param>
         /// <param name="SettingsPath">Optional settings file path from <c language="csharp">--settings</c>.</param>
         [Immutable]
-        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, string? SettingsPath)
+        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, string? SettingsPath)
         {
             internal static SquirixServerCommand Parse(string[] args)
             {
@@ -240,10 +241,10 @@ internal static class Program
                         return HelpCommand();
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.SettingsPath);
+                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.SettingsPath);
             }
 
-            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, null);
+            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, null);
 
             private static bool IsHelpFlag(string flag) => string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
 
@@ -273,6 +274,9 @@ internal static class Program
                         return true;
                     case "--persist":
                         state.SetPersist();
+                        return true;
+                    case "--enable-replication":
+                        state.SetEnableReplication();
                         return true;
                     default:
                         return false;
@@ -316,6 +320,8 @@ internal static class Program
             {
                 internal string? DataDirectory { get; private set; }
 
+                internal bool EnableReplication { get; private set; }
+
                 internal bool Persist { get; private set; }
 
                 internal string? SettingsPath { get; private set; }
@@ -325,6 +331,8 @@ internal static class Program
                 internal Uri? Uri { get; private set; }
 
                 internal void SetDataDirectory(string value) => DataDirectory = value;
+
+                internal void SetEnableReplication() => EnableReplication = true;
 
                 internal void SetPersist() => Persist = true;
 
