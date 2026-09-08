@@ -60,6 +60,10 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         _options = options;
     }
 
+    /// <summary>Gets the replica group identifiers served by this node.</summary>
+    /// <returns>The group identifiers fixed at construction.</returns>
+    internal IReadOnlyList<string> GroupIds => _groupIds;
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {

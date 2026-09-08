@@ -71,6 +71,7 @@ internal static class Program
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             return 0;
         }
@@ -173,6 +174,19 @@ internal static class Program
             {
                 await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
             }
+        }
+
+        private static async Task WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        {
+            if (!options.PersistenceEnabled || string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
+                return;
+            }
+
+            var report = await ReplicaDoctor.BuildReportAsync(options, options.DataDirectory, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < report.Lines.Count; i++)
+                await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
         }
 
         private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Adapters.Endpoint;
@@ -148,6 +149,18 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>().NodeId,
             fingerprint.AsMemory(),
             sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration));
+        _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<TopologyOptions>(),
+            sp.GetRequiredService<MtlsOptions>(),
+            sp.GetRequiredService<TopologyOptions>().NodeId));
+        _ = services.AddHealthChecks().Add(new HealthCheckRegistration(
+            "replica_readiness",
+            static sp => new ReplicaReadinessHealthCheck(
+                sp.GetRequiredService<IReplicaStatusSource>(),
+                sp.GetRequiredService<ReplicationMetrics>()),
+            HealthStatus.Unhealthy,
+            ["ready"]));
     }
 
     /// <summary>
