@@ -9,7 +9,7 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class RpcDeadlineContextTests : UnitTestBase
 {
-    /// <summary>Pushing a deadline exposes the remaining budget until the scope is disposed.</summary>
+    /// <summary>Pushing a deadline exposes the remaining budget until the scope is disposed of.</summary>
     [Fact]
     public void PushExposesBudgetAndRestoresPrevious()
     {
@@ -19,7 +19,7 @@ public sealed class RpcDeadlineContextTests : UnitTestBase
         using (RpcDeadlineContext.Push(deadline))
         {
             var remaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            Assert.True(remaining is TimeSpan budget && budget > TimeSpan.Zero && budget <= TimeSpan.FromSeconds(30));
+            Assert.True(remaining is { } budget && budget > TimeSpan.Zero && budget <= TimeSpan.FromSeconds(30));
         }
 
         Assert.Null(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));

@@ -55,15 +55,15 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         using var mtls = new ClusterTls();
         using var dataDir = new TempDirectory("squirix-e2e-rejoin");
         var topology = new[] { ("nodeA", uriA), ("nodeB", uriB), ("nodeC", uriC) };
-        var options = new Func<string, TestNodeHostStartOptions>(node => new TestNodeHostStartOptions
+        var options = new Func<string, string, TestNodeHostStartOptions>(static (node, dataDirPath) => new TestNodeHostStartOptions
         {
             ReplicaCount = 3,
-            DataDir = NodePathKit.Combine(dataDir.Path, node),
+            DataDir = NodePathKit.Combine(dataDirPath, node),
         });
 
-        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, topology, options("nodeA"), mtls, DefaultCancellationToken);
-        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, topology, options("nodeB"), mtls, DefaultCancellationToken);
-        var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, topology, options("nodeC"), mtls, DefaultCancellationToken);
+        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, topology, options("nodeA", dataDir.Path), mtls, DefaultCancellationToken);
+        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, topology, options("nodeB", dataDir.Path), mtls, DefaultCancellationToken);
+        var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, topology, options("nodeC", dataDir.Path), mtls, DefaultCancellationToken);
 
         await using var client = await LoopbackConnect.ConnectAsync(uriA, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("rejoin-catchup", DefaultCancellationToken);
@@ -74,7 +74,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
         await cache.SetAsync(key, "after-stop", cancellationToken: DefaultCancellationToken);
 
-        nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, topology, options("nodeC"), mtls, DefaultCancellationToken);
+        nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", uriC, topology, options("nodeC", dataDir.Path), mtls, DefaultCancellationToken);
         await using var rejoined = nodeC;
 
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));

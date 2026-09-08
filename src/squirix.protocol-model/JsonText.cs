@@ -23,13 +23,13 @@ internal static class JsonText
     private static string?[] BuildControlCharacterEscapes()
     {
         var escapes = new string?[128];
-        escapes['"'] = "\\\"";
-        escapes['\\'] = @"\\";
-        escapes['\b'] = "\\b";
-        escapes['\f'] = "\\f";
-        escapes['\n'] = "\\n";
-        escapes['\r'] = "\\r";
-        escapes['\t'] = "\\t";
+        escapes[34] = "\\\"";
+        escapes[92] = @"\\";
+        escapes[8] = "\\b";
+        escapes[12] = "\\f";
+        escapes[10] = "\\n";
+        escapes[13] = "\\r";
+        escapes[9] = "\\t";
         for (var i = 0; i < 32; i++)
             escapes[i] ??= "\\u" + i.ToString("x4", CultureInfo.InvariantCulture);
 

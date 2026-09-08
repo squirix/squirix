@@ -47,11 +47,10 @@ internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
             var snapshot = snapshots[i];
             var verdict = ReplicaReadiness.Evaluate(in snapshot);
             _metrics.ReportGroup(in snapshot, verdict);
-            if (verdict != ReplicaReadinessVerdict.Ready && failure == null)
-            {
-                failure = snapshot;
-                failureVerdict = verdict;
-            }
+            if (verdict == ReplicaReadinessVerdict.Ready || failure != null)
+                continue;
+            failure = snapshot;
+            failureVerdict = verdict;
         }
 
         if (failure == null)

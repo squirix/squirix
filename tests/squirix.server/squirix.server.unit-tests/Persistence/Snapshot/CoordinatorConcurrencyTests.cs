@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -38,8 +39,8 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 new AllowBackgroundSnapshots(),
                 null));
         var cancellationToken = DefaultCancellationToken;
-        var published = 0;
-        coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published);
+        var published = new StrongBox<int>(0);
+        coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published.Value);
 
         // A start gate releases every caller at once so all of them evaluate the shared trigger
         // state before the single-flight CAS admits a winner.
@@ -49,7 +50,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
         gate.Set();
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        Assert.Equal(1, Volatile.Read(ref published));
+        Assert.Equal(1, Volatile.Read(ref published.Value));
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
         Assert.Equal(1, manifest.LastSnapshot?.Index);
     }

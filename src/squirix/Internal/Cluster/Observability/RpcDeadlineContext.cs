@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Squirix.Attributes;
 
 namespace Squirix.Internal.Cluster.Observability;
 
@@ -30,6 +31,7 @@ internal static class RpcDeadlineContext
         return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
     }
 
+    [Immutable]
     private sealed class Scope : IDisposable
     {
         private readonly DateTime? _previous;

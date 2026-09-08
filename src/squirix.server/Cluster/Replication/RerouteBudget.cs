@@ -29,7 +29,7 @@ internal sealed class RerouteBudget
 
     /// <summary>Gets the single absolute deadline for the operation.</summary>
     /// <returns>The absolute deadline.</returns>
-    internal DateTimeOffset DeadlineUtc { get; }
+    private DateTimeOffset DeadlineUtc { get; }
 
     /// <summary>Gets the time remaining until the absolute deadline.</summary>
     /// <returns>The remaining budget; negative when the deadline already passed.</returns>

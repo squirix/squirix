@@ -98,9 +98,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         if (directory == null)
             throw new InvalidOperationException("Repository root was not found.");
 
-        var config = AppContext.BaseDirectory.Contains(
-            $"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}",
-            StringComparison.Ordinal) ? "Release" : "Debug";
+        var config = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
         var hostDll = Path.Join(directory, "src", "squirix.server.host", "bin", config, "net10.0", "Squirix.Server.Host.dll");
         Assert.True(File.Exists(hostDll), $"Server host binary was not found at '{hostDll}'.");
         return hostDll;
@@ -113,12 +111,13 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
             arguments += $" --data-dir \"{dataDir}\"";
         if (persist)
             arguments += " --persist";
-        var started = Process.Start(new ProcessStartInfo("dotnet", arguments)
+        var info = new ProcessStartInfo("dotnet", arguments)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-        });
+        };
+        var started = Process.Start(info);
         Assert.NotNull(started);
         using var process = started;
 
@@ -136,10 +135,9 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var uriB = GetNextHttpUri();
         var dataDir = Path.Join(dir, "data").Replace('\\', '/');
         var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true,\"DataDirectory\":\"{dataDir}\"" : string.Empty;
-        var peers = replicaCount > 1
-            ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}]"
-            : string.Empty;
-        var json = $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}}}}}}}";
+        var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}]" : string.Empty;
+        var json =
+            $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}}}}}}}";
         var path = Path.Join(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         return path;
