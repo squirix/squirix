@@ -40,7 +40,7 @@ internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
         if (snapshots.Count == 0)
             return HealthCheckResult.Healthy("no replica groups are served.");
 
-        ReplicaStatusSnapshot? failure = null;
+        var failure = default(ReplicaStatusSnapshot?);
         ReplicaReadinessVerdict failureVerdict = ReplicaReadinessVerdict.Ready;
         for (var i = 0; i < snapshots.Count; i++)
         {
