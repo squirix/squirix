@@ -121,7 +121,14 @@ static string BuildSettingsJson(string uri)
     };
 
 #pragma warning disable ZA1001 // Ad-hoc smoke settings DTO; source generation is not worth the ceremony here.
-    return JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+    return JsonSerializer.Serialize(
+        settings,
+        new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            RespectNullableAnnotations = false,
+            RespectRequiredConstructorParameters = false,
+        });
 #pragma warning restore ZA1001
 }
 
