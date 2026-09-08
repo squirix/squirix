@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -256,11 +257,16 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         Assert.True(expirationRead.Task.IsCompleted);
     }
 
-    private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline) => new(
-        new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
-        pipeline,
-        NoOpHooks.Instance,
-        new GroupIdempotencyState(8, TimeSpan.MaxValue));
+    private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline)
+    {
+        var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        return new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
+            pipeline,
+            hooksExpectations.Instance(),
+            new GroupIdempotencyState(8, TimeSpan.MaxValue));
+    }
 
     private static PreparedReplicaMutation CreateMutation(ReplicaExpirationCandidate candidate, string operationId) => new(
         new ReplicaOperationIdentity("group-a", ReplicaExpirationOperationId.OperationScope, operationId, new byte[] { 1 }),
@@ -285,16 +291,12 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
-            _ = commitIndex;
-            _ = cancellationToken;
             Trace.Add("commit");
             return ValueTask.CompletedTask;
         }
 
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = replicaIndex;
-            _ = cancellationToken;
             if (!_acknowledge)
                 return ValueTask.FromException<ReplicaDurableAcknowledgement>(new TimeoutException());
 
@@ -305,7 +307,6 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             Mutation = mutation;
             Trace.Add("local");
             return ValueTask.CompletedTask;
@@ -313,29 +314,12 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             Trace.Add("apply");
             return ValueTask.CompletedTask;
         }
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
-        }
-    }
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
         }
     }
 }

@@ -49,6 +49,15 @@
 
     <!-- Test/benchmark analyzer exemptions live in .editorconfig ([tests/**], [benchmarks/**]);
          do not reintroduce project-level NoWarn. -->
+    <!-- Rocks doc-cref warnings cannot move to .editorconfig: path-scoped severities do not
+         apply to compiler diagnostics from generated trees (verified: CS1570 still fires).
+         GenerateDocumentationFile must stay on: IDE0005 and StyleCop doc analysis depend on it.
+         Measured per project: unit-tests emit CS1570/CS1584/CS1658 (the latter cascades from
+         a malformed cref with a doubled comma), integration/squirix-unit-tests emit CS1574/CS1580.
+         The union is required; dropping any entry breaks one of the test projects. -->
+    <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
+        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CS1584;CS1658</NoWarn>
+    </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
     <ItemGroup Label="SquirixAnalyzers">
@@ -79,6 +88,7 @@
 
     <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
     <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
+        <PackageReference Include="Rocks" PrivateAssets="all"/>
         <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 

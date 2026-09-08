@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -57,20 +58,23 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
+        _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).ReturnValue(default);
+        var writerExpectations = new ISnapshotWriterCreateExpectations();
+        _ = writerExpectations.Setups.WriteAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
+        var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
+        _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
+        var throttleExpectations = new IBackgroundSnapshotMemoryThrottleCreateExpectations();
+        _ = throttleExpectations.Setups.ShouldSuppressBackgroundSnapshot().ReturnValue(false);
         var deps = new CoordinatorDependencies(
-            new EmptyEntryCapture(),
-            new FixedPathWriter(),
+            captureExpectations.Instance(),
+            writerExpectations.Instance(),
             store,
-            new EmptyIdempotencyExporter(),
+            exporterExpectations.Instance(),
             "test-node",
-            new AllowBackgroundSnapshots(),
+            throttleExpectations.Instance(),
             null);
         await new Coordinator(opt, journal, deps).TrySnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
-    }
-
-    private sealed class AllowBackgroundSnapshots : IBackgroundSnapshotMemoryThrottle
-    {
-        public bool ShouldSuppressBackgroundSnapshot() => false;
     }
 
     private sealed class CutJournal : IJournalCoordinator
@@ -149,26 +153,5 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
 
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => default;
-    }
-
-    private sealed class EmptyEntryCapture : ISnapshotEntryCapture
-    {
-        public ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken) => default;
-    }
-
-    private sealed class EmptyIdempotencyExporter : IIdempotencySnapshotExporter
-    {
-        public void ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
-        {
-        }
-    }
-
-    private sealed class FixedPathWriter : ISnapshotWriter
-    {
-        public ValueTask<string> WriteAsync(
-            int index,
-            IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
-            IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
-            CancellationToken cancellationToken) => ValueTask.FromResult("snap-test-path");
     }
 }

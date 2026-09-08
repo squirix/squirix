@@ -178,12 +178,8 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken)
-    {
-        _ = key;
-        _ = cancellationToken;
+    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("Factory must not be called for an existing key.");
-    }
 
     private static Task<string?> CreateValueAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>($"created:{key}");
 

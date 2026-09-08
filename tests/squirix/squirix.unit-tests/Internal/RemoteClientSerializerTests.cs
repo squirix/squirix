@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
@@ -17,7 +18,9 @@ public sealed class RemoteClientSerializerTests
     [Fact]
     public void BypassesUnhandledExceptionFilter()
     {
-        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
+        var innerExpectations = new ISquirixSerializerCreateExpectations();
+        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<InvalidCastException>();
+        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Instance());
         _ = ExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -42,7 +45,9 @@ public sealed class RemoteClientSerializerTests
     [Fact]
     public void RethrowsNotSupportedFailures()
     {
-        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
+        var innerExpectations = new ISquirixSerializerCreateExpectations();
+        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<NotSupportedException>();
+        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Instance());
         _ = ExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -81,30 +86,5 @@ public sealed class RemoteClientSerializerTests
         var inner = new SystemTextJsonSerializer();
         var serializer = RemoteClientSessionFactory.CreateSerializer(inner, false);
         Assert.Same(inner, serializer);
-    }
-
-    [Immutable]
-    private sealed class ThrowingSerializer : ISquirixSerializer
-    {
-        private readonly Exception _exception;
-
-        internal ThrowingSerializer(Exception exception)
-        {
-            _exception = exception;
-        }
-
-        public T Deserialize<T>(string payload) => throw _exception;
-
-        public T Deserialize<T>(JsonElement payload) => throw _exception;
-
-        public T Deserialize<T>(ReadOnlySpan<byte> payload) => throw _exception;
-
-        public T Deserialize<T>(Stream payload) => throw _exception;
-
-        public void Serialize<T>(Stream destination, T? value) => throw _exception;
-
-        public JsonElement SerializeToElement<T>(T? value) => throw _exception;
-
-        public byte[] SerializeToUtf8Bytes<T>(T? value) => throw _exception;
     }
 }

@@ -15,6 +15,18 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>Replicated mutation prepare/apply round-trips over an in-memory cache.</summary>
 public sealed class ReplicaMutationTests : ServerUnitTestBase
 {
+    /// <summary>A preparing that faults while reading the local entry propagates the fault, so the reserved log index is left unconsumed for a retry.</summary>
+    [Fact]
+    public async Task FailedPreparePropagatesFault()
+    {
+        var fault = new InvalidOperationException("local read failed");
+        var factory = new ReplicaMutationFactory(new FaultingCache(fault), "g1", 1UL);
+
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, DefaultCancellationToken));
+
+        Assert.Same(fault, thrown);
+    }
+
     /// <summary>Outcome bytes round-trip the applied flag and the previous entry.</summary>
     [Fact]
     public void OutcomeCodecRoundTrips()
@@ -145,107 +157,10 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         Assert.Equal("v2", Assert.IsType<string>(read.Value));
     }
 
-    /// <summary>A prepare that faults while reading the local entry propagates the fault, so the reserved log index is left unconsumed for a retry.</summary>
-    [Fact]
-    public async Task FailedPreparePropagatesFault()
-    {
-        var fault = new InvalidOperationException("local read failed");
-        var factory = new ReplicaMutationFactory(new FaultingCache(fault), "g1", 1UL);
-
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, DefaultCancellationToken));
-
-        Assert.Same(fault, thrown);
-    }
-
     private static ReplicaLogRecord DecodeRecord(PreparedReplicaMutation mutation)
     {
         var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
         return Assert.NotNull(decoded);
-    }
-
-    /// <summary>In-memory logical cache for prepare/apply round-trips.</summary>
-    private sealed class MemoryCache : ILogicalNamespacedCache<object?>
-    {
-        private readonly Dictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);
-
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cancellationToken;
-            return ValueTask.FromResult(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);
-        }
-
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cancellationToken;
-            return _entries.TryGetValue(Key(cacheName, key), out var entry) ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
-                : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
-        }
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            if (!_entries.Remove(Key(cacheName, key), out var previous))
-                return ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
-
-            return ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value));
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            if (!_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null)
-                return ValueTask.FromResult(false);
-
-            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value };
-            return ValueTask.FromResult(true);
-        }
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            _entries[Key(cacheName, key)] = entry;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            if (!_entries.TryGetValue(Key(cacheName, key), out var entry))
-                return ValueTask.FromResult(false);
-
-            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value, ExpiresUtc = DateTime.UtcNow.Add(expiration) };
-            return ValueTask.FromResult(true);
-        }
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            var cacheKey = Key(cacheName, key);
-            if (!_entries.TryAdd(cacheKey, entry))
-                return ValueTask.FromResult(false);
-
-            return ValueTask.FromResult(true);
-        }
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cancellationToken;
-            var cacheKey = Key(cacheName, key);
-            if (!_entries.TryGetValue(cacheKey, out var entry))
-                return ValueTask.FromResult(false);
-
-            _entries[cacheKey] = new NodeCacheEntry<object?> { Value = value, ExpiresUtc = entry.ExpiresUtc };
-            return ValueTask.FromResult(true);
-        }
-
-        private static string Key(string cacheName, string key) => cacheName + "\x1F" + key;
     }
 
     /// <summary>Logical cache whose entry reads always fault, modeling a prepare-time failure.</summary>
@@ -258,28 +173,94 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
             _fault = fault;
         }
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-            => ValueTask.FromException<NodeCacheEntry<object?>?>(_fault);
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromException<NodeCacheEntry<object?>?>(_fault);
+
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>In-memory logical cache for prepare/apply round-trips.</summary>
+    private sealed class MemoryCache : ILogicalNamespacedCache<object?>
+    {
+        private readonly Dictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);
 
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            return _entries.TryGetValue(Key(cacheName, key), out var entry) ? ValueTask.FromResult(new NodeCacheValueResult<object?>(true, entry.Value))
+                : ValueTask.FromResult(new NodeCacheValueResult<object?>(false, null));
+        }
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            if (!_entries.Remove(Key(cacheName, key), out var previous))
+                return ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
+
+            return ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value));
+        }
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            if (!_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null)
+                return ValueTask.FromResult(false);
+
+            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value };
+            return ValueTask.FromResult(true);
+        }
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            _entries[Key(cacheName, key)] = entry;
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            if (!_entries.TryGetValue(Key(cacheName, key), out var entry))
+                return ValueTask.FromResult(false);
+
+            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value, ExpiresUtc = DateTime.UtcNow.Add(expiration) };
+            return ValueTask.FromResult(true);
+        }
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            var cacheKey = Key(cacheName, key);
+            if (!_entries.TryAdd(cacheKey, entry))
+                return ValueTask.FromResult(false);
+
+            return ValueTask.FromResult(true);
+        }
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+        {
+            var cacheKey = Key(cacheName, key);
+            if (!_entries.TryGetValue(cacheKey, out var entry))
+                return ValueTask.FromResult(false);
+
+            _entries[cacheKey] = new NodeCacheEntry<object?> { Value = value, ExpiresUtc = entry.ExpiresUtc };
+            return ValueTask.FromResult(true);
+        }
+
+        private static string Key(string cacheName, string key) => cacheName + "\x1F" + key;
     }
 }

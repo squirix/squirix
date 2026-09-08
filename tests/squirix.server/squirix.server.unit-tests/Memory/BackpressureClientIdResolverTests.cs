@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.UnitTests.Support;
@@ -15,8 +16,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveCachesClientIdOnHttpContext()
     {
-        var accessor = new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
-        var resolver = new HttpContextClientIdResolver(accessor);
+        var accessorExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = accessorExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
+        _ = accessorExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(accessorExpectations.Instance());
 
         var first = resolver.Resolve();
         var second = resolver.Resolve();
@@ -29,7 +32,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveUsesConnectionIdWhenAnonymous()
     {
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-42")));
+        var conn42Expectations = new IHttpContextAccessorCreateExpectations();
+        _ = conn42Expectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-42"));
+        _ = conn42Expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(conn42Expectations.Instance());
 
         Assert.Equal("conn:conn-42", resolver.Resolve());
     }
@@ -38,7 +44,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolverUsesConnectionWithoutSubject()
     {
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-no-sub", AuthenticatedWithoutClaims())));
+        var noSubExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = noSubExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-no-sub", AuthenticatedWithoutClaims()));
+        _ = noSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(noSubExpectations.Instance());
 
         Assert.Equal("conn:conn-no-sub", resolver.Resolve());
     }
@@ -47,7 +56,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveUsesJwtSubjectWhenAuthenticated()
     {
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a")))));
+        var jwtExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = jwtExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
+        _ = jwtExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(jwtExpectations.Instance());
 
         Assert.Equal("jwt:tenant-a", resolver.Resolve());
     }
@@ -56,8 +68,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void RawSubUsedWhenNameIdentifierBlank()
     {
-        var resolver = new HttpContextClientIdResolver(
-            new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject")))));
+        var blankSubExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = blankSubExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject"))));
+        _ = blankSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(blankSubExpectations.Instance());
 
         Assert.Equal("jwt:oidc-subject", resolver.Resolve());
     }
@@ -66,7 +80,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void RawSubUsedWhenNameIdentifierMissing()
     {
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject")))));
+        var missingSubExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = missingSubExpectations.Setups.HttpContext.Gets().ReturnValue(CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject"))));
+        _ = missingSubExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(missingSubExpectations.Instance());
 
         Assert.Equal("jwt:oidc-subject", resolver.Resolve());
     }
@@ -75,7 +92,10 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveUsesRuntimeWhenHttpContextMissing()
     {
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(null));
+        var missingExpectations = new IHttpContextAccessorCreateExpectations();
+        _ = missingExpectations.Setups.HttpContext.Gets().ReturnValue(null);
+        _ = missingExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
+        var resolver = new HttpContextClientIdResolver(missingExpectations.Instance());
         Assert.Equal(HttpContextClientIdResolver.MissingHttpContextClientId, resolver.Resolve());
     }
 
@@ -91,14 +111,4 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         },
         User = user ?? new ClaimsPrincipal(),
     };
-
-    private sealed class FixedHttpContextAccessor : IHttpContextAccessor
-    {
-        internal FixedHttpContextAccessor(HttpContext? context)
-        {
-            HttpContext = context;
-        }
-
-        public HttpContext? HttpContext { get; set; }
-    }
 }

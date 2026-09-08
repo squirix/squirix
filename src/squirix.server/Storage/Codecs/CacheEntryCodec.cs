@@ -789,11 +789,8 @@ internal static class CacheEntryCodec
                 var offset = 0;
                 destination[offset++] = ValueKind.Object;
                 ushort propertyCount = 0;
-                foreach (var property in element.EnumerateObject())
-                {
-                    _ = property;
+                foreach (var unused in element.EnumerateObject())
                     propertyCount++;
-                }
 
                 BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], propertyCount);
                 offset += 2;

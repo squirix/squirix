@@ -43,19 +43,9 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
     private static BackpressureCacheDecorator<string> CreatePipeline(RecordingGate gate, RecordingInnerCache inner, TimeSpan budget)
     {
         var deadline = new DeadlineCacheDecorator<string>(inner, Options.Create(new CachePipelineDeadlineOptions { DefaultOperationTimeout = budget }));
-        return new BackpressureCacheDecorator<string>(deadline, gate, new FixedClientIdResolver("test"));
-    }
-
-    private sealed class FixedClientIdResolver : IBackpressureClientIdResolver
-    {
-        private readonly string _clientId;
-
-        internal FixedClientIdResolver(string clientId)
-        {
-            _clientId = clientId;
-        }
-
-        public string Resolve() => _clientId;
+        var resolverExpectations = new IBackpressureClientIdResolverCreateExpectations();
+        _ = resolverExpectations.Setups.Resolve().ReturnValue("test");
+        return new BackpressureCacheDecorator<string>(deadline, gate, resolverExpectations.Instance());
     }
 
     private sealed class RecordingGate : IBackpressureGate
@@ -64,9 +54,6 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
 
         public ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
         {
-            _ = transport;
-            _ = operation;
-            _ = clientId;
             ObservedToken = cancellationToken;
             return ValueTask.FromResult((Decision.Accepted(), Lease.Empty));
         }

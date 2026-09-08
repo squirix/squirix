@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -31,18 +32,19 @@ internal static class ConformanceTestKit
         Assert.True(ExploreRunner.AcceptsCommitTrace(modelTrace), "The production trace is not accepted by the protocol model transition system.");
     }
 
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4, int replicaCount = 3) => new(
-        new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight),
-        pipeline,
-        NoOpHooks.Instance,
-        new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue));
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4, int replicaCount = 3)
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight);
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue));
+    }
 
-    internal static PreparedReplicaMutation CreateMutation(ulong index) => new(
-        new ReplicaOperationIdentity("group-a", "client", index.ToString("x32", CultureInfo.InvariantCulture), new[] { Convert.ToByte(index) }),
-        1,
-        index,
-        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)),
-        0);
+    internal static PreparedReplicaMutation CreateMutation(ulong index)
+    {
+        var identity = new ReplicaOperationIdentity("group-a", "client", index.ToString("x32", CultureInfo.InvariantCulture), new[] { Convert.ToByte(index) });
+        return new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)), 0);
+    }
 
     internal sealed record TracePoint(ulong Term, ulong LogIndex, ulong CommitIndex, ulong AppliedIndex);
 
@@ -78,7 +80,6 @@ internal static class ConformanceTestKit
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             CommitIndex = commitIndex;
             Trace.Add(new TracePoint(1, LocalIndexes[^1], CommitIndex, AppliedIndex));
             return ValueTask.CompletedTask;
@@ -86,7 +87,6 @@ internal static class ConformanceTestKit
 
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             FollowerCalls++;
 
             // A faulted task, not a synchronous throw: production gateways are async, so transport
@@ -109,7 +109,6 @@ internal static class ConformanceTestKit
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             AppliedIndex = mutation.LogIndex;
             Trace.Add(new TracePoint(mutation.Term, mutation.LogIndex, CommitIndex, AppliedIndex));
             return ValueTask.CompletedTask;
@@ -117,8 +116,6 @@ internal static class ConformanceTestKit
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
         }
 
         internal void ReleaseFirstLocalAppend() => _ = _firstLocalAppendRelease.TrySetResult(true);
@@ -133,18 +130,5 @@ internal static class ConformanceTestKit
             mutation.PayloadChecksum,
             true,
             true);
-    }
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
     }
 }

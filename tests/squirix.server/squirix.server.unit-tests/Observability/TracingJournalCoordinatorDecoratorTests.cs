@@ -82,6 +82,8 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     [Immutable]
     private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
     {
+        private static readonly IJournalOperationTraceScope SharedScope = CreateNullScope();
+
         internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
 
         IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
@@ -89,15 +91,14 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             if (context == null)
                 return null;
             BeginCalls.Add((kind, context));
-            return new RecordingScope();
+            return SharedScope;
         }
 
-        [Immutable]
-        private sealed class RecordingScope : IJournalOperationTraceScope
+        private static IJournalOperationTraceScope CreateNullScope()
         {
-            public void Dispose()
-            {
-            }
+            var expectations = new IJournalOperationTraceScopeCreateExpectations();
+            _ = expectations.Setups.Dispose();
+            return expectations.Instance();
         }
     }
 }

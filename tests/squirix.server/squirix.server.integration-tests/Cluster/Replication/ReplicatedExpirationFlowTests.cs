@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
@@ -17,11 +18,10 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
     public async Task ExpiredFlowCommitsBeforeMiss()
     {
         var pipeline = new ImmediatePipeline();
-        await using var commit = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 1),
-            pipeline,
-            NoOpHooks.Instance,
-            new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
+        await using var commit = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
         await using var expiration = new ReplicaExpirationCoordinator(commit, true, 1);
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
 
@@ -54,16 +54,12 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
-            _ = commitIndex;
-            _ = cancellationToken;
             Trace.Add("commit");
             return ValueTask.CompletedTask;
         }
 
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = replicaIndex;
-            _ = cancellationToken;
             Trace.Add("follower");
             var result = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
             return ValueTask.FromResult(result);
@@ -71,37 +67,18 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             Trace.Add("local");
             return ValueTask.CompletedTask;
         }
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             Trace.Add("apply");
             return ValueTask.CompletedTask;
         }
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
-        }
-    }
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = stage;
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
         }
     }
 }

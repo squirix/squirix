@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Text.Json;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -59,7 +60,9 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void SerializeFailureFromInnerIsRethrown()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new NotSupportedException("boom")), TestMeter);
+        var innerExpectations = new IServerSerializerCreateExpectations();
+        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<NotSupportedException>();
+        var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
         _ = NodeExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -67,7 +70,9 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void SerializeIoFailureFromInnerIsRethrown()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new IOException("io")), TestMeter);
+        var innerExpectations = new IServerSerializerCreateExpectations();
+        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<IOException>();
+        var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
         _ = NodeExceptionAssert.For<IOException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -75,32 +80,9 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     [Fact]
     public void UnhandledExceptionBypassesFailureFilter()
     {
-        var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new InvalidCastException("nope")), TestMeter);
+        var innerExpectations = new IServerSerializerCreateExpectations();
+        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<InvalidCastException>();
+        var serializer = new ServerMetricsSerializer(innerExpectations.Instance(), TestMeter);
         _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
-    }
-
-    [Immutable]
-    private sealed class ThrowingSerializer : IServerSerializer
-    {
-        private readonly Exception _exception;
-
-        internal ThrowingSerializer(Exception exception)
-        {
-            _exception = exception;
-        }
-
-        public T Deserialize<T>(string payload) => throw _exception;
-
-        public T Deserialize<T>(JsonElement payload) => throw _exception;
-
-        public T Deserialize<T>(ReadOnlySpan<byte> payload) => throw _exception;
-
-        public T Deserialize<T>(Stream payload) => throw _exception;
-
-        public void Serialize<T>(Stream destination, T? value) => throw _exception;
-
-        public JsonElement SerializeToElement<T>(T? value) => throw _exception;
-
-        public byte[] SerializeToUtf8Bytes<T>(T? value) => throw _exception;
     }
 }

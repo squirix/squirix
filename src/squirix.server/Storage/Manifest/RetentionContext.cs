@@ -50,8 +50,6 @@ internal sealed record RetentionContext
 
         public void RecordDeleteFailure(string artifactKind, string outcome)
         {
-            _ = artifactKind;
-            _ = outcome;
         }
     }
 }

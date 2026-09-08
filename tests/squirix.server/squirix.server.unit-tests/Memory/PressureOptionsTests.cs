@@ -54,7 +54,7 @@ public sealed class PressureOptionsTests
     [Fact]
     public void DefaultsMatchContract()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(10_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(10_000));
         Assert.Equal(8_000L, resolved.MaxEstimatedCacheBytes);
         Assert.Equal(80, resolved.HighPressureThresholdPercent);
         Assert.Equal(95, resolved.CriticalPressureThresholdPercent);

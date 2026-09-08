@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -31,22 +32,22 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             Assert.Equal(outcome.ToArray(), retryOutcome.ToArray());
             Assert.Equal(2, pipeline.FollowerCalls);
             Assert.Equal(1, pipeline.MemoryApplyCount);
-            Assert.Equal(
-                [
-                    "stage:Prepared",
-                    "local:1",
-                    "stage:LocalAppendDurable",
-                    "send:1",
-                    "send:2",
-                    "stage:FollowerFanOutStarted",
-                    "stage:MajorityReached",
-                    "commit:1",
-                    "stage:CommitIndexDurable",
-                    "apply:1",
-                    "stage:MemoryApplied",
-                    "stage:ResponseReady",
-                ],
-                pipeline.Trace);
+            IEnumerable<string> list =
+            [
+                "stage:Prepared",
+                "local:1",
+                "stage:LocalAppendDurable",
+                "send:1",
+                "send:2",
+                "stage:FollowerFanOutStarted",
+                "stage:MajorityReached",
+                "commit:1",
+                "stage:CommitIndexDurable",
+                "apply:1",
+                "stage:MemoryApplied",
+                "stage:ResponseReady",
+            ];
+            Assert.Equal(list, pipeline.Trace, StringComparer.Ordinal);
             Assert.Contains(2, pipeline.LaggingReplicas);
         }
         finally
@@ -94,12 +95,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         var stalledPipeline = new RecordingPipeline(1);
         var stalledHooks = new RecordingHooks(stalledPipeline.Trace);
-        var stalled = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
-            stalledPipeline,
-            stalledHooks,
-            new GroupIdempotencyState(10, TimeSpan.MaxValue),
-            eligibility);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility);
         try
         {
             var stalledCommit = stalled.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(200), DefaultCancellationToken);
@@ -115,12 +112,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         Assert.True(eligibility.TryMarkReady(1, in ready, in ready));
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
-            pipeline,
-            hooks,
-            new GroupIdempotencyState(10, TimeSpan.MaxValue),
-            eligibility);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility);
         try
         {
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
@@ -171,11 +163,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task ExceptionalFanOutStillOwnsFollowerTasks()
     {
         var pipeline = new RecordingPipeline(0);
-        var coordinator = new ReplicaCommitCoordinator(
-            new ReplicaCommitCoordinatorOptions(3, 0, 0, 4),
-            pipeline,
-            ThrowOnFanOutHooks.Instance,
-            new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, ThrowOnFanOutHooks.Instance, new GroupIdempotencyState(10, TimeSpan.MaxValue));
         Task? disposal = null;
         try
         {
@@ -195,7 +184,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A memory-apply failure after the commit index advances is retried by the next commit.</summary>
+    /// <summary>The next commit retries a memory-apply failure after the commit index advances.</summary>
     [Fact]
     public async Task FailedMemoryApplyIsRetriedByLaterCommit()
     {
@@ -236,7 +225,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             // FirstReplicaThreeAcknowledged fires when the pipeline produces the index 1
             // acknowledgement, before the coordinator records it through TryRecord on the
             // background observe path. Wait until replica 3's match index actually advances
-            // to 1 so the buffered index 2 acknowledgement cannot overtake it.
+            // to 1, so the buffered index 2 acknowledgement cannot overtake it.
             await WaitForMatchIndexAsync(coordinator, 3, 1, DefaultCancellationToken);
             pipeline.ReleaseSecondReplicaThree();
 
@@ -361,11 +350,18 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
-    private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null) => new(
-        new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8),
-        pipeline,
-        hooks ?? NoOpHooks.Instance,
-        new GroupIdempotencyState(16, TimeSpan.MaxValue));
+    private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null)
+    {
+        if (hooks == null)
+        {
+            var noOpExpectations = new IReplicaCommitFaultHooksCreateExpectations();
+            _ = noOpExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+            hooks = noOpExpectations.Instance();
+        }
+
+        var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8);
+        return new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(16, TimeSpan.MaxValue));
+    }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex = 1, string operationId = "0123456789abcdef0123456789abcdef") => new(
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1, 2, 3 }),
@@ -403,16 +399,10 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         internal List<int> LaggingReplicas { get; } = [];
 
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
             _ = cancellationToken.Register(() => _ = _deadlineElapsed.TrySetResult(true));
             FollowerCalls++;
             return new ValueTask<ReplicaDurableAcknowledgement>(replicaIndex == 1 ? _first.Task : _second.Task);
@@ -420,18 +410,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ApplyMemoryAsync(mutation, cancellationToken);
 
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-            _ = logIndex;
-            LaggingReplicas.Add(replicaIndex);
-        }
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => LaggingReplicas.Add(replicaIndex);
 
         internal void ReleaseFollowers(PreparedReplicaMutation mutation)
         {
@@ -455,31 +436,16 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         internal List<ulong> AppliedIndexes { get; } = [];
 
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = replicaIndex;
-            _ = cancellationToken;
-            return ValueTask.FromResult(
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(
                 new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
-        }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             if (!_failedOnce)
             {
                 _failedOnce = true;
@@ -492,8 +458,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
         }
     }
 
@@ -504,37 +468,21 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         internal List<ulong> AppliedIndexes { get; } = [];
 
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
-        {
-            _ = commitIndex;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = replicaIndex;
-            return new ValueTask<ReplicaDurableAcknowledgement>(WaitAndAcknowledgeAsync(mutation, cancellationToken));
-        }
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            new(WaitAndAcknowledgeAsync(mutation, cancellationToken));
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            _ = mutation;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             AppliedIndexes.Add(mutation.LogIndex);
             return ValueTask.CompletedTask;
         }
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
         {
-            _ = replicaIndex;
-            _ = logIndex;
         }
 
         internal void ReleaseFollowers() => _ = _released.TrySetResult(true);
@@ -614,13 +562,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
             return BuildAcknowledgement(mutation);
         }
-    }
-
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 
     [Mutable]
@@ -763,8 +704,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = mutation;
-            _ = cancellationToken;
             var exception = new InvalidOperationException("Injected fan-out failure.");
             return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
         }
@@ -776,7 +715,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             var exception = new InvalidOperationException("Injected post-majority failure.");
             return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
         }

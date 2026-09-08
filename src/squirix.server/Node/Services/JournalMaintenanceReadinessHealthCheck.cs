@@ -29,9 +29,6 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        _ = context;
-        _ = cancellationToken;
-
         if (_journal.HasFlushLoopFailure)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
 

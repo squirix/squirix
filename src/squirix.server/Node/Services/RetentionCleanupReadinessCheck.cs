@@ -25,9 +25,6 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        _ = context;
-        _ = cancellationToken;
-
         if (!_retentionCleanup.IsDegraded)
             return ReadyResult;
 
