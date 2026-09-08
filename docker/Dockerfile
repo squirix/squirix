@@ -59,6 +59,11 @@ RUN mkdir -p /mtls \
     && rm -f /mtls/*.csr /mtls/*.srl
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+
+# Selects which node certificate this image carries (A, B, or C). Each service image receives only
+# its assigned node PFX plus the cluster CA certificate; the CA key and other node identities stay
+# in the build stage and never reach runtime images.
+ARG NODE_LETTER=A
 WORKDIR /app
 
 VOLUME ["/data"]
@@ -66,7 +71,8 @@ RUN mkdir -p /data /https /mtls && chown "$APP_UID:$APP_UID" /data /https /mtls
 
 COPY --from=build --chown=$APP_UID:$APP_UID /app/publish .
 COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/aspnetapp.pfx /https/aspnetapp.pfx
-COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls /mtls
+COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/cluster-ca.crt /mtls/cluster-ca.crt
+COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/node-${NODE_LETTER}.pfx /mtls/node-${NODE_LETTER}.pfx
 
 ENV ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
 

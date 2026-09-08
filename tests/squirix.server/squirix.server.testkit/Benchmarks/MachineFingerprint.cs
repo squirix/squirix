@@ -29,6 +29,8 @@ public static class MachineFingerprint
         _ = builder.Append(Environment.Version.Major.ToString(CultureInfo.InvariantCulture));
         _ = builder.Append('.');
         _ = builder.Append(Environment.Version.Minor.ToString(CultureInfo.InvariantCulture));
+        _ = builder.Append('|');
+        _ = builder.Append(OsFamilyToken());
         return builder.ToString();
     }
 
@@ -64,4 +66,18 @@ public static class MachineFingerprint
         <= 32 => "cpu-32",
         _ => "cpu-high",
     };
+
+    private static string OsFamilyToken()
+    {
+        if (OperatingSystem.IsWindows())
+            return "windows";
+
+        if (OperatingSystem.IsLinux())
+            return "linux";
+
+        if (OperatingSystem.IsMacOS())
+            return "osx";
+
+        return "unknown";
+    }
 }

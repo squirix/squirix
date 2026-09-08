@@ -53,5 +53,18 @@ public sealed class PerformanceEvidenceTests : NodeIntegrationTestBase
             nanBaseline,
             machine,
             static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
+
+        // Evidence bound to the wrong benchmark or an unknown phase never reaches the gate.
+        var mismatched = new PerformanceEvidence("Squirix.Server.Benchmarks.FollowerAppendBenchmarks", "placement", machine, 100.0, 100.0, 10.0);
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+            mismatched,
+            machine,
+            static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
+
+        var unknownPhase = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "no-such-phase", machine, 100.0, 100.0, 10.0);
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            unknownPhase,
+            machine,
+            static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
     }
 }

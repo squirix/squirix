@@ -33,6 +33,9 @@ public static class OfflineBootstrapTestKit
         if (targetReplicaCount <= 1)
             throw new ArgumentOutOfRangeException(nameof(targetReplicaCount), targetReplicaCount, "Bootstrap target must replicate (RF > 1).");
 
+        if (targetReplicaCount > 3)
+            throw new ArgumentOutOfRangeException(nameof(targetReplicaCount), targetReplicaCount, "Bootstrap target exceeds the three TestKit topology peers.");
+
         if (targetGeneration == 0)
             throw new ArgumentOutOfRangeException(nameof(targetGeneration), targetGeneration, "Bootstrap target generation must be positive.");
 

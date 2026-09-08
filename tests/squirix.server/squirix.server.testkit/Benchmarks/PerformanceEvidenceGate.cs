@@ -13,8 +13,8 @@ public static class PerformanceEvidenceGate
     /// <param name="currentMachine">Machine fingerprint of the current host.</param>
     /// <returns>True when the measurement is within the allowed regression.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="evidence" /> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when fingerprints or names are empty.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when baseline, actual, or allowed regression values are invalid.</exception>
+    /// <exception cref="ArgumentException">Thrown when fingerprints, names, or the benchmark-to-phase mapping is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when baseline, actual, allowed regression values, or the phase is invalid.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the machine fingerprint does not match.</exception>
     public static bool Check(PerformanceEvidence evidence, string currentMachine)
     {
@@ -23,6 +23,10 @@ public static class PerformanceEvidenceGate
         ArgumentException.ThrowIfNullOrEmpty(evidence.Machine);
         ArgumentException.ThrowIfNullOrEmpty(evidence.BenchmarkName);
         ArgumentException.ThrowIfNullOrEmpty(evidence.Phase);
+
+        var expectedBenchmark = ReplicationBenchmarkCatalog.GetBenchmarkForPhase(evidence.Phase);
+        if (!string.Equals(evidence.BenchmarkName, expectedBenchmark, StringComparison.Ordinal))
+            throw new ArgumentException($"Evidence benchmark '{evidence.BenchmarkName}' does not match phase '{evidence.Phase}' benchmark '{expectedBenchmark}'.", nameof(evidence));
 
         if (!MachineFingerprint.Matches(evidence.Machine, currentMachine))
             throw new InvalidOperationException("Performance evidence machine fingerprint does not match the current host.");

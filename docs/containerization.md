@@ -117,6 +117,11 @@ Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squi
 (`5001`, `5002`, `5003`) instead. Each node's `Cluster.Uri` must match its local peer entry
 (see [configuration.md](configuration.md)).
 
+`Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The inter-node mTLS
+gRPC transport endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
+(**5100**): keep each local peer entry aligned with its configured peer URI and never enter port `5100`
+in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
+
 ## Replica factors
 
 - RF=1 is a single copy with single-owner routing and no replication.

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -123,7 +124,8 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         await cache.SetAsync(key, "before-loss", cancellationToken: DefaultCancellationToken);
 
         // The five-second recovery budget covers the stop itself plus the subsequent write/read sequence.
-        var startedUtc = DateTime.UtcNow;
+        // Stopwatch is monotonic: system clock changes cannot shrink or stretch the measured budget.
+        var started = Stopwatch.GetTimestamp();
         await cluster.StopNodeAsync("nodeA");
 
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -131,6 +133,6 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
         await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
         Assert.Equal("after-loss", (await cache.GetValueAsync(key, linked.Token)).Value);
-        Assert.True(DateTime.UtcNow - startedUtc < TimeSpan.FromSeconds(5));
+        Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5));
     }
 }

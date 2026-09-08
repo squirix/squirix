@@ -105,6 +105,7 @@ runs:
               --filter-query "/*/*Cache.MultiNode*/!*Stress*/*"
               --filter-query "/*/*/!*Stress*/*Security*"
               --filter-query "/*/*ReplicaSetsReleaseE2ETests*/!*Stress*/*"
+              --filter-query "/*/*FailoverE2ETests*/!*Stress*/*"
               --filter-query "/*/*ClusterPackageVersionE2ETests*/!*Stress*/*"
               --filter-query "/*/*ReplicaBootstrapE2ETests*/!*Stress*/*"
               --filter-query "/*/*TopologyActivationE2ETests*/!*Stress*/*"

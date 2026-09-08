@@ -10,6 +10,7 @@ services:
       args:
         SQUIRIX_VERSION: 0.1.0-preview.7
         LOCAL_PACKAGES: "true"
+        NODE_LETTER: A
     container_name: squirix-node-a-release
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
@@ -26,7 +27,9 @@ services:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
     networks:
-      - squirix-net
+      squirix-net:
+        aliases:
+          - squirix-node-a
 
   node-b:
     build:
@@ -35,6 +38,7 @@ services:
       args:
         SQUIRIX_VERSION: 0.1.0-preview.7
         LOCAL_PACKAGES: "true"
+        NODE_LETTER: B
     container_name: squirix-node-b-release
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
@@ -51,7 +55,9 @@ services:
       - ./node-b/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodeb-data:/data
     networks:
-      - squirix-net
+      squirix-net:
+        aliases:
+          - squirix-node-b
 
   node-c:
     build:
@@ -60,6 +66,7 @@ services:
       args:
         SQUIRIX_VERSION: 0.1.0-preview.7
         LOCAL_PACKAGES: "true"
+        NODE_LETTER: C
     container_name: squirix-node-c-release
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
@@ -76,7 +83,9 @@ services:
       - ./node-c/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodec-data:/data
     networks:
-      - squirix-net
+      squirix-net:
+        aliases:
+          - squirix-node-c
 
 volumes:
   nodea-data: {}

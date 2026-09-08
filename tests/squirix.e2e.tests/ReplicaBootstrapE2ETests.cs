@@ -1,5 +1,7 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Xunit;
 
@@ -24,6 +26,15 @@ public sealed class ReplicaBootstrapE2ETests : EndToEndTestBase
         2,
         3UL,
         DefaultCancellationToken);
+
+    /// <summary>Bootstrap targets beyond the fixture peers are rejected at the call site.</summary>
+    [Fact]
+    public void BootstrapTargetBeyondPeersIsRejected()
+    {
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            (Dir: "bootstrap-invalid", TargetReplicaCount: 4),
+            static state => _ = OfflineBootstrapTestKit.PrepareAsync(state.Dir, ["group-a"], state.TargetReplicaCount, 2UL, TestContext.Current.CancellationToken));
+    }
 
     private static async Task SeedAndVerifyAsync(string nodeName, string cacheName, int targetReplicaCount, ulong targetGeneration, CancellationToken cancellationToken)
     {

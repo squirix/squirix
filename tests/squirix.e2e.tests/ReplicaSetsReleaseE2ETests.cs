@@ -67,17 +67,18 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
         Assert.Equal("v2", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
-    /// <summary>RF=2 has no quorum authority: losing its only mirror stops mutation progress.</summary>
+    /// <summary>RF=2 refuses new mutations after mirror loss while committed data stays readable.</summary>
     /// <remarks>
-    /// #239 mandates the name "RfTwoCurrentReadFailsWhenMirrorUnavailable"; it is shortened here because SQR0005
-    /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
+    /// #239 mandates the name "RfTwoCurrentReadFailsWhenMirrorUnavailable"; the behavior is a refused mutation
+    /// with a preserved local read, so the test name describes that contract (mandated name documented here for
+    /// traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
     [Fact]
-    public async Task RfTwoReadFailsWhenMirrorUnavailable()
+    public async Task RfTwoRefusesMutationKeepsLocalRead()
     {
         await using var cluster = await HostedCluster.StartTwoNodeAsync(
             new TwoNodeStartOptions { ReplicaCount = 2 },
-            nameof(RfTwoReadFailsWhenMirrorUnavailable),
+            nameof(RfTwoRefusesMutationKeepsLocalRead),
             true,
             DefaultCancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);

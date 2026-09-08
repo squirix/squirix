@@ -7,6 +7,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        NODE_LETTER: A
     container_name: squirix-node-a
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
@@ -29,6 +31,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        NODE_LETTER: B
     container_name: squirix-node-b
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
@@ -51,6 +55,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        NODE_LETTER: C
     container_name: squirix-node-c
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
