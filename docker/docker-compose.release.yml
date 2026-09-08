@@ -53,9 +53,35 @@ services:
     networks:
       - squirix-net
 
+  node-c:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.release
+      args:
+        SQUIRIX_VERSION: 0.1.0-preview.7
+        LOCAL_PACKAGES: "true"
+    container_name: squirix-node-c-release
+    environment:
+      - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
+      - SQUIRIX_JWT_ISSUER=${SQUIRIX_JWT_ISSUER:?Set SQUIRIX_JWT_ISSUER — see docker/.env.example}
+      - SQUIRIX_JWT_AUDIENCE=${SQUIRIX_JWT_AUDIENCE:?Set SQUIRIX_JWT_AUDIENCE — see docker/.env.example}
+      - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-C.pfx
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=${SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD:?Set SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD — see docker/.env.example}
+      - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
+    command: ["run", "--persist", "--data-dir", "/data"]
+    ports:
+      - "5003:5000"
+    volumes:
+      - ./node-c/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - nodec-data:/data
+    networks:
+      - squirix-net
+
 volumes:
   nodea-data: {}
   nodeb-data: {}
+  nodec-data: {}
 
 networks:
   squirix-net:

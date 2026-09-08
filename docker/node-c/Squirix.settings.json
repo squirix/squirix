@@ -1,8 +1,8 @@
 {
   "Squirix": {
     "Cluster": {
-      "NodeId": "A",
-      "Uri": "https://squirix-node-a:5000",
+      "NodeId": "C",
+      "Uri": "https://squirix-node-c:5000",
       "VirtualNodes": 128,
       "ReplicaCount": 3,
       "PersistenceEnabled": true,

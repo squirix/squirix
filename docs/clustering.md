@@ -34,7 +34,11 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
 ## Consistency guarantees (v0.1 preview)
 
 - Single-key reads and writes execute on the owning node
-- Durability is per node; no replication or automatic failover
+- RF=1 keeps single-owner behavior: durability is per node with no replication or automatic failover
+- RF=2 is a synchronous mirror only: the majority is two, so losing either member stops RF=2 writes and no
+  replacement is elected; RF=2 never promotes after peer loss
+- RF>=3 with persistence and mTLS survives single-node loss on the remaining majority; automatic failover and
+  quorum reads apply only to RF>=3 after the proof matrix (see [architecture/replication-consensus.md](architecture/replication-consensus.md))
 - Multi-key operations are not transactions across owners
 - Memory pressure may reject growing writes before they are persisted
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted
@@ -45,7 +49,10 @@ Full semantics: [consistency.md](consistency.md).
 
 ## Multi-node deployment
 
-Docker Compose examples with two nodes: [containerization.md](containerization.md).
+The Docker Compose HA example runs three nodes with RF=3, persistence, and mTLS: [containerization.md](containerization.md).
+
+RF=2 is documented as a synchronous mirror only; the HA demo uses RF=3. RF>1 topologies require a homogeneous
+cluster package version; mixed versions fail readiness through the topology fingerprint.
 
 Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate with `CN` equal to `NodeId`, internal
 listener port). External
@@ -53,8 +60,8 @@ application clients still authenticate with JWT on the primary listener. Full gu
 [security/inter-node-mtls.md](security/inter-node-mtls.md).
 
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
-`https://localhost:5002`) with the compose JWT settings. Inside the Docker network, nodes use service DNS names and container
-port **5000** (`https://squirix-node-a:5000` in mounted settings).
+`https://localhost:5002`, `https://localhost:5003`) with the compose JWT settings. Inside the Docker network, nodes use
+service DNS names and container port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
 Before changing topology in containers, validate settings:
 

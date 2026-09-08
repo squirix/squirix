@@ -100,9 +100,14 @@ runs:
             # Same MTP translation; method filters use contains-style segments (*Security*) to
             # preserve legacy ~ substring membership; class-name negation (!*Stress*) excludes
             # the stress suite.
+            # HA release classes (M8 replica sets) stay visible here alongside Cache.MultiNode.
             FILTER_ARGS=(
               --filter-query "/*/*Cache.MultiNode*/!*Stress*/*"
               --filter-query "/*/*/!*Stress*/*Security*"
+              --filter-query "/*/*ReplicaSetsReleaseE2ETests*/!*Stress*/*"
+              --filter-query "/*/*ClusterPackageVersionE2ETests*/!*Stress*/*"
+              --filter-query "/*/*ReplicaBootstrapE2ETests*/!*Stress*/*"
+              --filter-query "/*/*TopologyActivationE2ETests*/!*Stress*/*"
             )
             ;;
           protocol-model)

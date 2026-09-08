@@ -37,7 +37,7 @@ RUN mkdir -p /https \
         -keyout /https/aspnetapp.key \
         -out /https/aspnetapp.crt \
         -subj "/CN=localhost" \
-        -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,IP:127.0.0.1" \
+        -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,DNS:squirix-node-c,IP:127.0.0.1" \
     && openssl pkcs12 -export -out /https/aspnetapp.pfx \
         -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
         -passout pass:
@@ -47,7 +47,7 @@ RUN mkdir -p /mtls \
     && openssl genrsa -out /mtls/cluster-ca.key 4096 \
     && openssl req -x509 -new -nodes -key /mtls/cluster-ca.key -sha256 -days 825 \
         -out /mtls/cluster-ca.crt -subj "/CN=Squirix Docker Cluster CA" \
-    && for NODE in A B; do \
+    && for NODE in A B C; do \
         openssl genrsa -out /mtls/node-${NODE}.key 2048 \
         && openssl req -new -key /mtls/node-${NODE}.key -out /mtls/node-${NODE}.csr -subj "/CN=${NODE}" \
         && openssl x509 -req -in /mtls/node-${NODE}.csr -CA /mtls/cluster-ca.crt -CAkey /mtls/cluster-ca.key \
