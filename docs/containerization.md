@@ -7,11 +7,12 @@ Contents:
 - `docker/Dockerfile`: multi-stage build from repository sources (matches the current checkout)
 - `docker/Dockerfile.release`: installs `squirix-server` from the `squirix.server.tool` NuGet package
 - `Squirix.Server.Host`: standalone server executable that starts a node and waits
-- `docker/docker-compose.yml`: two-node example (sources image)
-- `docker/docker-compose.release.yml`: two-node example (release image, local package drop; secrets via `.env`)
+- `docker/docker-compose.yml`: three-node RF=3 HA example (sources image)
+- `docker/docker-compose.release.yml`: three-node RF=3 example (release image, local package drop; secrets via `.env`)
 - `docker/.env.example`: template for release compose (copy to `.env` for local testing only)
 - `docker/node-a/Squirix.settings.json`
 - `docker/node-b/Squirix.settings.json`
+- `docker/node-c/Squirix.settings.json`
 
 ## Build (from sources)
 
@@ -62,14 +63,14 @@ docker compose -f docker-compose.release.yml build
 > They are fine on a local machine; copying them unchanged into staging or production lets anyone who knows the
 > fixtures mint valid tokens. See [Security](#security) and [Generate per-environment secrets](#generate-per-environment-secrets).
 
-Two-node cluster (sets sample JWT env vars for both nodes; containers run with `Production` hosting environment):
+Three-node RF=3 HA cluster (sets sample JWT env vars for all nodes; containers run with `Production` hosting environment):
 
 ```bash
 cd docker
 docker compose up -d
 ```
 
-Release-image two-node cluster (requires `docker/.env` — copy from `.env.example` for local testing):
+Release-image three-node RF=3 cluster (requires `docker/.env` — copy from `.env.example` for local testing):
 
 ```bash
 cd docker
@@ -104,20 +105,36 @@ docker run --rm \
 The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
 access to gRPC, health, and metrics routes.
 
-Endpoints (two-node `docker compose` example):
+Endpoints (three-node RF=3 `docker compose` example):
 
 - Node A HTTPS (gRPC/health/metrics): `https://localhost:5001` (host port maps to container **5000**)
 - Node B HTTPS: `https://localhost:5002`
+- Node C HTTPS: `https://localhost:5003`
 - Inside each container, the listen URL is port **5000** from the mounted `Squirix.settings.json`.
 
 Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
-`https://squirix-node-b:5000`). Host applications use the **published** ports (`5001`, `5002`) instead. Each node's
-`Cluster.Uri` must match its local peer entry (see [configuration.md](configuration.md)).
+`https://squirix-node-b:5000`, `https://squirix-node-c:5000`). Host applications use the **published** ports
+(`5001`, `5002`, `5003`) instead. Each node's `Cluster.Uri` must match its local peer entry
+(see [configuration.md](configuration.md)).
+
+`Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The inter-node mTLS
+gRPC transport endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
+(**5100**): keep each local peer entry aligned with its configured peer URI and never enter port `5100`
+in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
+
+## Replica factors
+
+- RF=1 is a single copy with single-owner routing and no replication.
+- RF=2 is a synchronous mirror only: writes require both replicas (majority is two), so losing either member
+  stops RF=2 writes and no replacement is elected. Use RF=2 for mirroring, not for availability.
+- The HA demo uses RF=3: three nodes with persistence and mTLS survive the loss of any single node on the
+  remaining majority. All three nodes must run the same homogeneous build; mixed package versions
+  fail readiness through the topology fingerprint.
 
 ## HTTPS in containers
 
 Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (no export password) with SANs for `localhost`,
-`squirix-node-a`, `squirix-node-b`, and the release compose container names. Kestrel loads it via
+`squirix-node-a`, `squirix-node-b`, `squirix-node-c`, and the release compose container names. Kestrel loads it via
 `ASPNETCORE_Kestrel__Certificates__Default__Path`.
 
 Use `curl -k` (or equivalent TLS skip/validation override) from the host. For .NET clients on the host, either trust the
@@ -146,10 +163,10 @@ Health and metrics:
 
 ## Multi-node inter-node mTLS
 
-The two-node compose layouts configure **external** JWT auth and a **primary** HTTPS listener (container port **5000**).
+The three-node RF=3 compose layouts configure **external** JWT auth and a **primary** HTTPS listener (container port **5000**).
 When `Peers[]` lists remote nodes, Squirix also requires **cluster mTLS** environment variables. The sample compose files
 set `SQUIRIX_CLUSTER_MTLS_*` to **development-only** certificates baked into the image at `/mtls/` (`CN` matches each
-node's `Cluster.NodeId`: `A` and `B` in the mounted settings). Squirix does not generate production certificates.
+node's `Cluster.NodeId`: `A`, `B`, and `C` in the mounted settings). Squirix does not generate production certificates.
 
 Example additions per service (adjust paths to match your image layout):
 
