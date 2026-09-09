@@ -50,6 +50,17 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         retry.MarkAppended();
     }
 
+    /// <summary>An exhausted index is refused at reservation time instead of handed out and failed later.</summary>
+    [Fact]
+    public async Task ExhaustedLogIndexRefusesReservation()
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(DefaultCancellationToken));
+
+        // The refused reservation must release the gate: a second attempt fails instead of hanging.
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(DefaultCancellationToken));
+    }
+
     /// <summary>Capacity and stripe leases are released after completion and cancellation.</summary>
     [Fact]
     public async Task CancelledMutationReleasesKeyGate()
