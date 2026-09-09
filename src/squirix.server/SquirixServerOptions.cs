@@ -34,6 +34,12 @@ public sealed class SquirixServerOptions
     /// </summary>
     public int ReplicaCount { get; set; } = 1;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the operator explicitly opts into RF&gt;1 replication.
+    /// Default is <see langword="false" />: RF&gt;1 startup without the opt-in is refused.
+    /// </summary>
+    public bool ReplicationEnabled { get; set; }
+
     /// <summary>Gets or sets the primary HTTPS URI used for gRPC and node traffic.</summary>
     public Uri Uri { get; set; } = new("https://localhost:5001");
 
@@ -97,9 +103,10 @@ public sealed class SquirixServerOptions
         if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
             return false;
 
-        // Public options path does not carry mTLS material; evaluate persistence then refuse RF>1 activation.
+        // Public options path does not carry mTLS material and does not enforce the replication opt-in:
+        // the opt-in is a hosting activation concern evaluated by ReplicationActivationGuard at startup.
         var activationFailures = new List<string>();
-        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null);
+        ReplicationActivationGuard.CollectFailures(activationFailures, options.ReplicaCount, options.PersistenceEnabled, null, true);
         if (activationFailures.Count == 0)
             return true;
 

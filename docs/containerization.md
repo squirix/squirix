@@ -130,6 +130,8 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 - The HA demo uses RF=3: three nodes with persistence and mTLS survive the loss of any single node on the
   remaining majority. All three nodes must run the same homogeneous build; mixed package versions
   fail readiness through the topology fingerprint.
+- RF>1 additionally requires the explicit replication opt-in (`Squirix:Cluster:ReplicationEnabled` or
+  `--enable-replication`); without it RF>1 nodes refuse startup. The compose settings set the opt-in.
 
 ## HTTPS in containers
 

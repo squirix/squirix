@@ -127,6 +127,7 @@ public static class TestNodeHostFactory
             Uri = uri,
             VirtualNodes = 128,
             ReplicaCount = options?.ReplicaCount ?? 1,
+            ReplicationEnabled = options?.EnableReplication ?? true,
             ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
         };
 

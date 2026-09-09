@@ -84,6 +84,40 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         Assert.Contains("fingerprint match", output, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies run refuses RF&gt;1 without the opt-in.</summary>
+    [Fact]
+    public async Task RunRefusesWithoutOptIn()
+    {
+        using var dir = new TempDirectory("squirix-run-nooptin");
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken, false);
+        _ = Directory.CreateDirectory(Path.Join(dir.Path, "data"));
+
+        var (exitCode, output) = await RunHostAsync($"exec \"{FindHostDll()}\" run --settings \"{settingsPath}\"", DefaultCancellationToken);
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("replication opt-in", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies doctor honors the replication opt-in passed on the command line.</summary>
+    [Fact]
+    public async Task DoctorHonorsReplicationOptInFlag()
+    {
+        using var dir = new TempDirectory("squirix-doctor-cmd-optin");
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken, false);
+
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, DefaultCancellationToken, true);
+        Assert.Equal(0, exitCode);
+        Assert.Contains("[Squirix.Server] Doctor", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies the host help lists the replication opt-in switch.</summary>
+    [Fact]
+    public async Task HelpListsReplicationOptInSwitch()
+    {
+        var (exitCode, output) = await RunHostAsync($"exec \"{FindHostDll()}\" help", DefaultCancellationToken);
+        Assert.Equal(0, exitCode);
+        Assert.Contains("--enable-replication", output, StringComparison.Ordinal);
+    }
+
     private static string FindHostDll()
     {
         var directory = AppContext.BaseDirectory;
@@ -104,13 +138,25 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return hostDll;
     }
 
-    private static async Task<(int ExitCode, string Output)> RunDoctorAsync(string settingsPath, string? dataDir, bool persist, CancellationToken cancellationToken)
+    private static Task<(int ExitCode, string Output)> RunDoctorAsync(
+        string settingsPath,
+        string? dataDir,
+        bool persist,
+        CancellationToken cancellationToken,
+        bool enableReplication = false)
     {
         var arguments = $"exec \"{FindHostDll()}\" doctor --settings \"{settingsPath}\"";
         if (dataDir != null)
             arguments += $" --data-dir \"{dataDir}\"";
         if (persist)
             arguments += " --persist";
+        if (enableReplication)
+            arguments += " --enable-replication";
+        return RunHostAsync(arguments, cancellationToken);
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken)
+    {
         var info = new ProcessStartInfo("dotnet", arguments)
         {
             RedirectStandardOutput = true,
@@ -120,7 +166,6 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var started = Process.Start(info);
         Assert.NotNull(started);
         using var process = started;
-
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorsTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
@@ -129,12 +174,14 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return (process.ExitCode, output + errors);
     }
 
-    private static async Task<string> WriteSettingsAsync(string dir, int replicaCount, CancellationToken cancellationToken)
+    private static async Task<string> WriteSettingsAsync(string dir, int replicaCount, CancellationToken cancellationToken, bool replicationEnabled = true)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var dataDir = Path.Join(dir, "data").Replace('\\', '/');
         var persistence = replicaCount > 1 ? $",\"PersistenceEnabled\":true,\"DataDirectory\":\"{dataDir}\"" : string.Empty;
+        if (replicationEnabled && replicaCount > 1)
+            persistence += ",\"ReplicationEnabled\":true";
         var peers = replicaCount > 1 ? $",\"Peers\":[{{\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\"}},{{\"NodeId\":\"n2\",\"Uri\":\"{uriB.AbsoluteUri}\"}}]" : string.Empty;
         var json =
             $"{{\"Squirix\":{{\"Cluster\":{{\"ClusterId\":\"doctor-c\",\"NodeId\":\"n1\",\"Uri\":\"{uriA.AbsoluteUri}\",\"ReplicaCount\":{replicaCount},\"ConfigurationGeneration\":5{persistence}{peers}}}}}}}";

@@ -159,6 +159,7 @@ section in settings (mapped into the same options model).
 | `Peers`              | peers    | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules             |
 | `VirtualNodes`       | int      | `128`                    | `1..16384`                                                             |
 | `PersistenceEnabled` | bool     | `false`                  | Any boolean                                                            |
+| `ReplicationEnabled` | bool     | `false`                  | Opt-in for RF>1 replication; RF>1 without it refuses startup           |
 | `WaitForRecovery`    | bool     | `true`                   | Any boolean; applies when persistence is enabled                       |
 | `DataDirectory`      | string?  | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()` |
 
@@ -175,6 +176,14 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 ```
+
+### Replication opt-in (`ReplicationEnabled`)
+
+RF>1 replication activates only when explicitly opted in. `ReplicationEnabled` defaults to `false`: starting
+with `ReplicaCount` greater than one and without the opt-in fails fast naming the switch. For RF>1 the opt-in
+error is reported only after the persistence and mTLS prerequisite checks. RF=1 nodes run
+with or without it. The standalone host accepts `--enable-replication`; the settings key is
+`Squirix:Cluster:ReplicationEnabled`.
 
 ### Recovery startup (`WaitForRecovery`)
 
@@ -501,6 +510,7 @@ by merging JSON sections that v0.1 public hosting ignores:
 - `Backpressure PerClientMaxInFlight cannot exceed MaxInFlight.`
 - `Backpressure NodeRateLimitBurst must be greater than zero when configured.`
 - `Persistence DataDir is required.`
+- `ReplicaCount greater than 1 requires the replication opt-in. Enable Squirix:Cluster:ReplicationEnabled (or pass --enable-replication).`
 - `Persistence JournalMaxSegmentMb must be greater than zero.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
 - `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`

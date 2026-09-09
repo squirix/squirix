@@ -19,6 +19,9 @@ public sealed class TestNodeHostStartOptions
     /// <summary>Gets a value indicating whether the closed replication gRPC service is mapped for transport/identity tests without enabling RF&gt;1 mutations.</summary>
     public bool FoundationOnly { get; init; }
 
+    /// <summary>Gets a value indicating whether the node opts into RF&gt;1 replication. Defaults to <see langword="true" /> so existing multi-node tests keep exercising replication; opt-in gate tests set it to <see langword="false" /> explicitly.</summary>
+    public bool EnableReplication { get; init; } = true;
+
     /// <summary>Gets the inter-node mTLS profile for this node in negative-path cluster tests.</summary>
     public TestNodeProfile MtlsProfile { get; init; } = TestNodeProfile.Normal;
 

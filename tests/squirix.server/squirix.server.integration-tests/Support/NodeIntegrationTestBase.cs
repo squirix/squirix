@@ -138,6 +138,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = canonicalUri,
             VirtualNodes = 128,
             ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.EnableReplication,
             ConfigurationGeneration = options.ConfigurationGeneration,
         };
 

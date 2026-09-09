@@ -14,6 +14,8 @@ internal sealed class NodeStartOptions
 
     internal ulong ConfigurationGeneration { get; init; } = 1;
 
+    internal bool EnableReplication { get; init; } = true;
+
     internal string? ExtraScope { get; init; }
 
     internal bool FoundationOnly { get; init; }

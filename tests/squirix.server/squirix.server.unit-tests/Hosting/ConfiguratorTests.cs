@@ -31,6 +31,24 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         Assert.Equal(Path.GetFullPath(Dir.Path), options.DataDirectory);
     }
 
+    /// <summary>Command-line overrides enable the replication opt-in.</summary>
+    [Fact]
+    public void CommandLineEnablesReplicationOptIn()
+    {
+        var options = new SquirixServerOptions
+        {
+            NodeId = "node-a",
+            Uri = new Uri("https://localhost:5001"),
+            Peers =
+            [
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+            ],
+        };
+
+        Configurator.ApplyCommandLineOverrides(options, null, null, false, true);
+        Assert.True(options.ReplicationEnabled);
+    }
+
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
     [Fact]
     public void CommandLineOverridesTraversalDataDir()
@@ -67,6 +85,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
             NodeId = "node-a",
             Uri = new Uri("https://localhost:5001"),
             ReplicaCount = 3,
+            ReplicationEnabled = true,
             ConfigurationGeneration = 9,
             Peers =
             [
@@ -76,6 +95,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         var target = new SquirixServerOptions();
         Configurator.CopyOptions(source, target);
         Assert.Equal(3, target.ReplicaCount);
+        Assert.True(target.ReplicationEnabled);
         Assert.Equal(9u, target.ConfigurationGeneration);
     }
 
