@@ -25,7 +25,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     private readonly TempDirectory? _dataDir;
     private readonly ClusterTls? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
-    private readonly TwoNodeStartOptions _startOptions;
+    private readonly MultiNodeStartOptions _startOptions;
     private readonly FrozenDictionary<string, Uri> _uris;
     private readonly bool _usePersistence;
     private int _disposed;
@@ -34,7 +34,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         Dictionary<string, TestNode> nodes,
         ClusterTls? mtls,
         TempDirectory? dataDir,
-        TwoNodeStartOptions startOptions,
+        MultiNodeStartOptions startOptions,
         FrozenDictionary<string, Uri> uris,
         bool usePersistence)
     {
@@ -68,7 +68,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         TimeProvider? timeProvider = null,
         CancellationToken cancellationToken = default)
     {
-        var options = new TwoNodeStartOptions { Security = security, TimeProvider = timeProvider };
+        var options = new MultiNodeStartOptions { Security = security, TimeProvider = timeProvider };
         return StartAsync(SingleNodeIds, options, name, persistence, cancellationToken);
     }
 
@@ -80,7 +80,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     /// <returns>A hosted cluster owning the started nodes.</returns>
     internal static ValueTask<HostedCluster> StartThreeNodeAsync(
         string? testName = null,
-        TwoNodeStartOptions? options = null,
+        MultiNodeStartOptions? options = null,
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(ThreeNodeIds, options, testName, usePersistence, cancellationToken);
 
@@ -88,10 +88,10 @@ internal sealed class HostedCluster : IAsyncDisposable
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
     internal static ValueTask<HostedCluster> StartTwoNodeAsync(
-        TwoNodeStartOptions? options,
+        MultiNodeStartOptions? options,
         string? testName = null,
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
@@ -133,12 +133,12 @@ internal sealed class HostedCluster : IAsyncDisposable
     /// <returns>A hosted cluster owning the started nodes.</returns>
     private static async ValueTask<HostedCluster> StartAsync(
         string[] nodeIds,
-        TwoNodeStartOptions? startOptions,
+        MultiNodeStartOptions? startOptions,
         string? testName,
         bool usePersistence,
         CancellationToken cancellationToken = default)
     {
-        startOptions ??= new TwoNodeStartOptions();
+        startOptions ??= new MultiNodeStartOptions();
 
         var pool = ListenPortPool.EndToEndTests;
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);

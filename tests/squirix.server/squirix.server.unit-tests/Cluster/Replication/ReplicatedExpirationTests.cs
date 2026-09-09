@@ -70,7 +70,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                     Key = "key-a",
                     UtcNow = expiresUtc.AddTicks(1),
                     ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(7, expiresUtc)),
-                    PrepareTombstone = static (candidate, operationId) => CreateMutation(candidate, operationId),
+                    PrepareTombstone = static (_, operationId) => CreateMutation(operationId),
                     Timeout = TimeSpan.FromSeconds(2),
                     CancellationToken = DefaultCancellationToken,
                 });
@@ -118,7 +118,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                 Key = "key-a",
                 UtcNow = expiresUtc.AddTicks(1),
                 ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(7, expiresUtc)),
-                PrepareTombstone = static (candidate, operationId) => CreateMutation(candidate, operationId),
+                PrepareTombstone = static (_, operationId) => CreateMutation(operationId),
                 Timeout = TimeSpan.FromSeconds(2),
                 CancellationToken = DefaultCancellationToken,
             });
@@ -260,7 +260,8 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline)
     {
         var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                             .ReturnValue(ValueTask.CompletedTask);
         return new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
             pipeline,
@@ -268,12 +269,11 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
             new GroupIdempotencyState(8, TimeSpan.MaxValue));
     }
 
-    private static PreparedReplicaMutation CreateMutation(ReplicaExpirationCandidate candidate, string operationId) => new(
+    private static PreparedReplicaMutation CreateMutation(string operationId) => new(
         new ReplicaOperationIdentity("group-a", ReplicaExpirationOperationId.OperationScope, operationId, new byte[] { 1 }),
         1,
         1,
-        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 7),
-        candidate.ExpiresUtc.Ticks);
+        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 7));
 
     [Mutable]
     private sealed class ExpirationPipeline : IReplicaCommitPipeline

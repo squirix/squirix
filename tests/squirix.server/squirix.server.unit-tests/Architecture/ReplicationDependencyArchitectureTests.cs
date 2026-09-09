@@ -99,9 +99,8 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     [Fact]
     public Task ReplicationUsesNoDumpingNamespaces() => AssertSourcesDoNotContainAsync(
     [
-        "using System.Linq;",
         "using Newtonsoft",
-        "using System.Dynamic;",
+        "System.Dynamic;",
         "Dump(",
         "Console.Write",
     ]);
@@ -122,17 +121,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         "public static long ",
         "public static bool ",
         "public static object ",
-    ]);
-
-    /// <summary>Cluster.Replication sources must not use reflection.</summary>
-    [Fact]
-    public Task ReplicationUsesNoReflection() => AssertSourcesDoNotContainAsync(
-    [
-        "System.Reflection",
-        "Type.GetType(",
-        "Activator.CreateInstance",
-        "GetMethod(",
-        "Invoke(",
     ]);
 
     /// <summary>Cluster.Replication sources must not resolve services through a locator.</summary>

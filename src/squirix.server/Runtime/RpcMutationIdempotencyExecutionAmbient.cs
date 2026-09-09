@@ -30,16 +30,6 @@ internal static class RpcMutationIdempotencyExecutionAmbient
         Current.Value = Current.Value.Parent;
     }
 
-    /// <summary>Marks the active scope as having stamped at least one durable mutation frame.</summary>
-    internal static void NotifyMutationStamped()
-    {
-        var frame = Current.Value;
-        if (frame == null)
-            return;
-
-        frame.MutationStamped = true;
-    }
-
     /// <summary>Determines whether the given scope stamped any mutation while it was active.</summary>
     /// <param name="scope">The scope to inspect.</param>
     /// <returns><see langword="true" /> when the scope stamped at least one mutation frame.</returns>
@@ -54,6 +44,9 @@ internal static class RpcMutationIdempotencyExecutionAmbient
         return false;
     }
 
+    /// <summary>Marks the active scope as having stamped at least one durable mutation frame.</summary>
+    internal static void NotifyMutationStamped() => Current.Value?.MarkStamped();
+
     private sealed class ScopeFrame
     {
         internal ScopeFrame(object scope, string operationId, ScopeFrame? parent)
@@ -63,12 +56,14 @@ internal static class RpcMutationIdempotencyExecutionAmbient
             Parent = parent;
         }
 
-        internal bool MutationStamped { get; set; }
+        internal bool MutationStamped { get; private set; }
 
         internal string OperationId { get; }
 
         internal ScopeFrame? Parent { get; }
 
         internal object Scope { get; }
+
+        internal void MarkStamped() => MutationStamped = true;
     }
 }

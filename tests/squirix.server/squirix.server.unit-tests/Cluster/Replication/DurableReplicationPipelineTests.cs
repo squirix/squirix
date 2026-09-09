@@ -411,7 +411,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         if (hooks == null)
         {
             var noOpExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-            _ = noOpExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+            _ = noOpExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                                .ReturnValue(ValueTask.CompletedTask);
             hooks = noOpExpectations.Instance();
         }
 
@@ -423,8 +424,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1, 2, 3 }),
         1,
         logIndex,
-        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42),
-        0);
+        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
 
     private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm) => new(
         nextIndex,

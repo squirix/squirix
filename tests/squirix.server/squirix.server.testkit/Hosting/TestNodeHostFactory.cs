@@ -151,7 +151,6 @@ public static class TestNodeHostFactory
             SecurityOptions = options?.Security?.ToServerOptions(),
             MtlsOptions = mtlsOptions,
             MtlsMaterial = mtlsMaterial,
-            FoundationOnly = options?.FoundationOnly ?? false,
             TimeProvider = options?.TimeProvider,
         };
         var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);

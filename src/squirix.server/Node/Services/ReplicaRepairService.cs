@@ -20,18 +20,14 @@ internal sealed class ReplicaRepairService : BackgroundService
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
 
-        Capacity = capacity;
-        var boundedChannelOptions = new BoundedChannelOptions(capacity)
+        var options = new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
         };
-        _queue = Channel.CreateBounded<RepairWork>(boundedChannelOptions);
+        _queue = Channel.CreateBounded<RepairWork>(options);
     }
-
-    /// <summary>Gets the fixed queue capacity.</summary>
-    internal int Capacity { get; }
 
     /// <summary>Gets queued and active work count.</summary>
     internal int PendingCount => Volatile.Read(ref _pendingCount);
@@ -113,7 +109,7 @@ internal sealed class ReplicaRepairService : BackgroundService
             work.Cancel(linked.Token);
         }
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException or ObjectDisposedException or IOException or InvalidDataException
-                                               or OperationCanceledException)
+                                              or OperationCanceledException)
         {
             // Repair failures are delivered to the caller while the loop survives: storage, timeout,
             // disposal, and cancellation faults are all expected from follower repair work. An

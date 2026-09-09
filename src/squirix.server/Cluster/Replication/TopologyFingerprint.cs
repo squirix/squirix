@@ -63,10 +63,10 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
 
         // Hash the closed policy vector first so format / capacity changes invalidate fingerprints.
         using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendInt32(hasher, inputs.CanonicalFormatVersion);
+        AppendInt32(hasher, inputs.Policy.CanonicalFormatVersion);
         AppendString(hasher, inputs.ClusterId);
         AppendInt32(hasher, inputs.ReplicaCount);
-        AppendInt32(hasher, inputs.MaxReplicaCount);
+        AppendInt32(hasher, inputs.Policy.MaxReplicaCount);
         AppendInt32(hasher, inputs.VirtualNodes);
         AppendUInt64(hasher, inputs.ConfigurationGeneration);
         AppendString(hasher, inputs.MinClusterPackageVersion);
@@ -82,15 +82,15 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         }
 
         // Finish with algorithm / durability / RF>1 policy constants that close the M8 contract.
-        AppendInt32(hasher, inputs.HashAlgorithmVersion);
-        AppendInt32(hasher, inputs.PlacementAlgorithmVersion);
-        AppendInt32(hasher, inputs.ProtocolAlgorithmVersion);
-        AppendInt32(hasher, inputs.DurabilitySchemaVersion);
+        AppendInt32(hasher, inputs.Policy.HashAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.PlacementAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.ProtocolAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.DurabilitySchemaVersion);
         AppendString(hasher, inputs.QuorumAckMode);
-        AppendInt32(hasher, inputs.RfIdempotencyMaxInFlightRecords);
-        AppendInt64(hasher, inputs.RfIdempotencyRetentionTicks);
-        AppendInt32(hasher, inputs.ClosedMessageMaxBytes);
-        AppendInt32(hasher, inputs.ClosedSnapshotMaxBytes);
+        AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
+        AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
+        AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
 
         Span<byte> digestSpan = stackalloc byte[32];
         if (!hasher.TryGetHashAndReset(digestSpan, out var written) || written != 32)
@@ -128,6 +128,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
                 ReplicaCount = topology.ReplicaCount,
                 VirtualNodes = topology.VirtualNodes,
                 Peers = fingerprintPeers,
+                Policy = FingerprintPolicy.Default,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
             });

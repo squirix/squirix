@@ -153,7 +153,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Gets the published snapshot file path, or <see langword="null" /> when none is published.</summary>
     internal string? SnapshotPath => _journal.Snapshot.SnapshotExists ? _journal.Snapshot.SnapshotPath : null;
 
-    /// <summary>Gets a value indicating whether the log has been disposed.</summary>
+    /// <summary>Gets a value indicating whether the log has been disposed of.</summary>
     private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
     /// <inheritdoc />
@@ -194,7 +194,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
 
-        // Payload ownership is materialized lazily: the caller is blocked on this append, so validation
+        // Payload ownership is materialized lazily: the caller is blocked on this appending, so validation
         // reads its buffer directly and only entries that will actually hit disk are copied (inside
         // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -270,106 +270,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return _journal.CollectUncommittedTail(_meta.CommitIndex);
-    }
-
-    /// <inheritdoc />
     Task<GroupSnapshotInstallResult> IFollowerLog.InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken) =>
         InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken);
-
-    /// <inheritdoc />
-    public async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.NotReady, _lastLogIndex, 0, Readiness == FollowerLogReadiness.Failed);
-
-        // A stale leader term authorizes nothing: unlike the append path, repair never advances the
-        // current term, it only refuses instructions from deposed leaders.
-        if (leaderTerm < _meta.CurrentTerm)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.StaleTerm, _lastLogIndex, 0, false);
-
-        // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it would cross the
-        // durable commit boundary. No leader response may destructively revise a committed prefix.
-        // A zero index is caller-bug input rather than storage corruption, so it is refused without quarantine.
-        if (fromIndex == 0UL)
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
-
-        if (fromIndex <= _meta.CommitIndex)
-        {
-            Readiness = FollowerLogReadiness.Failed;
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
-        }
-
-        // Previous-log consistency, mirroring the append path: a stale leader must not truncate a tail
-        // written by the current term. Verified before the no-op fast path so a wrong term fails here
-        // instead of costing another repair round-trip through the append consistency check.
-        // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
-        // quarantine; a term conflict at or below the commit boundary fails readiness.
-        if (!FollowerLogAppend.PrevTermMatches(_journal, fromIndex - 1UL, prevLogTerm))
-        {
-            if (fromIndex - 1UL > _meta.CommitIndex)
-                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
-            Readiness = FollowerLogReadiness.Failed;
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, true);
-        }
-
-        if (fromIndex == _lastLogIndex + 1UL)
-            return new FollowerLogReconcileResult(true, string.Empty, _lastLogIndex, 0, false);
-
-        if (fromIndex > _lastLogIndex || !_journal.EntryOffsets.ContainsKey(fromIndex))
-            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, _lastLogIndex, 0, false);
-
-        try
-        {
-            var released = await FollowerLogDurable.TruncateFromAsync(_journal, this, fromIndex, cancellationToken).ConfigureAwait(false);
-            return new FollowerLogReconcileResult(true, string.Empty, _lastLogIndex, released, false);
-        }
-        catch
-        {
-            // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
-            // repair path additionally quarantines storage because the caller cannot prove which durable boundary
-            // survived an I/O fault until restart recovery scans the file again.
-            Readiness = FollowerLogReadiness.Failed;
-            throw;
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task<FollowerLogVoteResult> TryRequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
-
-        // Terms start at one: a zero-term request can never win and must not persist a vote.
-        if (request.Term == 0UL)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
-
-        return await FollowerLogElection.TryRequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<FollowerLogVoteResult> TryCheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
-
-        // Terms start at one: a zero-term probe authorizes nothing.
-        if (request.Term == 0UL)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
-
-        return FollowerLogElection.CheckPreVote(_journal, this, request);
-    }
 
     /// <summary>
     /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
@@ -426,9 +328,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return snapshot;
     }
 
+    internal async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _journal.CollectUncommittedTail(_meta.CommitIndex);
+    }
+
     /// <summary>Installs a validated snapshot, resetting the journal to start at its included index plus one.</summary>
     /// <param name="snapshot">The snapshot to install.</param>
-    /// <param name="leaderTerm">Leader term authorizing the install; stale terms are refused.</param>
+    /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The installation outcome.</returns>
     internal async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
@@ -438,8 +346,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
 
-        // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale
-        // appends. A higher term is persisted durably before publication, mirroring the append path.
+        // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
+        // A higher term is persisted durably before publication, mirroring the appending path.
         if (leaderTerm < _meta.CurrentTerm)
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.StaleTerm);
 
@@ -463,6 +371,94 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         await OpenCoreAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.NotReady, 0, Readiness == FollowerLogReadiness.Failed);
+
+        // A stale leader term authorizes nothing: unlike the appending path, repair never advances the
+        // current term, it only refuses instructions from deposed leaders.
+        if (leaderTerm < _meta.CurrentTerm)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.StaleTerm, 0, false);
+
+        // A repair instruction is lifecycle-owned and trusted, but it still fails closed if it crosses the
+        // durable commit boundary. No leader response may destructively revise a committed prefix.
+        // A zero index is caller-bug input rather than storage corruption, so it is refused without quarantine.
+        if (fromIndex == 0UL)
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+
+        if (fromIndex <= _meta.CommitIndex)
+        {
+            Readiness = FollowerLogReadiness.Failed;
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
+        }
+
+        // Previous-log consistency, mirroring the appending path: a stale leader must not truncate a tail
+        // written by the current term. Verified before the no-op fast path, so a wrong term fails here
+        // instead of costing another repair round-trip through the append consistency check.
+        // An unverifiable predecessor (compacted below the snapshot baseline) is refused without
+        // quarantine; a term conflict at or below the commit boundary fails readiness.
+        if (!FollowerLogAppend.PrevTermMatches(_journal, fromIndex - 1UL, prevLogTerm))
+        {
+            if (fromIndex - 1UL > _meta.CommitIndex)
+                return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+            Readiness = FollowerLogReadiness.Failed;
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, true);
+        }
+
+        if (fromIndex == _lastLogIndex + 1UL)
+            return new FollowerLogReconcileResult(true, string.Empty, 0, false);
+
+        if (fromIndex > _lastLogIndex || !_journal.EntryOffsets.ContainsKey(fromIndex))
+            return new FollowerLogReconcileResult(false, FollowerLogRefusal.LogMismatch, 0, false);
+
+        try
+        {
+            var released = await FollowerLogDurable.TruncateFromAsync(_journal, this, fromIndex, cancellationToken).ConfigureAwait(false);
+            return new FollowerLogReconcileResult(true, string.Empty, released, false);
+        }
+        catch
+        {
+            // The low-level operation reconciles its indexes with any possible SetLength outcome. The explicit
+            // repair path additionally quarantines storage because the caller cannot prove which durable boundary
+            // survived an I/O fault until restart recovery scans the file again.
+            Readiness = FollowerLogReadiness.Failed;
+            throw;
+        }
+    }
+
+    internal async Task<FollowerLogVoteResult> TryCheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
+
+        // Terms start at one: a zero-term probe authorizes nothing.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
+
+        return FollowerLogElection.CheckPreVote(_journal, this, request);
+    }
+
+    internal async Task<FollowerLogVoteResult> TryRequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
+
+        // Terms start at one: a zero-term request can never win and must not persist a vote.
+        if (request.Term == 0UL)
+            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
+
+        return await FollowerLogElection.TryRequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task OpenCoreAsync(CancellationToken cancellationToken)
@@ -490,8 +486,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return;
 
             case false when !logExists:
-                // A published snapshot is durable state even when metadata and the log are absent. Seed recovery with
-                // empty metadata so RestoreSnapshotBaseAsync validates the snapshot instead of creating zeroed ready state.
+                // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
+                // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
                 _meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
                 await FollowerLogRecovery.RecoverLogFileAsync(_journal, this, cancellationToken).ConfigureAwait(false);
                 _durability.Open(_journal.Paths.LogPath, _logLength);
@@ -519,87 +515,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await FollowerLogRecovery.RecoverLogFileAsync(_journal, this, cancellationToken).ConfigureAwait(false);
         _durability.Open(_journal.Paths.LogPath, _logLength);
         Readiness = FollowerLogReadiness.Ready;
-    }
-
-    /// <summary>Election voting operations for a follower log.</summary>
-    /// <remarks>
-    /// The caller holds the log gate; term and vote transitions persist durably through the owner before
-    /// any granted result is reported, so a restart never observes a phantom term or a second vote.
-    /// </remarks>
-    private static class FollowerLogElection
-    {
-        internal static async Task<FollowerLogVoteResult> TryRequestVoteAsync(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            ElectionVoteRequest request,
-            CancellationToken cancellationToken)
-        {
-            // A stale candidate term authorizes nothing and never touches durable state.
-            if (request.Term < owner.Meta.CurrentTerm)
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
-
-            // A higher term is persisted durably, clearing any previous vote, before the grant decision:
-            // a crash between the step and the grant must still recover the higher term without a phantom vote.
-            if (request.Term > owner.Meta.CurrentTerm)
-            {
-                var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
-                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
-                owner.SetMeta(stepped);
-            }
-
-            // At most one vote per term: only the recorded candidate may be re-granted.
-            if (owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
-
-            // A candidate whose log trails the voter log cannot win the election.
-            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
-
-            // A replayed grant for the recorded candidate needs no durable rewrite: the vote was
-            // persisted before the first grant was reported, so the file already records it.
-            if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
-                return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
-
-            // The granted vote is persisted before reporting success so a restart never grants a second vote.
-            var granted = owner.Meta with { VotedFor = request.CandidateId };
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(granted);
-            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
-        }
-
-        internal static FollowerLogVoteResult CheckPreVote(
-            FollowerLogJournal journal,
-            IFollowerLogContext owner,
-            ElectionVoteRequest request)
-        {
-            // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate
-            // its durable term, and the reported term always stays the locally persisted one.
-            if (request.Term < owner.Meta.CurrentTerm)
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
-
-            if (request.Term == owner.Meta.CurrentTerm && owner.Meta.VotedFor.Length != 0 &&
-                !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
-
-            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
-
-            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
-        }
-
-        private static ulong CurrentLastLogTerm(FollowerLogJournal journal, IFollowerLogContext owner)
-        {
-            if (owner.LastLogIndex == 0UL)
-                return 0UL;
-
-            if (journal.TryGetEntryOffset(owner.LastLogIndex, out var location))
-                return location.Term;
-
-            if (journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex)
-                return journal.SnapshotBaseline.LastIncludedTerm;
-
-            return 0UL;
-        }
     }
 
     /// <summary>Append-protocol operations for a follower log.</summary>
@@ -660,7 +575,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (leaderTerm < owner.Meta.CurrentTerm)
                 return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CommitIndex);
 
-            // A higher leader term is adopted durably, and any previous vote is cleared, before any commit-index
+            // A higher leader term is adopted durably, and any previous vote is cleared before any commit-index
             // evaluation or return path. Without this, a delayed commit request from a higher-term leader would be
             // answered against an out-of-date in-memory term and the higher term would never be persisted.
             if (leaderTerm <= owner.Meta.CurrentTerm)
@@ -708,8 +623,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (error != null)
                 return error.Value;
 
-            // Materialize payload ownership for the append set synchronously, before the first await: once
-            // the durable write is scheduled it must never reference the caller's buffer, and a cancellation
+            // Materialize payload ownership for the appending set synchronously, before the first awaits: once
+            // the durable writing is scheduled, it must never reference the caller's buffer, and a cancellation
             // during truncation aborts the batch without writing any frame.
             var ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
 
@@ -721,6 +636,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, ownedToAppend != null || truncateAtIndex != null, cancellationToken)
                .ConfigureAwait(false);
+        }
+
+        internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex)
+        {
+            if (candidateLastTerm != localLastTerm)
+                return candidateLastTerm > localLastTerm;
+
+            return candidateLastIndex >= localLastIndex;
         }
 
         internal static async Task PersistMetaOrFailReadinessAsync(
@@ -743,14 +666,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 owner.SetReadiness(FollowerLogReadiness.Failed);
                 throw;
             }
-        }
-
-        internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex)
-        {
-            if (candidateLastTerm != localLastTerm)
-                return candidateLastTerm > localLastTerm;
-
-            return candidateLastIndex >= localLastIndex;
         }
 
         internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
@@ -1273,6 +1188,83 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
     }
 
+    /// <summary>Election voting operations for a follower log.</summary>
+    /// <remarks>
+    /// The caller holds the log gate; term and vote transitions persist durably through the owner before
+    /// any granted result is reported, so a restart never observes a phantom term or a second vote.
+    /// </remarks>
+    private static class FollowerLogElection
+    {
+        internal static FollowerLogVoteResult CheckPreVote(FollowerLogJournal journal, IFollowerLogContext owner, ElectionVoteRequest request)
+        {
+            // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate
+            // its durable term, and the reported term always stays the locally persisted one.
+            if (request.Term < owner.Meta.CurrentTerm)
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
+
+            if (request.Term == owner.Meta.CurrentTerm && owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
+
+            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
+
+            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+        }
+
+        internal static async Task<FollowerLogVoteResult> TryRequestVoteAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            ElectionVoteRequest request,
+            CancellationToken cancellationToken)
+        {
+            // A stale candidate term authorizes nothing and never touches durable state.
+            if (request.Term < owner.Meta.CurrentTerm)
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
+
+            // A higher term is persisted durably, clearing any previous vote before the grant decision:
+            // a crash between the step and the grant must still recover the higher term without a phantom vote.
+            if (request.Term > owner.Meta.CurrentTerm)
+            {
+                var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
+                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
+                owner.SetMeta(stepped);
+            }
+
+            // At most one vote per term: only the recorded candidate may be re-granted.
+            if (owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
+
+            // A candidate whose log trails the voter log cannot win the election.
+            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
+                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
+
+            // A replayed grant for the recorded candidate needs no durable rewrite: the vote was
+            // persisted before the first grant was reported, so the file already records it.
+            if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+                return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+
+            // The granted vote is persisted before reporting success, so a restart never grants a second vote.
+            var granted = owner.Meta with { VotedFor = request.CandidateId };
+            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(granted);
+            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+        }
+
+        private static ulong CurrentLastLogTerm(FollowerLogJournal journal, IFollowerLogContext owner)
+        {
+            if (owner.LastLogIndex == 0UL)
+                return 0UL;
+
+            if (journal.TryGetEntryOffset(owner.LastLogIndex, out var location))
+                return location.Term;
+
+            if (journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex)
+                return journal.SnapshotBaseline.LastIncludedTerm;
+
+            return 0UL;
+        }
+    }
+
     /// <summary>Startup recovery: rebuilds the in-memory log from the durable frame file.</summary>
     private static class FollowerLogRecovery
     {
@@ -1372,11 +1364,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 EnsureCommittedPrefixCovered(owner, snapshotBase);
             }
         }
-
-        /// <summary>Releases the applied entry payloads from memory, retaining their durable frame offsets.</summary>
-        /// <param name="journal">The journal to release from.</param>
-        /// <param name="owner">The log being recovered.</param>
-        private static void PruneAppliedEntries(FollowerLogJournal journal, IFollowerLogContext owner) => journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
 
         /// <summary>Fails recovery for a gap within the committed region.</summary>
         /// <param name="owner">The log being recovered.</param>
@@ -1488,6 +1475,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 ArrayPool<byte>.Shared.ReturnCleared(frameHeader);
             }
         }
+
+        /// <summary>Releases the applied entry payloads from memory, retaining their durable frame offsets.</summary>
+        /// <param name="journal">The journal to release from.</param>
+        /// <param name="owner">The log being recovered.</param>
+        private static void PruneAppliedEntries(FollowerLogJournal journal, IFollowerLogContext owner) => journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
 
         /// <summary>Reads and verifies the log file header, failing recovery when it is corrupt.</summary>
         /// <param name="handle">The open log file handle.</param>
@@ -2020,7 +2012,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var tail = CollectInstallTail(journal, snapshot);
             var retainedLogIndexes = CollectRetainedLogIndexes(tail);
 
-            // The capacity refusal must happen before any durable write: publishing the snapshot and persisting the
+            // The capacity refusal must happen before any durable writing: publishing the snapshot and persisting the
             // installation candidate ahead of a refused restore would leave a published snapshot and advanced watermarks
             // the old journal cannot support, failing recovery on every restart. Fail readiness like compaction's
             // pre-rewrite refusal path does.
@@ -2051,7 +2043,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 if (!owner.Idempotency.TryRestoreFromSnapshot(snapshot.CommittedOutcomes, retainedLogIndexes))
                 {
-                    // The snapshot and metadata are already durable and the log rewrite is skipped, so the
+                    // The snapshot and metadata are already durable, and the log rewrite is skipped, so the
                     // journal no longer matches the persisted metadata. Never surface this state as Ready.
                     owner.SetReadiness(FollowerLogReadiness.Failed);
                     return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
@@ -2087,7 +2079,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// conflicts with the durable metadata; an empty durable fingerprint adopts the snapshot's fingerprint and never
         /// conflicts. Returns <see langword="null" /> when the snapshot is compatible.
         /// </summary>
-        /// <param name="owner">The log the snapshot targets.</param>
+        /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot to validate.</param>
         /// <returns>The <see cref="FollowerLogRefusal.TopologyMismatch" /> marker, or <see langword="null" />.</returns>
         internal static string? SnapshotTopologyMismatch(IFollowerLogContext owner, GroupSnapshot snapshot)
@@ -2148,7 +2140,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         /// <summary>Builds the metadata candidate that adopts the snapshot's authoritative prefix and topology.</summary>
-        /// <param name="owner">The log the snapshot targets.</param>
+        /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot being installed.</param>
         /// <param name="fingerprint">The topology fingerprint to record.</param>
         /// <param name="installedLastIndex">The last index the rewritten durable log will support: the retained tail's last entry, or the snapshot boundary when no tail is retained.</param>
@@ -2162,17 +2154,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 CurrentTerm = Math.Max(owner.Meta.CurrentTerm, snapshot.LastIncludedTerm),
                 VotedFor = snapshot.LastIncludedTerm > owner.Meta.CurrentTerm ? string.Empty : owner.Meta.VotedFor,
 
-                // The persisted last index must describe the journal the installation leaves behind. When the boundary
-                // term diverges the tail is empty and the rewrite produces a header-only log ending at the snapshot
+                // The persisting last index must describe the journal the installation leaves behind. When the boundary
+                // term diverges, the tail is empty, and the rewrite produces a header-only log ending at the snapshot
                 // boundary; keeping the higher pre-install value here would leave recovery reading a metadata index no
                 // durable frame supports.
                 LastLogIndex = installedLastIndex,
                 CommitIndex = Math.Max(owner.Meta.CommitIndex, Math.Min(snapshot.CommitIndex, snapshot.LastIncludedIndex)),
 
-                // The applied watermark follows the same rule as the recovery path. A snapshot install rewrites the
+                // The applied watermark follows the same rule as the recovery path. A snapshot installation rewrites the
                 // durable log to a header plus the retained tail above the boundary, so frames at or below the boundary
                 // leave the durable log and survive only as the snapshot's applied state. When the pre-installation durable
-                // log did not reach the boundary (included > LastLogIndex), no offset can exist at the boundary and the
+                // log does not reach the boundary (included > LastLogIndex), no offset can exist at the boundary and the
                 // collected tail is empty, so the rewritten journal ends at the boundary (installedLastIndex ==
                 // included): the watermark may adopt the boundary without ever exceeding the durable journal. Otherwise,
                 // it stays, letting GetCommittedEntriesAsync re-supply the retained frames through the durable tail
@@ -2277,7 +2269,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         /// <summary>Returns the refusal when the snapshot is not eligible for installation; otherwise <see langword="null" />.</summary>
-        /// <param name="owner">The log the snapshot targets.</param>
+        /// <param name="owner">They log the snapshot targets.</param>
         /// <param name="snapshot">The snapshot to validate.</param>
         /// <returns>The refusal marker, or <see langword="null" /> when the snapshot is eligible.</returns>
         private static string? ValidateInstallEligibility(IFollowerLogContext owner, GroupSnapshot snapshot)
@@ -2291,7 +2283,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (snapshot.LastIncludedIndex == 0UL)
                 return FollowerLogRefusal.NotReady;
 
-            // Terms start at 1, and a zero baseline term collides with the "unverifiable term" sentinel used by
+            // Terms start at 1, and a zero-baseline term collides with the "unverifiable term" sentinel used by
             // TermAtApplied and would make DivergentBoundary discard the whole durable suffix on the next recovery.
             if (snapshot.LastIncludedTerm == 0UL)
                 return FollowerLogRefusal.NotReady;
@@ -2316,7 +2308,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // A snapshot that carries an unresolved outcome is malformed: publishing it would write invalid idempotency
             // state to disk and poison the next recovery, which would then fail readiness. Refuse before any durable
-            // write so the in-memory snapshot is rejected without a partial installation.
+            // writing, so the in-memory snapshot is rejected without a partial installation.
             if (SnapshotHasUnresolvedOutcome(snapshot.CommittedOutcomes))
                 return FollowerLogRefusal.NotReady;
 

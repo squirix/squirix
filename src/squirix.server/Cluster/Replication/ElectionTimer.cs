@@ -12,12 +12,15 @@ namespace Squirix.Server.Cluster.Replication;
 /// heartbeat and re-arm it on every valid heartbeat via <see cref="Reset" />.
 /// </remarks>
 [ThreadSafe]
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only activation seam until failover activation wires election timers in a follow-up milestone.")]
+[SuppressMessage(
+    "Usage",
+    "MA0182:Internal type is apparently never used",
+    Justification = "Test-only activation seam until failover activation wires election timers in a follow-up milestone.")]
 internal sealed class ElectionTimer : IDisposable
 {
     private readonly Lock _sync = new();
-    private readonly TimeSpan _timeout;
     private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _timeout;
 
     private int _disposed;
     private Action? _elapsed;
@@ -64,6 +67,15 @@ internal sealed class ElectionTimer : IDisposable
         return new ElectionTimer((options ?? new ElectionTimerOptions()).ElectionTimeout, timeProvider);
     }
 
+    /// <summary>Re-arms the one-shot timeout; a no-op before <see cref="Start" />.</summary>
+    internal void Reset()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+        lock (_sync)
+            _ = _timer?.Change(_timeout, Timeout.InfiniteTimeSpan);
+    }
+
     /// <summary>Arms the one-shot timeout invoking <paramref name="elapsed" /> once on expiry.</summary>
     /// <param name="elapsed">The callback invoked once when the timeout elapses.</param>
     internal void Start(Action elapsed)
@@ -80,15 +92,6 @@ internal sealed class ElectionTimer : IDisposable
         }
     }
 
-    /// <summary>Re-arms the one-shot timeout; a no-op before <see cref="Start" />.</summary>
-    internal void Reset()
-    {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-
-        lock (_sync)
-            _ = _timer?.Change(_timeout, Timeout.InfiniteTimeSpan);
-    }
-
     /// <summary>Invokes the armed callback outside the gate so re-arming from the callback cannot deadlock.</summary>
     /// <param name="state">Unused timer state.</param>
     private void OnTick(object? state)
@@ -97,8 +100,6 @@ internal sealed class ElectionTimer : IDisposable
         lock (_sync)
             elapsed = _elapsed;
 
-        // Direct call on purpose: the null-conditional delegate-call syntax would trip ReplicationUsesNoReflection in Cluster/Replication.
-        if (elapsed is not null)
-            elapsed();
+        elapsed?.Invoke();
     }
 }

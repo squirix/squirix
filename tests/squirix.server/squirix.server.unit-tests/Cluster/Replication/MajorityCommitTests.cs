@@ -84,6 +84,5 @@ public sealed class MajorityCommitTests
         new ReplicaOperationIdentity("group-a", "client", "0123456789abcdef0123456789abcdef", fingerprint),
         1,
         index,
-        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42),
-        0);
+        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
 }

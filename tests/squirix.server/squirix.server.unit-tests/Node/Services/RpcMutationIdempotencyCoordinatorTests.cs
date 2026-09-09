@@ -242,12 +242,14 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     {
         private readonly AsyncManualResetEvent _gate = new();
 
-        private EventHandler? _onAppended;
+        // Subscriptions are accepted and dropped: the paths under test never subscribe,
+        // so there is no backing field to raise from.
 
+        /// <inheritdoc />
         public event EventHandler? OnAppended
         {
-            add => _onAppended += value;
-            remove => _onAppended -= value;
+            add => _ = value;
+            remove => _ = value;
         }
 
         public long AppendedBytes => 0;

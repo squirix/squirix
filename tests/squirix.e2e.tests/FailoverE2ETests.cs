@@ -22,7 +22,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
             nameof(ExpiredEntryDoesNotReappearAfterFailover),
-            new TwoNodeStartOptions { ReplicaCount = 3, TimeProvider = clock },
+            new MultiNodeStartOptions { ReplicaCount = 3, TimeProvider = clock },
             true,
             DefaultCancellationToken);
         var uriB = cluster.GetUri("nodeB");
@@ -112,7 +112,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
     {
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
             nameof(MajorityRecoversWithinFiveSeconds),
-            new TwoNodeStartOptions { ReplicaCount = 3 },
+            new MultiNodeStartOptions { ReplicaCount = 3 },
             true,
             DefaultCancellationToken);
         var uriB = cluster.GetUri("nodeB");

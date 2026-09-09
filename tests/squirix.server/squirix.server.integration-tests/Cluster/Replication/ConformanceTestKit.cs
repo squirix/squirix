@@ -43,7 +43,7 @@ internal static class ConformanceTestKit
     internal static PreparedReplicaMutation CreateMutation(ulong index)
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", index.ToString("x32", CultureInfo.InvariantCulture), new[] { Convert.ToByte(index) });
-        return new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)), 0);
+        return new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)));
     }
 
     internal sealed record TracePoint(ulong Term, ulong LogIndex, ulong CommitIndex, ulong AppliedIndex);
