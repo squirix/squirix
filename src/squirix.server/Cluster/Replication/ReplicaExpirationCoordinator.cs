@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -10,12 +11,11 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed class ReplicaExpirationCoordinator : IAsyncDisposable
 {
     private readonly ReplicaCommitCoordinator _commit;
-    private readonly TaskCompletionSource<bool> _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly QuiescenceGate _drain = new();
     private readonly ReplicaMutationGate _keyGate;
     private readonly bool _leaderAuthority;
     private readonly Lock _lifetimeSync = new();
     private bool _accepting = true;
-    private int _activeOperations;
     private Task? _disposeTask;
 
     internal ReplicaExpirationCoordinator(ReplicaCommitCoordinator commit, bool leaderAuthority, int maxInFlight = 64)
@@ -76,11 +76,7 @@ internal sealed class ReplicaExpirationCoordinator : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
-        Task drained;
-        lock (_lifetimeSync)
-            drained = _activeOperations == 0 ? Task.CompletedTask : _drained.Task;
-
-        await drained.ConfigureAwait(false);
+        await _drain.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         _keyGate.Dispose();
     }
 
@@ -89,23 +85,12 @@ internal sealed class ReplicaExpirationCoordinator : IAsyncDisposable
         lock (_lifetimeSync)
         {
             ObjectDisposedException.ThrowIf(!_accepting, this);
-            _activeOperations++;
+            _drain.Enter();
             return new OperationLease(this);
         }
     }
 
-    private void ExitOperation()
-    {
-        bool signal;
-        lock (_lifetimeSync)
-        {
-            _activeOperations--;
-            signal = !_accepting && _activeOperations == 0;
-        }
-
-        if (signal)
-            _ = _drained.TrySetResult(true);
-    }
+    private void ExitOperation() => _drain.Exit();
 
     [ThreadSafe]
     private sealed class OperationLease : IDisposable

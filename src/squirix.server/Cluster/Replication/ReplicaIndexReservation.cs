@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -9,10 +10,12 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed class ReplicaIndexReservation : IDisposable
 {
     private ReplicaLogIndexSequencer? _owner;
+    private AsyncLockHolder _holder;
 
-    internal ReplicaIndexReservation(ReplicaLogIndexSequencer owner, ulong index)
+    internal ReplicaIndexReservation(ReplicaLogIndexSequencer owner, AsyncLockHolder holder, ulong index)
     {
         _owner = owner;
+        _holder = holder;
         Index = index;
     }
 
@@ -25,6 +28,16 @@ internal sealed class ReplicaIndexReservation : IDisposable
     private void Finish(bool appended)
     {
         var owner = Interlocked.Exchange(ref _owner, null);
-        owner?.Complete(Index, appended);
+        if (owner == null)
+            return;
+
+        try
+        {
+            owner.Complete(Index, appended);
+        }
+        finally
+        {
+            _holder.Dispose();
+        }
     }
 }
