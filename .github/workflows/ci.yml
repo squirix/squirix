@@ -1172,7 +1172,7 @@ jobs:
     # Secret: PVS_STUDIO_CREDENTIALS = "<license-name> <license-key>"
     # Skipped on fork PRs (secrets unavailable). No SARIF upload.
     # Uses the pre-baked analysis container (ghcr.io/squirix/braid-pvs-studio) that
-    # already carries the .NET 10.0.400 SDK plus pvs-studio/pvs-studio-dotnet, so
+    # already carries the .NET 10.0.401 SDK plus pvs-studio/pvs-studio-dotnet, so
     # CI no longer installs the analyzer via apt on every run. The analyzer
     # license is NOT baked in; it is activated at runtime via credentials.
     pvs-studio:
@@ -1183,7 +1183,7 @@ jobs:
             # CI always runs the reviewed build. Because the image is released via
             # :latest re-tagging (weekly rebuild in the braid repo), bump this digest
             # to adopt a newer analyzer build.
-            image: ghcr.io/squirix/braid-pvs-studio@sha256:88ba0f1a4cb9bbf9d9de4e072a888527a3fcd9aedb7fae99cd318736f0e8cafb
+            image: ghcr.io/squirix/braid-pvs-studio@sha256:881efc3a088ed9ae49409941025cfa94554c41a216e50961988471ea41b9d646
             credentials:
                 username: ${{ github.actor }}
                 password: ${{ secrets.GITHUB_TOKEN }}
