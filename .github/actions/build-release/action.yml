@@ -3,7 +3,7 @@ description: Restore and Release-build the solution; upload bin/obj artifacts fo
 
 inputs:
   artifact-os:
-    description: Artifact name OS segment (ubuntu-latest, windows-latest, or macos-latest).
+    description: Artifact name OS segment (ubuntu-latest, ubuntu-arm, windows-latest, or macos-latest).
     required: true
   framework:
     description: Target framework moniker.
