@@ -7,15 +7,15 @@ namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Optional startup settings for multi-node E2E clusters.</summary>
 [Immutable]
-internal sealed class TwoNodeStartOptions
+internal sealed class MultiNodeStartOptions
 {
-    /// <summary>Gets the inter-node mTLS profile for node A.</summary>
+    /// <summary>Gets the internode mTLS profile for node A.</summary>
     internal TestNodeProfile NodeAProfile { private get; init; } = TestNodeProfile.Normal;
 
-    /// <summary>Gets the inter-node mTLS profile for node B.</summary>
+    /// <summary>Gets the internode mTLS profile for node B.</summary>
     internal TestNodeProfile NodeBProfile { private get; init; } = TestNodeProfile.Normal;
 
-    /// <summary>Gets the inter-node mTLS profile for node C.</summary>
+    /// <summary>Gets the internode mTLS profile for node C.</summary>
     internal TestNodeProfile NodeCProfile { private get; init; } = TestNodeProfile.Normal;
 
     /// <summary>Gets the replica factor applied to every node; 1 preserves single-copy routing.</summary>

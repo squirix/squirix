@@ -150,14 +150,14 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             // ValueTask wraps the foreign follower task into one owned by this method (RemoteCache idiom).
             var acknowledgement = await new ValueTask<ReplicaDurableAcknowledgement>(followerTask).ConfigureAwait(false);
-            return new FollowerCompletion(replicaIndex, acknowledgement, null);
+            return new FollowerCompletion(replicaIndex, acknowledgement);
         }
 
-        if (followerTask.IsCanceled)
-            return new FollowerCompletion(replicaIndex, null, new OperationCanceledException());
-
-        var aggregate = followerTask.Exception;
-        return new FollowerCompletion(replicaIndex, null, aggregate?.InnerException ?? aggregate);
+        // Faults and cancellations are intentionally indistinguishable here: both deweight the replica
+        // to lagging without failing the majority. Touching Exception marks the fault observed, so a
+        // faulted task never surfaces as unobserved.
+        _ = followerTask.Exception;
+        return new FollowerCompletion(replicaIndex, null);
     }
 
     /// <summary>Takes the next completed task, removing it from the pending list.</summary>
@@ -494,7 +494,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     }
 
     [Immutable]
-    private readonly record struct FollowerCompletion(int ReplicaIndex, ReplicaDurableAcknowledgement? Acknowledgement, Exception? Error);
+    private readonly record struct FollowerCompletion(int ReplicaIndex, ReplicaDurableAcknowledgement? Acknowledgement);
 
     [Immutable]
     private readonly record struct OperationKey(string Scope, string OperationId);

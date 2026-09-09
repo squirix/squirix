@@ -16,7 +16,7 @@ public sealed class ReplicatedExpirationE2ETests : EndToEndTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var cluster = await HostedCluster.StartTwoNodeAsync(
-            new TwoNodeStartOptions { ReplicaCount = 2, TimeProvider = clock },
+            new MultiNodeStartOptions { ReplicaCount = 2, TimeProvider = clock },
             nameof(ExpiredEntryDoesNotReappear),
             true,
             DefaultCancellationToken);

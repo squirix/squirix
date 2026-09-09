@@ -20,6 +20,7 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 1,
             VirtualNodes = 128,
             Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
+            Policy = FingerprintPolicy.Default,
             MinClusterPackageVersion = "0.1.0-preview.8",
             QuorumAckMode = "majority-no-lease",
         };
@@ -73,6 +74,7 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 2,
             VirtualNodes = 128,
             Peers = peers,
+            Policy = FingerprintPolicy.Default,
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
             QuorumAckMode = PolicyOptions.QuorumAckMode,
         };
@@ -93,9 +95,9 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 2,
             VirtualNodes = 128,
             Peers = peers,
+            Policy = FingerprintPolicy.Default with { RfIdempotencyMaxInFlightRecords = PolicyOptions.RfIdempotencyMaxInFlightRecords + 1 },
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
             QuorumAckMode = PolicyOptions.QuorumAckMode,
-            RfIdempotencyMaxInFlightRecords = PolicyOptions.RfIdempotencyMaxInFlightRecords + 1,
         };
         var right = TopologyFingerprint.Compute(fingerprintInputs);
         Assert.NotEqual(left, right);
@@ -118,6 +120,7 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 2,
             VirtualNodes = 128,
             Peers = peers,
+            Policy = FingerprintPolicy.Default,
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion + "-legacy",
             QuorumAckMode = PolicyOptions.QuorumAckMode,
         };
@@ -148,9 +151,9 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 2,
             VirtualNodes = 128,
             Peers = peers,
+            Policy = FingerprintPolicy.Default with { ProtocolAlgorithmVersion = PolicyOptions.ProtocolAlgorithmVersion + 1 },
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
             QuorumAckMode = PolicyOptions.QuorumAckMode,
-            ProtocolAlgorithmVersion = PolicyOptions.ProtocolAlgorithmVersion + 1,
         };
         var right = TopologyFingerprint.Compute(fingerprintInputs);
         Assert.NotEqual(left, right);
@@ -198,6 +201,7 @@ public sealed class TopologyFingerprintTests
             ReplicaCount = 1,
             VirtualNodes = 128,
             Peers = [new FingerprintPeer("node-a", new Uri("https://localhost:6001/"), new Uri("https://localhost:6001/"))],
+            Policy = FingerprintPolicy.Default,
             MinClusterPackageVersion = "0.1.0-preview.8",
             QuorumAckMode = "majority-no-lease",
         };
@@ -235,6 +239,7 @@ public sealed class TopologyFingerprintTests
         ReplicaCount = replicaCount,
         VirtualNodes = 128,
         Peers = peers,
+        Policy = FingerprintPolicy.Default,
         MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
         QuorumAckMode = PolicyOptions.QuorumAckMode,
     };

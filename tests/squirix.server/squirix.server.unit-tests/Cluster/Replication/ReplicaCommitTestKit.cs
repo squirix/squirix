@@ -23,7 +23,7 @@ internal static class ReplicaCommitTestKit
     internal static PreparedReplicaMutation CreateMutation()
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4), 0);
+        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
     }
 
     internal sealed class Pipeline : IReplicaCommitPipeline

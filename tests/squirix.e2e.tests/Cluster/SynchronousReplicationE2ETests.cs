@@ -13,7 +13,7 @@ public sealed class SynchronousReplicationE2ETests : EndToEndTestBase
     [Fact(DisplayName = "SynchronousReplicationE2ETests.CancelledWaitRetryProducesOneCommittedEffect")]
     public async Task CancelledWaitRetryCommitsOnce()
     {
-        var options = new TwoNodeStartOptions { ReplicaCount = 3 };
+        var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(CancelledWaitRetryCommitsOnce), options, true, DefaultCancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("sync-cancel", DefaultCancellationToken);
@@ -41,7 +41,7 @@ public sealed class SynchronousReplicationE2ETests : EndToEndTestBase
     [Fact]
     public async Task RfThreeCurrentReadRequiresQuorumReadGate()
     {
-        var options = new TwoNodeStartOptions { ReplicaCount = 3 };
+        var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfThreeCurrentReadRequiresQuorumReadGate), options, true, DefaultCancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("quorum-read", DefaultCancellationToken);

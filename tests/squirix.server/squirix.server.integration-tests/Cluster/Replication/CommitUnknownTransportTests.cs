@@ -48,7 +48,7 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
     private static PreparedReplicaMutation CreateMutation()
     {
         var identity = new ReplicaOperationIdentity("transport-group", "client", "123456789abcdef0123456789abcdef0", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 1), 0);
+        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 1));
     }
 
     private sealed class BlockingFollowerPipeline : IReplicaCommitPipeline

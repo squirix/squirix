@@ -79,11 +79,10 @@ internal static class ProtoEx
         switch (value)
         {
             case null:
-                return ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull());
+                return WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull());
 
             case JsonElement je:
-                return je.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(je)
-                    : ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(je));
+                return je.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(je) : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(je));
 
             default:
                 if (ProtoStructCodec.EncodeScalarAsStruct(value) is { } scalar)
@@ -91,9 +90,11 @@ internal static class ProtoEx
 
                 var root = serializer.SerializeToElement(value);
                 return root.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(root)
-                    : ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
+                    : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
         }
     }
+
+    private static Struct WrapAsStruct(string name, Value value) => new() { Fields = { [name] = value } };
 
     /// <summary>Encodes CLR values into protobuf <see cref="Struct" /> payloads and decodes them back.</summary>
     private static class ProtoStructCodec
@@ -102,14 +103,14 @@ internal static class ProtoEx
         {
             return value switch
             {
-                string text => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(text)),
-                int number => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
-                long number => ValueEnvelope.WrapAsStruct(
+                string text => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(text)),
+                int number => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                long number => WrapAsStruct(
                     ValueEnvelope.ScalarEnvelopeKey,
                     ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture))),
-                double number => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
-                bool boolean => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(boolean)),
-                decimal dec => ValueEnvelope.WrapAsStruct(
+                double number => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                bool boolean => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(boolean)),
+                decimal dec => WrapAsStruct(
                     ValueEnvelope.ScalarEnvelopeKey,
                     ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture))),
                 _ => null,
@@ -129,14 +130,14 @@ internal static class ProtoEx
 
         internal static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
         {
-            CacheValue.KindOneofCase.StringValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value.StringValue)),
-            CacheValue.KindOneofCase.BoolValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
-            CacheValue.KindOneofCase.Int32Value => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
-            CacheValue.KindOneofCase.Int64Value => ValueEnvelope.WrapAsStruct(
+            CacheValue.KindOneofCase.StringValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value.StringValue)),
+            CacheValue.KindOneofCase.BoolValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
+            CacheValue.KindOneofCase.Int32Value => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
+            CacheValue.KindOneofCase.Int64Value => WrapAsStruct(
                 ValueEnvelope.ScalarEnvelopeKey,
                 ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
-            CacheValue.KindOneofCase.DoubleValue => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => ValueEnvelope.WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull()),
+            CacheValue.KindOneofCase.DoubleValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull()),
             CacheValue.KindOneofCase.StructValue => value.StructValue,
             _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };

@@ -25,22 +25,6 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
         Assert.Equal(1u, topology.ConfigurationGeneration);
     }
 
-    /// <summary>Zero ConfigurationGeneration is rejected.</summary>
-    [Fact]
-    public void RejectsZeroGeneration()
-    {
-        var topology = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
-        {
-            ClusterId = "c1",
-            NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
-            ConfigurationGeneration = 0,
-        };
-
-        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
-        Assert.Contains("ConfigurationGeneration must be greater than zero.", errors, StringComparer.Ordinal);
-    }
-
     /// <summary>Fingerprint changes when ConfigurationGeneration changes.</summary>
     [Fact]
     public void FingerprintChangesWhenGenerationChanges()
@@ -55,6 +39,7 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
             {
                 ClusterId = "cluster",
                 Peers = peers,
+                Policy = FingerprintPolicy.Default,
                 ConfigurationGeneration = 1,
                 ReplicaCount = 1,
                 VirtualNodes = 128,
@@ -66,6 +51,7 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
             {
                 ClusterId = "cluster",
                 Peers = peers,
+                Policy = FingerprintPolicy.Default,
                 ConfigurationGeneration = 2,
                 ReplicaCount = 1,
                 VirtualNodes = 128,
@@ -74,5 +60,21 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
             });
 
         Assert.False(left.Equals(right));
+    }
+
+    /// <summary>Zero ConfigurationGeneration is rejected.</summary>
+    [Fact]
+    public void RejectsZeroGeneration()
+    {
+        var topology = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = new Uri("https://localhost:6001"),
+            ConfigurationGeneration = 0,
+        };
+
+        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
+        Assert.Contains("ConfigurationGeneration must be greater than zero.", errors, StringComparer.Ordinal);
     }
 }

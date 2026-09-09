@@ -289,6 +289,6 @@ internal sealed class ReplicaMutationFactory
         var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));
-        return new PreparedReplicaMutation(identity, _term, index, payload, record.ExpiresUtcTicks);
+        return new PreparedReplicaMutation(identity, _term, index, payload);
     }
 }

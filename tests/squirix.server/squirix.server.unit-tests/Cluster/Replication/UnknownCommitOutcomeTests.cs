@@ -54,7 +54,8 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     {
         var pipeline = new RetryLocalPipeline();
         var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                             .ReturnValue(ValueTask.CompletedTask);
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
             pipeline,
@@ -94,8 +95,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1 }),
         1,
         1,
-        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 1),
-        0);
+        new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 1));
 
     [Mutable]
     private sealed class RetryLocalPipeline : IReplicaCommitPipeline

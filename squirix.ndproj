@@ -893,7 +893,37 @@ select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Se
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1409$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid mutually-dependent types</Name>
+// <Id>ND1409:AvoidMutuallyDependentTypes</Id>
+// ND1409 squirix override: scope to JustMyCode. Stock rule matches on
+// Application.* and ignores notmycode, so Roslyn source-generator outputs
+// (Rocks *_Rock_Create.g.cs mocks in obj/, protobuf/gRPC *.g.cs) and test
+// assemblies surface as architecture debt. Method-level mutual usage in both
+// directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
+// Two legitimate idioms are excluded: nested types (implementation details reviewed
+// with their declarer; NDepend counts a nested access to an outer static member as
+// usage, e.g. a private Scope.Dispose touching the outer AsyncLocal field) and RAII
+// lease/scope tokens whose entire usage of the owner is construction, disposal, or
+// private helpers (LogLease, AdmissionGate.Lease, ReplicaMutationLease,
+// ReplicaIndexReservation). Genuine peer cycles through public protocol still match.
+warnif count > 0
+let justMyCodeTypes = JustMyCode.Types.ToHashSetEx()
+let IsSubordinateUse = new Func<IMethod, bool>(m =>
+    m.IsConstructor ||
+    m.SimpleName == "Dispose" ||
+    m.SimpleName == "DisposeAsync" ||
+    m.IsPrivate)
+from t1 in justMyCodeTypes
+from t2 in t1.TypesUsed
+where justMyCodeTypes.Contains(t2) &&
+      t1.FullName.CompareTo(t2.FullName) < 0 &&
+      !t1.IsNested && !t2.IsNested
+let t1MethodsUsingT2 = t1.Methods.Using(t2).ToArray()
+let t2MethodsUsingT1 = t2.Methods.Using(t1).ToArray()
+where t1MethodsUsingT2.Any() && t2MethodsUsingT1.Any() &&
+      !t1MethodsUsingT2.All(IsSubordinateUse) &&
+      !t2MethodsUsingT1.All(IsSubordinateUse)
+select new { t1, t2, t1MethodsUsingT2, t2MethodsUsingT1, Debt = 20.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
 
 
 
@@ -1987,7 +2017,8 @@ where f.ParentType != null &&
       f.ParentType.FullNameLike("Squirix.Transport.Grpc*")
 select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
-// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
+// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**,
+// obj/**/Rocks.Analysis/**/*_Rock_*.g.cs (Rocks mocks).
 // Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
@@ -1996,7 +2027,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from t in Types
 where t.SourceFileDeclAvailable &&
       t.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -2008,7 +2041,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from m in Methods
 where m.SourceFileDeclAvailable &&
       m.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -2020,7 +2055,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from f in Fields
 where f.SourceFileDeclAvailable &&
       f.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))

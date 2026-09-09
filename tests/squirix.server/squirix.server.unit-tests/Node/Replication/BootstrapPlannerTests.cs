@@ -35,22 +35,6 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
         Assert.Equal(before, await File.ReadAllBytesAsync(sourcePath, DefaultCancellationToken));
     }
 
-    /// <summary>An identical rerun resumes the same generation and leaves manifest bytes unchanged.</summary>
-    [Fact]
-    public async Task SameTargetResumesManifest()
-    {
-        using var dir = new TempDirectory("squirix-bootstrap-resume");
-        var planner = new BootstrapPlanner();
-        var first = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
-        var before = await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken);
-
-        var resumed = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
-
-        Assert.True(resumed.Resumed);
-        Assert.Equal(first.Manifest.TargetGeneration, resumed.Manifest.TargetGeneration);
-        Assert.Equal(before, await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken));
-    }
-
     /// <summary>A different generation and a corrupted manifest both fail closed.</summary>
     [Fact]
     public async Task RejectsDifferentOrCorruptManifest()
@@ -69,6 +53,45 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
             new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir), DefaultCancellationToken)));
     }
 
+    /// <summary>Changing a fingerprint input other than RF and generation is rejected.</summary>
+    [Fact]
+    public async Task RejectsTopologyInputChanges()
+    {
+        using var dir = new TempDirectory("squirix-bootstrap-topology");
+        var request = Request(dir);
+        request = request.WithTarget(Topology(3, 2UL, 256));
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
+    }
+
+    /// <summary>Unscoped legacy outcomes report the earliest time at which all blockers have expired.</summary>
+    [Fact]
+    public async Task RejectsUnscopedLegacyOutcomes()
+    {
+        using var dir = new TempDirectory("squirix-bootstrap-legacy");
+        var retry = DateTimeOffset.UtcNow.AddHours(2);
+        var request = Request(dir, true, 1, 3, 2UL, [new BootstrapLegacyOutcome(false, retry)]);
+
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
+
+        Assert.Contains(retry.ToString("O"), exception.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Join(dir, "bootstrap.manifest")));
+    }
+
+    /// <summary>An existing exclusive owner proves the cluster is not stopped and blocks preparation.</summary>
+    [Fact]
+    public async Task RequiresExclusiveDirectoryOwnership()
+    {
+        using var dir = new TempDirectory("squirix-bootstrap-lock");
+        var lockPath = Path.Join(dir, "bootstrap.lock");
+        using var ownership = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken)));
+    }
+
     /// <summary>Persistence, RF=1 source, RF&gt;1 target, and generation increase are mandatory.</summary>
     [Fact]
     public async Task RequiresRfAndPersistenceInvariants()
@@ -85,43 +108,30 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
             new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 1, 3, 1UL), DefaultCancellationToken)));
     }
 
-    /// <summary>Changing a fingerprint input other than RF and generation is rejected.</summary>
+    /// <summary>An identical rerun resumes the same generation and leaves manifest bytes unchanged.</summary>
     [Fact]
-    public async Task RejectsTopologyInputChanges()
+    public async Task SameTargetResumesManifest()
     {
-        using var dir = new TempDirectory("squirix-bootstrap-topology");
-        var request = Request(dir);
-        request = request.WithTarget(Topology(3, 2UL, 256));
+        using var dir = new TempDirectory("squirix-bootstrap-resume");
+        var planner = new BootstrapPlanner();
+        var first = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
+        var before = await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
+        var resumed = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
+
+        Assert.True(resumed.Resumed);
+        Assert.Equal(first.Manifest.TargetGeneration, resumed.Manifest.TargetGeneration);
+        Assert.Equal(before, await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken));
     }
 
-    /// <summary>An existing exclusive owner proves the cluster is not stopped and blocks preparation.</summary>
-    [Fact]
-    public async Task RequiresExclusiveDirectoryOwnership()
+    private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)
     {
-        using var dir = new TempDirectory("squirix-bootstrap-lock");
-        var lockPath = Path.Join(dir, "bootstrap.lock");
-        using var ownership = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken)));
-    }
-
-    /// <summary>Unscoped legacy outcomes report the earliest time at which all blockers have expired.</summary>
-    [Fact]
-    public async Task RejectsUnscopedLegacyOutcomes()
-    {
-        using var dir = new TempDirectory("squirix-bootstrap-legacy");
-        var retry = DateTimeOffset.UtcNow.AddHours(2);
-        var request = Request(dir, true, 1, 3, 2UL, [new BootstrapLegacyOutcome("opaque", false, retry)]);
-
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
-
-        Assert.Contains(retry.ToString("O"), exception.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(Path.Join(dir, "bootstrap.manifest")));
+        return new ServerPeer
+        {
+            InterNodeUri = new Uri($"https://127.0.0.1:{internalPort}"),
+            NodeId = nodeId,
+            Uri = new Uri($"https://127.0.0.1:{clientPort}"),
+        };
     }
 
     private static BootstrapPreparationRequest Request(
@@ -160,16 +170,6 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
             ReplicaCount = replicaCount,
             Uri = peers[0].Uri,
             VirtualNodes = virtualNodes,
-        };
-    }
-
-    private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)
-    {
-        return new ServerPeer
-        {
-            InterNodeUri = new Uri($"https://127.0.0.1:{internalPort}"),
-            NodeId = nodeId,
-            Uri = new Uri($"https://127.0.0.1:{clientPort}"),
         };
     }
 }

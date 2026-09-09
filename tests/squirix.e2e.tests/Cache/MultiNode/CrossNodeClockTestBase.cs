@@ -42,7 +42,7 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        _cluster = await HostedCluster.StartTwoNodeAsync(new TwoNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
+        _cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
         var clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         var clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
         _clusterCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);

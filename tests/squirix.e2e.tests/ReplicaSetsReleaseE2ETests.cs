@@ -12,6 +12,26 @@ namespace Squirix.E2ETests;
 /// <summary>Release evidence for RF=3 quorum authority and RF=2 mirror-only limits.</summary>
 public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
 {
+    /// <summary>RF=3 current reads keep quorum authority while a majority remains.</summary>
+    [Fact]
+    public async Task RfThreeCurrentReadUsesQuorumAuthority()
+    {
+        var options = new MultiNodeStartOptions { ReplicaCount = 3 };
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfThreeCurrentReadUsesQuorumAuthority), options, true, DefaultCancellationToken);
+        var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
+        var cache = await client.GetCacheAsync<string>("quorum-authority", DefaultCancellationToken);
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("quorum-authority", "nodeA", "authority");
+
+        await cache.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
+        Assert.Equal("v", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
+
+        // Losing a minority keeps a majority: current reads still use quorum authority.
+        await cluster.StopNodeAsync("nodeC");
+
+        await cache.SetAsync(key, "v2", cancellationToken: DefaultCancellationToken);
+        Assert.Equal("v2", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
+    }
+
     /// <summary>Controlled leader stop recovers RF=3 reads and writes on the majority within five seconds.</summary>
     /// <remarks>
     /// #239 mandates the name "RfThreeLeaderStopRecoversWithinFiveSeconds"; it is shortened here because SQR0005
@@ -20,11 +40,8 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
     [Fact]
     public async Task RfThreeLeaderStopRecoversInFiveSeconds()
     {
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(
-            nameof(RfThreeLeaderStopRecoversInFiveSeconds),
-            new TwoNodeStartOptions { ReplicaCount = 3 },
-            true,
-            DefaultCancellationToken);
+        var options = new MultiNodeStartOptions { ReplicaCount = 3 };
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfThreeLeaderStopRecoversInFiveSeconds), options, true, DefaultCancellationToken);
         var uriB = cluster.GetUri("nodeB");
         var uriC = cluster.GetUri("nodeC");
         var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("default", "nodeB", "rf3-release-recover");
@@ -44,29 +61,6 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
         Assert.Equal("after-loss", (await cache.GetValueAsync(key, linked.Token)).Value);
     }
 
-    /// <summary>RF=3 current reads keep quorum authority while a majority remains.</summary>
-    [Fact]
-    public async Task RfThreeCurrentReadUsesQuorumAuthority()
-    {
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(
-            nameof(RfThreeCurrentReadUsesQuorumAuthority),
-            new TwoNodeStartOptions { ReplicaCount = 3 },
-            true,
-            DefaultCancellationToken);
-        var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        var cache = await client.GetCacheAsync<string>("quorum-authority", DefaultCancellationToken);
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("quorum-authority", "nodeA", "authority");
-
-        await cache.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
-        Assert.Equal("v", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
-
-        // Losing a minority keeps a majority: current reads still use quorum authority.
-        await cluster.StopNodeAsync("nodeC");
-
-        await cache.SetAsync(key, "v2", cancellationToken: DefaultCancellationToken);
-        Assert.Equal("v2", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
-    }
-
     /// <summary>RF=2 refuses new mutations after mirror loss while committed data stays readable.</summary>
     /// <remarks>
     /// #239 mandates the name "RfTwoCurrentReadFailsWhenMirrorUnavailable"; the behavior is a refused mutation
@@ -76,11 +70,8 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
     [Fact]
     public async Task RfTwoRefusesMutationKeepsLocalRead()
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(
-            new TwoNodeStartOptions { ReplicaCount = 2 },
-            nameof(RfTwoRefusesMutationKeepsLocalRead),
-            true,
-            DefaultCancellationToken);
+        var options = new MultiNodeStartOptions { ReplicaCount = 2 };
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(options, nameof(RfTwoRefusesMutationKeepsLocalRead), true, DefaultCancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("mirror-only", DefaultCancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("mirror-only", "nodeA", "mirror");
@@ -109,9 +100,8 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
         Assert.False(bound.IsCancellationRequested, "The mutation stalled until the bound instead of refusing fast.");
 
         // RF=2 refuses fast with a product quorum error.
-        Assert.True(
-            exception is CommitOutcomeUnknownException or RpcException,
-            $"RF=2 without its mirror must refuse the mutation; observed {exception.GetType()} after {elapsed}.");
+        var condition = exception is CommitOutcomeUnknownException or RpcException;
+        Assert.True(condition, $"RF=2 without its mirror must refuse the mutation; observed {exception.GetType()} after {elapsed}.");
         Assert.True(elapsed < TimeSpan.FromSeconds(10), $"Refusal took {elapsed}, expected well before the bound.");
     }
 }

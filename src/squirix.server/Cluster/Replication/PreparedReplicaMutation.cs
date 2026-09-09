@@ -12,8 +12,7 @@ internal sealed record PreparedReplicaMutation
     /// <param name="term">Replica term that owns the mutation.</param>
     /// <param name="logIndex">Reserved group log index.</param>
     /// <param name="payload">Canonical payloads.</param>
-    /// <param name="expiresUtcTicks">Mutation-specific expiration wire value: a <see cref="TimeSpan" /> duration in ticks for Touch mutations, an absolute UTC timestamp in ticks otherwise.</param>
-    internal PreparedReplicaMutation(ReplicaOperationIdentity identity, ulong term, ulong logIndex, ReplicaMutationPayload payload, long expiresUtcTicks)
+    internal PreparedReplicaMutation(ReplicaOperationIdentity identity, ulong term, ulong logIndex, ReplicaMutationPayload payload)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(payload);
@@ -34,13 +33,10 @@ internal sealed record PreparedReplicaMutation
         OperationFingerprint = identity.OperationFingerprint.ToArray();
         CanonicalPayload = payload.CanonicalPayload.ToArray();
         OutcomePayload = payload.OutcomePayload.ToArray();
-        ExpiresUtcTicks = expiresUtcTicks;
         PayloadChecksum = payload.PayloadChecksum;
     }
 
     internal ReadOnlyMemory<byte> CanonicalPayload { get; }
-
-    internal long ExpiresUtcTicks { get; }
 
     internal string GroupId { get; }
 

@@ -32,33 +32,6 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
     }
 
-    /// <inheritdoc />
-    public async Task<FollowerLogCommitResult> AdvanceCommitAsync(string nodeId, ReplicaRpcHeader header, ulong commitIndex, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(_pool.OpenChannel(nodeId));
-        var response = await client.AdvanceReplicaCommitAsync(
-            new AdvanceReplicaCommitRequest { Header = MapHeader(header), CommitIndex = commitIndex },
-            cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
-        return new FollowerLogCommitResult(response.Success, response.RefusalCode, response.CommitIndex);
-    }
-
-    private static AppendReplicaEntriesRequest MapRequest(ReplicaRpcHeader header, FollowerBatch batch)
-    {
-        var request = new AppendReplicaEntriesRequest
-        {
-            Header = MapHeader(header),
-            PrevLogIndex = batch.PrevLogIndex,
-            PrevLogTerm = batch.PrevLogTerm,
-            LeaderCommitIndex = batch.LeaderCommitIndex,
-        };
-        var records = batch.Records;
-        for (var i = 0; i < records.Count; i++)
-            request.Entries.Add(MapEntry(records[i]));
-
-        return request;
-    }
-
     private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
     {
         LogIndex = record.LogIndex,
@@ -88,4 +61,20 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         LeaderNodeId = header.LeaderNodeId,
         SenderNodeId = header.SenderNodeId,
     };
+
+    private static AppendReplicaEntriesRequest MapRequest(ReplicaRpcHeader header, FollowerBatch batch)
+    {
+        var request = new AppendReplicaEntriesRequest
+        {
+            Header = MapHeader(header),
+            PrevLogIndex = batch.PrevLogIndex,
+            PrevLogTerm = batch.PrevLogTerm,
+            LeaderCommitIndex = batch.LeaderCommitIndex,
+        };
+        var records = batch.Records;
+        for (var i = 0; i < records.Count; i++)
+            request.Entries.Add(MapEntry(records[i]));
+
+        return request;
+    }
 }

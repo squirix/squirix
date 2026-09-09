@@ -33,12 +33,11 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
                 Key = "key-a",
                 UtcNow = expiresUtc.AddTicks(1),
                 ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(1, expiresUtc)),
-                PrepareTombstone = static (candidate, operationId) => new PreparedReplicaMutation(
+                PrepareTombstone = static (_, operationId) => new PreparedReplicaMutation(
                     new ReplicaOperationIdentity("group-a", ReplicaExpirationOperationId.OperationScope, operationId, new byte[] { 1 }),
                     1,
                     1,
-                    new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4),
-                    candidate.ExpiresUtc.Ticks),
+                    new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4)),
                 Timeout = TimeSpan.FromSeconds(2),
                 CancellationToken = DefaultCancellationToken,
             });

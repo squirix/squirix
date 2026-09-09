@@ -17,14 +17,6 @@ internal interface IReplicaRpcGateway
     /// <param name="header">Replication envelope identity.</param>
     /// <param name="batch">Leader batch with identity, consistency, and commit positions.</param>
     /// <param name="cancellationToken">Cancellation token bounding the call.</param>
-    /// <returns>The follower append outcome.</returns>
+    /// <returns>The follower appending outcome.</returns>
     Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken);
-
-    /// <summary>Advances one follower's group commit index.</summary>
-    /// <param name="nodeId">Target follower node identifier.</param>
-    /// <param name="header">Replication envelope identity.</param>
-    /// <param name="commitIndex">Target commit index.</param>
-    /// <param name="cancellationToken">Cancellation token bounding the call.</param>
-    /// <returns>The commit advance outcome.</returns>
-    Task<FollowerLogCommitResult> AdvanceCommitAsync(string nodeId, ReplicaRpcHeader header, ulong commitIndex, CancellationToken cancellationToken);
 }

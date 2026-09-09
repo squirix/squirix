@@ -6,7 +6,7 @@ namespace Squirix.Server.TestKit.Benchmarks;
 
 /// <summary>Canonical registry of required replication benchmarks for release evidence.</summary>
 /// <remarks>
-/// All views (required benchmarks, phases, phase→benchmark and phase→schema maps) derive from the single
+/// All views (required benchmarks, phases, phase→benchmark, and phase→schema maps) derive from the single
 /// <c language="csharp">Entries</c> table below, so adding a benchmark cannot leave the views out of sync.
 /// </remarks>
 public static class ReplicationBenchmarkCatalog
@@ -27,20 +27,20 @@ public static class ReplicationBenchmarkCatalog
 
     private static readonly FrozenDictionary<string, string> PhaseEvidenceSchemas = BuildPhaseEvidenceSchemas();
 
-    /// <summary>Gets the required replication benchmark full type names.</summary>
-    public static IReadOnlyList<string> RequiredBenchmarks { get; } = CollectBenchmarks();
-
     /// <summary>Gets the evidence phases, one per required benchmark.</summary>
     public static IReadOnlyList<string> Phases { get; } = CollectPhases();
+
+    /// <summary>Gets the required replication benchmark full type names.</summary>
+    public static IReadOnlyList<string> RequiredBenchmarks { get; } = CollectBenchmarks();
 
     /// <summary>Gets the replica factors covered by RF-parameterized benchmark methods.</summary>
     /// <remarks>
     /// Coverage comes from the RF-parameterized methods of <c language="csharp">ReplicaPlacementBenchmarks</c>
     /// (<c language="csharp">GetReplicaGroupRfOne/Two/Three/Five</c>), not from multi-node harness size. RF=4 has
-    /// no dedicated placement method: the ring walk is RF-agnostic and factors 1/2/3/5 span the quorum shapes
+    /// no dedicated placement method: the ring walk is RF-agnostic, and factors 1/2/3/5 span the quorum shapes
     /// (single copy, mirror, minimal quorum, maximum).
     /// </remarks>
-    public static IReadOnlyList<int> CoveredReplicaFactors { get; } = [1, 2, 3, 5];
+    private static IReadOnlyList<int> CoveredReplicaFactors { get; } = [1, 2, 3, 5];
 
     /// <summary>Determines whether the specified replica factor is covered.</summary>
     /// <param name="replicaFactor">Replica factor.</param>
@@ -54,6 +54,22 @@ public static class ReplicationBenchmarkCatalog
         }
 
         return false;
+    }
+
+    /// <summary>Determines whether every phase has the stored evidence schema.</summary>
+    /// <returns>True when every phase maps to <see cref="PerformanceEvidenceGate.EvidenceSchema" />.</returns>
+    public static bool EveryPhaseHasStoredEvidenceSchema()
+    {
+        for (var i = 0; i < Entries.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(Entries[i].Phase) || string.IsNullOrWhiteSpace(Entries[i].Benchmark))
+                return false;
+
+            if (!string.Equals(Entries[i].Schema, PerformanceEvidenceGate.EvidenceSchema, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>Gets the benchmark full type name responsible for the specified phase.</summary>
@@ -97,22 +113,6 @@ public static class ReplicationBenchmarkCatalog
         }
 
         return false;
-    }
-
-    /// <summary>Determines whether every phase has the stored evidence schema.</summary>
-    /// <returns>True when every phase maps to <see cref="PerformanceEvidenceGate.EvidenceSchema" />.</returns>
-    public static bool EveryPhaseHasStoredEvidenceSchema()
-    {
-        for (var i = 0; i < Entries.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(Entries[i].Phase) || string.IsNullOrWhiteSpace(Entries[i].Benchmark))
-                return false;
-
-            if (!string.Equals(Entries[i].Schema, PerformanceEvidenceGate.EvidenceSchema, StringComparison.Ordinal))
-                return false;
-        }
-
-        return true;
     }
 
     private static FrozenDictionary<string, string> BuildPhaseBenchmarks()

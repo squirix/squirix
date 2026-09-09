@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -12,7 +11,10 @@ namespace Squirix.Server.Cluster.Replication;
 /// peer loss, RF=1 never elects, the minority fails closed, and a rejoined former leader must catch up
 /// before regaining eligibility.
 /// </remarks>
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only activation seam until failover activation wires the gate in a follow-up milestone.")]
+[SuppressMessage(
+    "Usage",
+    "MA0182:Internal type is apparently never used",
+    Justification = "Test-only activation seam until failover activation wires the gate in a follow-up milestone.")]
 internal static class FailoverActivationGate
 {
     /// <summary>Checks whether the node may start an election under explicit failover activation.</summary>
@@ -71,7 +73,7 @@ internal static class FailoverActivationGate
         LeaderReadState read)
     {
         if (!quorumReadsEnabled)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.QuorumNotConfirmed, FollowerLogRefusal.NotReady);
+            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.QuorumNotConfirmed);
 
         return LeaderAuthorityGate.CheckRead(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm, read);
     }
