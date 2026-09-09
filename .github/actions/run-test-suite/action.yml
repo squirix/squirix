@@ -3,7 +3,7 @@ description: Download build outputs and run one CI test suite (optional coverage
 
 inputs:
   os:
-    description: Runner OS label matching artifact name (ubuntu-latest, windows-latest, macos-latest).
+    description: Runner OS label matching artifact name (ubuntu-latest, ubuntu-arm, windows-latest, macos-latest).
     required: true
   framework:
     description: Target framework moniker.
