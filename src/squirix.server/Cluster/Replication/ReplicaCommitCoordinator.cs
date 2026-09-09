@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -14,8 +14,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 {
     internal const string CommitOutcomeUnknownCode = "COMMIT_OUTCOME_UNKNOWN";
 
+    private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ReplicaMutationGate _admission;
-    private readonly SemaphoreSlim _commitGate = new(1, 1);
+    private readonly AsyncLock _commitGate = new();
     private readonly IReplicaCommitFaultHooks _faultHooks;
     private readonly GroupIdempotencyState _idempotency;
     private readonly Dictionary<OperationKey, CommitOperation> _operations = [];
@@ -158,6 +160,64 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         return new FollowerCompletion(replicaIndex, null, aggregate?.InnerException ?? aggregate);
     }
 
+    /// <summary>Takes the next completed task, removing it from the pending list.</summary>
+    /// <param name="pending">Remaining tasks to observe.</param>
+    /// <param name="timeProvider">The time source bounding the wait.</param>
+    /// <returns>The completed task.</returns>
+    /// <exception cref="TimeoutException">
+    /// The bound expired before any task completed; every remaining task got a fault-only exception
+    /// observer, so abandoned follower work never surfaces unobserved exceptions.
+    /// </exception>
+    private static async Task<Task> TakeNextCompletedAsync(List<Task> pending, TimeProvider timeProvider)
+    {
+        try
+        {
+            var completed = await Task.WhenAny(pending).WaitAsync(ObserveTimeout, timeProvider, CancellationToken.None).ConfigureAwait(false);
+            _ = pending.Remove(completed);
+            return completed;
+        }
+        catch (TimeoutException)
+        {
+            ObserveAbandoned(pending);
+            throw;
+        }
+    }
+
+    /// <summary>Takes the next completed follower task, removing it from the pending list.</summary>
+    /// <param name="pending">Remaining follower tasks to observe.</param>
+    /// <param name="timeProvider">The time source bounding the wait.</param>
+    /// <returns>The completed follower task.</returns>
+    /// <exception cref="TimeoutException">
+    /// The bound expired before any task completed; every remaining task got a fault-only exception
+    /// observer, so abandoned follower work never surfaces unobserved exceptions.
+    /// </exception>
+    private static async Task<Task<FollowerCompletion>> TakeNextCompletedAsync(List<Task<FollowerCompletion>> pending, TimeProvider timeProvider)
+    {
+        try
+        {
+            var completed = await Task.WhenAny(pending).WaitAsync(ObserveTimeout, timeProvider, CancellationToken.None).ConfigureAwait(false);
+            _ = pending.Remove(completed);
+            return completed;
+        }
+        catch (TimeoutException)
+        {
+            ObserveAbandoned(pending);
+            throw;
+        }
+    }
+
+    private static void ObserveAbandoned(IReadOnlyList<Task> remaining)
+    {
+        foreach (var task in remaining)
+        {
+            _ = task.ContinueWith(
+                static t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
     private async Task ApplyPendingRangeAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
         // Apply every retained entry at or below the new commit index in order, including entries
@@ -241,27 +301,19 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     _ownedTasks.Clear();
                 }
 
-                try
+                while (tasks.Count > 0)
                 {
-                    while (tasks.Count > 0)
+                    Task completed;
+                    try
                     {
-                        var completed = await Task.WhenAny(tasks).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
-                        _ = tasks.Remove(completed);
-                        _ = completed.Exception;
+                        completed = await TakeNextCompletedAsync(tasks, TimeProvider.System).ConfigureAwait(false);
                     }
-                }
-                catch (TimeoutException)
-                {
-                    foreach (var remaining in CollectionsMarshal.AsSpan(tasks))
+                    catch (TimeoutException)
                     {
-                        _ = remaining.ContinueWith(
-                            static t => _ = t.Exception,
-                            CancellationToken.None,
-                            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                            TaskScheduler.Default);
+                        break;
                     }
 
-                    break;
+                    _ = completed.Exception;
                 }
             }
         }
@@ -279,15 +331,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         using var preAppendCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation, budgetCancellation.Token);
         using var lease = await _admission.EnterAsync(mutation.OperationId.GetHashCode(StringComparison.Ordinal), preAppendCancellation.Token).ConfigureAwait(false);
         await _turn.WaitAsync(mutation.LogIndex, preAppendCancellation.Token).ConfigureAwait(false);
-        await _commitGate.WaitAsync(preAppendCancellation.Token).ConfigureAwait(false);
-        try
-        {
-            return await ExecuteOrderedAsync(mutation, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _commitGate.Release();
-        }
+        using var commitGuard = await _commitGate.LockAsync(preAppendCancellation.Token).ConfigureAwait(false);
+        return await ExecuteOrderedAsync(mutation, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
     }
 
     private async Task<ReadOnlyMemory<byte>> ExecuteOrderedAsync(
@@ -365,23 +410,13 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             Task<FollowerCompletion> completed;
             try
             {
-                completed = await Task.WhenAny(pending).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None).ConfigureAwait(false);
+                completed = await TakeNextCompletedAsync(pending, TimeProvider.System).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
-                foreach (var remaining in CollectionsMarshal.AsSpan(pending))
-                {
-                    _ = remaining.ContinueWith(
-                        static t => _ = t.Exception,
-                        CancellationToken.None,
-                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                        TaskScheduler.Default);
-                }
-
                 break;
             }
 
-            _ = pending.Remove(completed);
             var follower = await completed.ConfigureAwait(false);
             RecordAcknowledgement(in follower, mutation);
         }
@@ -470,11 +505,11 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     [ThreadSafe]
     private sealed class CommitAttempt
     {
-        private int _locallyAppended;
+        private readonly VolatileBool _locallyAppended = new();
 
-        internal bool IsLocallyAppended => Volatile.Read(ref _locallyAppended) != 0;
+        internal bool IsLocallyAppended => _locallyAppended.Read();
 
-        internal void MarkLocallyAppended() => Volatile.Write(ref _locallyAppended, 1);
+        internal void MarkLocallyAppended() => _locallyAppended.Write(true);
     }
 
     /// <summary>Orders prepared mutations by their preassigned group log index.</summary>

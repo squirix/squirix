@@ -158,6 +158,62 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Disposal observes stalled followers within the bound instead of hanging.</summary>
+    [Fact]
+    public async Task DisposeDrainExpiresOnStalledFollowers()
+    {
+        var pipeline = new ReplicaCommitTestKit.Pipeline(false, true);
+        var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
+        try
+        {
+            // No follower ever answers: the commit parks in the majority wait while disposal drains it.
+            var commit = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(8), DefaultCancellationToken);
+
+            // The drain bound expires in real time; disposal completes instead of hanging on the parked commit.
+            // The test-side bound only guards against a drain regression; it sits far above the production bound.
+            await coordinator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, DefaultCancellationToken);
+
+            // Budget expiry faults the parked resolution after abandonment, running the attached observer.
+            // Unwinding through the disposed gates surfaces ObjectDisposedException inside the outcome-unknown fault.
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+            _ = Assert.IsType<ObjectDisposedException>(error.InnerException);
+        }
+        finally
+        {
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>A lagging follower past the observe bound does not block disposal after majority commit.</summary>
+    [Fact]
+    public async Task ObserveBoundExpiresOnLaggingFollower()
+    {
+        var pipeline = new RecordingPipeline(1);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        try
+        {
+            // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
+            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+
+            // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
+            var disposal = coordinator.DisposeAsync().AsTask();
+            await Task.Delay(TimeSpan.FromSeconds(6), TimeProvider.System, DefaultCancellationToken);
+
+            // The bound already attached fault observers; faulting the laggard runs them for cleanup.
+            pipeline.FailFollowers(new TimeoutException("Lagging follower fault."));
+            await disposal.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, DefaultCancellationToken);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
     /// <summary>Follower work started before an exceptional exit remains owned until disposal.</summary>
     [Fact]
     public async Task ExceptionalFanOutStillOwnsFollowerTasks()
@@ -647,6 +703,12 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 return;
 
             _ = _followers.TrySetResult(CreateReadyAcknowledgement(recorded));
+        }
+
+        internal void FailFollowers(Exception exception)
+        {
+            ArgumentNullException.ThrowIfNull(exception);
+            _ = _followers.TrySetException(exception);
         }
 
         internal void ReleaseLocalAppend() => _ = _localAppendRelease.TrySetResult(true);

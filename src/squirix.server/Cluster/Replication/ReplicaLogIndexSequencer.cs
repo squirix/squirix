@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -9,7 +10,7 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaLogIndexSequencer : IDisposable
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly AsyncLock _gate = new();
     private ulong _nextIndex;
 
     internal ReplicaLogIndexSequencer(ulong lastLogIndex)
@@ -24,32 +25,25 @@ internal sealed class ReplicaLogIndexSequencer : IDisposable
 
     internal async ValueTask<ReplicaIndexReservation> ReserveAsync(CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         if (_nextIndex == ulong.MaxValue)
         {
-            _ = _gate.Release();
+            holder.Dispose();
             throw new InvalidOperationException("Replica log index is exhausted.");
         }
 
-        return new ReplicaIndexReservation(this, _nextIndex);
+        return new ReplicaIndexReservation(this, holder, _nextIndex);
     }
 
     internal void Complete(ulong index, bool appended)
     {
-        try
-        {
-            if (index != _nextIndex)
-                throw new InvalidOperationException("Replica log-index reservation no longer matches the next index.");
-            if (!appended)
-                return;
-            if (_nextIndex == ulong.MaxValue)
-                throw new InvalidOperationException("Replica log index is exhausted.");
+        if (index != _nextIndex)
+            throw new InvalidOperationException("Replica log-index reservation no longer matches the next index.");
+        if (!appended)
+            return;
+        if (_nextIndex == ulong.MaxValue)
+            throw new InvalidOperationException("Replica log index is exhausted.");
 
-            _nextIndex++;
-        }
-        finally
-        {
-            _ = _gate.Release();
-        }
+        _nextIndex++;
     }
 }

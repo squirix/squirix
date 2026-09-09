@@ -61,6 +61,24 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(DefaultCancellationToken));
     }
 
+    /// <summary>Completion for a foreign index is refused without touching the next index.</summary>
+    [Fact]
+    public void CompleteForeignIndexThrows()
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        var state = (sequencer, index: 999UL);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+    }
+
+    /// <summary>The final index cannot complete an append; the boundary stays refused.</summary>
+    [Fact]
+    public void CompleteFinalIndexAppendThrows()
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
+        var state = (sequencer, index: ulong.MaxValue);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+    }
+
     /// <summary>Capacity and stripe leases are released after completion and cancellation.</summary>
     [Fact]
     public async Task CancelledMutationReleasesKeyGate()
