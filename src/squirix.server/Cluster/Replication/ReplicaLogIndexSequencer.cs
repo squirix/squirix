@@ -25,6 +25,12 @@ internal sealed class ReplicaLogIndexSequencer : IDisposable
     internal async ValueTask<ReplicaIndexReservation> ReserveAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (_nextIndex == ulong.MaxValue)
+        {
+            _ = _gate.Release();
+            throw new InvalidOperationException("Replica log index is exhausted.");
+        }
+
         return new ReplicaIndexReservation(this, _nextIndex);
     }
 
