@@ -44,11 +44,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// Ensures canceling a ack after its batch was taken but before flush completion does not
-    /// return the pooled ack early and poison later durability waits.
+    /// Ensures canceling an ack after its batch was taken but before flush completion does not
+    /// break the in-flight batch or later durability waits.
     /// </summary>
     [Fact]
-    public async Task CancelInFlightBatchSparesPool()
+    public async Task CancelInFlightBatchKeepsCommitsUsable()
     {
         var options = new PersistenceOptions
         {
@@ -90,6 +90,9 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(first.IsCanceled);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.True(third.IsCompletedSuccessfully);
+        Assert.True(fourth.IsCompletedSuccessfully);
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);

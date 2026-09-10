@@ -79,38 +79,22 @@ internal sealed class JournalDurabilityCoordinator
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
-        var begin = DurabilityAck.Rent();
-        try
-        {
-            var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = JournalWorkItem.MaintenanceBegin(begin);
-            await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
+        var begin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var beginItem = JournalWorkItem.MaintenanceBegin(begin);
+        await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
-            await beginWaitTask.ConfigureAwait(false);
-            await action(cancellationToken).ConfigureAwait(false);
+        await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await action(cancellationToken).ConfigureAwait(false);
 
-            var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-            var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
+        var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
 
-            var end = DurabilityAck.Rent();
-            try
-            {
-                var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
-                await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+        var end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
+        await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
-                await endWaitTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                end.ReturnToPool();
-            }
-        }
-        finally
-        {
-            begin.ReturnToPool();
-        }
+        await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
@@ -167,20 +151,19 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
-    private void DetachDurabilityAck(DurabilityAck ack) => _ = _owner.DurabilityAcks.Remove(ack);
+    private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
 
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var ack = DurabilityAck.Rent();
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _owner.DurabilityAcks.Add(ack);
 
         try
         {
-            var ackWaitTask = ack.AwaitAsync(cancellationToken);
             var item = JournalWorkItem.DurabilityCheckpoint(ack);
             await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 
-            await ackWaitTask.ConfigureAwait(false);
+            await ack.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             ThrowIfJournalThreadFailed();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -191,11 +174,10 @@ internal sealed class JournalDurabilityCoordinator
         finally
         {
             DetachDurabilityAck(ack);
-            ack.ReturnToPool();
         }
     }
 
-    private void RemoveDurabilityAck(DurabilityAck ack, CancellationToken cancellationToken)
+    private void RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
     {
         if (!_owner.DurabilityAcks.Remove(ack))
             return;
