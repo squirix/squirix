@@ -437,19 +437,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
 
                 var startedMs = Environment.TickCount64;
-                var ack = DurabilityAck.Rent();
-                try
-                {
-                    var ackWaitTask = ack.AwaitAsync(CancellationToken.None);
-                    await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
-                    if (idempotencyStamped)
-                        RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
-                    await ackWaitTask.ConfigureAwait(false);
-                }
-                finally
-                {
-                    ack.ReturnToPool();
-                }
+                var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
+                if (idempotencyStamped)
+                    RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+                await ack.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
@@ -490,8 +482,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
-            var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? DurabilityAck.Rent() : null;
-            var appendWaitTask = appendAck?.AwaitAsync(CancellationToken.None) ?? default;
+            var appendAck = _owner.Options.IsJournalGroupCommitEnabled
+                ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+                : null;
             var enqueued = false;
             try
             {
@@ -499,27 +492,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
                 enqueued = true;
                 if (appendAck != null)
-                {
-                    try
-                    {
-                        await appendWaitTask.ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        appendAck.ReturnToPool();
-                    }
-                }
+                    await appendAck.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch when (!enqueued)
             {
                 ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                appendAck?.ReturnToPool();
                 _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
                 throw;
             }
         }
 
-        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, DurabilityAck ack, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, TaskCompletionSource ack, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
             var enqueued = false;

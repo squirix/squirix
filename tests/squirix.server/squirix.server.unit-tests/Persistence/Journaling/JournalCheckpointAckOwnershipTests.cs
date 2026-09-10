@@ -1,4 +1,3 @@
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
@@ -40,18 +39,15 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         await journal.WaitForStartupAsync(DefaultCancellationToken);
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
 
-        var registered = DurabilityAck.Rent();
-        var registeredWait = registered.AwaitAsync(CancellationToken.None);
+        var registered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         coordinator.DurabilityAcks.Add(registered);
 
         // A later caller registers and enqueues its own checkpoint; processing it must not touch
         // the ack registered above.
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        Assert.False(registeredWait.IsCompleted);
+        Assert.False(registered.Task.IsCompleted);
 
         _ = coordinator.DurabilityAcks.Remove(registered);
-        registered.MarkAbandonedByCaller();
-        registered.ReturnToPool();
     }
 }
