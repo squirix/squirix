@@ -90,6 +90,9 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(first.IsCanceled);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.True(third.IsCompletedSuccessfully);
+        Assert.True(fourth.IsCompletedSuccessfully);
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
