@@ -172,17 +172,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
         };
 
-        internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context)
+        internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context) => context switch
         {
-            if (context != null)
+            { } ctx => ctx with
             {
-                return context with
-                {
-                    GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
-                };
-            }
-
-            return null;
-        }
+                GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
+            },
+            _ => null,
+        };
     }
 }

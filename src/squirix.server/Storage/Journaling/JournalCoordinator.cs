@@ -158,10 +158,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
-        if (Options.IsJournalGroupCommitEnabled)
-            return _appendPipeline.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken);
-
-        return _appendPipeline.AppendRecordWithDurabilityCoreAsync(_appendPipeline.AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
+        return Options.IsJournalGroupCommitEnabled ? _appendPipeline.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken)
+            : _appendPipeline.AppendRecordWithDurabilityCoreAsync(_appendPipeline.AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }
 
     public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
@@ -459,7 +457,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         /// <param name="record">The record about to be encoded and enqueued.</param>
         /// <returns>
         /// <see langword="true" /> when the record was stamped from the ambient scope. The caller reports it via
-        /// <see cref="RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped"/> only after the frame is
+        /// <see cref="RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped" /> only after the frame is
         /// successfully enqueued: a failure before enqueue (encode, gate, or ring) leaves the idempotency
         /// reservation retryable instead of pinning it as outcome-unknown.
         /// </returns>

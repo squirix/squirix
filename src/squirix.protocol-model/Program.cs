@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -9,6 +11,14 @@ namespace Squirix.ProtocolModel;
 /// <summary>CLI entry point for the Raft-equivalent protocol safety explorer.</summary>
 public static class Program
 {
+    private static readonly FrozenDictionary<string, BrokenMode> BrokenModeMap = new Dictionary<string, BrokenMode>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["none"] = BrokenMode.None,
+        ["vote"] = BrokenMode.Vote,
+        ["current-term-commit"] = BrokenMode.CurrentTermCommit,
+        ["read-index"] = BrokenMode.ReadIndex,
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Runs the explorer CLI.</summary>
     /// <param name="args">CLI arguments.</param>
     /// <returns>Process exit code.</returns>
@@ -28,19 +38,8 @@ public static class Program
 
     private static BrokenMode ParseBroken(string value)
     {
-        if (string.Equals(value, "none", StringComparison.OrdinalIgnoreCase))
-            return BrokenMode.None;
-
-        if (string.Equals(value, "vote", StringComparison.OrdinalIgnoreCase))
-            return BrokenMode.Vote;
-
-        if (string.Equals(value, "current-term-commit", StringComparison.OrdinalIgnoreCase))
-            return BrokenMode.CurrentTermCommit;
-
-        if (string.Equals(value, "read-index", StringComparison.OrdinalIgnoreCase))
-            return BrokenMode.ReadIndex;
-
-        throw new ArgumentOutOfRangeException(nameof(value), value, "Expected none|vote|current-term-commit|read-index.");
+        const string message = "Expected none|vote|current-term-commit|read-index.";
+        return BrokenModeMap.TryGetValue(value, out var mode) ? mode : throw new ArgumentOutOfRangeException(nameof(value), value, message);
     }
 
     private static string RequireValue(string[] args, string flag, ref int index)

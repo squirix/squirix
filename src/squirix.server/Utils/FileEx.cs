@@ -126,13 +126,14 @@ internal static class FileEx
     /// </remarks>
     private static int CloseOnExecFlag()
     {
-        if (OperatingSystem.IsLinux())
-            return LinuxCloseOnExec;
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-            return DarwinCloseOnExec;
-        if (OperatingSystem.IsFreeBSD())
-            return FreeBsdCloseOnExec;
-        return 0;
+        var isApple = OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
+        return true switch
+        {
+            _ when OperatingSystem.IsLinux() => LinuxCloseOnExec,
+            _ when isApple => DarwinCloseOnExec,
+            _ when OperatingSystem.IsFreeBSD() => FreeBsdCloseOnExec,
+            _ => 0,
+        };
     }
 
     private static SafeFileHandle OpenDirectoryForFlush(string directory)

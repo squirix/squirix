@@ -23,7 +23,7 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
         {
             await log.OpenAsync(DefaultCancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            var granted = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
+            var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
             Assert.True(granted.Granted);
         }
 
@@ -33,11 +33,11 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
         Assert.Equal(2UL, status.CurrentTerm);
         Assert.Equal("node-b", status.VotedFor);
 
-        var rival = await reopened.TryRequestVoteAsync(new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), DefaultCancellationToken);
+        var rival = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.False(rival.Granted);
         Assert.Equal(FollowerLogRefusal.AlreadyVoted, rival.RefusalCode);
 
-        var replay = await reopened.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
+        var replay = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.True(replay.Granted);
     }
 
@@ -50,9 +50,9 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
         await using (var log = OpenLog(dir))
         {
             await log.OpenAsync(DefaultCancellationToken);
-            var first = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 0UL, 0UL), DefaultCancellationToken);
+            var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 0UL, 0UL), DefaultCancellationToken);
             Assert.True(first.Granted);
-            var stepped = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), DefaultCancellationToken);
+            var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), DefaultCancellationToken);
             Assert.True(stepped.Granted);
         }
 

@@ -170,7 +170,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryRespectsExistence()
+    public async Task AddEntryAsyncKeepsExisting()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-async-entry", DefaultCancellationToken);
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
@@ -180,7 +180,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
-    public async Task TryAddAsyncValueRespectsExistence()
+    public async Task AddValueAsyncKeepsExisting()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-async-value", DefaultCancellationToken);
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
@@ -190,7 +190,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
-    public async Task TryAddEntryRespectsExistence()
+    public async Task AddEntryKeepsExisting()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-entry", DefaultCancellationToken);
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
@@ -200,7 +200,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
-    public async Task TryAddValueRespectsExistence()
+    public async Task AddValueKeepsExisting()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-value", DefaultCancellationToken);
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));

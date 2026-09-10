@@ -63,7 +63,7 @@ internal static class ConsumerPortSlicer
     {
         for (var index = 0; index < SliceCount; index++)
         {
-            var lockStream = TryOpenSliceLock(index);
+            var lockStream = OpenSliceLock(index);
             if (lockStream != null)
                 return (index, lockStream);
         }
@@ -78,7 +78,7 @@ internal static class ConsumerPortSlicer
     /// <summary>Attempts to claim a slice by opening its lock file with exclusive sharing.</summary>
     /// <param name="sliceIndex">Index of the slice to claim.</param>
     /// <returns>The held lock handle, or <see langword="null" /> when another process owns the slice.</returns>
-    private static SafeFileHandle? TryOpenSliceLock(int sliceIndex)
+    private static SafeFileHandle? OpenSliceLock(int sliceIndex)
     {
         try
         {

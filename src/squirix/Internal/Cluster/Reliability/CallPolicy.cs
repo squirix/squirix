@@ -269,13 +269,12 @@ internal sealed class CallPolicy : ICallPolicy
 
         private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
         {
-            if (remaining == null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+            return remaining switch
+            {
+                null => _timeoutPerAttempt,
+                { } value when value <= TimeSpan.Zero => TimeSpan.Zero,
+                { } value => value < _timeoutPerAttempt ? value : _timeoutPerAttempt,
+            };
         }
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
@@ -342,7 +341,7 @@ internal sealed class CallPolicy : ICallPolicy
             while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
-                var outcome = await TryOneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                var outcome = await OneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
                 if (outcome.Succeeded)
                     return outcome.Value!;
 
@@ -381,32 +380,32 @@ internal sealed class CallPolicy : ICallPolicy
             throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
         }
 
-        private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<TState, T>(
+        private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             int attempt,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            var perAttempt = GetAttemptTimeoutForRemaining(budgetRemaining);
-            if (ShouldUseEffectiveTokenDirectly(budgetRemaining, perAttempt))
+            var budget = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var remaining = GetAttemptTimeoutForRemaining(budget);
+            if (ShouldUseEffectiveTokenDirectly(budget, remaining))
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
             if (effectiveToken.CanBeCanceled)
             {
-                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                    attemptCts.CancelAfter(perAttempt);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
+                if (budget == null || remaining < budget.Value)
+                    cts.CancelAfter(remaining);
 
-                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
+                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, cts.Token).ConfigureAwait(false);
             }
 
-            using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                standaloneAttemptCts.CancelAfter(perAttempt);
+            using var source = new CancellationTokenSource();
+            if (budget == null || remaining < budget.Value)
+                source.CancelAfter(remaining);
 
-            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
+            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, source.Token).ConfigureAwait(false);
         }
 
         [Immutable]

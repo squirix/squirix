@@ -73,6 +73,6 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
             "test-node",
             throttleExpectations.Instance(),
             null);
-        await new Coordinator(opt, journal, deps).TrySnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+        await new Coordinator(opt, journal, deps).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 }

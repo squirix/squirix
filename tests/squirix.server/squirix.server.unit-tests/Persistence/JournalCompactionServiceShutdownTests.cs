@@ -66,7 +66,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(DefaultCancellationToken);
-        await snapshots.TrySnapshotAsync(journal, DefaultCancellationToken);
+        await snapshots.SnapshotAsync(journal, DefaultCancellationToken);
         await maintenance.Entered.WaitAsync(DefaultCancellationToken);
         Assert.True(compaction.IsInFlight);
 

@@ -56,11 +56,12 @@ public readonly record struct CacheExpirationResult(bool Found, bool HasExpirati
     /// <exception cref="ArgumentException">Thrown when <paramref name="obj" /> is not a <see cref="TimeSpan" />.</exception>
     public int CompareTo(object? obj)
     {
-        if (obj == null)
-            return 1;
-        if (obj is TimeSpan span)
-            return CompareTo(span);
-        throw new ArgumentException("Object must be a TimeSpan.", nameof(obj));
+        return obj switch
+        {
+            null => 1,
+            TimeSpan span => CompareTo(span),
+            _ => throw new ArgumentException("Object must be a TimeSpan.", nameof(obj)),
+        };
     }
 
     private int CompareExpirationTo(TimeSpan value) => Expiration?.CompareTo(value) ?? -1;

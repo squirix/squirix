@@ -11,7 +11,7 @@ public sealed class CrudExpiryTests : ClockTestBase
 {
     /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task AddAsyncPreservesExpiryThroughPublicApi()
+    public async Task AddPreservesExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("missing-add-entry-expiration", DefaultCancellationToken);
         await cache.AddAsync("k", "v", Expiry.In(TimeSpan.FromSeconds(10)), DefaultCancellationToken);
@@ -21,7 +21,7 @@ public sealed class CrudExpiryTests : ClockTestBase
 
     /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task TryAddAsyncPreservesExpiryPublicApi()
+    public async Task AddAbsentPreservesExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
         var added = await cache.TryAddAsync("k", "v", Expiry.In(TimeSpan.FromSeconds(10)), DefaultCancellationToken);

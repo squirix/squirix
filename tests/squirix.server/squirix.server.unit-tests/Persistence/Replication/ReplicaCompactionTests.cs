@@ -359,7 +359,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         // The durability layer holds the log open with FileShare.Read, so a share-compatible handle is required.
         using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var content = new byte[RandomAccess.GetLength(handle)];
-        return await HandleEx.TryReadExactAsync(handle, content, 0, DefaultCancellationToken).ConfigureAwait(false) != null
+        return await HandleEx.ReadExactAsync(handle, content, 0, DefaultCancellationToken).ConfigureAwait(false) != null
             ? content
             : throw new InvalidOperationException($"Incomplete read of '{path}'.");
     }

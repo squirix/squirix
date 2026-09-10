@@ -109,10 +109,7 @@ internal sealed class JournalDurabilityGroupCommit
                 return Timeout.Infinite;
 
             var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
-            if (remaining <= TimeSpan.Zero)
-                return 0;
-
-            return Convert.ToInt32(Math.Min(remaining.TotalMilliseconds, int.MaxValue));
+            return remaining <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(remaining.TotalMilliseconds, int.MaxValue));
         }
     }
 

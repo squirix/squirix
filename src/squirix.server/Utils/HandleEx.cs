@@ -51,7 +51,7 @@ internal static class HandleEx
     /// <param name="offset">The file offset to start reading at.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The end offset on success; <see langword="null" /> when the file ends before the buffer is filled.</returns>
-    internal static async ValueTask<long?> TryReadExactAsync(SafeFileHandle handle, Memory<byte> buffer, long offset, CancellationToken cancellationToken)
+    internal static async ValueTask<long?> ReadExactAsync(SafeFileHandle handle, Memory<byte> buffer, long offset, CancellationToken cancellationToken)
     {
         var total = 0;
         while (total < buffer.Length)

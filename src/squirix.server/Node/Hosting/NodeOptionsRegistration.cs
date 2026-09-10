@@ -118,7 +118,7 @@ internal static class NodeOptionsRegistration
         /// <returns>Loaded snapshot trigger options.</returns>
         internal static async Task<TriggerOptions> LoadAsync(CancellationToken cancellationToken = default)
         {
-            var (_, fileMerged) = await UnifiedSettings.TryMergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
+            var (_, fileMerged) = await UnifiedSettings.MergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
             return fileMerged;
         }
     }

@@ -53,7 +53,7 @@ internal sealed class Coordinator
 
     internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
 
-    internal async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
+    internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         if (!_triggerState.ShouldTrigger(DateTime.UtcNow, IsInFlight))
             return;
@@ -126,7 +126,7 @@ internal sealed class Coordinator
         {
             Format = prev.Format,
 
-            // The publish runs outside the mutation-gate barrier, so prev.CurrentJournal can skew
+            // The publishing runs outside the mutation-gate barrier, so prev.CurrentJournal can skew
             // either way: a roll whose manifest publish is still queued leaves it behind the
             // captured segment, while a roll published during the file write moves it ahead.
             // Persist the monotonic maximum so the manifest never moves CurrentJournal backward
@@ -223,30 +223,24 @@ internal sealed class Coordinator
         {
             lock (_gate)
             {
-                if (IsBlockedFromTriggering(utcNow, isInFlight))
-                    return false;
-
                 var opsDelta = _journal.AppendedOps - _opsAtLast;
                 var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
-                if (_opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes)
-                    return false;
-
-                return MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+                var blocked = IsBlockedFromTriggering(utcNow, isInFlight);
+                var throttled = _opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes;
+                return !blocked && !throttled && MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
             }
         }
 
         private bool IsBlockedFromTriggering(DateTime utcNow, bool isInFlight)
         {
-            if (_latencyThrottledUntilUtc > utcNow)
-                return true;
-
-            if (ShouldEnterLatencyThrottle(utcNow))
-                return true;
-
-            if (_lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots)
-                return true;
-
-            return isInFlight;
+            var isWithinMinGap = _lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots;
+            return true switch
+            {
+                _ when _latencyThrottledUntilUtc > utcNow => true,
+                _ when ShouldEnterLatencyThrottle(utcNow) => true,
+                _ when isWithinMinGap => true,
+                _ => isInFlight,
+            };
         }
 
         private bool MeetsAnyTriggerThreshold(DateTime utcNow, long opsDelta, long bytesDelta)

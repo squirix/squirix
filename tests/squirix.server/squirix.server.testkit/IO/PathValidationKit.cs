@@ -71,10 +71,9 @@ public static class PathValidationKit
             return false;
 
         var prefix = name[..3];
-        if (!prefix.Equals("COM", StringComparison.OrdinalIgnoreCase) && !prefix.Equals("LPT", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+        var isSerialPort = prefix.Equals("COM", StringComparison.OrdinalIgnoreCase) || prefix.Equals("LPT", StringComparison.OrdinalIgnoreCase);
+        var isPortNumber = int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+        return isSerialPort && isPortNumber;
     }
 
     private static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)

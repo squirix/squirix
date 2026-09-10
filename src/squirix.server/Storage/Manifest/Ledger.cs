@@ -62,10 +62,7 @@ internal sealed class Ledger : IDisposable
     internal async Task<State> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (TryGetCachedCurrent(out var cached))
-            return cached;
-
-        return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
+        return TryGetCachedCurrent(out var cached) ? cached : await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
@@ -101,12 +98,7 @@ internal sealed class Ledger : IDisposable
     private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
     {
         lock (_cacheSync)
-        {
-            if (!_index.IsInitialized)
-                return (new State(), ReadOnlyMemory<byte>.Empty);
-
-            return (_index.Current, _index.SnapshotPathUtf8);
-        }
+            return !_index.IsInitialized ? (new State(), ReadOnlyMemory<byte>.Empty) : (_index.Current, _index.SnapshotPathUtf8);
     }
 
     private void SetCache(State manifest, int index)

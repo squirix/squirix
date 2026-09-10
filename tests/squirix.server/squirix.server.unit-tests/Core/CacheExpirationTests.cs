@@ -46,7 +46,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     /// based on expiration and/or absolute expiration configuration.
     /// </summary>
     /// <param name="expirationMs">expiration in milliseconds (nullable).</param>
-    /// <param name="expiresMs">Absolute expiration in milliseconds relative to now (nullable).</param>
+    /// <param name="expiresMs">Absolute expiration in milliseconds relative now (nullable).</param>
     /// <param name="shouldStillExist">Expected presence of the entry after the delay.</param>
     [Theory]
     [InlineData(null, null, true)]
@@ -88,7 +88,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
 
     /// <summary>Verifies TryAddAsync stores absolute expiration metadata that GetEntryAsync can read back.</summary>
     [Fact]
-    public async Task TryAddAsyncPreservesAbsoluteExpiration()
+    public async Task AddPreservesAbsoluteExpiry()
     {
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider);
@@ -108,7 +108,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
 
     /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
     [Fact]
-    public async Task TryAddSucceedsWhenExistingEntryExpired()
+    public async Task AddReplacesExpiredEntry()
     {
         var timeProvider = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(timeProvider);

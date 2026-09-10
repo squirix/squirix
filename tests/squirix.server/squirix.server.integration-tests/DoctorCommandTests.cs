@@ -38,7 +38,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken);
         var dataDir = Path.Join(dir.Path, "data");
         _ = Directory.CreateDirectory(dataDir);
-        var options = await Configurator.LoadFromFileAsync(settingsPath, DefaultCancellationToken);
+        var options = await Configurator.LoadAsync(settingsPath, DefaultCancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
         var expectedHex = expected.ToString();
         var wrong = new byte[expected.Bytes.Length];
@@ -64,7 +64,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken);
         var dataDir = Path.Join(dir.Path, "data");
         _ = Directory.CreateDirectory(dataDir);
-        var options = await Configurator.LoadFromFileAsync(settingsPath, DefaultCancellationToken);
+        var options = await Configurator.LoadAsync(settingsPath, DefaultCancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
         var expectedBytes = new byte[expected.Bytes.Length];
         expected.Bytes.CopyTo(expectedBytes);

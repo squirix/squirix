@@ -132,7 +132,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         var selfNodeId = FindSelfNodeId(peers, canonicalUri) ??
                          ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
 
-        var clusterConfig = new TopologyOptions(peers)
+        var config = new TopologyOptions(peers)
         {
             NodeId = selfNodeId,
             Uri = canonicalUri,
@@ -144,7 +144,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
         PersistenceOptions? persistenceOptionsOverride = null;
-        var dataDir = string.Empty;
+        var dir = string.Empty;
         if (options.UsePersistence || options.PersistenceOptions != null)
         {
             persistenceOptionsOverride = await GetPersistenceOptionsAsync(
@@ -152,35 +152,32 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 selfNodeId,
                 BuildTestScope(scopeName, options.ExtraScope),
                 options.CleanTestDir);
-            dataDir = persistenceOptionsOverride.DataDir;
+            dir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, DefaultCancellationToken);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, config, canonicalUri, DefaultCancellationToken);
 
-        var application = await NodeHost.StartAsync(
-            clusterConfig,
-            new NodeHostStartOptions
+        var startOptions = new NodeHostStartOptions
+        {
+            ConfigureLogging = static b =>
             {
-                ConfigureLogging = static b =>
-                {
-                    _ = b.ClearProviders();
-                    _ = b.SetMinimumLevel(LogLevel.Debug);
-                    _ = b.AddFilter("Grpc", LogLevel.Debug);
-                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                    _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = b.AddConsole().AddDebug();
-                },
-                WaitForRecovery = options.WaitForRecovery,
-                ServicesConfigure = options.ServicesConfigure,
-                PersistenceOptions = persistenceOptionsOverride,
-                SecurityOptions = options.Security?.ToServerOptions(),
-                MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
-                FoundationOnly = options.FoundationOnly,
+                _ = b.ClearProviders();
+                _ = b.SetMinimumLevel(LogLevel.Debug);
+                _ = b.AddFilter("Grpc", LogLevel.Debug);
+                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
+                _ = b.AddFilter("Squirix", LogLevel.Debug);
+                _ = b.AddConsole().AddDebug();
             },
-            DefaultCancellationToken);
-
-        return new TestNodeHost(application, canonicalUri, dataDir, persistenceOptionsOverride != null);
+            WaitForRecovery = options.WaitForRecovery,
+            ServicesConfigure = options.ServicesConfigure,
+            PersistenceOptions = persistenceOptionsOverride,
+            SecurityOptions = options.Security?.ToServerOptions(),
+            MtlsOptions = mtlsOptions,
+            MtlsMaterial = mtlsMaterial,
+            FoundationOnly = options.FoundationOnly,
+        };
+        var application = await NodeHost.StartAsync(config, startOptions, DefaultCancellationToken);
+        return new TestNodeHost(application, canonicalUri, dir, persistenceOptionsOverride != null);
     }
 
     /// <summary>Allocates a dedicated port reserved for the lifetime of the test process.</summary>
@@ -256,8 +253,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     private static string BuildTestScope(string? testName, string? extra)
     {
-        var baseName = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
-        var scope = string.IsNullOrWhiteSpace(extra) ? baseName : $"{baseName}__{extra}";
+        var name = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
+        var scope = string.IsNullOrWhiteSpace(extra) ? name : $"{name}__{extra}";
 
         var tfm = AppContext.TargetFrameworkName;
         if (!string.IsNullOrWhiteSpace(tfm))
@@ -321,19 +318,19 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 }
             }
 
-            var effectiveDataDir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
-            Directory.CreateDirectory(effectiveDataDir);
+            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
+            Directory.CreateDirectory(dir);
 
-            if (options == null)
+            return options switch
             {
-                return new PersistenceOptions
+                null => new PersistenceOptions
                 {
-                    DataDir = effectiveDataDir,
+                    DataDir = dir,
                     JournalMaxSegmentMb = 64,
-                };
-            }
-
-            return string.IsNullOrWhiteSpace(options.DataDir) ? options with { DataDir = effectiveDataDir } : options;
+                },
+                _ when string.IsNullOrWhiteSpace(options.DataDir) => options with { DataDir = dir },
+                _ => options,
+            };
         }
         finally
         {

@@ -28,8 +28,7 @@ internal static class PointerFile
         return ReadIndex(handle, path);
     }
 
-    private static SafeFileHandle Open(string path) =>
-        File.OpenHandle(path, FileMode.Open, FileAccess.Read, CompatibleShare, FileOptions.SequentialScan);
+    private static SafeFileHandle Open(string path) => File.OpenHandle(path, FileMode.Open, FileAccess.Read, CompatibleShare, FileOptions.SequentialScan);
 
     private static int ReadIndex(SafeFileHandle handle, string path)
     {
@@ -39,12 +38,13 @@ internal static class PointerFile
 
         Span<byte> local = stackalloc byte[Pointer.Size];
         var read = RandomAccess.Read(handle, local, 0);
-        if (read != Pointer.Size)
-            throw new InvalidDataException($"Manifest current pointer is truncated ({read} bytes): {path}");
-
-        if (!Pointer.IsValidPointer(local))
-            throw new InvalidDataException($"Manifest current pointer is invalid: {path}");
-
-        return Pointer.Read(local);
+        var isTruncated = read != Pointer.Size;
+        var isInvalid = !Pointer.IsValidPointer(local);
+        return (isTruncated, isInvalid) switch
+        {
+            (true, _) => throw new InvalidDataException($"Manifest current pointer is truncated ({read} bytes): {path}"),
+            (false, true) => throw new InvalidDataException($"Manifest current pointer is invalid: {path}"),
+            (false, false) => Pointer.Read(local),
+        };
     }
 }

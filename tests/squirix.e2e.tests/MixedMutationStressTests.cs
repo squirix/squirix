@@ -145,15 +145,14 @@ public sealed class MixedMutationStressTests : LoadTestBase
 
         private static double ResolveScale()
         {
-            var raw = Environment.GetEnvironmentVariable(ScaleVariable);
-            if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0d)
-                return parsed;
-
 #if DEBUG
-            return 0.1d;
+            const double defaultScale = 0.1d;
 #else
-            return 1d;
+            const double defaultScale = 1d;
 #endif
+            var rawScale = Environment.GetEnvironmentVariable(ScaleVariable);
+            _ = double.TryParse(rawScale, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed);
+            return parsed > 0d ? parsed : defaultScale;
         }
     }
 

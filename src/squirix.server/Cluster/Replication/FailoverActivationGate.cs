@@ -19,7 +19,7 @@ internal static class FailoverActivationGate
 {
     /// <summary>Checks whether the node may start an election under explicit failover activation.</summary>
     /// <param name="replicaCount">The configured replica factor, including the leader.</param>
-    /// <param name="automaticFailoverEnabled">The explicit post-proof failover switch.</param>
+    /// <param name="failoverEnabled">The explicit post-proof failover switch.</param>
     /// <param name="hasMajorityContact">Whether the node recently contacted a majority.</param>
     /// <param name="logCaughtUp">Whether the rejoining log reached the leader commit index.</param>
     /// <param name="currentTerm">The locally persisted current term.</param>
@@ -27,31 +27,22 @@ internal static class FailoverActivationGate
     /// <returns>The election eligibility verdict.</returns>
     internal static FailoverEligibilityVerdict CheckElection(
         int replicaCount,
-        bool automaticFailoverEnabled,
+        bool failoverEnabled,
         bool hasMajorityContact,
         bool logCaughtUp,
         ulong currentTerm,
         ulong observedTerm)
     {
-        if (replicaCount <= 1)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.SingleNode);
-
-        if (replicaCount == 2)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.ReplicaFactorTooLow);
-
-        if (!automaticFailoverEnabled)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.Disabled);
-
-        if (observedTerm > currentTerm)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.StaleTerm);
-
-        if (!hasMajorityContact)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.NoMajority);
-
-        if (!logCaughtUp)
-            return new FailoverEligibilityVerdict(false, FailoverDenial.LogNotCaughtUp);
-
-        return new FailoverEligibilityVerdict(true, FailoverDenial.None);
+        return replicaCount switch
+        {
+            <= 1 => new FailoverEligibilityVerdict(false, FailoverDenial.SingleNode),
+            2 => new FailoverEligibilityVerdict(false, FailoverDenial.ReplicaFactorTooLow),
+            _ when !failoverEnabled => new FailoverEligibilityVerdict(false, FailoverDenial.Disabled),
+            _ when observedTerm > currentTerm => new FailoverEligibilityVerdict(false, FailoverDenial.StaleTerm),
+            _ when !hasMajorityContact => new FailoverEligibilityVerdict(false, FailoverDenial.NoMajority),
+            _ when !logCaughtUp => new FailoverEligibilityVerdict(false, FailoverDenial.LogNotCaughtUp),
+            _ => new FailoverEligibilityVerdict(true, FailoverDenial.None),
+        };
     }
 
     /// <summary>Checks whether a quorum read may be served under explicit quorum-read activation.</summary>
@@ -72,9 +63,8 @@ internal static class FailoverActivationGate
         ulong observedTerm,
         LeaderReadState read)
     {
-        if (!quorumReadsEnabled)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.QuorumNotConfirmed);
-
-        return LeaderAuthorityGate.CheckRead(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm, read);
+        const LeaderAuthorityDenial denial = LeaderAuthorityDenial.QuorumNotConfirmed;
+        return quorumReadsEnabled ? LeaderAuthorityGate.CheckRead(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm, read)
+            : new LeaderAuthorityDecision(false, denial);
     }
 }

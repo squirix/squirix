@@ -15,12 +15,13 @@ internal static class DateTimeEx
     /// <returns>The saturated result.</returns>
     internal static DateTime SaturatedAdd(this DateTime value, TimeSpan delta)
     {
-        if (delta > TimeSpan.Zero && delta > DateTime.MaxValue - value)
-            return DateTime.MaxValue;
-
-        if (delta < TimeSpan.Zero && delta < DateTime.MinValue - value)
-            return DateTime.MinValue;
-
-        return value.Add(delta);
+        var exceedsMax = delta > TimeSpan.Zero && delta > DateTime.MaxValue - value;
+        var exceedsMin = delta < TimeSpan.Zero && delta < DateTime.MinValue - value;
+        return (exceedsMax, exceedsMin) switch
+        {
+            (true, _) => DateTime.MaxValue,
+            (false, true) => DateTime.MinValue,
+            (false, false) => value.Add(delta),
+        };
     }
 }

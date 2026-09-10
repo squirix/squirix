@@ -239,11 +239,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return (false, default);
 
         UntrackLocked(node);
-
-        if (node.ExpiresUtc is { } expires && expires <= UtcNow)
-            return (false, default);
-
-        return (true, node.Value);
+        var expired = node.ExpiresUtc is { } expires && expires <= UtcNow;
+        return expired ? (false, default) : (true, node.Value);
     }
 
     private void TouchOrderLocked(CacheKey key, Node node)

@@ -13,40 +13,16 @@ internal static class InvariantDigitStrings
 
     internal static string Format(double value) => value.ToString("G17", CultureInfo.InvariantCulture);
 
-    internal static string Format(int value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[value];
+    internal static string Format(int value) => value is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[value] : value.ToString(CultureInfo.InvariantCulture);
 
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    internal static string Format(long value) => value is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(value)] : value.ToString(CultureInfo.InvariantCulture);
 
-    internal static string Format(long value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[Convert.ToInt32(value)];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
-
-    internal static string Format(ulong value)
-    {
-        if (value < CachedNonNegativeCount)
-            return CachedNonNegative[Convert.ToInt32(value)];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    internal static string Format(ulong value) => value < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(value)] : value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Formats <paramref name="value" /> as a zero-padded D6 string (journal/snapshot segment indexes).</summary>
     /// <param name="value">The value to format.</param>
     /// <returns>A D6 invariant digit string.</returns>
-    internal static string FormatD6(int value)
-    {
-        if (value is >= 0 and < CachedD6Count)
-            return CachedD6[value];
-
-        return value.ToString("D6", CultureInfo.InvariantCulture);
-    }
+    internal static string FormatD6(int value) => value is >= 0 and < CachedD6Count ? CachedD6[value] : value.ToString("D6", CultureInfo.InvariantCulture);
 
     /// <summary>Builds <c language="csharp">https://{host}:{port}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>

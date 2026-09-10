@@ -35,13 +35,12 @@ internal static class ServerProtoEx
 
     internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
     {
-        if (typeof(T) == typeof(object))
-            return new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value)));
-
-        if (TryDecodeExactWirePrimitive(value, out T? exact))
-            return new ValueTask<T?>(exact);
-
-        return FinishMapCacheValueAfterExactMissAsync<T>(value);
+        return true switch
+        {
+            _ when typeof(T) == typeof(object) => new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value))),
+            _ when TryDecodeExactWirePrimitive(value, out T? exact) => new ValueTask<T?>(exact),
+            _ => FinishMapCacheValueAfterExactMissAsync<T>(value),
+        };
     }
 
     internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
@@ -92,31 +91,26 @@ internal static class ServerProtoEx
     private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire)
     {
         var kind = wire.KindCase;
-        if (kind == CacheValue.KindOneofCase.NullValue || kind == CacheValue.KindOneofCase.None)
-            return new ValueTask<T?>(default(T?));
-
-        if (kind == CacheValue.KindOneofCase.StructValue)
+        return kind switch
         {
-            if (wire.StructValue == null)
-                throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
-
-            return new ValueTask<T?>(FromStruct<T>(wire.StructValue));
-        }
-
-        if (IsWireScalarKind(kind))
-            return new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire)));
-
-        throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind.");
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
+            CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct<T>(structValue)),
+            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
+            _ when IsWireScalarKind(kind) => new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire))),
+            _ => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
+        };
     }
 
     private static T? FromStruct<T>(Struct s)
     {
         if (typeof(T) != typeof(object))
         {
-            if (s.Fields.Count != 1 || !s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped))
-                return DeserializeFromProtoValue<T>(Value.ForStruct(s));
-
-            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
+            var value = s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped) ? onlyWrapped : null;
+            return value switch
+            {
+                null => DeserializeFromProtoValue<T>(Value.ForStruct(s)),
+                { } wrapped => TryReadScalarValue<T>(wrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(wrapped),
+            };
         }
 
         if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var only))

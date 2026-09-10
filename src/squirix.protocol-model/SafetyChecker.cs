@@ -9,11 +9,8 @@ internal static class SafetyChecker
 {
     private const string ReadIndexInvariant = "ReadIndex";
 
-    internal static SafetyViolation? Check(ClusterState state, BrokenMode broken)
-    {
-        _ = broken;
-        return CheckElectionSafety(state) ?? CheckCommittedSurvives(state) ?? CheckCurrentTermCommit(state) ?? CheckReadIndex(state);
-    }
+    internal static SafetyViolation? Check(ClusterState state) =>
+        CheckElectionSafety(state) ?? CheckCommittedSurvives(state) ?? CheckCurrentTermCommit(state) ?? CheckReadIndex(state);
 
     internal static string FormatCounterexampleJson(SafetyViolation violation, ClusterState state, IReadOnlyList<string>? counterexamplePath)
     {
@@ -161,13 +158,15 @@ internal static class SafetyChecker
             return new SafetyViolation(ReadIndexInvariant, "Read ready without pending read index", state.Fingerprint(false));
 
         var majority = (state.Nodes.Count / 2) + 1;
-        if (VoteMask.CountGranted(node.ReadAcks) < majority)
-            return new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", state.Fingerprint(false));
-
-        if (node.AppliedIndex < node.ReadIndex)
-            return new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", state.Fingerprint(false));
-
-        return null;
+        var quorumUnconfirmed = VoteMask.CountGranted(node.ReadAcks) < majority;
+        var notApplied = node.AppliedIndex < node.ReadIndex;
+        var fingerprint = state.Fingerprint(false);
+        return (quorumUnconfirmed, notApplied) switch
+        {
+            (true, _) => new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", fingerprint),
+            (false, true) => new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", fingerprint),
+            (false, false) => null,
+        };
     }
 
     private static SafetyViolation? CheckStateMachineSafety(ClusterState state)

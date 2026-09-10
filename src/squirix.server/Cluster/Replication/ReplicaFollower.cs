@@ -29,30 +29,22 @@ internal sealed class ReplicaFollower
     }
 
     /// <summary>Advances a group commit index after agreement checks.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <param name="fingerprint">Leader topology fingerprint.</param>
-    /// <param name="generation">Leader configuration generation.</param>
-    /// <param name="commitIndex">Target commit index.</param>
-    /// <param name="leaderTerm">Leader term authorizing the advance; stale terms are refused.</param>
+    /// <param name="id">Replica group identifier.</param>
+    /// <param name="fp">Leader topology fp.</param>
+    /// <param name="gen">Leader configuration gen.</param>
+    /// <param name="commit">Target commit index.</param>
+    /// <param name="leader">Leader term authorizing the advance; stale terms are refused.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The commit advance outcome.</returns>
-    internal async Task<FollowerLogCommitResult> AdvanceCommitAsync(
-        string groupId,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        ulong commitIndex,
-        ulong leaderTerm,
-        CancellationToken cancellationToken)
+    internal async Task<FollowerLogCommitResult> AdvanceCommitAsync(string id, ReadOnlyMemory<byte> fp, ulong gen, ulong commit, ulong leader, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        if (!TryGetLog(groupId, out var log))
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (!TryGetLog(id, out var log))
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotMember, 0);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (TopologyMismatch(in status, fingerprint, generation) is { } refusal)
-            return new FollowerLogCommitResult(false, refusal, status.CommitIndex);
-
-        return await log.AdvanceCommitAsync(commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
+        var miss = TopologyMismatch(in status, fp, gen);
+        return miss != null ? new FollowerLogCommitResult(false, miss, status.CommitIndex) : await log.AdvanceCommitAsync(commit, leader, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Appends leader entries to a group log after agreement checks.</summary>
@@ -102,10 +94,7 @@ internal sealed class ReplicaFollower
     internal async ValueTask<FollowerLogStatus?> GetStatusAsync(string groupId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        if (!TryGetLog(groupId, out var log))
-            return null;
-
-        return await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        return !TryGetLog(groupId, out var log) ? null : await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Installs a leader snapshot into a group log after agreement checks.</summary>
@@ -129,10 +118,8 @@ internal sealed class ReplicaFollower
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotMember);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (TopologyMismatch(in status, fingerprint, generation) is { } refusal)
-            return GroupSnapshotInstallResult.Refused(refusal);
-
-        return await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+        return TopologyMismatch(in status, fingerprint, generation) is { } refusal ? GroupSnapshotInstallResult.Refused(refusal)
+            : await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Installs a transferred snapshot file into a group log after agreement checks.</summary>
@@ -140,7 +127,7 @@ internal sealed class ReplicaFollower
     /// <param name="fingerprint">Leader topology fingerprint.</param>
     /// <param name="generation">Leader configuration generation.</param>
     /// <param name="upload">Reassembled snapshot file with declared framing.</param>
-    /// <param name="leaderTerm">Leader term authorizing the install.</param>
+    /// <param name="leaderTerm">Leader term authorizing the installation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The installation outcome.</returns>
     internal async Task<GroupSnapshotInstallResult> InstallSnapshotUploadAsync(
@@ -168,18 +155,16 @@ internal sealed class ReplicaFollower
             return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
 
         var storedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(upload.FileBytes.Span[^4..]);
-        if (storedChecksum != upload.DeclaredChecksum)
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-
-        return await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
+        return storedChecksum != upload.DeclaredChecksum ? GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady)
+            : await log.InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     private static string? TopologyMismatch(in FollowerLogStatus status, ReadOnlyMemory<byte> fingerprint, ulong generation)
     {
-        if (generation < status.ConfigurationGeneration || (!status.TopologyFingerprint.IsEmpty && !status.TopologyFingerprint.Span.SequenceEqual(fingerprint.Span)))
-            return FollowerLogRefusal.TopologyMismatch;
-
-        return null;
+        var isGenerationStale = generation < status.ConfigurationGeneration;
+        var isFingerprintMismatch = !status.TopologyFingerprint.IsEmpty && !status.TopologyFingerprint.Span.SequenceEqual(fingerprint.Span);
+        var isMismatch = isGenerationStale || isFingerprintMismatch;
+        return isMismatch ? FollowerLogRefusal.TopologyMismatch : null;
     }
 
     private bool TryGetLog(string groupId, [NotNullWhen(true)] out IFollowerLog? log) => _groups.TryGetLog(groupId, out log);

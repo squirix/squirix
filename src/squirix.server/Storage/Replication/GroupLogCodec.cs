@@ -24,9 +24,19 @@ namespace Squirix.Server.Storage.Replication;
 internal static class GroupLogCodec
 {
     /// <summary>Frame preamble byte count: magic(4) + version(1). The full frame header adds the 4-byte body length.</summary>
-    internal const int FramePreambleByteCount = 4 + 1;
+    internal const int FramePreambleByteCount = sizeof(uint) + sizeof(byte);
 
-    private const int FrameFixedByteCount = 8 + 8 + 4;
+    /// <summary>Fixed body byte count: logIndex(8) + term(8) + payloadLength(4).</summary>
+    private const int FrameFixedByteCount = sizeof(ulong) + sizeof(ulong) + sizeof(int);
+
+    /// <summary>Byte size of the body-length field opening every frame.</summary>
+    private const int FrameLengthFieldSize = sizeof(int);
+
+    /// <summary>Byte size of the CRC32C checksum closing every frame and metadata file.</summary>
+    private const int CrcByteCount = sizeof(uint);
+
+    /// <summary>Byte size of the length prefix framing every variable-length metadata field.</summary>
+    private const int MetaLengthPrefixSize = sizeof(int);
 
     /// <summary>Log frame magic bytes, <c language="csharp">"SQRL"</c>.</summary>
     private const uint FrameMagic = 0x4C525153u;
@@ -38,7 +48,7 @@ internal static class GroupLogCodec
     private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);
 
     /// <summary>Fixed metadata size: magic(4) + version(1) + five ulongs.</summary>
-    private const int MetaFixedByteCount = 4 + 1 + (8 * 5);
+    private const int MetaFixedByteCount = sizeof(uint) + sizeof(byte) + (sizeof(ulong) * 5);
 
     /// <summary>Metadata file magic bytes, <c language="csharp">"SQRM"</c>.</summary>
     private const uint MetaMagic = 0x4D525153u;
@@ -54,15 +64,15 @@ internal static class GroupLogCodec
     ];
 
     /// <summary>Computes the exact encoded length of a log frame.</summary>
-    /// <param name="payloadLength">The entry payload length in bytes.</param>
+    /// <param name="len">The entry payload length in bytes.</param>
     /// <returns>The encoded frame length in bytes.</returns>
     /// <exception cref="InvalidDataException">Thrown when the entry payload exceeds the maximum allowed frame body length.</exception>
-    internal static int ComputeFrameEncodedLength(int payloadLength)
+    internal static int ComputeFrameEncodedLength(int len)
     {
-        if (payloadLength > MaxFrameBodyLength - FrameFixedByteCount)
-            throw new InvalidDataException("Log frame payload exceeds the maximum allowed length and cannot be restored on read.");
-
-        return FramePreambleByteCount + 4 + FrameFixedByteCount + payloadLength + 4;
+        const string message = "Log frame payload exceeds the maximum allowed length and cannot be restored on read.";
+        return len > MaxFrameBodyLength - FrameFixedByteCount
+            ? throw new InvalidDataException(message)
+            : FramePreambleByteCount + FrameLengthFieldSize + FrameFixedByteCount + len + CrcByteCount;
     }
 
     /// <summary>Computes the encoded length of a metadata payload.</summary>
@@ -73,7 +83,7 @@ internal static class GroupLogCodec
         ArgumentNullException.ThrowIfNull(meta.GroupId);
         var groupBytes = Encoding.UTF8.GetByteCount(meta.GroupId);
         var votedBytes = Encoding.UTF8.GetByteCount(meta.VotedFor);
-        return MetaFixedByteCount + 4 + groupBytes + 4 + meta.TopologyFingerprint.Length + 4 + votedBytes + 4;
+        return MetaFixedByteCount + MetaLengthPrefixSize + groupBytes + MetaLengthPrefixSize + meta.TopologyFingerprint.Length + MetaLengthPrefixSize + votedBytes + CrcByteCount;
     }
 
     /// <summary>Encodes a single log frame (header + body + CRC) into a caller-provided buffer.</summary>
@@ -146,7 +156,7 @@ internal static class GroupLogCodec
         meta = default;
 
         // Fixed header plus three minimum length prefixes (groupId, fingerprint, votedFor).
-        if (buffer.Length < MetaFixedByteCount + 12)
+        if (buffer.Length < MetaFixedByteCount + (MetaLengthPrefixSize * 3))
             return false;
 
         // A foreign magic or a version this node cannot decode is rejected outright.
@@ -158,14 +168,12 @@ internal static class GroupLogCodec
 
         // The stored checksum covers everything after the magic, so any tampered or torn
         // metadata payload is caught before its fields are interpreted.
-        var bodyLength = buffer.Length - 4 - 1 - 4;
-        var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer[^4..]);
-        if (Crc32C.Compute(buffer.Slice(4, bodyLength + 1)) != storedCrc)
-            return false;
+        var bodyLength = buffer.Length - sizeof(uint) - sizeof(byte) - CrcByteCount;
+        var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer[^CrcByteCount..]);
 
         // Offset walks the fixed-width term/commit fields first, then the
         // length-prefixed variable fields that close the payload.
-        return TryReadMetaFields(buffer, out meta);
+        return Crc32C.Compute(buffer.Slice(4, bodyLength + 1)) == storedCrc && TryReadMetaFields(buffer, out meta);
     }
 
     /// <summary>Reads a single log frame from a buffer starting at a frame boundary.</summary>
@@ -201,7 +209,7 @@ internal static class GroupLogCodec
     internal static bool TryReadFrameHeaderLength(ReadOnlySpan<byte> header, out int frameLength)
     {
         frameLength = 0;
-        if (header.Length < FramePreambleByteCount + 4)
+        if (header.Length < FramePreambleByteCount + FrameLengthFieldSize)
             return false;
 
         if (BinaryPrimitives.ReadUInt32LittleEndian(header[..4]) != FrameMagic)
@@ -214,17 +222,17 @@ internal static class GroupLogCodec
         if (bodyLength is not (>= FrameFixedByteCount and <= MaxFrameBodyLength))
             return false;
 
-        frameLength = FramePreambleByteCount + 4 + bodyLength + 4;
+        frameLength = FramePreambleByteCount + FrameLengthFieldSize + bodyLength + CrcByteCount;
         return true;
     }
 
     private static bool IsFrameBodyLengthWithinBounds(int length, int bufferLength, int bodyStart) =>
-        length is >= FrameFixedByteCount and <= MaxFrameBodyLength && length <= bufferLength - bodyStart - 4;
+        length is >= FrameFixedByteCount and <= MaxFrameBodyLength && length <= bufferLength - bodyStart - CrcByteCount;
 
     private static bool TryReadBytes(ReadOnlySpan<byte> buffer, ref int offset, out ReadOnlyMemory<byte> value)
     {
         value = default;
-        if (buffer.Length - offset < 4)
+        if (buffer.Length - offset < MetaLengthPrefixSize)
             return false;
 
         var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
@@ -240,7 +248,7 @@ internal static class GroupLogCodec
     private static bool TryReadFixedFields(ReadOnlySpan<byte> buffer, ref int offset, out MetaFixedFields fields)
     {
         fields = default;
-        if (buffer.Length - offset < 8 * 5)
+        if (buffer.Length - offset < sizeof(ulong) * 5)
             return false;
 
         var generation = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
@@ -273,7 +281,7 @@ internal static class GroupLogCodec
         payloadLength = 0;
 
         // A frame is header(5) + length(4) + body + crc(4); anything shorter cannot be validated.
-        if (buffer.Length < FramePreambleByteCount + 4)
+        if (buffer.Length < FramePreambleByteCount + FrameLengthFieldSize)
             return false;
 
         // The magic and version guard against reading a metadata file or an unrelated format.
@@ -283,11 +291,10 @@ internal static class GroupLogCodec
         if (buffer[4] != FrameVersion)
             return false;
 
-        var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
-
-        const int bodyStart = FramePreambleByteCount + 4;
+        const int bodyStart = FramePreambleByteCount + FrameLengthFieldSize;
 
         // The declared body must hold the fixed fields, stay within the maximum bound, and leave room for the trailing crc inside the buffer.
+        var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
         if (!IsFrameBodyLengthWithinBounds(bodyLength, buffer.Length, bodyStart))
             return false;
 

@@ -69,15 +69,12 @@ public static class MachineFingerprint
 
     private static string OsFamilyToken()
     {
-        if (OperatingSystem.IsWindows())
-            return "windows";
-
-        if (OperatingSystem.IsLinux())
-            return "linux";
-
-        if (OperatingSystem.IsMacOS())
-            return "osx";
-
-        return "unknown";
+        return true switch
+        {
+            _ when OperatingSystem.IsWindows() => "windows",
+            _ when OperatingSystem.IsLinux() => "linux",
+            _ when OperatingSystem.IsMacOS() => "osx",
+            _ => "unknown",
+        };
     }
 }

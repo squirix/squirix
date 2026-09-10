@@ -60,23 +60,17 @@ public sealed class ReplicationBenchmarkRegistrationTests : ServerUnitTestBase
 
     private static string BenchmarkSourcePath(string root, string benchmarkFullName)
     {
-        if (string.Equals(benchmarkFullName, "Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaPlacementBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.Server.Benchmarks.FollowerAppendBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.server.benchmarks", "FollowerAppendBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.Server.Benchmarks.ReplicaSnapshotBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaSnapshotBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.Server.Benchmarks.ReplicaRepairBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaRepairBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.E2EBenchmarks.Cache.ReplicaCommitBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "ReplicaCommitBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.E2EBenchmarks.Cache.FailoverBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "FailoverBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.E2EBenchmarks.Cache.LeaderAuthorityBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "LeaderAuthorityBenchmarks.cs");
-        if (string.Equals(benchmarkFullName, "Squirix.E2EBenchmarks.Cache.PublicSdkOperationsBenchmarks", StringComparison.Ordinal))
-            return Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "PublicSdkOperationsBenchmarks.cs");
-
-        throw new ArgumentOutOfRangeException(nameof(benchmarkFullName), benchmarkFullName, "Unknown replication benchmark.");
+        return benchmarkFullName switch
+        {
+            "Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaPlacementBenchmarks.cs"),
+            "Squirix.Server.Benchmarks.FollowerAppendBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "FollowerAppendBenchmarks.cs"),
+            "Squirix.Server.Benchmarks.ReplicaSnapshotBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaSnapshotBenchmarks.cs"),
+            "Squirix.Server.Benchmarks.ReplicaRepairBenchmarks" => Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaRepairBenchmarks.cs"),
+            "Squirix.E2EBenchmarks.Cache.ReplicaCommitBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "ReplicaCommitBenchmarks.cs"),
+            "Squirix.E2EBenchmarks.Cache.FailoverBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "FailoverBenchmarks.cs"),
+            "Squirix.E2EBenchmarks.Cache.LeaderAuthorityBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "LeaderAuthorityBenchmarks.cs"),
+            "Squirix.E2EBenchmarks.Cache.PublicSdkOperationsBenchmarks" => Path.Join(root, "benchmarks", "squirix.e2e.benchmarks", "Cache", "PublicSdkOperationsBenchmarks.cs"),
+            _ => throw new ArgumentOutOfRangeException(nameof(benchmarkFullName), benchmarkFullName, "Unknown replication benchmark."),
+        };
     }
 }

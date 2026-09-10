@@ -19,18 +19,20 @@ internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
     }
 
     /// <inheritdoc />
-    public PressureLevel Evaluate(long estimatedCacheBytes)
+    public PressureLevel Evaluate(long bytes)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(estimatedCacheBytes, 0);
+        ArgumentOutOfRangeException.ThrowIfLessThan(bytes, 0);
 
-        if (estimatedCacheBytes == 0)
+        if (bytes == 0)
             return PressureLevel.Normal;
 
         var limit = _options.MaxEstimatedCacheBytes;
-        var usedPercent = 1.0 * estimatedCacheBytes / limit * 100.0;
-        if (usedPercent < _options.HighPressureThresholdPercent)
-            return PressureLevel.Normal;
-
-        return usedPercent < _options.CriticalPressureThresholdPercent ? PressureLevel.High : PressureLevel.Critical;
+        var percent = 1d * bytes / limit * 100d;
+        return (percent < _options.HighPressureThresholdPercent, percent < _options.CriticalPressureThresholdPercent) switch
+        {
+            (true, _) => PressureLevel.Normal,
+            (false, true) => PressureLevel.High,
+            (false, false) => PressureLevel.Critical,
+        };
     }
 }

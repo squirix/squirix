@@ -85,10 +85,7 @@ internal static class JournalReadPath
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
-                if (_offset >= _length)
-                    return false;
-
-                return MoveNextFrame();
+                return _offset < _length && MoveNextFrame();
             }
 
             private bool MoveNextFrame()
@@ -104,10 +101,7 @@ internal static class JournalReadPath
                     if (buffer != null)
                         ArrayPool<byte>.Shared.ReturnCleared(buffer);
 
-                    if (ShouldThrowOnReadFailure(read.Status))
-                        throw new InvalidDataException("journal segment corruption.");
-
-                    return Stop();
+                    return ShouldThrowOnReadFailure(read.Status) ? throw new InvalidDataException("journal segment corruption.") : Stop();
                 }
 
                 _rentedFrameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));

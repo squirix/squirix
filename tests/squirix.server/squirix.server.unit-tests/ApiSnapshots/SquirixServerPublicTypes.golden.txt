@@ -91,13 +91,13 @@ M:Squirix.Server.Configurator::ApplyRuntimeDefaults(Squirix.Server.SquirixServer
 M:Squirix.Server.Configurator::CopyOptions(Squirix.Server.SquirixServerOptions,Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.Configurator::CreateHostingOptionsAsync(System.Action<Squirix.Server.SquirixServerOptions>,System.String,System.Boolean,System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::IsListenPortAvailable(System.Uri)
+M:Squirix.Server.Configurator::LoadAsync(System.String,System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::LoadFromFileAsync(System.String,System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::LoadOrCreateDefaultAsync(System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::ResolveSettingsPath(System.String)
 M:Squirix.Server.Configurator::ResolveValidatedDataDirectory(System.String)
 M:Squirix.Server.Configurator::ResolveValidatedFilePath(System.String)
-M:Squirix.Server.Configurator::TryLoadFromFileAsync(System.String,System.Threading.CancellationToken)
-M:Squirix.Server.Configurator::TryValidateSettingsFileAsync(System.String,System.Boolean,System.Threading.CancellationToken)
+M:Squirix.Server.Configurator::ValidateSettingsFileAsync(System.String,System.Boolean,System.Threading.CancellationToken)
 T:Squirix.Server.ReplicaDoctor
 M:Squirix.Server.ReplicaDoctor::BuildReportAsync(Squirix.Server.SquirixServerOptions,System.String,System.Threading.CancellationToken)
 T:Squirix.Server.ReplicaDoctorReport

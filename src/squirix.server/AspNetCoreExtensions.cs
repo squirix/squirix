@@ -71,13 +71,7 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var persistenceOptions = new PersistenceOptions();
-        if (string.IsNullOrWhiteSpace(options.DataDirectory))
-            return persistenceOptions;
-
-        return persistenceOptions with
-        {
-            DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory),
-        };
+        var opt = new PersistenceOptions();
+        return string.IsNullOrWhiteSpace(options.DataDirectory) ? opt : opt with { DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory) };
     }
 }

@@ -201,7 +201,7 @@ public abstract class WireAllocBenchmarkBase<T>
 
     /// <summary>Attempts to add a new value for a unique key via <see cref="ICache{T}.TryAddAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task TryAddAsync()
+    public async Task AddUniqueAsync()
     {
         var cache = Cache!;
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);

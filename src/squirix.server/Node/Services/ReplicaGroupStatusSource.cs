@@ -49,7 +49,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
         var snapshots = new List<ReplicaStatusSnapshot>(groupIds.Count);
         for (var i = 0; i < groupIds.Count; i++)
         {
-            var snapshot = await TryReadGroupAsync(groupIds[i], expected, cancellationToken).ConfigureAwait(false);
+            var snapshot = await ReadGroupAsync(groupIds[i], expected, cancellationToken).ConfigureAwait(false);
             if (snapshot != null)
                 snapshots.Add(snapshot.Value);
         }
@@ -57,7 +57,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
         return snapshots;
     }
 
-    private async ValueTask<ReplicaStatusSnapshot?> TryReadGroupAsync(string groupId, TopologyFingerprint expected, CancellationToken cancellationToken)
+    private async ValueTask<ReplicaStatusSnapshot?> ReadGroupAsync(string groupId, TopologyFingerprint expected, CancellationToken cancellationToken)
     {
         if (!_registry.TryGetLog(groupId, out var log))
             return null;

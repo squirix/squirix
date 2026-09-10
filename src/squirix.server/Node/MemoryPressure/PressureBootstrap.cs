@@ -19,7 +19,7 @@ internal static class PressureBootstrap
     internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         var baseline = new UnresolvedMemoryPressureOptions();
-        var (_, fileMerged) = await TryMergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
+        var (_, fileMerged) = await MergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
         return ApplyEnvironment(fileMerged);
     }
 
@@ -31,15 +31,12 @@ internal static class PressureBootstrap
     /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the file exists and defines a <c language="csharp">MemoryPressure</c> object,
     /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
-    internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeFromSettingsFilePathAsync(
+    internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> MergeFromSettingsFilePathAsync(
         string path,
         UnresolvedMemoryPressureOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(path))
-            return (false, baseline);
-
-        return await SettingsJson.WithSquirixRootAsync(
+        return !File.Exists(path) ? (false, baseline) : await SettingsJson.WithSquirixRootAsync(
             path,
             baseline,
             static (root, baseline) =>
@@ -82,12 +79,12 @@ internal static class PressureBootstrap
     /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">MemoryPressure</c> object,
     /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
-    private static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeFromFileAsync(
+    private static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> MergeFromFileAsync(
         UnresolvedMemoryPressureOptions baseline,
         CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     [Immutable]

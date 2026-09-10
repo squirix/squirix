@@ -191,13 +191,12 @@ public static class ExportedApiMetadata
 
         internal static bool IsOrdinaryMethod(IMethodSymbol method)
         {
-            if (method.MethodKind is MethodKind.Constructor)
-                return true;
-
-            if (method.Name.StartsWith("op_", StringComparison.Ordinal))
-                return true;
-
-            return method.MethodKind is MethodKind.Ordinary;
+            return method.MethodKind switch
+            {
+                MethodKind.Constructor => true,
+                _ when method.Name.StartsWith("op_", StringComparison.Ordinal) => true,
+                _ => method.MethodKind is MethodKind.Ordinary,
+            };
         }
 
         private static string FormatGenericTypeName(INamedTypeSymbol namedType)
@@ -239,10 +238,7 @@ public static class ExportedApiMetadata
         private static string GetNamespace(ITypeSymbol type)
         {
             var ns = type.ContainingNamespace;
-            if (ns == null || ns is { IsGlobalNamespace: true })
-                return string.Empty;
-
-            return ns.ToDisplayString();
+            return ns == null || ns is { IsGlobalNamespace: true } ? string.Empty : ns.ToDisplayString();
         }
 
         private static string? GetSpecialTypeMetadataName(SpecialType specialType) => specialType switch

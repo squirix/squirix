@@ -27,18 +27,19 @@ internal static class LeaderAuthorityGate
     internal static LeaderAuthorityDecision CheckRead(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm, LeaderReadState read)
     {
         var write = CheckWrite(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm);
-        if (!write.Allowed)
-            return write;
 
         // A failed quorum confirmation rejects the current read instead of serving stale state.
-        if (replicaCount > 1 && !read.QuorumConfirmed)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.QuorumNotConfirmed);
+        var isQuorumUnconfirmed = replicaCount > 1 && !read.QuorumConfirmed;
 
         // The read is served only after the applied index reaches the read index.
-        if (replicaCount > 1 && read.AppliedIndex < read.ReadIndex)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.ReadIndexNotApplied);
-
-        return new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None);
+        var isReadIndexNotApplied = replicaCount > 1 && read.AppliedIndex < read.ReadIndex;
+        return write switch
+        {
+            { Allowed: false } => write,
+            _ when isQuorumUnconfirmed => new LeaderAuthorityDecision(false, LeaderAuthorityDenial.QuorumNotConfirmed),
+            _ when isReadIndexNotApplied => new LeaderAuthorityDecision(false, LeaderAuthorityDenial.ReadIndexNotApplied),
+            _ => new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None),
+        };
     }
 
     /// <summary>Checks whether a write may be served.</summary>
@@ -48,23 +49,17 @@ internal static class LeaderAuthorityGate
     /// <param name="currentTerm">The locally persisted current term.</param>
     /// <param name="observedTerm">The highest term observed from a peer.</param>
     /// <returns>The authority decision for the write.</returns>
-    internal static LeaderAuthorityDecision CheckWrite(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm)
+    internal static LeaderAuthorityDecision CheckWrite(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm) => replicaCount switch
     {
         // RF=1 bypasses the authority protocol entirely: no quorum gate, no timer.
-        if (replicaCount <= 1)
-            return new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None);
+        <= 1 => new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None),
 
         // A stale term fences the old leader before any other check.
-        if (observedTerm > currentTerm)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.StaleTerm);
-
-        if (!isLeader)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.NotLeader);
+        _ when observedTerm > currentTerm => new LeaderAuthorityDecision(false, LeaderAuthorityDenial.StaleTerm),
+        _ when !isLeader => new LeaderAuthorityDecision(false, LeaderAuthorityDenial.NotLeader),
 
         // The minority fails closed: without majority contact neither reads nor writes are served.
-        if (!hasMajorityContact)
-            return new LeaderAuthorityDecision(false, LeaderAuthorityDenial.MinorityFenced);
-
-        return new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None);
-    }
+        _ when !hasMajorityContact => new LeaderAuthorityDecision(false, LeaderAuthorityDenial.MinorityFenced),
+        _ => new LeaderAuthorityDecision(true, LeaderAuthorityDenial.None),
+    };
 }

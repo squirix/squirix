@@ -92,16 +92,14 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
         AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
 
-        Span<byte> digestSpan = stackalloc byte[32];
-        if (!hasher.TryGetHashAndReset(digestSpan, out var written) || written != 32)
-            throw new InvalidOperationException("Failed to compute topology fingerprint digest.");
-
-        return new TopologyFingerprint(digestSpan);
+        const string message = "Failed to compute topology fingerprint digest.";
+        Span<byte> span = stackalloc byte[32];
+        return hasher.TryGetHashAndReset(span, out var w) && w == 32 ? new TopologyFingerprint(span) : throw new InvalidOperationException(message);
     }
 
     /// <summary>Computes the canonical topology fingerprint for a cluster configuration.</summary>
     /// <param name="topology">Cluster topology options.</param>
-    /// <param name="mtlsOptions">Inter-node mTLS options used to derive effective peer URIs.</param>
+    /// <param name="mtlsOptions">Internode mTLS options used to derive effective peer URIs.</param>
     /// <returns>Canonical topology fingerprint.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> or <paramref name="mtlsOptions" /> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when required fingerprint input fields are empty.</exception>
@@ -150,11 +148,8 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendString(hasher, clusterId);
         AppendBytes(hasher, Bytes);
         AppendString(hasher, originalOwnerNodeId);
-        Span<byte> digest = stackalloc byte[32];
-        if (!hasher.TryGetHashAndReset(digest, out var written) || written != 32)
-            throw new InvalidOperationException("Failed to compute group id digest.");
-
-        return Convert.ToHexString(digest);
+        Span<byte> span = stackalloc byte[32];
+        return hasher.TryGetHashAndReset(span, out var w) && w == 32 ? Convert.ToHexString(span) : throw new InvalidOperationException("Failed to compute group id digest.");
     }
 
     private static void AppendBytes(IncrementalHash hasher, ReadOnlySpan<byte> value)
@@ -215,19 +210,13 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         hasher.AppendData(buffer);
     }
 
-    private static Uri ResolveInterNodeUri(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeEnabled)
+    private static Uri ResolveInterNodeUri(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeEnabled) => true switch
     {
-        if (!interNodeEnabled)
-            return peer.Uri;
-
-        if (peer.InterNodeUri is { } configured)
-            return configured;
-
-        if (mtlsOptions.InternalListenPort <= 0)
-            return peer.Uri;
-
-        return new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri;
-    }
+        _ when !interNodeEnabled => peer.Uri,
+        _ when peer.InterNodeUri is { } configured => configured,
+        _ when mtlsOptions.InternalListenPort <= 0 => peer.Uri,
+        _ => new UriBuilder(peer.Uri.Scheme, peer.Uri.Host, mtlsOptions.InternalListenPort).Uri,
+    };
 
     private static FingerprintPeer[] SortPeers(IReadOnlyList<FingerprintPeer> peers)
     {
@@ -276,16 +265,14 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         /// <inheritdoc />
         public bool Equals(DigestBytes other) => _w0 == other._w0 && _w1 == other._w1 && _w2 == other._w2 && _w3 == other._w3;
 
-        internal static DigestBytes FromSpan(ReadOnlySpan<byte> digest)
+        internal static DigestBytes FromSpan(ReadOnlySpan<byte> digest) => digest.Length switch
         {
-            if (digest.Length != 32)
-                throw new ArgumentException("Digest must be exactly 32 bytes.", nameof(digest));
-
-            return new DigestBytes(
+            32 => new DigestBytes(
                 BinaryPrimitives.ReadUInt64LittleEndian(digest),
                 BinaryPrimitives.ReadUInt64LittleEndian(digest[8..]),
                 BinaryPrimitives.ReadUInt64LittleEndian(digest[16..]),
-                BinaryPrimitives.ReadUInt64LittleEndian(digest[24..]));
-        }
+                BinaryPrimitives.ReadUInt64LittleEndian(digest[24..])),
+            _ => throw new ArgumentException("Digest must be exactly 32 bytes.", nameof(digest)),
+        };
     }
 }

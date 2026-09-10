@@ -97,7 +97,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":1,\"ConfigurationGeneration\":7,\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"},{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003\"}]}}}";
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
 
-        var options = await Configurator.LoadFromFileAsync(path, DefaultCancellationToken);
+        var options = await Configurator.LoadAsync(path, DefaultCancellationToken);
         Assert.Equal(1, options.ReplicaCount);
         Assert.Equal(7u, options.ConfigurationGeneration);
     }

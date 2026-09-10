@@ -23,5 +23,5 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool payloadIsCounter) => false;
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool isCounter) => false;
 }

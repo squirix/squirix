@@ -422,7 +422,7 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         if (!hasReadme)
             throw new InvalidOperationException($"Package has no README.md: {packagePath}");
 
-        var nuspecEntry = archive.GetEntry(nuspecName) ?? throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
+        var nuspecEntry = archive.GetEntry(nuspecName) ?? MissingNuspecEntry(packagePath);
         var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
@@ -538,6 +538,11 @@ static async Task ValidateMetadataElementAsync(XmlReader reader, string packageP
         throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
 }
 
+static ZipArchiveEntry MissingNuspecEntry(string packagePath)
+{
+    throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
+}
+
 static async Task<string> ReadElementTextAsync(XmlReader reader)
 {
     if (reader.IsEmptyElement)
@@ -551,7 +556,7 @@ static async Task<string> ReadElementTextAsync(XmlReader reader)
         var text = new System.Text.StringBuilder();
         while (await subtree.ReadAsync().ConfigureAwait(false))
         {
-            if (subtree.NodeType is XmlNodeType.Text or XmlNodeType.CDATA)
+            if (subtree.NodeType == XmlNodeType.Text || subtree.NodeType == XmlNodeType.CDATA)
                 text.Append(subtree.Value);
         }
 

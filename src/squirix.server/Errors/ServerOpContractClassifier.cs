@@ -46,11 +46,10 @@ internal static class ServerOpContractClassifier
     /// </summary>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns>The classified contract kind; <see cref="ServerFailedPreconditionKind.None" /> when no stable contract matches.</returns>
-    private static ServerFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
+    private static ServerFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail) => detail switch
     {
-        if (ServerOpContract.IsInsertVersionMustExceedCurrentMessage(detail))
-            return ServerFailedPreconditionKind.InsertVersionMustExceedCurrent;
-
-        return ServerOpContract.IsOperationIdReuseMismatchMessage(detail) ? ServerFailedPreconditionKind.OperationIdReuseMismatch : ServerFailedPreconditionKind.None;
-    }
+        _ when ServerOpContract.IsInsertVersionMustExceedCurrentMessage(detail) => ServerFailedPreconditionKind.InsertVersionMustExceedCurrent,
+        _ when ServerOpContract.IsOperationIdReuseMismatchMessage(detail) => ServerFailedPreconditionKind.OperationIdReuseMismatch,
+        _ => ServerFailedPreconditionKind.None,
+    };
 }

@@ -34,27 +34,22 @@ internal static class DirectoryPathValidator
         if (forbidSymlinks)
             DirectorySymlinkGuard.EnsureNoSymlinksInChain(full, baseFull);
 
-        if (File.Exists(full))
-            throw new IOException("A file already exists at the target path.");
-
-        return full;
+        return File.Exists(full) ? throw new IOException("A file already exists at the target path.") : full;
     }
 
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
-        if (candidateFull.Equals(baseFull, SubPathComparison))
-            return true;
+        // The same directory is trivially "under" itself.
+        var isSameDirectory = candidateFull.Equals(baseFull, SubPathComparison);
 
-        if (baseFull.EndsWith(Path.DirectorySeparatorChar))
-            return candidateFull.StartsWith(baseFull, SubPathComparison);
+        // A trailing separator rules out partial-name matches ("/base" vs "/base2").
+        var isPrefixedDirectory = baseFull.EndsWith(Path.DirectorySeparatorChar) && candidateFull.StartsWith(baseFull, SubPathComparison);
 
-        if (candidateFull.Length <= baseFull.Length)
-            return false;
-
-        if (!candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison))
-            return false;
-
-        return DirectoryPathHelpers.IsDirectorySeparator(candidateFull[baseFull.Length]);
+        // Otherwise the candidate must extend the base and cut on a separator boundary.
+        var extendsBeyondBase = candidateFull.Length > baseFull.Length;
+        var sharesBasePrefix = extendsBeyondBase && candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison);
+        var isNestedPath = sharesBasePrefix && DirectoryPathHelpers.IsDirectorySeparator(candidateFull[baseFull.Length]);
+        return isSameDirectory || isPrefixedDirectory || isNestedPath;
     }
 
     private static string? PrepareBaseDirectory(string? baseDir, bool forbidSymlinks)

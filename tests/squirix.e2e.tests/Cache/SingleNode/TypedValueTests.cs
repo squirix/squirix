@@ -154,7 +154,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
 
     /// <summary>Verifies TryAddReturnsFalseForExistingRecord.</summary>
     [Fact]
-    public async Task TryAddReturnsFalseForExistingRecord()
+    public async Task AddExistingKeepsOriginal()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-try-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("try-add");

@@ -50,23 +50,20 @@ internal sealed class PhysicalNodeRing
 
     private int IndexOf(string nodeId) => Array.BinarySearch(_nodes, nodeId, StringComparer.Ordinal);
 
-    private int ValidateAndResolveOwner(string originalOwnerNodeId, int replicaCount, Span<string> destination)
+    private int ValidateAndResolveOwner(string nodeId, int replicaCount, Span<string> destination)
     {
-        ArgumentException.ThrowIfNullOrEmpty(originalOwnerNodeId);
+        ArgumentException.ThrowIfNullOrEmpty(nodeId);
         ValidateReplicaCount(replicaCount);
         if (destination.Length != replicaCount)
             throw new ArgumentException("Destination length must equal replicaCount.", nameof(destination));
 
-        var ownerIndex = IndexOf(originalOwnerNodeId);
-        if (ownerIndex < 0)
-            throw new ArgumentException("Original owner is not present on the physical ring.", nameof(originalOwnerNodeId));
-
-        return ownerIndex;
+        var owner = IndexOf(nodeId);
+        return owner < 0 ? throw new ArgumentException("Original owner is not present on the physical ring.", nameof(nodeId)) : owner;
     }
 
-    private void ValidateReplicaCount(int replicaCount)
+    private void ValidateReplicaCount(int count)
     {
-        if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount || replicaCount > _nodes.Length)
-            throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range for the physical ring.");
+        if (count < 1 || count > PolicyOptions.MaxReplicaCount || count > _nodes.Length)
+            throw new ArgumentOutOfRangeException(nameof(count), count, "Replica count is out of range for the physical ring.");
     }
 }

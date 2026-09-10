@@ -121,7 +121,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
     /// <summary>A second try-add for the same key reports false with a matching outcome.</summary>
     [Fact]
-    public async Task TryAddSecondFails()
+    public async Task AddDuplicateFails()
     {
         var cache = new MemoryCache();
         var factory = new ReplicaMutationFactory(cache, "g1", 1UL);
@@ -212,19 +212,14 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
         {
-            if (!_entries.Remove(Key(cacheName, key), out var previous))
-                return ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
-
-            return ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value));
+            return _entries.Remove(Key(cacheName, key), out var previous) ? ValueTask.FromResult(new CacheRemoveResult<object?>(true, previous.Value))
+                : ValueTask.FromResult(new CacheRemoveResult<object?>(false, null));
         }
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
         {
-            if (!_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null)
-                return ValueTask.FromResult(false);
-
-            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value };
-            return ValueTask.FromResult(true);
+            return !_entries.TryGetValue(Key(cacheName, key), out var entry) || entry.ExpiresUtc == null ? ValueTask.FromResult(false)
+                : ValueTask.FromResult(RemoveExpirationEntry(cacheName, key, entry));
         }
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
@@ -245,10 +240,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
         {
             var cacheKey = Key(cacheName, key);
-            if (!_entries.TryAdd(cacheKey, entry))
-                return ValueTask.FromResult(false);
-
-            return ValueTask.FromResult(true);
+            return _entries.TryAdd(cacheKey, entry) ? ValueTask.FromResult(true) : ValueTask.FromResult(false);
         }
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken)
@@ -262,5 +254,11 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         }
 
         private static string Key(string cacheName, string key) => cacheName + "\x1F" + key;
+
+        private bool RemoveExpirationEntry(string cacheName, string key, NodeCacheEntry<object?> entry)
+        {
+            _entries[Key(cacheName, key)] = new NodeCacheEntry<object?> { Value = entry.Value };
+            return true;
+        }
     }
 }

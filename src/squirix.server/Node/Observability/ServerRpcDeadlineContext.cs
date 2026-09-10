@@ -32,13 +32,13 @@ internal static class ServerRpcDeadlineContext
         return new Scope(previous);
     }
 
-    private static DateTime? Normalize(DateTime? deadlineUtc)
+    private static DateTime? Normalize(DateTime? deadlineUtc) => deadlineUtc switch
     {
-        if (deadlineUtc == null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
-            return null;
-
-        return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
-    }
+        null => null,
+        { } value when value == DateTime.MaxValue || value == DateTime.MinValue => null,
+        { Kind: DateTimeKind.Utc } value => value,
+        { } value => value.ToUniversalTime(),
+    };
 
     [Immutable]
     private sealed class Scope : IDisposable

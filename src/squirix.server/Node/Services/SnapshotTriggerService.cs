@@ -108,7 +108,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             if (_log.IsEnabled(LogLevel.Trace))
                 LogManager.SnapshotTriggerTick(_log);
 
-            await _coordinator.TrySnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
+            await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
         }
     }
 }

@@ -13,6 +13,12 @@ namespace Squirix.ProtocolModel;
 
 internal static class ExploreRunner
 {
+    private const int ExitBrokenWithoutViolation = 3;
+    private const int ExitBudgetExhausted = 4;
+
+    private const int ExitSuccess = 0;
+    private const int ExitViolation = 2;
+
     private enum SuccessorOutcome
     {
         Enqueued = 0,
@@ -40,25 +46,24 @@ internal static class ExploreRunner
     {
         _ = Directory.CreateDirectory(outputDir);
         var results = CollectResults(profileName, broken);
-        AggregateResults(results, out var totalStates, out var totalTransitions, out var firstViolation, out var firstState, out var allFixedPoint);
+        var aggregate = AggregateResults(results);
+        var summary = new SummaryContent(profileName, broken, aggregate.TotalStates, aggregate.TotalTransitions, aggregate.FirstViolation, aggregate.AllFixedPoint);
+        await WriteSummaryAsync(outputDir, summary, CancellationToken.None).ConfigureAwait(false);
 
-        await WriteSummaryAsync(outputDir, new SummaryContent(profileName, broken, totalStates, totalTransitions, firstViolation, allFixedPoint), CancellationToken.None)
-           .ConfigureAwait(false);
-
-        if (firstViolation == null || firstState == null)
+        if (aggregate.FirstViolation == null || aggregate.FirstState == null)
         {
             var staleCounterexample = Path.Join(outputDir, "counterexample.json");
             if (File.Exists(staleCounterexample))
                 File.Delete(staleCounterexample);
 
-            return ExitCode(broken, firstViolation, allFixedPoint);
+            return ExitCode(broken, aggregate.FirstViolation, aggregate.AllFixedPoint);
         }
 
-        var path = FindPath(results, firstViolation);
-        var json = SafetyChecker.FormatCounterexampleJson(firstViolation, firstState, path);
+        var path = FindPath(results, aggregate.FirstViolation);
+        var json = SafetyChecker.FormatCounterexampleJson(aggregate.FirstViolation, aggregate.FirstState, path);
         await File.WriteAllTextAsync(Path.Join(outputDir, "counterexample.json"), json, Encoding.UTF8, CancellationToken.None).ConfigureAwait(false);
 
-        return ExitCode(broken, firstViolation, allFixedPoint);
+        return ExitCode(broken, aggregate.FirstViolation, aggregate.AllFixedPoint);
     }
 
     private static int AdvanceTrace(ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
@@ -69,19 +74,13 @@ internal static class ExploreRunner
         return traceIndex;
     }
 
-    private static void AggregateResults(
-        List<(ExploreProfile Profile, ExploreResult Result)> results,
-        out int totalStates,
-        out int totalTransitions,
-        out SafetyViolation? firstViolation,
-        out ClusterState? firstState,
-        out bool allFixedPoint)
+    private static ResultAggregate AggregateResults(List<(ExploreProfile Profile, ExploreResult Result)> results)
     {
-        firstViolation = null;
-        firstState = null;
-        totalStates = 0;
-        totalTransitions = 0;
-        allFixedPoint = true;
+        SafetyViolation? firstViolation = null;
+        ClusterState? firstState = null;
+        var totalStates = 0;
+        var totalTransitions = 0;
+        var allFixedPoint = true;
         for (var i = 0; i < results.Count; i++)
         {
             totalStates += results[i].Result.StatesVisited;
@@ -94,6 +93,8 @@ internal static class ExploreRunner
             firstViolation = results[i].Result.Violation;
             firstState = results[i].Result.ViolatingState;
         }
+
+        return new ResultAggregate(totalStates, totalTransitions, firstViolation, firstState, allFixedPoint);
     }
 
     private static void CollectFullProfiles(BrokenMode broken, List<(ExploreProfile Profile, ExploreResult Result)> results)
@@ -153,13 +154,15 @@ internal static class ExploreRunner
 
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
     {
-        if (broken != BrokenMode.None)
-            return firstViolation != null ? 0 : 3;
-        if (firstViolation != null)
-            return 2;
-
-        // 0 = exhausted without violation; 4 = hit documented MaxStates (residual risk, not a counterexample).
-        return allFixedPoint ? 0 : 4;
+        // Success = clean exhaustion or the injected break manifesting; 3 = injected break stayed silent; 4 = hit documented MaxStates (residual risk, not a counterexample).
+        return (broken != BrokenMode.None, firstViolation != null, allFixedPoint) switch
+        {
+            (true, true, _) => ExitSuccess,
+            (true, false, _) => ExitBrokenWithoutViolation,
+            (false, true, _) => ExitViolation,
+            (false, false, true) => ExitSuccess,
+            (false, false, false) => ExitBudgetExhausted,
+        };
     }
 
     private static IReadOnlyList<string>? FindPath(List<(ExploreProfile Profile, ExploreResult Result)> results, SafetyViolation violation)
@@ -189,24 +192,49 @@ internal static class ExploreRunner
         };
     }
 
+    private static SuccessorOutcome ProcessSuccessors(TraceSearchWork work, TraceSearchState current)
+    {
+        var budgetExhausted = false;
+        for (var index = 0; index < work.Successors.Count; index++)
+        {
+            var next = work.Successors[index];
+            var nextTraceIndex = AdvanceTrace(next, work.TracePoints, current.TraceIndex);
+            if (nextTraceIndex == work.TracePoints.Count)
+                return SuccessorOutcome.Completed;
+
+            var fingerprint = TraceFingerprint(next, nextTraceIndex);
+            if (work.Seen.Contains(fingerprint))
+                continue;
+
+            if (work.Seen.Count >= work.MaxStates)
+            {
+                budgetExhausted = true;
+                continue;
+            }
+
+            _ = work.Seen.Add(fingerprint);
+
+            work.Queue.Enqueue(new TraceSearchState(next, nextTraceIndex));
+        }
+
+        return budgetExhausted ? SuccessorOutcome.BudgetExhausted : SuccessorOutcome.Enqueued;
+    }
+
     private static bool RunTraceSearch(ExploreProfile profile, IReadOnlyList<ModelCommitTracePoint> trace, ClusterState initial, int initialIndex)
     {
-        var queue = new Queue<TraceSearchState>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        queue.Enqueue(new TraceSearchState(initial, initialIndex));
-        _ = seen.Add(TraceFingerprint(initial, initialIndex));
-        var successors = new List<ClusterState>(64);
-        var maxStates = checked(profile.MaxStates * (trace.Count + 1));
+        var work = new TraceSearchWork(trace, checked(profile.MaxStates * (trace.Count + 1)));
+        work.Queue.Enqueue(new TraceSearchState(initial, initialIndex));
+        _ = work.Seen.Add(TraceFingerprint(initial, initialIndex));
 
         var omittedUnique = false;
-        while (queue.Count > 0)
+        while (work.Queue.Count > 0)
         {
-            var current = queue.Dequeue();
+            var current = work.Queue.Dequeue();
             if (current.TraceIndex == trace.Count)
                 return true;
 
-            ModelTransitions.CollectSuccessors(current.State, profile, BrokenMode.None, successors);
-            var outcome = ProcessSuccessors(trace, queue, seen, maxStates, successors, current);
+            ModelTransitions.CollectSuccessors(current.State, profile, BrokenMode.None, work.Successors);
+            var outcome = ProcessSuccessors(work, current);
             if (outcome == SuccessorOutcome.Completed)
                 return true;
 
@@ -214,44 +242,7 @@ internal static class ExploreRunner
                 omittedUnique = true;
         }
 
-        if (omittedUnique)
-            throw new TraceSearchBudgetExhaustedException(maxStates, seen.Count);
-
-        return false;
-    }
-
-    private static SuccessorOutcome ProcessSuccessors(
-        IReadOnlyList<ModelCommitTracePoint> trace,
-        Queue<TraceSearchState> queue,
-        HashSet<string> seen,
-        int maxStates,
-        List<ClusterState> successors,
-        TraceSearchState current)
-    {
-        var budgetExhausted = false;
-        for (var index = 0; index < successors.Count; index++)
-        {
-            var next = successors[index];
-            var nextTraceIndex = AdvanceTrace(next, trace, current.TraceIndex);
-            if (nextTraceIndex == trace.Count)
-                return SuccessorOutcome.Completed;
-
-            var fingerprint = TraceFingerprint(next, nextTraceIndex);
-            if (seen.Contains(fingerprint))
-                continue;
-
-            if (seen.Count >= maxStates)
-            {
-                budgetExhausted = true;
-                continue;
-            }
-
-            _ = seen.Add(fingerprint);
-
-            queue.Enqueue(new TraceSearchState(next, nextTraceIndex));
-        }
-
-        return budgetExhausted ? SuccessorOutcome.BudgetExhausted : SuccessorOutcome.Enqueued;
+        return omittedUnique ? throw new TraceSearchBudgetExhaustedException(work.MaxStates, work.Seen.Count) : false;
     }
 
     private static string TraceFingerprint(ClusterState state, int traceIndex) => $"{traceIndex.ToString(CultureInfo.InvariantCulture)}:{state.Fingerprint(false)}";
@@ -285,12 +276,15 @@ internal static class ExploreRunner
         return File.WriteAllTextAsync(Path.Join(outputDir, "summary.json"), sb.ToString(), Encoding.UTF8, cancellationToken);
     }
 
-    [StructLayout(LayoutKind.Auto)]
     [Immutable]
+    private readonly record struct ResultAggregate(int TotalStates, int TotalTransitions, SafetyViolation? FirstViolation, ClusterState? FirstState, bool AllFixedPoint);
+
+    [Immutable]
+    [StructLayout(LayoutKind.Auto)]
     private readonly record struct SummaryContent(string ProfileName, BrokenMode Broken, int States, int Transitions, SafetyViolation? Violation, bool FixedPointReached);
 
-    [StructLayout(LayoutKind.Auto)]
     [Immutable]
+    [StructLayout(LayoutKind.Auto)]
     private readonly record struct TraceSearchState(ClusterState State, int TraceIndex);
 
     private static class ModelTransitions
@@ -302,17 +296,17 @@ internal static class ExploreRunner
             CollectClientProposals(state, profile, output);
             CollectReadIndexes(state, profile, broken, output);
             CollectDeliveries(state, profile, broken, output);
-            CollectDrops(state, profile, output);
+            CollectDrops(state, output);
             CollectDuplicates(state, profile, output);
             CollectApplyAdvances(state, profile, broken, output);
             if (broken is BrokenMode.CurrentTermCommit)
                 CollectBrokenOldTermCommits(state, output);
 
             if (profile.AllowPartition)
-                CollectPartitions(state, profile, output);
+                CollectPartitions(state, output);
 
             if (profile.AllowCrash)
-                CollectCrashes(state, profile, output);
+                CollectCrashes(state, output);
         }
 
         private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
@@ -378,23 +372,16 @@ internal static class ExploreRunner
             }
         }
 
-        private static void CollectCrashes(ClusterState state, ExploreProfile profile, List<ClusterState> output)
+        private static void CollectCrashes(ClusterState state, List<ClusterState> output)
         {
-            _ = profile;
             for (var i = 0; i < state.Nodes.Count; i++)
             {
                 var node = state.Nodes[i];
 
                 // Crash after durable writes: keep term/vote/log/commit; reset volatile.
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                nodes[i] = new NodeState(
-                    node.Id,
-                    NodeRole.Follower,
-                    node.CurrentTerm,
-                    node.VotedFor,
-                    node.LogEntries,
-                    NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false, false));
-
+                var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false, false);
+                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, runtime);
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[i] = 0;
                 output.Add(state.WithNodesMatch(nodes, match));
@@ -414,9 +401,8 @@ internal static class ExploreRunner
             }
         }
 
-        private static void CollectDrops(ClusterState state, ExploreProfile profile, List<ClusterState> output)
+        private static void CollectDrops(ClusterState state, List<ClusterState> output)
         {
-            _ = profile;
             for (var i = 0; i < state.Messages.Count; i++)
             {
                 var messages = ModelTransitionUtil.CloneMessages(state.Messages);
@@ -455,9 +441,8 @@ internal static class ExploreRunner
             }
         }
 
-        private static void CollectPartitions(ClusterState state, ExploreProfile profile, List<ClusterState> output)
+        private static void CollectPartitions(ClusterState state, List<ClusterState> output)
         {
-            _ = profile;
             if (state.Nodes.Count < 2)
                 return;
 
@@ -496,12 +481,22 @@ internal static class ExploreRunner
             }
         }
 
+        /// <summary>Decides whether a node may serve its pending read index.</summary>
+        /// <param name="node">The node attempting the read.</param>
+        /// <param name="applied">The leader-side applied index the read is checked against.</param>
+        /// <param name="profile">The exploration profile carrying the majority size.</param>
+        /// <param name="broken">The injected fault mode, if any.</param>
+        /// <remarks>
+        /// A read is ready with a pending index, a majority of read acks, and the index applied locally.
+        /// Under the injected <see cref="BrokenMode.ReadIndex" /> fault the majority/apply wait is skipped,
+        /// so the safety checker is expected to report the resulting violation.
+        /// </remarks>
         private static bool ComputeReadReady(NodeState node, int applied, ExploreProfile profile, BrokenMode broken)
         {
-            if (broken is BrokenMode.ReadIndex && node.ReadIndex > 0)
-                return true;
-
-            return node.ReadIndex > 0 && VoteMask.CountGranted(node.ReadAcks) >= profile.Majority && applied >= node.ReadIndex;
+            var hasPendingRead = node.ReadIndex > 0;
+            var majorityConfirmed = VoteMask.CountGranted(node.ReadAcks) >= profile.Majority && applied >= node.ReadIndex;
+            var quorumSkipped = broken is BrokenMode.ReadIndex; // injected ReadIndex fault skips the quorum wait; the safety checker must catch the violation.
+            return hasPendingRead && (quorumSkipped || majorityConfirmed);
         }
 
         private static bool TryBuildClientProposal(ClusterState state, ExploreProfile profile, int leaderId, out ClusterState after)
@@ -620,20 +615,19 @@ internal static class ExploreRunner
                 nodes[msg.To] = ModelTransitionUtil.Patch(receiver, new NodePatch { Role = NodeRole.Follower, VotesGranted = 0, ReadIndex = 0, ReadAcks = 0, ReadReady = false });
                 receiver = nodes[msg.To];
 
-                // Never rewrite the committed prefix. Accept only matching/extending entries.
-                if (msg.LastLogIndex <= receiver.CommitIndex)
+                // The committed prefix is immutable: only an entry with a matching term may be confirmed.
+                var touchesCommittedPrefix = msg.LastLogIndex <= receiver.CommitIndex;
+                if (touchesCommittedPrefix)
                 {
                     var existing = ModelTransitionUtil.FindEntry(receiver.LogEntries, msg.LastLogIndex);
-                    if (existing != null && existing.Value.Term == msg.LastLogTerm)
-                        return new AppendOutcome(true, msg.LastLogIndex);
-
-                    return new AppendOutcome(false, receiver.LastLogIndex);
+                    var termMatches = existing != null && existing.Value.Term == msg.LastLogTerm;
+                    var matchIndex = termMatches ? msg.LastLogIndex : receiver.LastLogIndex;
+                    return new AppendOutcome(termMatches, matchIndex);
                 }
 
-                if (msg.LastLogIndex > profile.MaxLogEntries)
-                    return new AppendOutcome(false, receiver.LastLogIndex);
-
-                return AcceptUncommittedAppend(msg, nodes, receiver);
+                // The uncommitted tail is bounded by the profile; anything beyond it is rejected.
+                var beyondLogBound = msg.LastLogIndex > profile.MaxLogEntries;
+                return beyondLogBound ? new AppendOutcome(false, receiver.LastLogIndex) : AcceptUncommittedAppend(msg, nodes, receiver);
             }
 
             internal static ClusterState BecomeLeader(ClusterState state, int leaderId, TransitionScratch scratch, ExploreProfile profile, int votes)
@@ -689,7 +683,7 @@ internal static class ExploreRunner
                 match[leaderId] = leader.LastLogIndex;
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                if (!TryFindNewCommit(leader, nodes, match, profile, broken, out var newCommit, out var badOld))
+                if (!TryFindNewCommit(new CommitProbe(leader, nodes, match, profile, broken), out var newCommit, out var badOld))
                     return state.WithMatchIndexes(match);
 
                 nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit, BadOldCommit = badOld || leader.BadOldCommit });
@@ -778,13 +772,8 @@ internal static class ExploreRunner
                 return true;
             }
 
-            private static bool IsLogUpToDate(int candidateLastTerm, int candidateLastIndex, NodeState voter)
-            {
-                if (candidateLastTerm != voter.LastLogTerm)
-                    return candidateLastTerm > voter.LastLogTerm;
-
-                return candidateLastIndex >= voter.LastLogIndex;
-            }
+            private static bool IsLogUpToDate(int candidateLastTerm, int candidateLastIndex, NodeState voter) =>
+                candidateLastTerm != voter.LastLogTerm ? candidateLastTerm > voter.LastLogTerm : candidateLastIndex >= voter.LastLogIndex;
 
             private static void PropagateFollowerCommits(NodeState[] nodes, int[] match, int leaderId, int newCommit)
             {
@@ -807,45 +796,31 @@ internal static class ExploreRunner
                 return stored != null && stored.Value.Term == term;
             }
 
-            private static bool TryClassifyCommitCandidate(
-                NodeState leader,
-                IReadOnlyList<NodeState> nodes,
-                int[] match,
-                int index,
-                ExploreProfile profile,
-                BrokenMode broken,
-                out bool badOld)
+            private static bool TryClassifyCommitCandidate(CommitProbe probe, int index, out bool badOld)
             {
                 badOld = false;
-                if (!HasMatchingMajority(leader, nodes, match, index, profile.Majority))
+                if (!HasMatchingMajority(probe.Leader, probe.Nodes, probe.Match, index, probe.Profile.Majority))
                     return false;
 
-                var entry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
+                var entry = ModelTransitionUtil.FindEntry(probe.Leader.LogEntries, index);
                 if (entry == null)
                     return false;
 
-                if (HasCurrentTermEntryThrough(leader, index))
-                    return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
+                if (HasCurrentTermEntryThrough(probe.Leader, index))
+                    return IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, probe.Profile.Majority);
 
-                if (broken != BrokenMode.CurrentTermCommit)
+                if (probe.Broken != BrokenMode.CurrentTermCommit)
                     return false;
 
                 badOld = true;
-                return IsContiguousMatchingMajority(leader, nodes, match, leader.CommitIndex + 1, index, profile.Majority);
+                return IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, probe.Profile.Majority);
             }
 
-            private static bool TryFindNewCommit(
-                NodeState leader,
-                IReadOnlyList<NodeState> nodes,
-                int[] match,
-                ExploreProfile profile,
-                BrokenMode broken,
-                out int newCommit,
-                out bool badOld)
+            private static bool TryFindNewCommit(CommitProbe probe, out int newCommit, out bool badOld)
             {
-                for (var n = leader.LastLogIndex; n > leader.CommitIndex; n--)
+                for (var n = probe.Leader.LastLogIndex; n > probe.Leader.CommitIndex; n--)
                 {
-                    if (!TryClassifyCommitCandidate(leader, nodes, match, n, profile, broken, out var candidateIsBadOld))
+                    if (!TryClassifyCommitCandidate(probe, n, out var candidateIsBadOld))
                         continue;
 
                     newCommit = n;
@@ -853,7 +828,7 @@ internal static class ExploreRunner
                     return true;
                 }
 
-                newCommit = leader.CommitIndex;
+                newCommit = probe.Leader.CommitIndex;
                 badOld = false;
                 return false;
             }
@@ -874,11 +849,11 @@ internal static class ExploreRunner
                 return msg.Kind switch
                 {
                     MsgKind.RequestVote => HandleRequestVote(state, msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
-                    MsgKind.VoteResponse => HandleVoteResponse(state, msg, nodes, messages, match, nextId, profile),
-                    MsgKind.AppendEntries => HandleAppendEntries(state, msg, nodes, messages, match, nextId, profile),
-                    MsgKind.AppendResponse => HandleAppendResponse(state, msg, nodes, messages, match, profile, broken),
-                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, msg, nodes, messages, match, nextId, profile),
-                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, msg, nodes, messages, match, profile, broken),
+                    MsgKind.VoteResponse => HandleVoteResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.AppendEntries => HandleAppendEntries(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.AppendResponse => HandleAppendResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
@@ -886,51 +861,56 @@ internal static class ExploreRunner
             private static bool ComputeReadResponseReady(NodeState leader, int acks, ExploreProfile profile, BrokenMode broken) =>
                 (VoteMask.CountGranted(acks) >= profile.Majority && leader.AppliedIndex >= leader.ReadIndex) || broken is BrokenMode.ReadIndex;
 
-            private static ClusterState HandleAppendEntries(
-                ClusterState state,
-                InFlightMessage msg,
-                NodeState[] nodes,
-                List<InFlightMessage> messages,
-                int[] match,
-                int nextId,
-                ExploreProfile profile)
+            private static ClusterState HandleAppendEntries(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            {
+                var nodes = scratch.Nodes;
+                _ = scratch.Messages;
+                _ = scratch.Match;
+                _ = scratch.NextMessageId;
+                var receiver = RefreshAppendReceiver(nodes, msg);
+                var applied = ApplyAppendIfCurrent(msg, nodes, receiver, profile);
+                return EnqueueAppendResponse(state, msg, scratch, profile, applied);
+            }
+
+            private static NodeState RefreshAppendReceiver(NodeState[] nodes, InFlightMessage msg)
             {
                 var receiver = nodes[msg.To];
-                if (msg.Term > receiver.CurrentTerm)
-                {
-                    nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
-                    receiver = nodes[msg.To];
-                }
+                if (msg.Term <= receiver.CurrentTerm)
+                    return receiver;
 
-                var success = false;
-                var index = receiver.LastLogIndex;
-                if (msg.Term >= receiver.CurrentTerm)
-                {
-                    var outcome = ModelRpcCommit.ApplyAppendEntries(msg, nodes, profile);
-                    success = outcome.Success;
-                    index = outcome.MatchIndex;
-                }
+                nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
+                return nodes[msg.To];
+            }
 
-                // Response travels receiver → original sender (swap relative to request From/To).
+            private static AppendOutcome ApplyAppendIfCurrent(InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
+            {
+                if (msg.Term < receiver.CurrentTerm)
+                    return new AppendOutcome(false, receiver.LastLogIndex);
+
+                var outcome = ModelRpcCommit.ApplyAppendEntries(msg, nodes, profile);
+                return new AppendOutcome(outcome.Success, outcome.MatchIndex);
+            }
+
+            private static ClusterState EnqueueAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
+            {
+                var nodes = scratch.Nodes;
+                var messages = scratch.Messages;
+                var match = scratch.Match;
+                var nextId = scratch.NextMessageId;
                 var responseFrom = msg.To;
                 var responseTo = msg.From;
                 if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
-                var payload = MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, success, index);
-                var inFlightMessage = new InFlightMessage(nextId++, payload);
-                messages.Add(inFlightMessage);
+                var payload = MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, applied.Success, applied.MatchIndex);
+                messages.Add(new InFlightMessage(nextId++, payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleAppendResponse(
-                ClusterState state,
-                InFlightMessage msg,
-                NodeState[] nodes,
-                List<InFlightMessage> messages,
-                int[] match,
-                ExploreProfile profile,
-                BrokenMode broken)
+            private static ClusterState HandleAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
+                var nodes = scratch.Nodes;
+                var messages = scratch.Messages;
+                var match = scratch.Match;
                 var leader = nodes[msg.To];
                 if (leader.Role != NodeRole.Leader)
                     return state.WithNodesMessagesMatch(nodes, messages, match);
@@ -952,15 +932,12 @@ internal static class ExploreRunner
                 return ModelRpcCommit.MaybeAdvanceCommit(after, msg.To, profile, broken);
             }
 
-            private static ClusterState HandleReadIndexRequest(
-                ClusterState state,
-                InFlightMessage msg,
-                NodeState[] nodes,
-                List<InFlightMessage> messages,
-                int[] match,
-                int nextId,
-                ExploreProfile profile)
+            private static ClusterState HandleReadIndexRequest(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
+                var nodes = scratch.Nodes;
+                var messages = scratch.Messages;
+                var match = scratch.Match;
+                var nextId = scratch.NextMessageId;
                 var receiver = nodes[msg.To];
                 var ok = msg.Term >= receiver.CurrentTerm;
                 if (msg.Term > receiver.CurrentTerm)
@@ -976,15 +953,11 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleReadIndexResponse(
-                ClusterState state,
-                InFlightMessage msg,
-                NodeState[] nodes,
-                List<InFlightMessage> messages,
-                int[] match,
-                ExploreProfile profile,
-                BrokenMode broken)
+            private static ClusterState HandleReadIndexResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
+                var nodes = scratch.Nodes;
+                var messages = scratch.Messages;
+                var match = scratch.Match;
                 var leader = nodes[msg.To];
                 if (IsStaleReadResponse(leader, msg))
                     return state.WithNodesMessagesMatch(nodes, messages, match);
@@ -1023,15 +996,12 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleVoteResponse(
-                ClusterState state,
-                InFlightMessage msg,
-                NodeState[] nodes,
-                List<InFlightMessage> messages,
-                int[] match,
-                int nextId,
-                ExploreProfile profile)
+            private static ClusterState HandleVoteResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
+                var nodes = scratch.Nodes;
+                var messages = scratch.Messages;
+                var match = scratch.Match;
+                var nextId = scratch.NextMessageId;
                 var candidate = nodes[msg.To];
                 if (msg.Term > candidate.CurrentTerm)
                 {
@@ -1044,14 +1014,22 @@ internal static class ExploreRunner
 
                 var votes = candidate.VotesGranted | (1 << msg.From);
                 nodes[msg.To] = ModelTransitionUtil.Patch(candidate, new NodePatch { VotesGranted = votes });
-                if (VoteMask.CountGranted(votes) < profile.Majority)
-                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
 
-                return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
+                // A candidate becomes leader once its votes reach a majority; otherwise the vote is only recorded.
+                var majorityReached = VoteMask.CountGranted(votes) >= profile.Majority;
+                return majorityReached ? Promote() : state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+
+                ClusterState Promote()
+                {
+                    return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
+                }
             }
 
             private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
                                                                                               msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
+
+            [Immutable]
+            private sealed record AppendOutcome(bool Success, int MatchIndex);
         }
     }
 
@@ -1066,11 +1044,8 @@ internal static class ExploreRunner
             work.Parents[startFp] = null;
             work.Queue.Enqueue(initial);
 
-            var initialViolation = SafetyChecker.Check(initial, broken);
-            if (initialViolation != null)
-                return new ExploreResult(1, 0, initialViolation, initial, true, ReconstructPath(work.Parents, startFp));
-
-            return Search(work);
+            var initialViolation = SafetyChecker.Check(initial);
+            return initialViolation != null ? new ExploreResult(1, 0, initialViolation, initial, true, ReconstructPath(work.Parents, startFp)) : Search(work);
         }
 
         private static string[] ReconstructPath(Dictionary<string, string?> parents, string endFingerprint)
@@ -1118,7 +1093,7 @@ internal static class ExploreRunner
                 return null;
 
             work.Parents[fp] = currentFp;
-            var violation = SafetyChecker.Check(next, work.Broken);
+            var violation = SafetyChecker.Check(next);
             if (violation != null)
                 return new ExploreResult(work.Seen.Count, transitions, violation, next, false, ReconstructPath(work.Parents, fp));
 
@@ -1154,5 +1129,51 @@ internal static class ExploreRunner
 
             internal List<ClusterState> Successors { get; }
         }
+    }
+
+    [Immutable]
+    private sealed class CommitProbe
+    {
+        internal CommitProbe(NodeState leader, IReadOnlyList<NodeState> nodes, int[] match, ExploreProfile profile, BrokenMode broken)
+        {
+            Leader = leader;
+            Nodes = nodes;
+            Match = match;
+            Profile = profile;
+            Broken = broken;
+        }
+
+        internal BrokenMode Broken { get; }
+
+        internal NodeState Leader { get; }
+
+        internal int[] Match { get; }
+
+        internal IReadOnlyList<NodeState> Nodes { get; }
+
+        internal ExploreProfile Profile { get; }
+    }
+
+    [Immutable]
+    private sealed class TraceSearchWork
+    {
+        internal TraceSearchWork(IReadOnlyList<ModelCommitTracePoint> tracePoints, int maxStates)
+        {
+            TracePoints = tracePoints;
+            MaxStates = maxStates;
+            Seen = new HashSet<string>(StringComparer.Ordinal);
+            Queue = new Queue<TraceSearchState>();
+            Successors = new List<ClusterState>(64);
+        }
+
+        internal int MaxStates { get; }
+
+        internal Queue<TraceSearchState> Queue { get; }
+
+        internal HashSet<string> Seen { get; }
+
+        internal List<ClusterState> Successors { get; }
+
+        internal IReadOnlyList<ModelCommitTracePoint> TracePoints { get; }
     }
 }

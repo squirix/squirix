@@ -201,10 +201,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private static bool DecodeApplied(ReadOnlyMemory<byte> outcome)
     {
-        if (!ReplicaOutcomeCodec.TryDecode(outcome, out var applied, out _))
-            throw new InvalidOperationException("Committed outcome payload is malformed.");
-
-        return applied;
+        const string message = "Committed outcome payload is malformed.";
+        return !ReplicaOutcomeCodec.TryDecode(outcome, out var applied, out _) ? throw new InvalidOperationException(message) : applied;
     }
 
     private static async Task<CacheRemoveResult<object?>> DecodeRemoveAsync(ReadOnlyMemory<byte> outcome)
@@ -253,10 +251,11 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         if (!_started)
             await StartAsync(cancellationToken).ConfigureAwait(false);
 
-        if (_coordinator == null || _factory == null)
-            throw new InvalidOperationException("Replica group committer is not started.");
-
-        return (_coordinator, _factory);
+        return (_coordinator, _factory) switch
+        {
+            ({ } coordinator, { } factory) => (coordinator, factory),
+            _ => throw new InvalidOperationException("Replica group committer is not started."),
+        };
     }
 
     /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>
@@ -379,10 +378,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
             var batch = new FollowerBatch(new[] { append }, _selfId, mutation.Term, _fanoutPrevIndex, _fanoutPrevTerm, _commitIndex);
             var result = await _rpc.AppendEntriesAsync(nodeId, _header, batch, cancellationToken).ConfigureAwait(false);
-            if (!result.Success)
-                throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.");
-
-            return new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
+            var m = mutation;
+            var followerAsync = new ReplicaDurableAcknowledgement(m.GroupId, m.Term, m.LogIndex, m.OperationFingerprint, m.PayloadChecksum, true, true);
+            return !result.Success ? throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.") : followerAsync;
         }
 
         /// <inheritdoc />

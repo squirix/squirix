@@ -154,10 +154,8 @@ internal sealed record PersistenceOptions
             if (reader.TokenType != JsonTokenType.String)
                 throw new JsonException("Expected a millisecond count or TimeSpan string.");
             var text = reader.GetString();
-            if (text != null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed))
-                return parsed;
-
-            throw new JsonException("Expected a millisecond count or TimeSpan string.");
+            var isParsed = TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed);
+            return text != null && isParsed ? parsed : throw new JsonException("Expected a millisecond count or TimeSpan string.");
         }
 
         public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options) => writer.WriteNumberValue(Convert.ToInt64(value.TotalMilliseconds));

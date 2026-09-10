@@ -61,12 +61,16 @@ internal readonly record struct ReplicaRepairPlanner
                 throw new InvalidOperationException($"Leader log does not retain requested repair index '{nextIndex}'.");
         }
 
-        if (start == leaderEntries.Count && leaderEntries.Count > 0 && nextIndex <= leaderEntries[^1].LogIndex)
-            throw new InvalidOperationException($"Leader log does not retain requested repair index '{nextIndex}'.");
-        if (start == leaderEntries.Count)
-            return new ReplicaRepairBatch(nextIndex - 1UL, PreviousTerm(leaderEntries, start, nextIndex, baseline), ReadOnlyMemory<FollowerLogEntry>.Empty);
-
-        return new ReplicaRepairBatch(nextIndex - 1UL, PreviousTerm(leaderEntries, start, nextIndex, baseline), CopySlice(leaderEntries, start, nextIndex, MaxBatchEntries));
+        var isMissingIndex = start == leaderEntries.Count && leaderEntries.Count > 0 && nextIndex <= leaderEntries[^1].LogIndex;
+        return true switch
+        {
+            _ when isMissingIndex => throw new InvalidOperationException($"Leader log does not retain requested repair index '{nextIndex}'."),
+            _ when start == leaderEntries.Count => new ReplicaRepairBatch(
+                nextIndex - 1UL,
+                PreviousTerm(leaderEntries, start, nextIndex, baseline),
+                ReadOnlyMemory<FollowerLogEntry>.Empty),
+            _ => new ReplicaRepairBatch(nextIndex - 1UL, PreviousTerm(leaderEntries, start, nextIndex, baseline), CopySlice(leaderEntries, start, nextIndex, MaxBatchEntries)),
+        };
     }
 
     /// <summary>Selects retained entries, or a snapshot when the requested index is below the retained entry range.</summary>
@@ -81,32 +85,24 @@ internal readonly record struct ReplicaRepairPlanner
         ArgumentNullException.ThrowIfNull(leaderEntries);
         if (leaderEntries.Count == 0 || leaderEntries[0].LogIndex > nextIndex)
         {
-            if (latestSnapshot is { } snapshot && snapshot.LastIncludedIndex >= nextIndex)
-                return new ReplicaRepairSelection(ReplicaRepairSelectionKind.Snapshot, default, snapshot);
-
             // A new replica group retains nothing yet: an empty leader log at the genesis index is a
             // valid empty repair, not a compaction gap.
-            if (leaderEntries.Count == 0 && nextIndex == 1UL)
-                return new ReplicaRepairSelection(ReplicaRepairSelectionKind.Entries, SelectBatch(leaderEntries, nextIndex), null);
-
-            throw new InvalidOperationException($"Leader has compacted repair index '{nextIndex}' without an installable snapshot.");
+            var isGenesisEmptyRepair = leaderEntries.Count == 0 && nextIndex == 1UL;
+            return true switch
+            {
+                _ when latestSnapshot is { } snapshot && snapshot.LastIncludedIndex >= nextIndex => new ReplicaRepairSelection(
+                    ReplicaRepairSelectionKind.Snapshot,
+                    default,
+                    snapshot),
+                _ when isGenesisEmptyRepair => new ReplicaRepairSelection(ReplicaRepairSelectionKind.Entries, SelectBatch(leaderEntries, nextIndex), null),
+                _ => throw new InvalidOperationException($"Leader has compacted repair index '{nextIndex}' without an installable snapshot."),
+            };
         }
 
         SnapshotBaseline? baseline = null;
         if (latestSnapshot != null && latestSnapshot.LastIncludedIndex == nextIndex - 1UL)
             baseline = new SnapshotBaseline(latestSnapshot.LastIncludedIndex, latestSnapshot.LastIncludedTerm);
         return new ReplicaRepairSelection(ReplicaRepairSelectionKind.Entries, SelectBatch(leaderEntries, nextIndex, baseline), null);
-    }
-
-    private static ulong PreviousTerm(IReadOnlyList<FollowerLogEntry> entries, int start, ulong nextIndex, SnapshotBaseline? baseline)
-    {
-        if (nextIndex == 1UL)
-            return 0UL;
-        if (start > 0 && entries[start - 1].LogIndex == nextIndex - 1UL)
-            return entries[start - 1].Term;
-        if (baseline != null && baseline.LastIncludedIndex == nextIndex - 1UL)
-            return baseline.LastIncludedTerm;
-        throw new InvalidOperationException($"Leader log does not retain previous repair index '{nextIndex - 1UL}'.");
     }
 
     /// <summary>Copies a bounded consecutive run starting at the verified batch start.</summary>
@@ -129,5 +125,18 @@ internal readonly record struct ReplicaRepairPlanner
         }
 
         return selected;
+    }
+
+    private static ulong PreviousTerm(IReadOnlyList<FollowerLogEntry> entries, int start, ulong nextIndex, SnapshotBaseline? baseline)
+    {
+        var hasPredecessorEntry = start > 0 && entries[start - 1].LogIndex == nextIndex - 1UL;
+        var hasBaselinePredecessor = baseline?.LastIncludedIndex == nextIndex - 1UL;
+        return nextIndex switch
+        {
+            1UL => 0UL,
+            _ when hasPredecessorEntry => entries[start - 1].Term,
+            _ when hasBaselinePredecessor => baseline!.LastIncludedTerm,
+            _ => throw new InvalidOperationException($"Leader log does not retain previous repair index '{nextIndex - 1UL}'."),
+        };
     }
 }

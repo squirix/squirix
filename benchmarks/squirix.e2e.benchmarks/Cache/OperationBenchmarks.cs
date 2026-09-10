@@ -96,7 +96,7 @@ public class OperationBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task TryAddShouldAddMissingValueAsync()
+    public async Task AddMissingAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.TryAddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -106,7 +106,7 @@ public class OperationBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task TryAddReturnsFalseForExistingValueAsync()
+    public async Task AddExistingAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(!await Adapter.TryAddAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));

@@ -103,7 +103,7 @@ internal static class Program
         }
 
         private static Task<SquirixServerOptions> LoadSettingsAsync(string path, CancellationToken cancellationToken = default) =>
-            Configurator.LoadFromFileAsync(path, cancellationToken);
+            Configurator.LoadAsync(path, cancellationToken);
 
         private static string? ResolveSettingsPath(SquirixServerCommand command) => Configurator.ResolveSettingsPath(command.SettingsPath);
 
@@ -129,7 +129,7 @@ internal static class Program
             if (command.SettingsPath == null)
                 throw new InvalidOperationException("validate-config requires --settings PATH.");
 
-            var (success, error) = await Configurator.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
+            var (success, error) = await Configurator.ValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
             if (!success)
                 throw new InvalidOperationException(error);
 
@@ -248,13 +248,12 @@ internal static class Program
 
             private static bool IsHelpFlag(string flag) => string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
 
-            private static string ReadValue(string[] args, ref int index)
+            private static string ReadFlagValue(string[] args, ref int index)
             {
                 index++;
-                if (index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal))
-                    throw new InvalidOperationException($"Argument '{args[index - 1]}' requires a value.");
-
-                return args[index];
+                return index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal)
+                    ? throw new InvalidOperationException($"Argument '{args[index - 1]}' requires a value.")
+                    : args[index];
             }
 
             private static int ResolveFlagStart(string[] args, string name)
@@ -265,7 +264,11 @@ internal static class Program
 
             private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            private static bool TryApplyBooleanFlag(string flag, FlagState state)
+            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>.</summary>
+            /// <param name="flag">The raw command-line argument.</param>
+            /// <param name="state">The accumulated flag state.</param>
+            /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
+            private static bool TryApplySwitchFlag(string flag, FlagState state)
             {
                 switch (flag)
                 {
@@ -286,30 +289,33 @@ internal static class Program
             private static bool TryApplyFlag(string[] args, FlagState state, ref int index)
             {
                 var flag = args[index];
-                if (IsHelpFlag(flag))
-                    return false;
-
-                if (TryApplyBooleanFlag(flag, state))
-                    return true;
-
-                if (TryApplyValueFlag(args, flag, state, ref index))
-                    return true;
-
-                throw new InvalidOperationException($"Unknown argument '{flag}'.");
+                return IsHelpFlag(flag) switch
+                {
+                    true => false,
+                    false when TryApplySwitchFlag(flag, state) => true,
+                    false when TryApplyValueFlag(args, flag, state, ref index) => true,
+                    _ => throw new InvalidOperationException($"Unknown argument '{flag}'."),
+                };
             }
 
+            /// <summary>Applies value flags: <c language="csharp">--urls</c>, <c language="csharp">--data-dir</c>, <c language="csharp">--settings</c>.</summary>
+            /// <param name="args">The raw command-line arguments.</param>
+            /// <param name="flag">The flag whose value follows.</param>
+            /// <param name="state">The accumulated flag state.</param>
+            /// <param name="index">The current argument index, advanced past the consumed value.</param>
+            /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
             private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)
             {
                 switch (flag)
                 {
                     case "--urls":
-                        state.SetUri(new Uri(ReadValue(args, ref index), UriKind.Absolute));
+                        state.SetUri(new Uri(ReadFlagValue(args, ref index), UriKind.Absolute));
                         return true;
                     case "--data-dir":
-                        state.SetDataDirectory(ReadValue(args, ref index));
+                        state.SetDataDirectory(ReadFlagValue(args, ref index));
                         return true;
                     case "--settings":
-                        state.SetSettingsPath(ReadValue(args, ref index));
+                        state.SetSettingsPath(ReadFlagValue(args, ref index));
                         return true;
                     default:
                         return false;

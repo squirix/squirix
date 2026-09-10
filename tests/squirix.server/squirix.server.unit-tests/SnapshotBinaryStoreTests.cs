@@ -158,16 +158,8 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
 
     private static bool EntryEquals(NodeCacheEntry<object?> left, NodeCacheEntry<object?> right)
     {
-        if (left.Version != right.Version)
-            return false;
-
-        if (left.ExpiresUtc != right.ExpiresUtc)
-            return false;
-
-        if (left.Expiration != right.Expiration)
-            return false;
-
-        return ValueEquals(left.Value, right.Value) && TagsEqual(left.Tags, right.Tags);
+        var equal = left.Version == right.Version && left.ExpiresUtc == right.ExpiresUtc && left.Expiration == right.Expiration;
+        return equal && ValueEquals(left.Value, right.Value) && TagsEqual(left.Tags, right.Tags);
     }
 
     private static bool TagsEqual(FrozenDictionary<string, string>? left, FrozenDictionary<string, string>? right)

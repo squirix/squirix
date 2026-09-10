@@ -107,15 +107,9 @@ internal sealed class HostedCluster : IAsyncDisposable
     internal Uri GetUri(string nodeId) => _nodes[nodeId].Uri;
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
-    /// <param name="nodeId">Node identifier to stop.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is not a running node.</exception>
-    internal ValueTask StopNodeAsync(string nodeId)
-    {
-        if (!_nodes.Remove(nodeId, out var node))
-            throw new InvalidOperationException("Requested node is not running.");
-
-        return node.DisposeAsync();
-    }
+    /// <param name="id">Node identifier to stop.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="id" /> is not a running node.</exception>
+    internal ValueTask StopNodeAsync(string id) => _nodes.Remove(id, out var node) ? node.DisposeAsync() : throw new InvalidOperationException("Requested node is not running.");
 
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
     {

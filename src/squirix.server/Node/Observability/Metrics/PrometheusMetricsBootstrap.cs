@@ -13,7 +13,7 @@ internal static class PrometheusMetricsBootstrap
     internal static async Task<PrometheusMetricsEndpointOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         var baseline = Default();
-        var (found, merged) = await TryMergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
+        var (found, merged) = await MergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
         return found ? merged : baseline;
     }
 
@@ -25,15 +25,12 @@ internal static class PrometheusMetricsBootstrap
     /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the file exists and defines a <c language="csharp">PrometheusMetrics</c> object,
     /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
-    internal static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergeFromSettingsFilePathAsync(
+    internal static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> MergeFromSettingsFilePathAsync(
         string file,
         PrometheusMetricsEndpointOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(file))
-            return (false, baseline);
-
-        return await SettingsJson.WithSquirixRootAsync(
+        return File.Exists(file) ? await SettingsJson.WithSquirixRootAsync(
             file,
             baseline,
             static (root, baseline) =>
@@ -45,7 +42,7 @@ internal static class PrometheusMetricsBootstrap
                 var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false) : (false, baseline);
     }
 
     private static PrometheusMetricsEndpointOptions Default() => new();
@@ -59,12 +56,12 @@ internal static class PrometheusMetricsBootstrap
     /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">PrometheusMetrics</c> object,
     /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
-    private static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergeFromFileAsync(
+    private static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> MergeFromFileAsync(
         PrometheusMetricsEndpointOptions baseline,
         CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await TryMergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     [Immutable]

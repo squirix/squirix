@@ -46,11 +46,5 @@ internal static class OptionsResolver
         return options;
     }
 
-    private static long ComputeRamCapBytes(long availableBytes)
-    {
-        if (availableBytes <= 0)
-            return 0;
-
-        return availableBytes / 100 * RamBudgetPercent;
-    }
+    private static long ComputeRamCapBytes(long availableBytes) => availableBytes <= 0 ? 0 : availableBytes / 100 * RamBudgetPercent;
 }

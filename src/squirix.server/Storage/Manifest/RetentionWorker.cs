@@ -257,10 +257,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                     return false;
 
                 var ordered = GetIndexedFiles(files, ParseSnapshotIndex);
-                if (ordered.Length <= context.SnapshotRetention)
-                    return false;
-
-                return DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+                return ordered.Length > context.SnapshotRetention && DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
             }
             catch (ArgumentException ex)
             {

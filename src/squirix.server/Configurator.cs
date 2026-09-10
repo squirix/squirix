@@ -96,7 +96,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path != null ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -152,13 +152,10 @@ public static class Configurator
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the file is missing, invalid, or fails validation.</exception>
-    public static async Task<SquirixServerOptions> LoadFromFileAsync(string settingsFilePath, CancellationToken cancellationToken = default)
+    public static async Task<SquirixServerOptions> LoadAsync(string settingsFilePath, CancellationToken cancellationToken = default)
     {
-        var (success, options, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
-        if (!success)
-            throw new InvalidOperationException(error);
-
-        return ThrowHelper.Required(options, "Settings file did not produce cluster options.");
+        var (success, options, error) = await LoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
     /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
@@ -169,7 +166,7 @@ public static class Configurator
         var path = ResolveSettingsPath();
         if (path != null)
         {
-            var (success, options, _) = await TryLoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
+            var (success, options, _) = await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
             if (success && options != null)
                 return options;
         }
@@ -209,7 +206,7 @@ public static class Configurator
     /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when loading and validation succeed,
     /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(string path, CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(string path, CancellationToken cancellationToken = default)
     {
         string validatedPath;
         try
@@ -240,10 +237,7 @@ public static class Configurator
             if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 
-            if (options.TryValidate(out var failures))
-                return (true, options, null);
-
-            return (false, null, string.Join(Environment.NewLine, failures));
+            return options.TryValidate(out var failures) ? (true, options, null) : (false, null, string.Join(Environment.NewLine, failures));
         }
         catch (ArgumentException ex)
         {
@@ -268,9 +262,9 @@ public static class Configurator
     /// <returns>
     /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when validation succeeds and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, string? Error)> ValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
     {
-        var (success, _, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        var (success, _, error) = await LoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
         if (!success)
             return (false, error);
 
@@ -338,10 +332,7 @@ public static class Configurator
         try
         {
             listener.Start();
-            if (listener.LocalEndpoint is not IPEndPoint endpoint)
-                throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
-
-            return endpoint.Port;
+            return listener.LocalEndpoint is not IPEndPoint endpoint ? throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.") : endpoint.Port;
         }
         finally
         {

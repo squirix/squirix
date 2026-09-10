@@ -48,10 +48,11 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        if (entry == null)
-            return new GetEntryAsyncResponse { Found = false };
-
-        return new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() };
+        return entry switch
+        {
+            null => new GetEntryAsyncResponse { Found = false },
+            _ => new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() },
+        };
     }
 
     public override async Task<GetExpirationAsyncResponse> GetExpiration(GetExpirationAsyncRequest request, ServerCallContext context)
@@ -121,7 +122,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         request.OperationId,
         RpcMutationFingerprints.AddEntryIfAbsent(request.CacheName, request.Key, request.Entry),
         (Handlers: _handlers, Request: request),
-        static (s, ct) => s.Handlers.TryAddEntryAsyncCoreAsync(s.Request, ct),
+        static (s, ct) => s.Handlers.AddEntryAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<UpdateAsyncResponse> Update(UpdateAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
@@ -268,21 +269,18 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             }
 
             var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
-            if (afterRace.Found)
-            {
-                return new GetOrAddAsyncResponse
+            return afterRace.Found
+                ? new GetOrAddAsyncResponse
                 {
                     Added = false,
                     Found = true,
                     Value = ServerProtoEx.CacheValueToGrpcValue(afterRace.Value),
+                }
+                : new GetOrAddAsyncResponse
+                {
+                    Added = false,
+                    Found = false,
                 };
-            }
-
-            return new GetOrAddAsyncResponse
-            {
-                Added = false,
-                Found = false,
-            };
         }
 
         internal async Task<RemoveAsyncResponse> RemoveAsyncCoreAsync(RemoveAsyncRequest request, CancellationToken cancellationToken)
@@ -336,7 +334,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             return new TouchAsyncResponse { Found = found };
         }
 
-        internal async Task<TryAddAsyncResponse> TryAddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
+        internal async Task<TryAddAsyncResponse> AddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
         {
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);

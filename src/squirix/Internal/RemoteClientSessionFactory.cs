@@ -37,12 +37,10 @@ internal static class RemoteClientSessionFactory
             };
         }
 
-        var credentials = BuildCallCredentials(bearerTokenProvider);
-
         ClientPool? pool = null;
         try
         {
-            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
+            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: BuildCallCredentials(bearerTokenProvider));
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
             var connected = pool;
@@ -63,13 +61,8 @@ internal static class RemoteClientSessionFactory
     internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
         SerializationProvider.Create(serializer, enableMetrics);
 
-    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
-    {
-        if (bearerTokenProvider == null)
-            return null;
-
-        return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
-    }
+    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? provider) =>
+        provider == null ? null : new BearerTokenCallCredentials(provider).Credentials;
 
     private static string FormatEndpointNodeId(int index)
     {
@@ -101,15 +94,15 @@ internal static class RemoteClientSessionFactory
         return TrimEndpoints(buffer, count);
     }
 
-    private static Uri RequireAbsoluteEndpoint(Uri? endpoint, string paramName)
+    private static Uri RequireAbsoluteEndpoint(Uri? e, string paramName)
     {
-        if (endpoint == null)
-            throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName);
-
-        if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-            throw new ArgumentException("Endpoint must be an absolute Squirix server URI.", paramName);
-
-        return endpoint;
+        const string message = "Endpoint must be an absolute Squirix server URI.";
+        return e switch
+        {
+            null => throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName),
+            not null when !e.IsAbsoluteUri || string.IsNullOrWhiteSpace(e.Scheme) || string.IsNullOrWhiteSpace(e.Host) => throw new ArgumentException(message, paramName),
+            { } => e,
+        };
     }
 
     private static Uri[] TrimEndpoints(Uri[] buffer, int count)

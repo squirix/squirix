@@ -23,13 +23,7 @@ internal static class RpcDeadlineContext
         return new Scope(previous);
     }
 
-    private static DateTime? Normalize(DateTime? deadlineUtc)
-    {
-        if (deadlineUtc == null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
-            return null;
-
-        return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
-    }
+    private static DateTime? Normalize(DateTime? date) => date == null || date == DateTime.MaxValue || date == DateTime.MinValue ? null : date.Value.ToUniversalTime();
 
     [Immutable]
     private sealed class Scope : IDisposable

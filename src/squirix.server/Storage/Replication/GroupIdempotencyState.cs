@@ -270,10 +270,9 @@ internal sealed class GroupIdempotencyState
         lock (_sync)
         {
             var key = new GroupOperationKey(scope, operationId);
-            if (!_records.TryGetValue(key, out var record) || record.IsResolved || record.LogIndex != logIndex || record.Term != term)
-                return false;
-
-            return _records.Remove(key);
+            var known = _records.TryGetValue(key, out var record);
+            var releasable = known && !record.IsResolved && record.LogIndex == logIndex && record.Term == term;
+            return releasable && _records.Remove(key);
         }
     }
 
@@ -417,9 +416,7 @@ internal sealed class GroupIdempotencyState
         var retainedSet = new HashSet<ulong>(retainedLogIndexes);
         var retained = CollectRetainedRecords(retainedSet);
         var distinct = DistinctKeyCount(surviving, retained);
-        if (distinct > Capacity)
-            throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).");
-        return retained;
+        return distinct > Capacity ? throw new InvalidDataException($"Snapshot and retained records ({distinct}) exceed configured idempotency capacity ({Capacity}).") : retained;
     }
 
     /// <summary>Collects the in-memory records whose journal index survives the snapshot boundary.</summary>

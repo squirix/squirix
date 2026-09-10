@@ -61,8 +61,7 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 
     private static NodeCacheEntry<T> PreserveExpirationWhenNotSpecified(NodeCacheEntry<T> replacement, NodeCacheEntry<T> existing)
     {
-        if (replacement.ExpiresUtc != null || replacement.Expiration != null)
-            return replacement;
-        return new NodeCacheEntry<T>(replacement.Value, replacement.Version, existing.ExpiresUtc, null, replacement.Tags ?? existing.Tags);
+        var expiration = replacement.ExpiresUtc != null || replacement.Expiration != null;
+        return expiration ? replacement : new NodeCacheEntry<T>(replacement.Value, replacement.Version, existing.ExpiresUtc, null, replacement.Tags ?? existing.Tags);
     }
 }
