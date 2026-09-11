@@ -119,7 +119,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
-    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalCoordinator>();
+    private ILogger Log => field ??= LogManager.GetLogger<JournalCoordinator>();
 
     ulong IJournalCoordinatorAppendState.AllocateSequence()
     {
@@ -220,7 +220,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         catch (ObjectDisposedException)
         {
             // Concurrent teardown can dispose the CTS before cancellation is observed.
-            LogManager.JournalBackgroundCancellationDisposedOnDispose(JournalLog);
+            LogManager.JournalBackgroundCancellationDisposedOnDispose(Log);
         }
 
         GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
@@ -231,7 +231,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // The join timed out: tearing down the writer, ring, or gates under a live journal
             // thread corrupts slot accounting and races in-flight writes. Leak them instead and
             // surface the timeout loudly alongside any earlier stage failures.
-            LogManager.JournalThreadLeakedOnShutdownTimeout(JournalLog);
+            LogManager.JournalThreadLeakedOnShutdownTimeout(Log);
             failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
             JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
             return;
@@ -374,7 +374,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // Producers never quiesced: publishing the marker now could let it overtake an admitted
         // append. Fail reachable waiters explicitly and stop instead of proceeding into
         // marker/join/teardown with a broken ordering guarantee.
-        LogManager.JournalProducerQuiescenceTimedOut(JournalLog);
+        LogManager.JournalProducerQuiescenceTimedOut(Log);
         GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
         DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
         failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
@@ -534,22 +534,25 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
-            var enqueued = false;
             _producerGate.Enter();
             try
             {
-                // Inside the cleanup scope: rejecting here still returns the frame buffer and
-                // releases the queued-append slot through the !enqueued path below.
-                _producerGate.ThrowIfShutdownInitiated();
-                var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
-                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-                enqueued = true;
-            }
-            catch when (!enqueued)
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
-                throw;
+                try
+                {
+                    // Shutdown rejection lands in the same cleanup below: the frame never entered
+                    // the ring, so the buffer and the queued-append slot are released here.
+                    _producerGate.ThrowIfShutdownInitiated();
+                    var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
+                    await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // The frame never entered the ring, so the journal thread will never release
+                    // it: return the buffer and the queued-append slot here.
+                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                    _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
+                    throw;
+                }
             }
             finally
             {
@@ -565,22 +568,25 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, TaskCompletionSource ack, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _owner.QueuedAppendsCounter.Value);
-            var enqueued = false;
             _producerGate.Enter();
             try
             {
-                // Inside the cleanup scope: rejecting here still returns the frame buffer and
-                // releases the queued-append slot through the !enqueued path below.
-                _producerGate.ThrowIfShutdownInitiated();
-                var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
-                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-                enqueued = true;
-            }
-            catch when (!enqueued)
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
-                throw;
+                try
+                {
+                    // Shutdown rejection lands in the same cleanup below: the frame never entered
+                    // the ring, so the buffer and the queued-append slot are released here.
+                    _producerGate.ThrowIfShutdownInitiated();
+                    var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
+                    await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // The frame never entered the ring, so the journal thread will never release
+                    // it: return the buffer and the queued-append slot here.
+                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                    _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
+                    throw;
+                }
             }
             finally
             {
