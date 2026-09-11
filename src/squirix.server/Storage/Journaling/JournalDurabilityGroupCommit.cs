@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,6 +22,7 @@ internal sealed class JournalDurabilityGroupCommit
 
     private List<TaskCompletionSource> _acks;
     private List<TaskCompletionSource> _acksSpare;
+    private Exception? _failure;
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
     {
@@ -52,6 +54,12 @@ internal sealed class JournalDurabilityGroupCommit
             var signalJournal = false;
             lock (_sync)
             {
+                // Admitting after CancelPending would park the waiter on a batch nobody will ever
+                // drain (journal thread exiting or pipeline failed): fail fast with the recorded
+                // reason instead of hanging.
+                if (_failure != null)
+                    ExceptionDispatchInfo.Capture(_failure).Throw();
+
                 if (_acks.Count == 0)
                 {
                     _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
@@ -84,6 +92,7 @@ internal sealed class JournalDurabilityGroupCommit
         ArgumentNullException.ThrowIfNull(reason);
         lock (_sync)
         {
+            _failure ??= reason;
             _batchDeadline.Clear();
             for (var i = 0; i < _acks.Count; i++)
                 _ = _acks[i].TrySetException(reason);

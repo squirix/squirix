@@ -1,8 +1,10 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -49,5 +51,16 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         Assert.False(registered.Task.IsCompleted);
 
         _ = coordinator.DurabilityAcks.Remove(registered);
+    }
+
+    /// <summary>Ensures a failure drain closes the registry: late checkpoint registrations fail fast.</summary>
+    [Fact]
+    public void TakeAllClosesRegistryForAdds()
+    {
+        var registry = new DurabilityAckRegistry();
+        var reason = new ObjectDisposedException(nameof(JournalCoordinator));
+        Assert.Empty(registry.TakeAll(reason));
+
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(registry, static r => r.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)));
     }
 }

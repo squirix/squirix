@@ -43,6 +43,21 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         Assert.Same(failure, ack.Exception?.InnerException);
     }
 
+    /// <summary>Ensures waits admitted after CancelPending fail fast instead of parking on a dead batch.</summary>
+    [Fact]
+    public async Task AwaitCommitAfterCancelPendingThrows()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
+        groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+    }
+
     /// <summary>
     /// Ensures canceling an ack after its batch was taken but before flush completion does not
     /// break the in-flight batch or later durability waits.

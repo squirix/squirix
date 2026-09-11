@@ -147,7 +147,7 @@ internal sealed class JournalDurabilityCoordinator
 
     internal void FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll();
+        var acks = _owner.DurabilityAcks.TakeAll(reason);
 
         for (var i = 0; i < acks.Count; i++)
             _ = acks[i].TrySetException(reason);

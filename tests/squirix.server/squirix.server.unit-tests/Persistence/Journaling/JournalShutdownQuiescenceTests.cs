@@ -79,7 +79,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await cts.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token));
 
-        Assert.Empty(coordinator.DurabilityAcks.TakeAll());
+        Assert.Equal(0, coordinator.DurabilityAcks.Count);
     }
 
     private static Task StartAppendTrafficAsync(IJournalCoordinator journal, byte[] payload, int writers, int opsPerWriter, HashSet<string> successes, Lock gate)
