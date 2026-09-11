@@ -16,14 +16,17 @@ internal sealed class JournalDurabilityCoordinator
 {
     private readonly ILogger _logger;
     private readonly IJournalCoordinatorState _owner;
+    private readonly JournalProducerGate _producerGate;
     private readonly IJournalCoordinatorSnapshotState _snapshot;
 
-    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger)
+    internal JournalDurabilityCoordinator(IJournalCoordinatorState owner, IJournalCoordinatorSnapshotState snapshot, ILogger logger, JournalProducerGate producerGate)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(producerGate);
         _owner = owner;
         _snapshot = snapshot;
         _logger = logger;
+        _producerGate = producerGate;
     }
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
@@ -40,14 +43,17 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
-    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures)
+    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
     {
         try
         {
-            var work = new JoinJournalThreadWork(this);
+            var work = new JoinJournalThreadWork(this, timeout);
             await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
             if (!work.Joined)
-                failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
+            {
+                LogManager.JournalThreadJoinTimedOut(_logger);
+                failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
+            }
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
@@ -80,8 +86,17 @@ internal sealed class JournalDurabilityCoordinator
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
         var begin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var beginItem = JournalWorkItem.MaintenanceBegin(begin);
-        await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
+        _producerGate.Enter();
+        try
+        {
+            _producerGate.ThrowIfShutdownInitiated();
+            var beginItem = JournalWorkItem.MaintenanceBegin(begin);
+            await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
 
         await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         await action(cancellationToken).ConfigureAwait(false);
@@ -91,13 +106,45 @@ internal sealed class JournalDurabilityCoordinator
         var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
 
         var end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
-        await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+        _producerGate.Enter();
+        try
+        {
+            _producerGate.ThrowIfShutdownInitiated();
+            var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
+            await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
 
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+    /// <summary>Enqueues the shutdown marker, or fails disposal loudly when it cannot enter.</summary>
+    /// <param name="failures">Disposal failures to record a marker timeout into.</param>
+    /// <param name="cancellationToken">Budget for the marker wait; cancellation aborts disposal.</param>
+    /// <returns>A task that completes when the marker entered the ring.</returns>
+    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, CancellationToken cancellationToken)
+    {
+        // On a wedged thread with a full ring the marker wait would otherwise hang disposal
+        // forever, before the join timeout below ever gets to report.
+        try
+        {
+            await EnqueueShutdownAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Without the marker, canceling or tearing down now would let the live thread exit
+            // with queued frames unwritten. Fail reachable waiters explicitly and stop instead,
+            // keeping writer, ring, and gates alive.
+            LogManager.JournalShutdownMarkerTimedOut(_logger);
+            _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+            FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+            failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
+            ThrowDisposeFailures(failures);
+        }
+    }
 
     internal void FailJournalPipeline(Exception reason)
     {
@@ -107,9 +154,29 @@ internal sealed class JournalDurabilityCoordinator
         _owner.GroupCommit?.CancelPendingCore(reason);
     }
 
+    /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
+    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
+    /// <param name="remaining">Time left in the shared shutdown budget.</param>
+    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
+    internal async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
+    {
+        _producerGate.InitiateShutdown();
+        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
+            return;
+
+        // Producers never quiesced: publishing the marker now could let it overtake an admitted
+        // append. Fail reachable waiters explicitly and stop instead of proceeding into
+        // marker/join/teardown with a broken ordering guarantee.
+        LogManager.JournalProducerQuiescenceTimedOut(_logger);
+        _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
+        ThrowDisposeFailures(failures);
+    }
+
     internal void FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll();
+        var acks = _owner.DurabilityAcks.TakeAll(reason);
 
         for (var i = 0; i < acks.Count; i++)
             _ = acks[i].TrySetException(reason);
@@ -138,6 +205,16 @@ internal sealed class JournalDurabilityCoordinator
             throw new InvalidOperationException("journal I/O thread failed.", failure);
     }
 
+    /// <summary>Waits for the journal thread to exit within the given timeout without recording failures.</summary>
+    /// <param name="timeout">Maximum time to wait for the thread exit.</param>
+    /// <returns>Whether the journal thread exited in time.</returns>
+    internal async ValueTask<bool> TryJoinJournalThreadAsync(TimeSpan timeout)
+    {
+        var work = new JoinJournalThreadWork(this, timeout);
+        await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, CancellationToken.None).ConfigureAwait(false);
+        return work.Joined;
+    }
+
     internal async ValueTask<AsyncLockHolder> WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
     {
         while (true)
@@ -156,13 +233,34 @@ internal sealed class JournalDurabilityCoordinator
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
         var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _owner.DurabilityAcks.Add(ack);
 
+        _producerGate.Enter();
         try
         {
-            var item = JournalWorkItem.DurabilityCheckpoint(ack);
-            await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            _producerGate.ThrowIfShutdownInitiated();
+            _owner.DurabilityAcks.Add(ack);
+            try
+            {
+                var item = JournalWorkItem.DurabilityCheckpoint(ack);
+                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The item never entered the ring, so the journal thread will never resolve it:
+                // detach here or the ack leaks into the registry until disposal.
+                DetachDurabilityAck(ack);
+                throw;
+            }
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
 
+        // The durability wait stays outside the gate: the gate covers only the publish, so a slow
+        // journal thread never blocks shutdown drain on fsync latency.
+        try
+        {
             await ack.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             ThrowIfJournalThreadFailed();
         }
@@ -177,6 +275,8 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
+    private ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
+
     private void RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
     {
         if (!_owner.DurabilityAcks.Remove(ack))
@@ -188,14 +288,16 @@ internal sealed class JournalDurabilityCoordinator
     private sealed class JoinJournalThreadWork : IWorkPoolItem
     {
         private readonly JournalDurabilityCoordinator _pipeline;
+        private readonly TimeSpan _timeout;
 
-        internal JoinJournalThreadWork(JournalDurabilityCoordinator pipeline)
+        internal JoinJournalThreadWork(JournalDurabilityCoordinator pipeline, TimeSpan timeout)
         {
             _pipeline = pipeline;
+            _timeout = timeout;
         }
 
         internal bool Joined { get; private set; }
 
-        void IWorkPoolItem.Execute() => Joined = _pipeline._owner.JournalThread.Join(TimeSpan.FromSeconds(30));
+        void IWorkPoolItem.Execute() => Joined = _pipeline._owner.JournalThread.Join(_timeout);
     }
 }
