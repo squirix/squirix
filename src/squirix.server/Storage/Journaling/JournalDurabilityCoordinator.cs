@@ -149,15 +149,8 @@ internal sealed class JournalDurabilityCoordinator
     internal async ValueTask<bool> TryJoinJournalThreadAsync(TimeSpan timeout)
     {
         var work = new JoinJournalThreadWork(this, timeout);
-        try
-        {
-            await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, CancellationToken.None).ConfigureAwait(false);
-            return work.Joined;
-        }
-        catch (ObjectDisposedException)
-        {
-            return false;
-        }
+        await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, CancellationToken.None).ConfigureAwait(false);
+        return work.Joined;
     }
 
     internal void FailJournalPipeline(Exception reason)
