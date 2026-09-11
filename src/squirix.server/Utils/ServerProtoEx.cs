@@ -101,18 +101,20 @@ internal static class ServerProtoEx
         };
     }
 
-    private static T? FromStruct<T>(Struct s)
-    {
-        if (typeof(T) != typeof(object))
-        {
-            var value = s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped) ? onlyWrapped : null;
-            return value switch
-            {
-                null => DeserializeFromProtoValue<T>(Value.ForStruct(s)),
-                { } wrapped => TryReadScalarValue<T>(wrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(wrapped),
-            };
-        }
+    private static T? FromStruct<T>(Struct s) => typeof(T) == typeof(object) ? FromStructAsObject<T>(s) : FromStructAsDeclaredType<T>(s);
 
+    private static T? FromStructAsDeclaredType<T>(Struct s)
+    {
+        var value = s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped) ? onlyWrapped : null;
+        return value switch
+        {
+            null => DeserializeFromProtoValue<T>(Value.ForStruct(s)),
+            { } => TryReadScalarValue<T>(value, out var scalar) ? scalar : DeserializeFromProtoValue<T>(value),
+        };
+    }
+
+    private static T? FromStructAsObject<T>(Struct s)
+    {
         if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
