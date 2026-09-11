@@ -127,7 +127,7 @@ internal sealed class GroupIdempotencyState
     /// <param name="operationFingerprint">The canonical request fingerprint.</param>
     /// <param name="record">The retained record when the lookup succeeds.</param>
     /// <returns>The lookup outcome.</returns>
-    internal GroupIdempotencyLookup Lookup(string scope, string operationId, ReadOnlyMemory<byte> operationFingerprint, out GroupIdempotencyRecord record)
+    internal GroupIdempotencyLookup Lookup(string scope, string operationId, ReadOnlySpan<byte> operationFingerprint, out GroupIdempotencyRecord record)
     {
         lock (_sync)
         {
@@ -135,7 +135,7 @@ internal sealed class GroupIdempotencyState
             if (!_records.TryGetValue(new GroupOperationKey(scope, operationId), out record))
                 return GroupIdempotencyLookup.Miss;
 
-            if (record.OperationFingerprint.Span.SequenceEqual(operationFingerprint.Span))
+            if (record.OperationFingerprint.Span.SequenceEqual(operationFingerprint))
                 return record.IsResolved ? GroupIdempotencyLookup.Found : GroupIdempotencyLookup.Unresolved;
             record = default;
             return GroupIdempotencyLookup.Mismatch;
@@ -182,7 +182,7 @@ internal sealed class GroupIdempotencyState
     /// fingerprint, or <see cref="GroupIdempotencyReserveResult.CapacityExceeded" /> when the key is new and the
     /// store is at capacity.
     /// </returns>
-    internal GroupIdempotencyReserveResult Reserve(string scope, string operationId, ReadOnlyMemory<byte> operationFingerprint, GroupRecordKind kind, ulong logIndex, ulong term)
+    internal GroupIdempotencyReserveResult Reserve(string scope, string operationId, ReadOnlySpan<byte> operationFingerprint, GroupRecordKind kind, ulong logIndex, ulong term)
     {
         lock (_sync)
         {
@@ -190,7 +190,7 @@ internal sealed class GroupIdempotencyState
             var key = new GroupOperationKey(scope, operationId);
             if (_records.TryGetValue(key, out var existing))
             {
-                if (!existing.OperationFingerprint.Span.SequenceEqual(operationFingerprint.Span))
+                if (!existing.OperationFingerprint.Span.SequenceEqual(operationFingerprint))
                     return GroupIdempotencyReserveResult.FingerprintMismatch;
 
                 // The same fingerprint may be re-reserved at a new journal index or term when the operation is
@@ -207,16 +207,8 @@ internal sealed class GroupIdempotencyState
             if (_records.Count >= Capacity)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
-            _records[key] = new GroupIdempotencyRecord(
-                scope,
-                operationId,
-                operationFingerprint.ToArray(),
-                ReadOnlyMemory<byte>.Empty,
-                kind,
-                _timeProvider.GetUtcNow().UtcDateTime,
-                null,
-                logIndex,
-                term);
+            var memory = BufferEx.CopyToOwned(operationFingerprint);
+            _records[key] = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
             return GroupIdempotencyReserveResult.Success;
         }
     }
@@ -283,7 +275,7 @@ internal sealed class GroupIdempotencyState
     /// <param name="logIndex">The journal index that carries the record.</param>
     /// <param name="term">The term in which the record was appended.</param>
     /// <returns><see langword="true" /> when the record existed with matching coordinates and was resolved; otherwise <see langword="false" />.</returns>
-    internal bool TryResolve(string scope, string operationId, ReadOnlyMemory<byte> outcomePayload, ulong logIndex, ulong term)
+    internal bool TryResolve(string scope, string operationId, ReadOnlySpan<byte> outcomePayload, ulong logIndex, ulong term)
     {
         lock (_sync)
         {
@@ -299,7 +291,7 @@ internal sealed class GroupIdempotencyState
             if (record.IsResolved)
                 return false;
 
-            _records[key] = record.Resolve(outcomePayload.ToArray(), _timeProvider.GetUtcNow().UtcDateTime);
+            _records[key] = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
             return true;
         }
     }

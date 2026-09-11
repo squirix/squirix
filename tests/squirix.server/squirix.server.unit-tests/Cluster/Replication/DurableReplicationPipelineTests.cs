@@ -432,7 +432,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         commitIndex,
         appliedIndex,
         lastTerm,
-        new byte[] { 9 },
+        new byte[] { 8 },
         1UL,
         7U);
 

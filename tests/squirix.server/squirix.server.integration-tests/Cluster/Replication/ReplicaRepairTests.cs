@@ -59,12 +59,12 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
             Assert.True((await log.AppendAsync(Append(1UL, 1UL, "committed"), DefaultCancellationToken)).Success);
             Assert.True((await log.AppendAsync(Append(2UL, 1UL, "stale"), DefaultCancellationToken)).Success);
             Assert.True((await log.AdvanceCommitAsync(1UL, DefaultCancellationToken)).Success);
-            _ = log.Idempotency.Reserve("client", "pending", new byte[] { 4 }, GroupRecordKind.UserMutation, 2UL, 1UL);
+            _ = log.Idempotency.Reserve("client", "pending", [4], GroupRecordKind.UserMutation, 2UL, 1UL);
             faults.Arm();
 
             var reconcile = log.ReconcileTailAsync(2UL, 1UL, 1UL, DefaultCancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<IOException>(reconcile);
-            Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "pending", new byte[] { 4 }, out _));
+            Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "pending", [4], out _));
             Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
         }
 

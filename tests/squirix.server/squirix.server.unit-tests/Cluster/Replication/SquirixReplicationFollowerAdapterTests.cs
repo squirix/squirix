@@ -139,7 +139,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
             LeaderNodeId = "node-a",
             GroupId = groupId,
             Term = 7,
-            TopologyFingerprint = ByteString.CopyFrom(9),
+            TopologyFingerprint = ByteString.CopyFromUtf8("\t"),
             ConfigurationGeneration = topology.ConfigurationGeneration,
         };
         var httpContext = new DefaultHttpContext

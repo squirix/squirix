@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Xunit;
@@ -37,7 +38,7 @@ public sealed class MajorityCommitTests
         var wrongGroup = valid with { GroupId = "other" };
         var wrongTerm = valid with { Term = 2 };
         var wrongIndex = valid with { LogIndex = 2 };
-        var wrongFingerprint = valid with { OperationFingerprint = new byte[] { 9 } };
+        var wrongFingerprint = valid with { OperationFingerprint = Array.Empty<byte>() };
         var wrongChecksum = valid with { PayloadChecksum = 99 };
         var notDurable = valid with { IsDurable = false };
         var notReady = valid with { IsReady = false };

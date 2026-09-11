@@ -12,18 +12,18 @@ internal static class BufferEx
     internal static byte[] Utf8ToOwned(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var byteCount = Encoding.UTF8.GetByteCount(text);
-        if (byteCount <= StackallocThreshold)
+        var count = Encoding.UTF8.GetByteCount(text);
+        if (count <= StackallocThreshold)
         {
-            Span<byte> scratch = stackalloc byte[byteCount];
-            _ = Encoding.UTF8.GetBytes(text, scratch);
-            return CopyToOwned(scratch);
+            Span<byte> span = stackalloc byte[count];
+            _ = Encoding.UTF8.GetBytes(text, span);
+            return CopyToOwned(span);
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+        var rented = ArrayPool<byte>.Shared.Rent(count);
         try
         {
-            var span = rented.AsSpan(0, byteCount);
+            var span = rented.AsSpan(0, count);
             _ = Encoding.UTF8.GetBytes(text, span);
             return CopyToOwned(span);
         }

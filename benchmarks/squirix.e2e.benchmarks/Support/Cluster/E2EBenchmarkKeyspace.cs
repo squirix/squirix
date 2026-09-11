@@ -44,8 +44,10 @@ internal sealed class E2EBenchmarkKeyspace
         {
             BenchmarkTopology.TwoNodeLocalOwner => CreateOwned(cacheName, owner, "nodeA", "local"),
             BenchmarkTopology.TwoNodeRemoteOwner => CreateOwned(cacheName, owner, "nodeB", "remote"),
+            BenchmarkTopology.TwoNodeUniformKeys => CreateUniform(cacheName, owner, "uniform", LargeKeyCount),
             BenchmarkTopology.TwoNodeHotKeys => CreateUniform(cacheName, owner, "hot", HotKeyCount),
-            _ => CreateUniform(cacheName, owner, "uniform", LargeKeyCount),
+            BenchmarkTopology.SingleNode => throw new ArgumentOutOfRangeException(nameof(topology), topology, "Single-node topology is handled before the two-node switch."),
+            _ => throw new ArgumentOutOfRangeException(nameof(topology), topology, "Unknown benchmark topology."),
         };
     }
 

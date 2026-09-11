@@ -6,6 +6,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
@@ -32,21 +33,21 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             await log.OpenAsync(DefaultCancellationToken);
 
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            Assert.Equal(GroupIdempotencyReserveResult.Success, log.Idempotency.Reserve("client", "op-A", new byte[] { 1 }, GroupRecordKind.UserMutation, 1UL, 1UL));
-            Assert.True(log.Idempotency.TryResolve("client", "op-A", new byte[] { 9 }, 1UL, 1UL));
-            Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "op-A", new byte[] { 1 }, out _));
+            Assert.Equal(GroupIdempotencyReserveResult.Success, log.Idempotency.Reserve("client", "op-A", [1], GroupRecordKind.UserMutation, 1UL, 1UL));
+            Assert.True(log.Idempotency.TryResolve("client", "op-A", [9], 1UL, 1UL));
+            Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "op-A", [1], out _));
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
 
             var status = await log.GetStatusAsync(DefaultCancellationToken);
             const GroupRecordKind kind = GroupRecordKind.UserMutation;
-            var outcome = new GroupIdempotencyRecord("client", "op-B", new byte[] { 2 }, new byte[] { 9 }, kind, DateTime.UtcNow, DateTime.UtcNow, 1UL, 1UL);
+            var outcome = new GroupIdempotencyRecord("client", "op-B", new byte[] { 2 }, new byte[] { 8 }, kind, DateTime.UtcNow, DateTime.UtcNow, 1UL, 1UL);
             var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 1UL, 1UL, new List<GroupIdempotencyRecord> { outcome });
 
             faults.Arm();
             _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(log.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken));
 
-            Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "op-A", new byte[] { 1 }, out _));
-            Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "op-B", new byte[] { 2 }, out _));
+            Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "op-A", [1], out _));
+            Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "op-B", [2], out _));
             Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
         }
 
@@ -60,9 +61,9 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         Assert.Equal(1UL, rs.CommitIndex);
         Assert.True(rs.LastAppliedIndex <= rs.CommitIndex, $"Recovered applied watermark exceeds the commit watermark: {rs.LastAppliedIndex} > {rs.CommitIndex}.");
         Assert.True(rs.LastLogIndex >= rs.CommitIndex, $"Recovered log tail is shorter than the commit watermark: {rs.LastLogIndex} < {rs.CommitIndex}.");
-        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "op-A", new byte[] { 1 }, out _));
-        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-B", new byte[] { 2 }, out var recovered));
-        Assert.True(recovered.OutcomePayload.Span.SequenceEqual(new byte[] { 9 }), "The recovered op-B outcome payload diverges from the snapshot outcome.");
+        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "op-A", [1], out _));
+        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-B", [2], out var recovered));
+        Assert.True(recovered.OutcomePayload.Span is [8], "The recovered op-B outcome payload diverges from the snapshot outcome.");
     }
 
     /// <summary>Install refuses a snapshot whose commit index falls below its included index, keeping watermarks coherent.</summary>
@@ -208,7 +209,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
         var now = DateTime.UtcNow;
-        var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 9 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
+        var outcome = new GroupIdempotencyRecord("client", "operation-1", new byte[] { 1, 2, 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 4UL, 1UL);
         var malformed = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 3UL, 3UL, new[] { outcome });
 
         var result = await log.InstallSnapshotAsync(malformed, 1UL, DefaultCancellationToken);
@@ -241,9 +242,9 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         var now = DateTime.UtcNow;
         var outcomes = new List<GroupIdempotencyRecord>
         {
-            new("client", "operation-1", new byte[] { 1 }, new byte[] { 9 }, GroupRecordKind.UserMutation, now, now, 1UL, 1UL),
-            new("client", "operation-2", new byte[] { 2 }, new byte[] { 9 }, GroupRecordKind.UserMutation, now, now, 2UL, 1UL),
-            new("client", "operation-3", new byte[] { 3 }, new byte[] { 9 }, GroupRecordKind.UserMutation, now, now, 3UL, 1UL),
+            new("client", "operation-1", new byte[] { 1 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 1UL, 1UL),
+            new("client", "operation-2", new byte[] { 2 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 2UL, 1UL),
+            new("client", "operation-3", new byte[] { 3 }, new byte[] { 8 }, GroupRecordKind.UserMutation, now, now, 3UL, 1UL),
         };
         var oversized = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 3UL, 3UL, outcomes);
 
@@ -267,7 +268,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await using var log = new FollowerLog(dir, GroupId, composition);
         await log.OpenAsync(DefaultCancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-        var second = new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, new byte[] { 98 })]));
+        var second = new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, BufferEx.CopyToOwned("b"u8))]));
         _ = await log.AppendAsync(second, DefaultCancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
