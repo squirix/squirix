@@ -80,10 +80,9 @@ public static class ReplicationBenchmarkCatalog
     public static string GetBenchmarkForPhase(string phase)
     {
         ArgumentException.ThrowIfNullOrEmpty(phase);
-        if (PhaseBenchmarks.TryGetValue(phase, out var benchmark))
-            return benchmark;
-
-        throw new ArgumentOutOfRangeException(nameof(phase), phase, "Unknown performance evidence phase.");
+        return PhaseBenchmarks.TryGetValue(phase, out var benchmark)
+            ? benchmark
+            : throw new ArgumentOutOfRangeException(nameof(phase), phase, "Unknown performance evidence phase.");
     }
 
     /// <summary>Gets the stored evidence schema identifier for the specified phase.</summary>
@@ -94,10 +93,9 @@ public static class ReplicationBenchmarkCatalog
     public static string GetEvidenceSchemaForPhase(string phase)
     {
         ArgumentException.ThrowIfNullOrEmpty(phase);
-        if (PhaseEvidenceSchemas.TryGetValue(phase, out var schema))
-            return schema;
-
-        throw new ArgumentOutOfRangeException(nameof(phase), phase, "Unknown performance evidence phase.");
+        return PhaseEvidenceSchemas.TryGetValue(phase, out var schema)
+            ? schema
+            : throw new ArgumentOutOfRangeException(nameof(phase), phase, "Unknown performance evidence phase.");
     }
 
     /// <summary>Determines whether the specified benchmark backs an evidence phase.</summary>

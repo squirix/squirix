@@ -122,10 +122,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         {
             _ = cancellationToken;
             Calls++;
-            if (_throwOnApply)
-                throw new InvalidOperationException("memory apply failed");
-
-            return ValueTask.FromResult(1);
+            return _throwOnApply ? ValueTask.FromException<int>(new InvalidOperationException("memory apply failed")) : ValueTask.FromResult(1);
         }
     }
 }

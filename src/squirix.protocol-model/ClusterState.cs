@@ -249,10 +249,7 @@ internal sealed class ClusterState
                 return c;
 
             c = a.MatchIndex.CompareTo(b.MatchIndex);
-            if (c != 0)
-                return c;
-
-            return a.ReadIndex.CompareTo(b.ReadIndex);
+            return c != 0 ? c : a.ReadIndex.CompareTo(b.ReadIndex);
         }
 
         private static int MsgKindOrdinal(MsgKind kind) => kind switch

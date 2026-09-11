@@ -27,19 +27,13 @@ internal static class RpcMutationContracts
     /// <param name="operationId">The operation identifier from the transport request.</param>
     /// <returns>The normalized operation identifier.</returns>
     /// <exception cref="RpcException">When <paramref name="operationId" /> is missing, too long, or invalid.</exception>
-    internal static string RequireOperationId(string? operationId)
+    internal static string RequireOperationId(string? operationId) => operationId switch
     {
-        if (string.IsNullOrWhiteSpace(operationId))
-            throw ServerOpContract.OperationIdRequired().ToRpcException();
-
-        if (operationId.Length > OperationIdLength)
-            throw ServerOpContract.OperationIdTooLong().ToRpcException();
-
-        if (!IsLowercaseHexOperationId(operationId))
-            throw ServerOpContract.OperationIdInvalidFormat().ToRpcException();
-
-        return operationId;
-    }
+        _ when string.IsNullOrWhiteSpace(operationId) => throw ServerOpContract.OperationIdRequired().ToRpcException(),
+        _ when operationId.Length > OperationIdLength => throw ServerOpContract.OperationIdTooLong().ToRpcException(),
+        _ when !IsLowercaseHexOperationId(operationId) => throw ServerOpContract.OperationIdInvalidFormat().ToRpcException(),
+        _ => operationId,
+    };
 
     private static bool IsLowercaseHexOperationId(string operationId)
     {

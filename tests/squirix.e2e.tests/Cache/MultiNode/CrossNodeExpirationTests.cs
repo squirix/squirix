@@ -165,7 +165,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
 
     /// <summary>Verifies remote TryAddAsync treats an expired key as absent and inserts a new value.</summary>
     [Fact]
-    public async Task TryAddOnNodeBAllowsExpiredRemoteKey()
+    public async Task AddReplacesExpiredRemote()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-add-expired");
         await Cluster.CacheA.SetAsync(key, "expired", Expiry.In(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
@@ -176,7 +176,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
 
     /// <summary>Verifies remote RemoveAsync treats expired entries as missing.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBIgnoresExpiredEntry()
+    public async Task RemoveIgnoresExpiredRemote()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
         await Cluster.CacheA.SetAsync(key, "v", Expiry.In(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);

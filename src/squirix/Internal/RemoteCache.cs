@@ -273,15 +273,14 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {
-            if (options is { Expiration: not null, ExpiresAt: not null })
-                throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
-
-            return new CacheEntry<T>
+            const string message = "Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.";
+            var entry = new CacheEntry<T>
             {
                 Value = value,
                 Expiration = options?.Expiration,
                 ExpiresUtc = options?.ExpiresAt?.UtcDateTime,
             };
+            return options is { Expiration: not null, ExpiresAt: not null } ? throw new ArgumentException(message, nameof(options)) : entry;
         }
 
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
@@ -405,16 +404,16 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// </remarks>
             private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
             {
-                if (CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail))
-                    return CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch;
-
-                if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
-                    return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
-
-                if (CacheOperationContract.IsOperationIdReuseMismatchMessage(detail))
-                    return CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
-
-                return CacheOperationFailedPreconditionKind.None;
+                var counterMismatch = CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail);
+                var versionDowngrade = CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail);
+                var idReuse = CacheOperationContract.IsOperationIdReuseMismatchMessage(detail);
+                return (counterMismatch, versionDowngrade, idReuse) switch
+                {
+                    (true, _, _) => CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch,
+                    (false, true, _) => CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent,
+                    (false, false, true) => CacheOperationFailedPreconditionKind.OperationIdReuseMismatch,
+                    (false, false, false) => CacheOperationFailedPreconditionKind.None,
+                };
             }
         }
 

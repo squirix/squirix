@@ -31,7 +31,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             "squirix-mp-",
             """{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""",
             DefaultCancellationToken);
-        var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.Equal(4096, merged.MaxEstimatedCacheBytes);
@@ -51,7 +51,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
         };
 
         using var settings = await TempSettingsFile.WriteAsync("squirix-mp-", """{"MemoryPressure":{"highPressureThresholdPercent":60}}""", DefaultCancellationToken);
-        var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.Equal(1024, merged.MaxEstimatedCacheBytes);

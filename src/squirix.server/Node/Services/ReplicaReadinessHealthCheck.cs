@@ -53,9 +53,6 @@ internal sealed class ReplicaReadinessHealthCheck : IHealthCheck
             failureVerdict = verdict;
         }
 
-        if (failure == null)
-            return HealthCheckResult.Healthy("replication is ready.");
-
-        return HealthCheckResult.Unhealthy(ReplicaReadiness.Describe(failureVerdict, failure.Value.GroupId));
+        return failure == null ? HealthCheckResult.Healthy("replication is ready.") : HealthCheckResult.Unhealthy(ReplicaReadiness.Describe(failureVerdict, failure.Value.GroupId));
     }
 }

@@ -25,16 +25,22 @@ internal static class SnapshotCodec
 
     private const int RecordFooterSize = 4;
 
+    /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
+    private const int Utf8LengthPrefixSize = sizeof(ushort);
+
     private static ReadOnlySpan<byte> Magic => "SQSS"u8;
 
     internal static int ComputeEntryBodyLength(CacheKey key, NodeCacheEntry<object?> entry)
     {
         var namespaceBytes = Encoding.UTF8.GetByteCount(key.Namespace);
         var keyBytes = Encoding.UTF8.GetByteCount(key.Key);
-        if (namespaceBytes > ushort.MaxValue || keyBytes > ushort.MaxValue)
-            throw new InvalidDataException("Snapshot key or namespace exceeds maximum encoded length.");
+        var oversizedKey = namespaceBytes > ushort.MaxValue || keyBytes > ushort.MaxValue;
 
-        return 2 + namespaceBytes + 2 + keyBytes + CacheEntryCodec.ComputeEncodedLength(entry);
+        // Each string is stored as a UInt16 length prefix followed by its UTF-8 bytes.
+        var section = Utf8LengthPrefixSize + namespaceBytes;
+        var keySection = Utf8LengthPrefixSize + keyBytes;
+        const string message = "Snapshot key or namespace exceeds maximum encoded length.";
+        return oversizedKey ? throw new InvalidDataException(message) : section + keySection + CacheEntryCodec.ComputeEncodedLength(entry);
     }
 
     internal static int ComputeRecordLength(int bodyLength) => RecordHeaderSize + bodyLength + RecordFooterSize;
@@ -78,10 +84,7 @@ internal static class SnapshotCodec
 
         body = source.Slice(RecordHeaderSize, bodyLengthInt);
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(source[(RecordHeaderSize + bodyLengthInt)..]);
-        if (Crc32C.Compute(body) != expectedCrc)
-            throw new InvalidDataException("Binary snapshot record CRC mismatch.");
-
-        return true;
+        return Crc32C.Compute(body) == expectedCrc ? true : throw new InvalidDataException("Binary snapshot record CRC mismatch.");
     }
 
     internal static void ValidateFileFooter(ReadOnlySpan<byte> fileBytes, uint crc)

@@ -19,7 +19,7 @@ public sealed class SettingsBindingTests : IsolatedStorageTestBase
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"Snapshot":{"SnapshotInterval":"00:01:00","SnapshotEveryNOps":42,"SnapshotEveryNBytes":1024,"MinGapBetweenSnapshots":"00:00:10"}}}""";
         var path = NodePathKit.Combine(Dir, "strict.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        var (success, _) = await Configurator.TryValidateSettingsFileAsync(path, true, DefaultCancellationToken);
+        var (success, _) = await Configurator.ValidateSettingsFileAsync(path, true, DefaultCancellationToken);
         Assert.True(success);
     }
 }

@@ -27,10 +27,10 @@ internal static class UnifiedSettings
     /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">Snapshot</c> object,
     /// and <c language="csharp">Merged</c> is the merged result.
     /// </returns>
-    internal static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromFileAsync(TriggerOptions baseline, CancellationToken cancellationToken = default)
+    internal static async Task<(bool Found, TriggerOptions Merged)> MergeSnapshotFromFileAsync(TriggerOptions baseline, CancellationToken cancellationToken = default)
     {
         var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await TryMergeSnapshotFromSettingsFileAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path == null ? (false, baseline) : await MergeAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -42,7 +42,7 @@ internal static class UnifiedSettings
     /// <returns>A task that completes after optional sections are validated.</returns>
     internal static async Task ValidateOptionalSectionsAsync(string settingsFilePath, List<string> failures, CancellationToken cancellationToken = default)
     {
-        var (found, pressure) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settingsFilePath, new UnresolvedMemoryPressureOptions(), cancellationToken)
+        var (found, pressure) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settingsFilePath, new UnresolvedMemoryPressureOptions(), cancellationToken)
                                                        .ConfigureAwait(false);
         if (found)
         {
@@ -56,7 +56,7 @@ internal static class UnifiedSettings
             }
         }
 
-        var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFileAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
+        var (snapshotFound, snapshot) = await MergeAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
         if (snapshotFound)
         {
             var snapshotValidator = new TriggerOptionsValidator();
@@ -66,7 +66,7 @@ internal static class UnifiedSettings
         }
 
         var options = new PrometheusMetricsEndpointOptions();
-        var (prometheusFound, prometheus) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settingsFilePath, options, cancellationToken).ConfigureAwait(false);
+        var (prometheusFound, prometheus) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(settingsFilePath, options, cancellationToken).ConfigureAwait(false);
         if (!prometheusFound)
             return;
 
@@ -76,15 +76,9 @@ internal static class UnifiedSettings
             failures.AddRange(result.Failures);
     }
 
-    private static async Task<(bool Found, TriggerOptions Merged)> TryMergeSnapshotFromSettingsFileAsync(
-        string path,
-        TriggerOptions baseline,
-        CancellationToken cancellationToken = default)
+    private static async Task<(bool Found, TriggerOptions Merged)> MergeAsync(string path, TriggerOptions baseline, CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(path))
-            return (false, baseline);
-
-        return await SettingsJson.WithSquirixRootAsync(
+        return File.Exists(path) ? await SettingsJson.WithSquirixRootAsync(
             path,
             baseline,
             static (root, baseline) =>
@@ -95,6 +89,6 @@ internal static class UnifiedSettings
                 var section = SerializerProvider.Instance.Deserialize<TriggerOptions>(snapshot.GetRawText());
                 return (true, section ?? baseline);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false) : (false, baseline);
     }
 }

@@ -92,7 +92,7 @@ public sealed class CrudNullValueTests : ClockTestBase
 
     /// <summary>Verifies TryGetValue returns proper flags and value.</summary>
     [Fact]
-    public async Task TryGetValueReturnsFlagsAndValue()
+    public async Task GetReturnsFlags()
     {
         var cache = await Client.GetCacheAsync<string>("try-get", DefaultCancellationToken);
         var miss = await cache.GetValueAsync("missing", DefaultCancellationToken);
@@ -104,7 +104,7 @@ public sealed class CrudNullValueTests : ClockTestBase
 
     /// <summary>Verifies TryRemove returns whether a live entry was removed.</summary>
     [Fact]
-    public async Task TryRemoveReturnsFlagAndValue()
+    public async Task RemoveReturnsFlag()
     {
         var cache = await Client.GetCacheAsync<string>("try-remove", DefaultCancellationToken);
         var miss = await cache.RemoveAsync("missing", DefaultCancellationToken);

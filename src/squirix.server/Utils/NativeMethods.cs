@@ -31,10 +31,11 @@ internal static partial class NativeMethods
     /// <returns>The loaded library handle, or <see cref="IntPtr.Zero" /> to fall back to default probing.</returns>
     private static IntPtr ResolveLibc(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        if (!string.Equals(libraryName, LibcLibraryName, StringComparison.Ordinal))
-            return IntPtr.Zero;
-
         // macOS and Mac Catalyst ship no libc dylib to probe; Linux and FreeBSD keep their default libc probing.
-        return NativeLibrary.TryLoad(DarwinSystemLibraryName, assembly, searchPath, out var handle) ? handle : IntPtr.Zero;
+        return string.Equals(libraryName, LibcLibraryName, StringComparison.Ordinal) switch
+        {
+            false => IntPtr.Zero,
+            true => NativeLibrary.TryLoad(DarwinSystemLibraryName, assembly, searchPath, out var handle) ? handle : IntPtr.Zero,
+        };
     }
 }

@@ -130,7 +130,7 @@ public sealed class ExpirationAddSetTests : ClockTestBase
 
     /// <summary>Verifies TryAddAsync treats an expired key as absent and inserts a new value.</summary>
     [Fact]
-    public async Task TryAddAsyncTreatsExpiredKeyAsAbsent()
+    public async Task AddReplacesExpired()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-expired-public-extra", DefaultCancellationToken);
         await cache.SetAsync("k", "expired", Expiry.In(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
@@ -141,7 +141,7 @@ public sealed class ExpirationAddSetTests : ClockTestBase
 
     /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
     [Fact]
-    public async Task TryAddImmediateExpiryNeverLeavesLiveKey()
+    public async Task AddImmediateExpiryLeavesNoKey()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", DefaultCancellationToken);
         var added = await cache.TryAddAsync("k", "v", Expiry.In(TimeSpan.Zero), DefaultCancellationToken);
@@ -152,7 +152,7 @@ public sealed class ExpirationAddSetTests : ClockTestBase
 
     /// <summary>Verifies value-based TryAddAsync applies absolute expiration options to the stored entry.</summary>
     [Fact]
-    public async Task TryAddOptionsApplyAbsoluteExpiry()
+    public async Task AddAppliesAbsoluteExpiry()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", DefaultCancellationToken);
 

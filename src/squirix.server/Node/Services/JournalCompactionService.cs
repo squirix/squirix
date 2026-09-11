@@ -120,12 +120,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 return AttemptResult.Skipped;
 
             var m = await _manifest.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            var replayFromSegment = snapshotHint?.ReplayFromJournalSegment ?? m.LastSnapshot?.ReplayFromJournalSegment ?? 0;
+            var segment = snapshotHint?.ReplayFromJournalSegment ?? m.LastSnapshot?.ReplayFromJournalSegment ?? 0;
             var snapshotIndex = snapshotHint?.Index ?? m.LastSnapshot?.Index ?? 0;
-            if (replayFromSegment <= 0 || !TailLargeEnough(replayFromSegment, out var segments, out var bytes))
-                return AttemptResult.Skipped;
-
-            return await RunCompactionAsync(snapshotIndex, replayFromSegment, segments, bytes, cancellationToken).ConfigureAwait(false);
+            return segment <= 0 || !TailLargeEnough(segment, out var segments, out var bytes) ? AttemptResult.Skipped
+                : await RunCompactionAsync(snapshotIndex, segment, segments, bytes, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

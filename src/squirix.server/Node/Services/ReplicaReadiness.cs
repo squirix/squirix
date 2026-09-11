@@ -41,21 +41,13 @@ internal static class ReplicaReadiness
         if (!snapshot.FingerprintMatch || !snapshot.GenerationMatch)
             return ReplicaReadinessVerdict.TopologyMismatch;
 
-        var authority = LeaderAuthorityGate.CheckWrite(
-            snapshot.ReplicaCount,
-            snapshot.HasMajorityContact,
-            snapshot.IsLeader,
-            snapshot.CurrentTerm,
-            snapshot.ObservedTerm);
-        if (authority.Allowed)
-            return ReplicaReadinessVerdict.Ready;
-
-        if (authority.Denial == LeaderAuthorityDenial.StaleTerm)
-            return ReplicaReadinessVerdict.StaleTerm;
-
-        if (authority.Denial == LeaderAuthorityDenial.MinorityFenced)
-            return ReplicaReadinessVerdict.MinorityFenced;
-
-        return ReplicaReadinessVerdict.Ready;
+        var authority = LeaderAuthorityGate.CheckWrite(snapshot.ReplicaCount, snapshot.HasMajorityContact, snapshot.IsLeader, snapshot.CurrentTerm, snapshot.ObservedTerm);
+        return (authority.Allowed, authority.Denial) switch
+        {
+            (true, _) => ReplicaReadinessVerdict.Ready,
+            (false, LeaderAuthorityDenial.StaleTerm) => ReplicaReadinessVerdict.StaleTerm,
+            (false, LeaderAuthorityDenial.MinorityFenced) => ReplicaReadinessVerdict.MinorityFenced,
+            (false, _) => ReplicaReadinessVerdict.Ready,
+        };
     }
 }

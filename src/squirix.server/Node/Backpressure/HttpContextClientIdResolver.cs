@@ -67,13 +67,12 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
     private static string ResolveCore(HttpContext context)
     {
         var principalId = GetAuthenticatedPrincipalId(context.User);
-        if (principalId != null)
-            return CreatePrefixed(JwtPrefix, principalId);
-
         var connectionId = context.Connection.Id;
-        if (!string.IsNullOrWhiteSpace(connectionId))
-            return CreatePrefixed(ConnPrefix, connectionId);
-
-        return MissingHttpContextClientId;
+        return (principalId, connectionId) switch
+        {
+            ({ } pid, _) => CreatePrefixed(JwtPrefix, pid),
+            (_, { } cid) when !string.IsNullOrWhiteSpace(cid) => CreatePrefixed(ConnPrefix, cid),
+            _ => MissingHttpContextClientId,
+        };
     }
 }

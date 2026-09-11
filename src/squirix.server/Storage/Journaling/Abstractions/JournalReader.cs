@@ -20,13 +20,8 @@ internal static class JournalReader
     /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
     /// <param name="dataDir">Persistence directory containing journal segment files.</param>
     /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
-    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir)
-    {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
-            return default;
-
-        return SumSegmentStats(files);
-    }
+    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir) =>
+        !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) ? default : SumSegmentStats(files);
 
     private static JournalSegment[] CollectSegments(string[] files, int fromSegment)
     {
@@ -131,9 +126,6 @@ internal static class JournalReader
             return false;
 
         var numberPart = name.Slice(prefix.Length, name.Length - prefix.Length - extension.Length);
-        if (numberPart.IsEmpty)
-            return false;
-
-        return int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
+        return !numberPart.IsEmpty && int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
     }
 }

@@ -45,29 +45,19 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
         if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
-        {
-            if (cached == null)
-                throw new InvalidOperationException("Replayed response was not cached.");
-
-            return cached;
-        }
+            return cached ?? ReplayGuard.NotCached<TResponse>();
 
         // Write-ahead intent: record that execution is starting before running the handler so a retry after a
         // crash, or a concurrent duplicate, never re-executes a mutation whose outcome was lost.
         var reservation = _store.ReserveIntent(operationId, fingerprint);
-        if (reservation == IdempotencyReserveResult.AlreadyCompleted)
+        return reservation switch
         {
             // A concurrent call completed between the replay probe and the reservation; replay its outcome.
-            if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed))
-                return completed!;
-
-            throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome.");
-        }
-
-        if (reservation != IdempotencyReserveResult.Acquired)
-            throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
-
-        return await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false);
+            IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
+                : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
+            IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false),
+            _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
+        };
     }
 
     private async Task<TResponse> ExecuteAcquiredAsync<TState, TResponse>(
@@ -124,6 +114,11 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         where T : class, IMessage<T>, new()
     {
         internal static readonly MessageParser<T> Instance = new(static () => new T());
+    }
+
+    private static class ReplayGuard
+    {
+        internal static T NotCached<T>() => throw new InvalidOperationException("Replayed response was not cached.");
     }
 
     /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>

@@ -36,7 +36,10 @@ internal static class PathValidation
     /// When set, forces Windows reserved-name and trailing space/dot checks on or off;
     /// when <see langword="null" />, uses <see cref="OperatingSystem.IsWindows()" />.
     /// </param>
-    /// <exception cref="ArgumentException">Thrown when the segment is empty, is <c language="csharp">.</c>/<c language="csharp">..</c> when rejected, violates Windows naming rules, or contains invalid file-name characters.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when the segment is empty, is <c language="csharp">.</c>/<c language="csharp">..</c> when rejected, violates Windows naming rules, or
+    /// contains invalid file-name characters.
+    /// </exception>
     internal static void ValidateSegment(ReadOnlySpan<char> segment, string paramName, bool rejectDotOrDotDot, bool? applyWindowsRules = null)
     {
         ThrowIfEmpty(segment, paramName);
@@ -47,6 +50,25 @@ internal static class PathValidation
             ValidateWindowsSegmentRules(segment, paramName);
 
         ThrowIfInvalidFileNameChar(segment, paramName);
+    }
+
+    private static bool IsWindowsReservedName(ReadOnlySpan<char> segment)
+    {
+        var name = segment;
+        var dot = segment.IndexOf('.');
+        if (dot > 0)
+            name = segment[..dot];
+
+        if (name.Equals("CON", StringComparison.OrdinalIgnoreCase) || name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("AUX", StringComparison.OrdinalIgnoreCase) || name.Equals("NUL", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (name.Length < 4)
+            return false;
+
+        var prefix = name[..3];
+        return (prefix.Equals("COM", StringComparison.OrdinalIgnoreCase) || prefix.Equals("LPT", StringComparison.OrdinalIgnoreCase)) &&
+               int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static void ThrowIfDotOrDotDot(ReadOnlySpan<char> segment, string paramName)
@@ -74,26 +96,5 @@ internal static class PathValidation
 
         if (IsWindowsReservedName(segment))
             throw new ArgumentException("Segment is a reserved Windows name.", paramName);
-    }
-
-    private static bool IsWindowsReservedName(ReadOnlySpan<char> segment)
-    {
-        var name = segment;
-        var dot = segment.IndexOf('.');
-        if (dot > 0)
-            name = segment[..dot];
-
-        if (name.Equals("CON", StringComparison.OrdinalIgnoreCase) || name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("AUX", StringComparison.OrdinalIgnoreCase) || name.Equals("NUL", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3];
-        if (!prefix.Equals("COM", StringComparison.OrdinalIgnoreCase) && !prefix.Equals("LPT", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 }

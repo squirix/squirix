@@ -30,12 +30,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter)
-    {
-        if (payloadIsCounter)
-            return false;
-        return MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
-    }
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {

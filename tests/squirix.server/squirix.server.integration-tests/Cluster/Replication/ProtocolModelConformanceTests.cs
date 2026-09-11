@@ -51,10 +51,10 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
                 new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
             DefaultCancellationToken);
 
-        var granted = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
+        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.True(granted.Granted);
 
-        var preVote = await log.TryCheckPreVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
+        var preVote = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.True(preVote.Granted);
 
         var eligible = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm);

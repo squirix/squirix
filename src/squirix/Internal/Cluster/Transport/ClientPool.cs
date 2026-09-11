@@ -33,11 +33,15 @@ internal sealed class ClientPool : IClientPool
     /// </summary>
     private static readonly ILogger Logger = NullLogger.Instance;
 
-    private static readonly Action<ILogger, string, Exception?> LogPolicyDisposeFailed =
-        LoggerMessage.Define<string>(LogLevel.Debug, new EventId(4001, "ClientPoolPolicyDisposeFailed"), "Client pool policy dispose failed for node {NodeId} during drain");
+    private static readonly Action<ILogger, string, Exception?> LogPolicyDisposeFailed = LoggerMessage.Define<string>(
+        LogLevel.Debug,
+        new EventId(4001, "ClientPoolPolicyDisposeFailed"),
+        "Client pool policy dispose failed for node {NodeId} during drain");
 
-    private static readonly Action<ILogger, string, Exception?> LogChannelDisposeFailed =
-        LoggerMessage.Define<string>(LogLevel.Debug, new EventId(4002, "ClientPoolChannelDisposeFailed"), "Client pool channel dispose failed for node {NodeId} during drain");
+    private static readonly Action<ILogger, string, Exception?> LogChannelDisposeFailed = LoggerMessage.Define<string>(
+        LogLevel.Debug,
+        new EventId(4002, "ClientPoolChannelDisposeFailed"),
+        "Client pool channel dispose failed for node {NodeId} during drain");
 
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
@@ -154,7 +158,7 @@ internal sealed class ClientPool : IClientPool
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
             var connectOptions = primaryNodeId == null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-            var failure = await TryWarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
+            var failure = await WarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
             if (failure == null)
             {
                 primaryNodeId ??= id;
@@ -190,7 +194,7 @@ internal sealed class ClientPool : IClientPool
             _policies[_nodeIds[i]].BeginDrain();
     }
 
-    private async ValueTask<Exception?> TryWarmPeerAsync(GrpcChannel channel, string id, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
+    private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, string id, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
     {
         try
         {
@@ -232,7 +236,7 @@ internal sealed class ClientPool : IClientPool
                     break;
 
                 var attemptTimeout = remaining < options.PerAttemptTimeout ? remaining : options.PerAttemptTimeout;
-                var failure = await TryConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
+                var failure = await ConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
                 if (failure == null)
                     return;
 
@@ -261,7 +265,7 @@ internal sealed class ClientPool : IClientPool
             return TimeSpan.FromMilliseconds(finalMs);
         }
 
-        private static async ValueTask<Exception?> TryConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, CancellationToken cancellationToken)
+        private static async ValueTask<Exception?> ConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, CancellationToken cancellationToken)
         {
             // Linked CTS distinguishes caller cancellation from per-attempt connect timeouts.
             using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -42,7 +42,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: DefaultCancellationToken);
-        var status = await InterNodeGrpcProbe.TryGetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, DefaultCancellationToken);
+        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, DefaultCancellationToken);
         Assert.Equal(StatusCode.Unauthenticated, status);
     }
 

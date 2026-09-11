@@ -32,28 +32,28 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
 
-        var first = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
+        var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.True(first.Granted);
 
-        var second = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 2UL, 1UL), DefaultCancellationToken);
+        var second = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.False(second.Granted);
         Assert.Equal(FollowerLogRefusal.AlreadyVoted, second.RefusalCode);
         Assert.Equal(2UL, second.CurrentTerm);
 
         var replayMetaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var replayBefore = await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken);
-        var replay = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
+        var replay = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.True(replay.Granted);
         Assert.Equal(replayBefore, await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken));
 
-        var staleTerm = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), DefaultCancellationToken);
+        var staleTerm = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.False(staleTerm.Granted);
         Assert.Equal(FollowerLogRefusal.StaleTerm, staleTerm.RefusalCode);
         Assert.Equal(2UL, staleTerm.CurrentTerm);
 
         // A higher term is stepped before the freshness refusal: the term is persisted and the
         // previous vote cleared, but the stale log earns no vote.
-        var staleLog = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
+        var staleLog = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.False(staleLog.Granted);
         Assert.Equal(FollowerLogRefusal.StaleLog, staleLog.RefusalCode);
         Assert.Equal(3UL, staleLog.CurrentTerm);
@@ -61,7 +61,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         Assert.Equal(3UL, stepped.CurrentTerm);
         Assert.Equal(string.Empty, stepped.VotedFor);
 
-        var current = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), DefaultCancellationToken);
+        var current = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), DefaultCancellationToken);
         Assert.True(current.Granted);
     }
 
@@ -77,13 +77,13 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-election-safety-prevote");
         await using var log = OpenLog(dir);
         await log.OpenAsync(DefaultCancellationToken);
-        var granted = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), DefaultCancellationToken);
+        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), DefaultCancellationToken);
         Assert.True(granted.Granted);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken);
 
-        var probe = await log.TryCheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), DefaultCancellationToken);
+        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), DefaultCancellationToken);
         Assert.True(probe.Granted);
         Assert.Equal(5UL, probe.CurrentTerm);
 
@@ -92,7 +92,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         Assert.Equal("node-a", status.VotedFor);
         Assert.Equal(before, await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken));
 
-        var stale = await log.TryCheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), DefaultCancellationToken);
+        var stale = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), DefaultCancellationToken);
         Assert.False(stale.Granted);
         Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
         Assert.Equal(5UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
@@ -126,11 +126,11 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken);
 
-        var vote = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
+        var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
         Assert.False(vote.Granted);
         Assert.Equal(FollowerLogRefusal.StaleTerm, vote.RefusalCode);
 
-        var probe = await log.TryCheckPreVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
+        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
         Assert.False(probe.Granted);
         Assert.Equal(FollowerLogRefusal.StaleTerm, probe.RefusalCode);
 

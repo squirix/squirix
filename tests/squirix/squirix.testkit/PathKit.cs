@@ -188,13 +188,12 @@ public static class PathKit
 
     private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
     {
-        if (count == 0)
-            return string.Empty;
-
-        if (heapBuffer != null)
-            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
-
-        return JoinSegments(buffer.AsSpan(0, count));
+        return (count, heapBuffer) switch
+        {
+            (0, _) => string.Empty,
+            (_, { } heap) => JoinSegments(CollectionsMarshal.AsSpan(heap)),
+            _ => JoinSegments(buffer.AsSpan(0, count)),
+        };
     }
 
     private static long GetProcessStartTicks()
@@ -213,11 +212,12 @@ public static class PathKit
     {
         var primary = value.IndexOf(Path.DirectorySeparatorChar);
         var alternate = value.IndexOf(Path.AltDirectorySeparatorChar);
-        if (primary < 0)
-            return alternate;
-        if (alternate < 0)
-            return primary;
-        return primary < alternate ? primary : alternate;
+        return primary switch
+        {
+            < 0 => alternate,
+            _ when alternate < 0 => primary,
+            _ => primary < alternate ? primary : alternate,
+        };
     }
 
     private static string JoinSegments(ReadOnlySpan<string> segments)

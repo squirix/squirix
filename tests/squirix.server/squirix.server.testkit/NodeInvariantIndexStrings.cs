@@ -15,59 +15,29 @@ public static class NodeInvariantIndexStrings
     private static readonly string[] CachedD8 = CreateCachedPadded(8, 10_000);
 
     /// <summary>Formats a non-negative integer with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="value">The value to format.</param>
+    /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
-    public static string Format(int value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[value];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    public static string Format(int v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[v] : v.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Formats a non-negative long with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="value">The value to format.</param>
+    /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
-    public static string Format(long value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[Convert.ToInt32(value)];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    public static string Format(long v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(v)] : v.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Formats <paramref name="index" /> as a zero-padded D4 string.</summary>
     /// <param name="index">The index to format.</param>
     /// <returns>A D4 invariant digit string.</returns>
-    public static string FormatD4(int index)
-    {
-        if (index is >= 0 and < 10_000)
-            return CachedD4[index];
-
-        return index.ToString("D4", CultureInfo.InvariantCulture);
-    }
+    public static string FormatD4(int index) => index is >= 0 and < 10_000 ? CachedD4[index] : index.ToString("D4", CultureInfo.InvariantCulture);
 
     /// <summary>Formats <paramref name="index" /> as a zero-padded D6 string (journal/snapshot segment indexes).</summary>
     /// <param name="index">The index to format.</param>
     /// <returns>A D6 invariant digit string.</returns>
-    public static string FormatD6(int index)
-    {
-        if (index is >= 0 and < 10_000)
-            return CachedD6[index];
-
-        return index.ToString("D6", CultureInfo.InvariantCulture);
-    }
+    public static string FormatD6(int index) => index is >= 0 and < 10_000 ? CachedD6[index] : index.ToString("D6", CultureInfo.InvariantCulture);
 
     /// <summary>Formats <paramref name="index" /> as a zero-padded D8 string.</summary>
     /// <param name="index">The index to format.</param>
     /// <returns>A D8 invariant digit string.</returns>
-    public static string FormatD8(int index)
-    {
-        if (index is >= 0 and < 10_000)
-            return CachedD8[index];
-
-        return index.ToString("D8", CultureInfo.InvariantCulture);
-    }
+    public static string FormatD8(int index) => index is >= 0 and < 10_000 ? CachedD8[index] : index.ToString("D8", CultureInfo.InvariantCulture);
 
     /// <summary>Builds <c language="csharp">https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>

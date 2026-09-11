@@ -91,7 +91,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>TryAdd skips the journal when the key already exists.</summary>
     [Fact]
-    public async Task TryAddSkipsJournalWhenKeyExists()
+    public async Task AddSkipsJournalWhenKeyExists()
     {
         await using var harness = await CreateHarnessAsync(Self);
         Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));

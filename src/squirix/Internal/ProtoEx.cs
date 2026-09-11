@@ -18,23 +18,15 @@ internal static class ProtoEx
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
-
-        if (typeof(T) == typeof(object))
-            return new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer)));
-
-        if (ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive))
-            return new ValueTask<T?>(primitive);
-
-        if (value.KindCase == CacheValue.KindOneofCase.NullValue || value.KindCase == CacheValue.KindOneofCase.None)
-            return new ValueTask<T?>(default(T?));
-
-        if (value.KindCase is CacheValue.KindOneofCase.StructValue && value.StructValue is { } structValue)
-            return new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(structValue, serializer));
-
-        if (ProtoScalarMapping.IsTypedPrimitiveKind(value.KindCase))
-            return new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(ProtoStructCodec.ToStructValueWrapper(value), serializer));
-
-        throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
+        return value.KindCase switch
+        {
+            _ when typeof(T) == typeof(object) => new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer))),
+            _ when ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive) => new ValueTask<T?>(primitive),
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
+            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(structValue, serializer)),
+            _ when ProtoScalarMapping.IsTypedPrimitiveKind(value.KindCase) => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(ProtoStructCodec.ToStructValueWrapper(value), serializer)),
+            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+        };
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -122,10 +114,9 @@ internal static class ProtoEx
             ArgumentNullException.ThrowIfNull(value);
             ArgumentNullException.ThrowIfNull(serializer);
 
-            if (value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped))
-                return FromValue<T>(wrapped, serializer);
-
-            return Deserialize<T>(Value.ForStruct(value), serializer);
+            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped)
+                ? FromValue<T>(wrapped, serializer)
+                : Deserialize<T>(Value.ForStruct(value), serializer);
         }
 
         internal static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
@@ -158,13 +149,8 @@ internal static class ProtoEx
             return serializer.Deserialize<T>(buffer.WrittenSpan);
         }
 
-        private static T? FromValue<T>(Value value, ISquirixSerializer serializer)
-        {
-            if (typeof(T) == typeof(object))
-                return ProtoScalarMapping.Coerce<T>(ToUntypedValue(value, serializer));
-
-            return Deserialize<T>(value, serializer);
-        }
+        private static T? FromValue<T>(Value value, ISquirixSerializer serializer) =>
+            typeof(T) == typeof(object) ? ProtoScalarMapping.Coerce<T>(ToUntypedValue(value, serializer)) : Deserialize<T>(value, serializer);
 
         private static object? ToUntypedValue(Value value, ISquirixSerializer serializer) => value.KindCase switch
         {

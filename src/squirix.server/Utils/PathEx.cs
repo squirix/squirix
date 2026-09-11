@@ -115,13 +115,8 @@ internal static class PathEx
 
     private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
-    private static bool IsFilesystemRoot(ReadOnlySpan<char> root)
-    {
-        if (root.Length == 1 && IsDirectorySeparator(root[0]))
-            return true;
-
-        return OperatingSystem.IsWindows() && root.Length == 2 && root[1] == ':';
-    }
+    private static bool IsFilesystemRoot(ReadOnlySpan<char> root) =>
+        (root.Length == 1 && IsDirectorySeparator(root[0])) || (OperatingSystem.IsWindows() && root.Length == 2 && root[1] == ':');
 
     private static bool IsPathUnderRoot(string fullPath, string rootFullPath)
     {
@@ -129,19 +124,14 @@ internal static class PathEx
         var root = rootFullPath.AsSpan(0, rootLength);
         var path = fullPath.AsSpan();
 
-        if (path.Length == root.Length)
-            return path.Equals(root, PathComparison);
-
-        if (path.Length < root.Length)
-            return false;
-
-        if (!path.StartsWith(root, PathComparison))
-            return false;
-
-        if (IsFilesystemRoot(root))
-            return true;
-
-        return IsDirectorySeparator(path[root.Length]);
+        return true switch
+        {
+            _ when path.Length == root.Length => path.Equals(root, PathComparison),
+            _ when path.Length < root.Length => false,
+            _ when !path.StartsWith(root, PathComparison) => false,
+            _ when IsFilesystemRoot(root) => true,
+            _ => IsDirectorySeparator(path[root.Length]),
+        };
     }
 
     private static void ValidateSegment(string segment)

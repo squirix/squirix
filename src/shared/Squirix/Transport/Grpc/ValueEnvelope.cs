@@ -32,10 +32,8 @@ internal static class ValueEnvelope
         if (element.TryGetInt64(out var asInt64))
             return CreateNumberEnvelope(NumberEnvelopeInt64Key, asInt64.ToString(CultureInfo.InvariantCulture));
 
-        if (element.TryGetDecimal(out var asDecimal))
-            return CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture));
-
-        return Value.ForNumber(asDouble);
+        var isDecimal = element.TryGetDecimal(out var asDecimal);
+        return isDecimal ? CreateNumberEnvelope(NumberEnvelopeDecimalKey, asDecimal.ToString(CultureInfo.InvariantCulture)) : Value.ForNumber(asDouble);
     }
 
     /// <summary>Builds a single-field struct envelope carrying a number as an invariant string.</summary>

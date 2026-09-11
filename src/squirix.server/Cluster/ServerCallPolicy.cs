@@ -294,16 +294,13 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             }
         }
 
-        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining) => remaining switch
         {
-            if (remaining == null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
-        }
+            null => _timeoutPerAttempt,
+            { } r when r <= TimeSpan.Zero => TimeSpan.Zero,
+            { } r when r < _timeoutPerAttempt => r,
+            _ => _timeoutPerAttempt,
+        };
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
@@ -369,7 +366,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             while (ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
-                var outcome = await TryOneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                var outcome = await OneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
                 if (outcome.Succeeded)
                     return outcome.Value!;
 
@@ -408,7 +405,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
         }
 
-        private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<TState, T>(
+        private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
             TState state,
             Func<TState, CancellationToken, ValueTask<T>> action,
             int attempt,

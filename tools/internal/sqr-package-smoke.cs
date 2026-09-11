@@ -136,10 +136,11 @@ static int GetFreeTcpPort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    if (listener.LocalEndpoint is not IPEndPoint endpoint)
-        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
-
-    return endpoint.Port;
+    return listener.LocalEndpoint switch
+    {
+        IPEndPoint endpoint => endpoint.Port,
+        _ => throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint."),
+    };
 }
 
 static string ResolveRepoRoot()

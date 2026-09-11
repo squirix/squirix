@@ -147,7 +147,7 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         Assert.Contains("\"invariant\":\"ElectionSafety\"", json, StringComparison.Ordinal);
         Assert.Contains("\"path\":[\"start\",\"elect\"]", json, StringComparison.Ordinal);
         Assert.Contains("\"nodes\":[", json, StringComparison.Ordinal);
-        Assert.Null(SafetyChecker.Check(state, BrokenMode.None));
+        Assert.Null(SafetyChecker.Check(state));
     }
 
     private static string CreateTempDir()

@@ -48,10 +48,9 @@ internal sealed class GroupComposition
 
         ArgumentException.ThrowIfNullOrWhiteSpace(second);
 
-        if (string.Equals(first, second, StringComparison.Ordinal))
-            throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second));
-
-        return new GroupComposition(new[] { first, second }.ToFrozenSet(StringComparer.Ordinal));
+        return string.Equals(first, second, StringComparison.Ordinal)
+            ? throw new ArgumentException("Group identifiers must be unique; the composition already contains the group.", nameof(second))
+            : new GroupComposition(new[] { first, second }.ToFrozenSet(StringComparer.Ordinal));
     }
 
     /// <summary>Creates an empty composition.</summary>

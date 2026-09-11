@@ -60,10 +60,7 @@ public static class LoopbackHttp
         if (allowNameMismatch)
             tolerated |= SslPolicyErrors.RemoteCertificateNameMismatch;
 
-        if ((errors & ~tolerated) != SslPolicyErrors.None)
-            return false;
-
-        return IsAspNetCoreHttpsDevelopmentCertificate(certificate);
+        return (errors & ~tolerated) == SslPolicyErrors.None && IsAspNetCoreHttpsDevelopmentCertificate(certificate);
     }
 
     private static bool IsAspNetCoreHttpsDevelopmentCertificate(X509Certificate certificate) => certificate.Subject.Equals("CN=localhost", StringComparison.OrdinalIgnoreCase);

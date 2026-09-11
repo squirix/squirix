@@ -8,20 +8,19 @@ namespace Squirix.Server.Runtime;
 [Immutable]
 internal sealed class CacheRuntime : ICacheRuntime
 {
-    private readonly ILogicalNamespacedCache<object?> _defaultCache;
+    private readonly ILogicalNamespacedCache<object?> _cache;
 
-    public CacheRuntime(ILogicalNamespacedCache<object?> defaultCache)
+    public CacheRuntime(ILogicalNamespacedCache<object?> cache)
     {
-        ArgumentNullException.ThrowIfNull(defaultCache);
-        _defaultCache = defaultCache;
+        ArgumentNullException.ThrowIfNull(cache);
+        _cache = cache;
     }
 
     public ILogicalNamespacedCache<T> GetCache<T>(string cacheName)
     {
         _ = ServerCacheName.ParsePublic(cacheName);
-        if (_defaultCache is not ILogicalNamespacedCache<T> typedCache)
-            throw new InvalidOperationException("Default cache does not support the requested value type.");
-
-        return new NamespacedCacheAdapter<T>(typedCache);
+        return _cache is not ILogicalNamespacedCache<T> inner
+            ? throw new InvalidOperationException("Default _cache does not support the requested value type.")
+            : new NamespacedCacheAdapter<T>(inner);
     }
 }

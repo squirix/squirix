@@ -81,21 +81,6 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<IServerClientPool>()));
     }
 
-    /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
-    /// <param name="sp">Service provider.</param>
-    /// <returns>The local cache pipeline.</returns>
-    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
-    {
-        var inner = sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
-
-        // FeatureState is the single source of truth: only network-replication-activated hosts commit.
-        // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
-        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
-            return inner;
-
-        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitter>());
-    }
-
     private static void AddLogicalNamespacedCache(IServiceCollection services, ExtensionOptions? extensions)
     {
         _ = services.AddSingleton<ILogicalNamespacedCache<object?>>(sp =>
@@ -103,8 +88,8 @@ internal static class CachePipelineRegistration
             var corePipeline = sp.GetRequiredService<TracingCacheDecorator<object?>>();
             var basicPipeline = new BasicExtensionCachePipelineAdapter<object?>(corePipeline);
             var decoratedPipeline = extensions?.DecorateCachePipeline?.Invoke(sp, basicPipeline);
-            return decoratedPipeline == null || ReferenceEquals(decoratedPipeline, basicPipeline) ? corePipeline
-                : new ExtensionCachePipelineAdapter<object?>(corePipeline, decoratedPipeline);
+            var isUndecorated = decoratedPipeline == null || ReferenceEquals(decoratedPipeline, basicPipeline);
+            return isUndecorated ? corePipeline : new ExtensionCachePipelineAdapter<object?>(corePipeline, decoratedPipeline!);
         });
     }
 
@@ -138,5 +123,17 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<TopologyOptions>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>()));
+    }
+
+    /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
+    /// <param name="sp">Service provider.</param>
+    /// <returns>The local cache pipeline.</returns>
+    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
+    {
+        var inner = sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
+
+        // FeatureState is the single source of truth: only network-replication-activated hosts commit.
+        // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
+        return sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled ? new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitter>()) : inner;
     }
 }

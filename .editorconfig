@@ -134,6 +134,7 @@ dotnet_diagnostic.SQR0021.severity = warning # prefer ArgumentException throw he
 dotnet_diagnostic.SQR0022.severity = warning # TimeSpan range guards must route the throw through a throw-helper method (BCL ThrowIf* require INumberBase<T>; use a project helper)
 dotnet_diagnostic.SQR0023.severity = warning # prefer ArgumentNullException.ThrowIfNull over null-coalescing throw
 dotnet_diagnostic.SQR0024.severity = warning # prefer a throw-helper method over null-coalescing throw
+dotnet_diagnostic.SQR0026.severity = warning # simplify if-return/if-throw pairs into a single conditional return (enforced per-project in scoped sections below)
 
 # ===========================================================================
 # StyleCop analyzers (SA*)

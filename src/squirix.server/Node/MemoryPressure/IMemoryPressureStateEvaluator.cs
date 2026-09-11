@@ -6,7 +6,7 @@ namespace Squirix.Server.Node.MemoryPressure;
 internal interface IMemoryPressureStateEvaluator
 {
     /// <summary>Evaluates pressure state for the given estimated cache usage in bytes.</summary>
-    /// <param name="estimatedCacheBytes">Estimated bytes currently attributed to the cache; must be non-negative.</param>
+    /// <param name="bytes">Estimated bytes currently attributed to the cache; must be non-negative.</param>
     /// <returns>The derived <see cref="PressureLevel" />.</returns>
-    PressureLevel Evaluate(long estimatedCacheBytes);
+    PressureLevel Evaluate(long bytes);
 }

@@ -123,9 +123,8 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
                     client.GetValueAsync(new GetValueAsyncRequest { CacheName = s.CacheName, Key = s.Key }, cancellationToken: ct).ResponseAsync),
                 cancellationToken).ConfigureAwait(false);
 
-            if (response.Found)
-                return new NodeCacheValueResult<T>(true, await MapOptionalCacheValueAsync(response.Value).ConfigureAwait(false));
-            return new NodeCacheValueResult<T>(false, default);
+            return response.Found ? new NodeCacheValueResult<T>(true, await MapOptionalCacheValueAsync(response.Value).ConfigureAwait(false))
+                : new NodeCacheValueResult<T>(false, default);
         }
 
         internal async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -137,9 +136,8 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
                     client.RemoveAsync(new RemoveAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key }, cancellationToken: ct).ResponseAsync),
                 cancellationToken).ConfigureAwait(false);
 
-            if (response.Removed)
-                return new CacheRemoveResult<T>(true, await MapOptionalCacheValueAsync(response.PreviousValue).ConfigureAwait(false));
-            return new CacheRemoveResult<T>(false, default);
+            return response.Removed ? new CacheRemoveResult<T>(true, await MapOptionalCacheValueAsync(response.PreviousValue).ConfigureAwait(false))
+                : new CacheRemoveResult<T>(false, default);
         }
 
         internal async ValueTask<bool> RemoveExpirationAsync(string operationId, string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -218,17 +216,6 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
             return response.Updated;
         }
 
-        /// <summary>Maps an optional compact <see cref="CacheValue" /> wire field to a typed cache value.</summary>
-        /// <param name="value">Optional protobuf value; unset or <see cref="CacheValue.KindOneofCase.None" /> yields <see langword="default" />.</param>
-        /// <returns>The decoded cache value, or <see langword="default" /> when <paramref name="value" /> is unset.</returns>
-        private static async ValueTask<T?> MapOptionalCacheValueAsync(CacheValue? value)
-        {
-            if (value == null || value is { KindCase: CacheValue.KindOneofCase.None })
-                return default;
-
-            return await ServerProtoEx.MapCacheValueAsync<T>(value).ConfigureAwait(false);
-        }
-
         private static async ValueTask<TResponse> AwaitOwnerAsync<TResponse>(ValueTask<TResponse> pending)
         {
             try
@@ -241,8 +228,16 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
             }
         }
 
-        private static RpcException CreatePoolDisposedUnavailable() =>
-            new(new Status(StatusCode.Unavailable, "ServerPeer client pool is disposed."));
+        private static RpcException CreatePoolDisposedUnavailable() => new(new Status(StatusCode.Unavailable, "ServerPeer client pool is disposed."));
+
+        /// <summary>Maps an optional compact <see cref="CacheValue" /> wire field to a typed cache value.</summary>
+        /// <param name="value">Optional protobuf value; unset or <see cref="CacheValue.KindOneofCase.None" /> yields <see langword="default" />.</param>
+        /// <returns>The decoded cache value, or <see langword="default" /> when <paramref name="value" /> is unset.</returns>
+        private static async ValueTask<T?> MapOptionalCacheValueAsync(CacheValue? value)
+        {
+            var isMissing = value == null || value is { KindCase: CacheValue.KindOneofCase.None };
+            return isMissing ? default : await ServerProtoEx.MapCacheValueAsync<T>(value!).ConfigureAwait(false);
+        }
 
         private ValueTask<TResponse> ExecuteOwnerAsync<TState, TResponse>(
             string owner,
@@ -254,8 +249,10 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
             try
             {
                 var client = _clients.ForNode(owner);
-                pending = _clients.PolicyFor(owner)
-                    .ExecuteAsync((Client: client, State: state, Action: action), static (s, ct) => s.Action(s.Client, s.State, ct), cancellationToken);
+                pending = _clients.PolicyFor(owner).ExecuteAsync(
+                    (Client: client, State: state, Action: action),
+                    static (s, ct) => s.Action(s.Client, s.State, ct),
+                    cancellationToken);
             }
             catch (ObjectDisposedException)
             {
@@ -265,10 +262,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
                 return ValueTask.FromException<TResponse>(CreatePoolDisposedUnavailable());
             }
 
-            if (pending.IsCompletedSuccessfully)
-                return pending;
-
-            return AwaitOwnerAsync(pending);
+            return pending.IsCompletedSuccessfully ? pending : AwaitOwnerAsync(pending);
         }
     }
 }

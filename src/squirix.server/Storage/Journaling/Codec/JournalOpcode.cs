@@ -21,10 +21,10 @@ internal enum JournalOpcode
     /// <summary>Put operation carrying the write-ahead mutation operation id prefix.</summary>
     PutWithMutationOperationId = 6,
 
-    /// <summary>Remove operation carrying the write-ahead mutation operation id prefix.</summary>
+    /// <summary>Remove the operation carrying the write-ahead mutation operation id prefix.</summary>
     RemoveWithMutationOperationId = 7,
 
-    /// <summary>Remove expiration operation carrying the write-ahead mutation operation id prefix.</summary>
+    /// <summary>Remove the expiration operation carrying the write-ahead mutation operation id prefix.</summary>
     RemoveExpirationWithMutationOperationId = 8,
 
     /// <summary>Touch expiration operation carrying the write-ahead mutation operation id prefix.</summary>

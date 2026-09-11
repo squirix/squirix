@@ -22,7 +22,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
     /// <summary>Try-locking a disposed lock throws ObjectDisposedException instead of touching a semaphore that no longer exists.</summary>
     [Fact]
-    public void TryLockAfterDisposeThrowsObjectDisposed()
+    public void DisposedTryLockThrows()
     {
         var asyncLock = new AsyncLock();
         asyncLock.Dispose();

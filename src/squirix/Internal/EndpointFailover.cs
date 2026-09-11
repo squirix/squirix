@@ -40,10 +40,7 @@ internal sealed class EndpointFailover
         action,
         cancellationToken);
 
-    internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
-        Func<string, TState, CancellationToken, ValueTask<TResult>> action,
-        TState state,
-        CancellationToken cancellationToken)
+    internal ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -84,8 +81,26 @@ internal sealed class EndpointFailover
     /// </summary>
     /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
     /// <returns><see langword="true" /> when the status detail is the exact stable ambiguous-commit contract.</returns>
-    private static bool IsCommitOutcomeUnknown(RpcException ex) =>
-        string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
+    private static bool IsCommitOutcomeUnknown(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
+
+    /// <summary>Determines whether the shared absolute deadline already passed.</summary>
+    /// <param name="clock">The time source reading the clock.</param>
+    /// <param name="deadlineUtc">The single absolute deadline; <see langword="null" /> means unbounded.</param>
+    /// <returns><see langword="true" /> when a deadline is set and already passed; otherwise <see langword="false" />.</returns>
+    private static bool IsExpired(TimeProvider? clock, DateTimeOffset? deadlineUtc) => clock != null && deadlineUtc != null && clock.GetUtcNow() >= deadlineUtc.Value;
+
+    /// <summary>Determines whether <paramref name="ex" /> authorizes the single stale-term reroute.</summary>
+    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <param name="rerouted">Whether the single reroute was already consumed.</param>
+    /// <param name="hasMoreEndpoints">Whether another endpoint remains to reroute to.</param>
+    /// <returns><see langword="true" /> when a stale-term reroute may proceed; otherwise <see langword="false" />.</returns>
+    private static bool IsRetryableStaleTerm(RpcException ex, bool rerouted, bool hasMoreEndpoints) => IsStaleTerm(ex) && !rerouted && hasMoreEndpoints;
+
+    /// <summary>Determines whether <paramref name="ex" /> is a retryable transport failure.</summary>
+    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
+    /// <returns><see langword="true" /> for retryable transport status codes; otherwise <see langword="false" />.</returns>
+    private static bool IsRetryableTransport(RpcException ex) => ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded ||
+                                                                 ex.StatusCode == StatusCode.Internal || ex.StatusCode == StatusCode.ResourceExhausted;
 
     /// <summary>
     /// Determines whether <paramref name="ex" /> reports a stale term from a deposed endpoint.
@@ -96,34 +111,16 @@ internal sealed class EndpointFailover
     private static bool IsStaleTerm(RpcException ex) =>
         ex.StatusCode == StatusCode.FailedPrecondition && string.Equals(ex.Status.Detail, StaleTermDetail, StringComparison.Ordinal);
 
-    /// <summary>Determines whether the shared absolute deadline already passed.</summary>
-    /// <param name="clock">The time source reading the clock.</param>
-    /// <param name="deadlineUtc">The single absolute deadline; <see langword="null" /> means unbounded.</param>
-    /// <returns><see langword="true" /> when a deadline is set and already passed; otherwise <see langword="false" />.</returns>
-    private static bool IsExpired(TimeProvider? clock, DateTimeOffset? deadlineUtc)
+    private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
-        if (clock == null || deadlineUtc == null)
-            return false;
+        for (var i = 0; i < bootstrapNodeIds.Count; i++)
+        {
+            if (string.Equals(bootstrapNodeIds[i], primaryNodeId, StringComparison.Ordinal))
+                return i;
+        }
 
-        return clock.GetUtcNow() >= deadlineUtc.Value;
+        throw new InvalidOperationException("Bootstrap primary node is not configured.");
     }
-
-    /// <summary>Determines whether <paramref name="ex" /> authorizes the single stale-term reroute.</summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
-    /// <param name="rerouted">Whether the single reroute was already consumed.</param>
-    /// <param name="hasMoreEndpoints">Whether another endpoint remains to reroute to.</param>
-    /// <returns><see langword="true" /> when a stale-term reroute may proceed; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableStaleTerm(RpcException ex, bool rerouted, bool hasMoreEndpoints) =>
-        IsStaleTerm(ex) && !rerouted && hasMoreEndpoints;
-
-    /// <summary>Determines whether <paramref name="ex" /> is a retryable transport failure.</summary>
-    /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
-    /// <returns><see langword="true" /> for retryable transport status codes; otherwise <see langword="false" />.</returns>
-    private static bool IsRetryableTransport(RpcException ex) =>
-        ex.StatusCode == StatusCode.Unavailable ||
-        ex.StatusCode == StatusCode.DeadlineExceeded ||
-        ex.StatusCode == StatusCode.Internal ||
-        ex.StatusCode == StatusCode.ResourceExhausted;
 
     /// <summary>Throws when the shared absolute deadline passed without a captured endpoint failure.</summary>
     /// <param name="clock">The time source reading the clock.</param>
@@ -135,15 +132,10 @@ internal sealed class EndpointFailover
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
-    private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
+    private int ActiveIndexSnapshot()
     {
-        for (var i = 0; i < bootstrapNodeIds.Count; i++)
-        {
-            if (string.Equals(bootstrapNodeIds[i], primaryNodeId, StringComparison.Ordinal))
-                return i;
-        }
-
-        throw new InvalidOperationException("Bootstrap primary node is not configured.");
+        lock (_activeIndexGate)
+            return _activeIndex;
     }
 
     private async ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
@@ -197,12 +189,6 @@ internal sealed class EndpointFailover
             ThrowIfExpired(clock, deadlineUtc);
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
-    }
-
-    private int ActiveIndexSnapshot()
-    {
-        lock (_activeIndexGate)
-            return _activeIndex;
     }
 
     private void SetActiveIndex(int nodeIndex)

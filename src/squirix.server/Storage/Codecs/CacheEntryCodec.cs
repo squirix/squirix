@@ -233,10 +233,7 @@ internal static class CacheEntryCodec
         {
             value = null;
             bytesRead = 0;
-            if (source.IsEmpty)
-                return false;
-
-            return source[0] switch
+            return !source.IsEmpty && source[0] switch
             {
                 ValueKind.Null => CacheEntryValueReadCodec.TryReadNullValue(out value, out bytesRead),
                 ValueKind.Bool => CacheEntryValueReadCodec.TryReadBoolValue(source, out value, out bytesRead),
@@ -537,10 +534,7 @@ internal static class CacheEntryCodec
             {
                 node = null;
                 bytesRead = 0;
-                if (source.IsEmpty)
-                    return false;
-
-                return source[0] switch
+                return !source.IsEmpty && source[0] switch
                 {
                     ValueKind.Null => TryReadNull(out node, out bytesRead),
                     ValueKind.Bool => TryReadBool(source, out node, out bytesRead),

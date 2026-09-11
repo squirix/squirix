@@ -66,7 +66,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 
     /// <summary>Disposed controller rejects further compaction attempts.</summary>
     [Fact]
-    public async Task TryTriggerNowAsyncThrowsAfterDispose()
+    public async Task TriggerAfterDisposeThrows()
     {
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var manifestStore = new Ledger(opt);

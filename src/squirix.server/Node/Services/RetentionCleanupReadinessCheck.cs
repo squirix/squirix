@@ -23,15 +23,10 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
     }
 
     /// <inheritdoc />
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
-    {
-        if (!_retentionCleanup.IsDegraded)
-            return ReadyResult;
-
-        return Task.FromResult(
+    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) => !_retentionCleanup.IsDegraded ? ReadyResult
+        : Task.FromResult(
             HealthCheckResult.Unhealthy(
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"storage retention cleanup is degraded after {_retentionCleanup.ConsecutiveWriteFailures} consecutive write failures and {_retentionCleanup.RecentFailureCount} failures in the recent window.")));
-    }
 }

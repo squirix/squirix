@@ -142,15 +142,13 @@ internal sealed class ActivatedTopologyStampStore
             throw new InvalidDataException("Activated topology stamp header is invalid or unsupported.");
 
         var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(18 + FingerprintLength));
-        if (Crc32C.Compute(bytes.AsSpan(0, 18 + FingerprintLength)) != expectedChecksum)
-            throw new InvalidDataException("Activated topology stamp checksum is invalid.");
-
-        return new ActivatedTopologyStamp
-        {
-            Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(6)),
-            ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(14)),
-            Fingerprint = OwnedBufferKit.CopyToOwned(bytes.AsSpan(18, FingerprintLength)),
-        };
+        return Crc32C.Compute(bytes.AsSpan(0, 18 + FingerprintLength)) != expectedChecksum ? throw new InvalidDataException("Activated topology stamp checksum is invalid.")
+            : new ActivatedTopologyStamp
+            {
+                Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(6)),
+                ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(14)),
+                Fingerprint = OwnedBufferKit.CopyToOwned(bytes.AsSpan(18, FingerprintLength)),
+            };
     }
 
     /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>

@@ -55,16 +55,14 @@ internal sealed class ElectionTimer : IDisposable
     }
 
     /// <summary>Creates an election timer for a multi-node group, or <see langword="null" /> for RF=1.</summary>
-    /// <param name="replicaCount">The configured replica factor, including the leader.</param>
+    /// <param name="count">The configured replica factor, including the leader.</param>
     /// <param name="options">The timer configuration; <see langword="null" /> selects the defaults.</param>
     /// <param name="timeProvider">The time source driving the timer; <see langword="null" /> selects <see cref="TimeProvider.System" />.</param>
     /// <returns>An election timer for multi-node groups; otherwise <see langword="null" />.</returns>
-    internal static ElectionTimer? Create(int replicaCount, ElectionTimerOptions? options = null, TimeProvider? timeProvider = null)
+    internal static ElectionTimer? Create(int count, ElectionTimerOptions? options = null, TimeProvider? timeProvider = null)
     {
-        if (replicaCount <= 1)
-            return null;
-
-        return new ElectionTimer((options ?? new ElectionTimerOptions()).ElectionTimeout, timeProvider);
+        var electionTimerOptions = options ?? new ElectionTimerOptions();
+        return count <= 1 ? null : new ElectionTimer(electionTimerOptions.ElectionTimeout, timeProvider);
     }
 
     /// <summary>Re-arms the one-shot timeout; a no-op before <see cref="Start" />.</summary>

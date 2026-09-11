@@ -115,16 +115,13 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         return listener;
     }
 
-    private static string FormatValue(double value)
+    private static string FormatValue(double value) => value switch
     {
-        if (double.IsNaN(value))
-            return "NaN";
-        if (double.IsPositiveInfinity(value))
-            return "+Inf";
-        if (double.IsNegativeInfinity(value))
-            return "-Inf";
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+        _ when double.IsNaN(value) => "NaN",
+        _ when double.IsPositiveInfinity(value) => "+Inf",
+        _ when double.IsNegativeInfinity(value) => "-Inf",
+        _ => value.ToString(CultureInfo.InvariantCulture),
+    };
 
     private void RecordMeasurement(string metric, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
     {

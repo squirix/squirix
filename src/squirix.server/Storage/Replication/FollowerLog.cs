@@ -161,10 +161,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex);
-
-        return await FollowerLogAppend.AdvanceAppliedMonotonicAsync(_journal, this, appliedIndex, cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogAppliedResult(false, FollowerLogRefusal.NotReady, _meta.LastAppliedIndex)
+            : await FollowerLogAppend.AdvanceAppliedMonotonicAsync(_journal, this, appliedIndex, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -172,10 +170,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
-
-        return await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex)
+            : await FollowerLogAppend.AdvanceCommitMonotonicAsync(_journal, this, commitIndex, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -183,10 +179,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
-
-        return await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex)
+            : await FollowerLogAppend.AdvanceCommitWithTermAsync(_journal, this, commitIndex, leaderTerm, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -293,6 +287,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     void IFollowerLogState.SetReadiness(FollowerLogReadiness readiness) => Readiness = readiness;
 
+    internal async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // Terms start at one: a zero-term probe authorizes nothing.
+        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term == 0UL) switch
+        {
+            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
+            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
+            (false, false) => FollowerLogElection.CheckPreVote(_journal, this, request),
+        };
+    }
+
     /// <summary>Compacts the journal prefix covered by the published snapshot, retaining the installable state.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The compaction outcome.</returns>
@@ -300,10 +308,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
-
-        return await FollowerLogSnapshot.CompactAsync(_journal, this, cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready ? new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady)
+            : await FollowerLogSnapshot.CompactAsync(_journal, this, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Creates and durably publishes a snapshot covering the committed prefix up to <paramref name="lastIncludedIndex" />.</summary>
@@ -431,34 +437,18 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
     }
 
-    internal async Task<FollowerLogVoteResult> TryCheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    internal async Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
-
-        // Terms start at one: a zero-term probe authorizes nothing.
-        if (request.Term == 0UL)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
-
-        return FollowerLogElection.CheckPreVote(_journal, this, request);
-    }
-
-    internal async Task<FollowerLogVoteResult> TryRequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm);
 
         // Terms start at one: a zero-term request can never win and must not persist a vote.
-        if (request.Term == 0UL)
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm);
-
-        return await FollowerLogElection.TryRequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+        return (IsDisposed || Readiness != FollowerLogReadiness.Ready, request.Term == 0UL) switch
+        {
+            (true, _) => new FollowerLogVoteResult(false, FollowerLogRefusal.NotReady, _meta.CurrentTerm),
+            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
+            (false, false) => await FollowerLogElection.RequestVoteAsync(_journal, this, request, cancellationToken).ConfigureAwait(false),
+        };
     }
 
     private async Task OpenCoreAsync(CancellationToken cancellationToken)
@@ -593,17 +583,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             CancellationToken cancellationToken)
         {
             // Higher term is persisted durably before any further response; the old leader stops being authoritative.
-            if (request.CurrentTerm > owner.Meta.CurrentTerm)
-            {
-                var candidate = owner.Meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
-                await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-                owner.SetMeta(candidate);
-                return null;
-            }
+            var term = owner.Meta.CurrentTerm;
+            if (request.CurrentTerm <= term)
+                return request.CurrentTerm < term ? new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, term, owner.LastLogIndex) : null;
 
-            if (request.CurrentTerm < owner.Meta.CurrentTerm)
-                return new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm, owner.LastLogIndex);
-
+            var candidate = owner.Meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
+            await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.SetMeta(candidate);
             return null;
         }
 
@@ -638,13 +624,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                .ConfigureAwait(false);
         }
 
-        internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex)
-        {
-            if (candidateLastTerm != localLastTerm)
-                return candidateLastTerm > localLastTerm;
-
-            return candidateLastIndex >= localLastIndex;
-        }
+        internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
+            candidateLastTerm != localLastTerm ? candidateLastTerm > localLastTerm : candidateLastIndex >= localLastIndex;
 
         internal static async Task PersistMetaOrFailReadinessAsync(
             FollowerLogJournal journal,
@@ -670,16 +651,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
         {
-            if (prev == 0UL)
-                return expected == 0UL;
-
-            if (journal.EntryOffsets.TryGetValue(prev, out var location))
-                return location.Term == expected;
-
-            if (journal.SnapshotBaseline.LastIncludedIndex == prev)
-                return journal.SnapshotBaseline.LastIncludedTerm == expected;
-
-            return false;
+            return prev switch
+            {
+                0UL => expected == 0UL,
+                _ when journal.EntryOffsets.TryGetValue(prev, out var location) => location.Term == expected,
+                _ when journal.SnapshotBaseline.LastIncludedIndex == prev => journal.SnapshotBaseline.LastIncludedTerm == expected,
+                _ => false,
+            };
         }
 
         internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, FollowerLogAppendRequest request)
@@ -697,26 +675,29 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (request.PrevLogIndex <= owner.Meta.LastAppliedIndex)
             {
                 var term = TermAtApplied(journal, request.PrevLogIndex);
-                if (term != 0UL && term == request.PrevLogTerm)
-                    return null;
 
                 // A term of zero at an applied index means the frame was compacted away and is not the snapshot
                 // baseline: the prefix cannot be verified from memory. Terms start at 1, so a zero term is always
                 // unverifiable and must be refused rather than accepted as consistent.
-                if (term == 0UL)
-                    return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
-
-                return FailReadiness(owner);
+                var logMatches = term != 0UL && term == request.PrevLogTerm;
+                var unverifiable = term == 0UL;
+                return (logMatches, unverifiable) switch
+                {
+                    (true, _) => null,
+                    (false, true) => new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex),
+                    (false, false) => FailReadiness(owner),
+                };
             }
 
-            if (TermAt(journal, request.PrevLogIndex) == request.PrevLogTerm)
-                return null;
-
             // A term conflict at or below the committed index violates the Leader Completeness property; fail readiness.
-            if (request.PrevLogIndex <= owner.Meta.CommitIndex)
-                return FailReadiness(owner);
-
-            return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
+            var termMatches = TermAt(journal, request.PrevLogIndex) == request.PrevLogTerm;
+            var belowCommitted = request.PrevLogIndex <= owner.Meta.CommitIndex;
+            return (termMatches, belowCommitted) switch
+            {
+                (true, _) => null,
+                (false, true) => FailReadiness(owner),
+                (false, false) => new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex),
+            };
 
             static ulong TermAt(FollowerLogJournal journal, ulong logIndex)
             {
@@ -725,11 +706,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             static ulong TermAtApplied(FollowerLogJournal journal, ulong logIndex)
             {
-                if (journal.EntryOffsets.TryGetValue(logIndex, out var location))
-                    return location.Term;
-
                 // The snapshot base's frame was compacted away, but its term is retained for consistency checks.
-                return journal.SnapshotBaseline.LastIncludedIndex > 0UL && logIndex == journal.SnapshotBaseline.LastIncludedIndex ? journal.SnapshotBaseline.LastIncludedTerm : 0UL;
+                var baselineTerm = journal.SnapshotBaseline.LastIncludedIndex > 0UL && logIndex == journal.SnapshotBaseline.LastIncludedIndex
+                    ? journal.SnapshotBaseline.LastIncludedTerm : 0UL;
+                return journal.EntryOffsets.TryGetValue(logIndex, out var location) ? location.Term : baselineTerm;
             }
         }
 
@@ -774,15 +754,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static bool IsSatisfiedByLocalState(FollowerLogJournal journal, IFollowerLogContext owner, in FollowerLogEntry candidate)
         {
-            if (candidate.LogIndex <= owner.LastLogIndex && journal.TryGetEntry(candidate.LogIndex, out var existing) && existing.Term == candidate.Term &&
-                existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan))
-                return true;
-
             // The term of an applied entry was released with its payload, so it is read back from the retained
             // frame metadata. Compaction removes the covered prefix from EntryOffsets, so a frame that is absent
             // there is correctly not acknowledged; a retained frame is verifiable by term alone because Leader
             // Completeness forbids a conflicting term at an applied index.
-            return candidate.LogIndex <= owner.Meta.LastAppliedIndex && journal.TryGetEntryOffset(candidate.LogIndex, out var location) && location.Term == candidate.Term;
+            var localSatisfied = candidate.LogIndex <= owner.LastLogIndex && journal.TryGetEntry(candidate.LogIndex, out var existing) && existing.Term == candidate.Term &&
+                                 existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan);
+            var appliedSatisfied = candidate.LogIndex <= owner.Meta.LastAppliedIndex && journal.TryGetEntryOffset(candidate.LogIndex, out var loc) && loc.Term == candidate.Term;
+            return localSatisfied || appliedSatisfied;
         }
 
         private static List<FollowerLogEntry> MaterializeOwnedEntries(List<FollowerLogEntry> source)
@@ -791,10 +770,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // watermark; duplicates satisfied by local state and refused batches are never copied.
             var owned = new List<FollowerLogEntry>(source.Count);
             for (var i = 0; i < source.Count; i++)
-            {
-                var entry = source[i];
-                owned.Add(new FollowerLogEntry(entry.LogIndex, entry.Term, entry.Payload.ToArray()));
-            }
+                owned.Add(new FollowerLogEntry(source[i].LogIndex, source[i].Term, source[i].Payload.ToArray()));
 
             return owned;
         }
@@ -1199,19 +1175,21 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             // A pre-vote probe never steps the term: an isolated follower soliciting probes must not inflate
             // its durable term, and the reported term always stays the locally persisted one.
-            if (request.Term < owner.Meta.CurrentTerm)
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
-
-            if (request.Term == owner.Meta.CurrentTerm && owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
-
-            if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
-                return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
-
-            return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+            return true switch
+            {
+                _ when request.Term < owner.Meta.CurrentTerm => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm),
+                _ when request.Term == owner.Meta.CurrentTerm && owner.Meta.VotedFor.Length != 0 &&
+                       !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal) => new FollowerLogVoteResult(
+                    false,
+                    FollowerLogRefusal.AlreadyVoted,
+                    owner.Meta.CurrentTerm),
+                _ when !FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex) =>
+                    new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm),
+                _ => new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm),
+            };
         }
 
-        internal static async Task<FollowerLogVoteResult> TryRequestVoteAsync(
+        internal static async Task<FollowerLogVoteResult> RequestVoteAsync(
             FollowerLogJournal journal,
             IFollowerLogContext owner,
             ElectionVoteRequest request,
@@ -1252,16 +1230,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static ulong CurrentLastLogTerm(FollowerLogJournal journal, IFollowerLogContext owner)
         {
-            if (owner.LastLogIndex == 0UL)
-                return 0UL;
-
-            if (journal.TryGetEntryOffset(owner.LastLogIndex, out var location))
-                return location.Term;
-
-            if (journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex)
-                return journal.SnapshotBaseline.LastIncludedTerm;
-
-            return 0UL;
+            return true switch
+            {
+                _ when owner.LastLogIndex == 0UL => 0UL,
+                _ when journal.TryGetEntryOffset(owner.LastLogIndex, out var location) => location.Term,
+                _ when journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex => journal.SnapshotBaseline.LastIncludedTerm,
+                _ => 0UL,
+            };
         }
     }
 
@@ -1396,16 +1371,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <returns>The last journaled index below the first frame the walk continues from.</returns>
         private static ulong DeriveWalkBaseIndex(ulong firstIndex, ulong snapshotBase)
         {
-            if (firstIndex == 1 || snapshotBase == 0)
-                return 0UL;
-
-            if (firstIndex <= snapshotBase)
-                return firstIndex - 1UL;
-
-            if (firstIndex == snapshotBase + 1)
-                return snapshotBase;
-
-            return 0UL;
+            return true switch
+            {
+                _ when firstIndex == 1 || snapshotBase == 0 => 0UL,
+                _ when firstIndex <= snapshotBase => firstIndex - 1UL,
+                _ when firstIndex == snapshotBase + 1 => snapshotBase,
+                _ => 0UL,
+            };
         }
 
         /// <summary>Detects a surviving journal frame whose term diverges from the restored snapshot at its included index.</summary>
@@ -1415,10 +1387,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <returns>The divergent-boundary result, or <see langword="null" /> when the frame agrees with the snapshot.</returns>
         private static WalkResult? DivergentBoundary(FollowerLogJournal journal, ulong logIndex, ulong term)
         {
-            if (journal.SnapshotBaseline.LastIncludedIndex != logIndex || journal.SnapshotBaseline.LastIncludedTerm == term)
-                return null;
-
-            return new WalkResult(GroupLogCodec.LogFileHeader.Length, true, true);
+            return journal.SnapshotBaseline.LastIncludedIndex != logIndex || journal.SnapshotBaseline.LastIncludedTerm == term ? null
+                : new WalkResult(GroupLogCodec.LogFileHeader.Length, true, true);
         }
 
         private static void EnsureCommittedPrefixCovered(IFollowerLogContext owner, ulong snapshotBase)
@@ -1447,7 +1417,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
             try
             {
-                var headerEnd = await HandleEx.TryReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), start, cancellationToken).ConfigureAwait(false);
+                var headerEnd = await HandleEx.ReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), start, cancellationToken).ConfigureAwait(false);
                 if (headerEnd == null || !GroupLogCodec.TryReadFrameHeaderLength(frameHeader.AsSpan(0, FrameHeaderByteCount), out var frameLength))
                     return 0UL;
 
@@ -1458,7 +1428,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 try
                 {
                     frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
-                    var frameEnd = await HandleEx.TryReadExactAsync(
+                    var frameEnd = await HandleEx.ReadExactAsync(
                         handle,
                         frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount),
                         start + FrameHeaderByteCount,
@@ -1491,7 +1461,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var header = ArrayPool<byte>.Shared.Rent(GroupLogCodec.LogFileHeader.Length);
             try
             {
-                var end = await HandleEx.TryReadExactAsync(handle, header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), 0, cancellationToken).ConfigureAwait(false);
+                var end = await HandleEx.ReadExactAsync(handle, header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), 0, cancellationToken).ConfigureAwait(false);
                 if (end == null || !header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
                 {
                     owner.SetReadiness(FollowerLogReadiness.Failed);
@@ -1530,7 +1500,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (RandomAccess.GetLength(handle) - frameStart < FrameHeaderByteCount)
                 return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
 
-            var headerEnd = await HandleEx.TryReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), frameStart, cancellationToken).ConfigureAwait(false);
+            var headerEnd = await HandleEx.ReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), frameStart, cancellationToken).ConfigureAwait(false);
             if (headerEnd == null)
                 return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
 
@@ -1547,14 +1517,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var payloadOffset = frameStart + FrameHeaderByteCount;
             frameHeader.AsSpan(0, FrameHeaderByteCount).CopyTo(frame);
-            var payloadEnd = await HandleEx.TryReadExactAsync(handle, frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), payloadOffset, cancellationToken)
+            var payloadEnd = await HandleEx.ReadExactAsync(handle, frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount), payloadOffset, cancellationToken)
                                            .ConfigureAwait(false);
 
             // The frame content is incomplete: hand ownership back to the caller's pooling path.
-            if (payloadEnd == null)
-                return new FrameReadOutcome(frame, exhausted, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
-
-            return new FrameReadOutcome(frame, exhausted, frameLength, nextLogIndex, null);
+            return payloadEnd == null ? new FrameReadOutcome(frame, exhausted, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex))
+                : new FrameReadOutcome(frame, exhausted, frameLength, nextLogIndex, null);
         }
 
         /// <summary>
@@ -1877,32 +1845,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
             // equal the snapshot boundary for a freshly created snapshot.
-            if (journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location))
-            {
-                return new GroupSnapshot(
-                    owner.GroupId,
-                    owner.Meta.TopologyFingerprint,
-                    owner.Meta.ConfigurationGeneration,
-                    location.Term,
-                    lastIncludedIndex,
-                    lastIncludedIndex,
-                    ExportCoveredOutcomes(owner, lastIncludedIndex));
-            }
-
-            // The covered index may be the snapshot base itself, whose frame was already compacted away.
-            if (journal.SnapshotBaseline.LastIncludedIndex != 0UL && lastIncludedIndex == journal.SnapshotBaseline.LastIncludedIndex)
-            {
-                return new GroupSnapshot(
-                    owner.GroupId,
-                    owner.Meta.TopologyFingerprint,
-                    owner.Meta.ConfigurationGeneration,
-                    journal.SnapshotBaseline.LastIncludedTerm,
-                    lastIncludedIndex,
-                    lastIncludedIndex,
-                    ExportCoveredOutcomes(owner, lastIncludedIndex));
-            }
-
-            throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
+            return journal.EntryOffsets.TryGetValue(lastIncludedIndex, out var location) ? new GroupSnapshot(
+                owner.GroupId,
+                owner.Meta.TopologyFingerprint,
+                owner.Meta.ConfigurationGeneration,
+                location.Term,
+                lastIncludedIndex,
+                lastIncludedIndex,
+                ExportCoveredOutcomes(owner, lastIncludedIndex)) : BuildSnapshotFromBaseline(journal, owner, lastIncludedIndex);
         }
 
         internal static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
@@ -2085,10 +2035,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         internal static string? SnapshotTopologyMismatch(IFollowerLogContext owner, GroupSnapshot snapshot)
         {
             var memory = owner.Meta.TopologyFingerprint;
-            if ((!memory.IsEmpty && !memory.Span.SequenceEqual(snapshot.TopologyFingerprint.Span)) || snapshot.ConfigurationGeneration < owner.Meta.ConfigurationGeneration)
-                return FollowerLogRefusal.TopologyMismatch;
-
-            return null;
+            return (!memory.IsEmpty && !memory.Span.SequenceEqual(snapshot.TopologyFingerprint.Span)) || snapshot.ConfigurationGeneration < owner.Meta.ConfigurationGeneration
+                ? FollowerLogRefusal.TopologyMismatch : null;
         }
 
         internal static void ValidateSnapshotRequest(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
@@ -2172,6 +2120,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 LastAppliedIndex = snapshot.LastIncludedIndex > owner.Meta.LastAppliedIndex && snapshot.LastIncludedIndex > owner.Meta.LastLogIndex ? snapshot.LastIncludedIndex
                     : owner.Meta.LastAppliedIndex,
             };
+        }
+
+        private static GroupSnapshot BuildSnapshotFromBaseline(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
+        {
+            // The covered index may be the snapshot base itself, whose frame was already compacted away.
+            return journal.SnapshotBaseline.LastIncludedIndex != 0UL && lastIncludedIndex == journal.SnapshotBaseline.LastIncludedIndex ? new GroupSnapshot(
+                    owner.GroupId,
+                    owner.Meta.TopologyFingerprint,
+                    owner.Meta.ConfigurationGeneration,
+                    journal.SnapshotBaseline.LastIncludedTerm,
+                    lastIncludedIndex,
+                    lastIncludedIndex,
+                    ExportCoveredOutcomes(owner, lastIncludedIndex))
+                : throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
         }
 
         /// <summary>Collects the durable log entries whose index is above the snapshot boundary when the boundary matches.</summary>
@@ -2274,50 +2236,44 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// <returns>The refusal marker, or <see langword="null" /> when the snapshot is eligible.</returns>
         private static string? ValidateInstallEligibility(IFollowerLogContext owner, GroupSnapshot snapshot)
         {
-            if (!string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal))
-                return FollowerLogRefusal.NotMember;
+            var groupMatches = string.Equals(snapshot.GroupId, owner.GroupId, StringComparison.Ordinal);
+            var topologyMismatch = SnapshotTopologyMismatch(owner, snapshot);
 
-            if (SnapshotTopologyMismatch(owner, snapshot) is { } refusal)
-                return refusal;
-
-            if (snapshot.LastIncludedIndex == 0UL)
-                return FollowerLogRefusal.NotReady;
-
-            // Terms start at 1, and a zero-baseline term collides with the "unverifiable term" sentinel used by
+            // Terms start at 1, and a zero baseline collides with the "unverifiable term" sentinel used by
             // TermAtApplied and would make DivergentBoundary discard the whole durable suffix on the next recovery.
-            if (snapshot.LastIncludedTerm == 0UL)
-                return FollowerLogRefusal.NotReady;
+            var zeroBaseline = snapshot.LastIncludedIndex == 0UL || snapshot.LastIncludedTerm == 0UL;
 
             // The snapshot is authoritative for the covered prefix; refusing an installation below the current commit
             // watermark guarantees no committed entry is dropped without a covering snapshot.
-            if (snapshot.LastIncludedIndex < owner.Meta.CommitIndex)
-                return FollowerLogRefusal.NotReady;
+            var belowCommit = snapshot.LastIncludedIndex < owner.Meta.CommitIndex;
 
             // Refuse an installation whose boundary sits below the replica's already-applied watermark. BuildInstallCandidateMeta
             // would otherwise set LastAppliedIndex to the included index, moving the applied watermark backward and discarding
             // committed-and-applied frames via the installation log rewrite. The monotonic-applied-index invariant that
             // AdvanceAppliedAsync enforces must hold across installation too.
-            if (snapshot.LastIncludedIndex < owner.Meta.LastAppliedIndex)
-                return FollowerLogRefusal.NotReady;
+            var belowApplied = snapshot.LastIncludedIndex < owner.Meta.LastAppliedIndex;
 
             // A snapshot whose commit index falls below its included index is malformed: the committed prefix it
             // claims to cover is internally inconsistent, and adopting its boundary would let LastAppliedIndex exceed
             // CommitIndex. Refuse such snapshots so the watermark invariants stay coherent.
-            if (snapshot.CommitIndex < snapshot.LastIncludedIndex)
-                return FollowerLogRefusal.NotReady;
+            var commitBelowIncluded = snapshot.CommitIndex < snapshot.LastIncludedIndex;
 
             // A snapshot that carries an unresolved outcome is malformed: publishing it would write invalid idempotency
             // state to disk and poison the next recovery, which would then fail readiness. Refuse before any durable
             // writing, so the in-memory snapshot is rejected without a partial installation.
-            if (SnapshotHasUnresolvedOutcome(snapshot.CommittedOutcomes))
-                return FollowerLogRefusal.NotReady;
+            var unresolvedOutcome = SnapshotHasUnresolvedOutcome(snapshot.CommittedOutcomes);
 
             // A direct GroupSnapshot input bypasses the on-disk decoder, so enforce its boundary invariant before
             // publication as well. Otherwise, recovery would later classify the published snapshot as corrupt.
-            if (SnapshotHasOutcomeBeyondBoundary(snapshot.CommittedOutcomes, snapshot.LastIncludedIndex))
-                return FollowerLogRefusal.NotReady;
-
-            return null;
+            var outcomeBeyondBoundary = SnapshotHasOutcomeBeyondBoundary(snapshot.CommittedOutcomes, snapshot.LastIncludedIndex);
+            var malformed = zeroBaseline || belowCommit || belowApplied || commitBelowIncluded || unresolvedOutcome || outcomeBeyondBoundary;
+            return (groupMatches, topologyMismatch, malformed) switch
+            {
+                (false, _, _) => FollowerLogRefusal.NotMember,
+                (true, { } mismatch, _) => mismatch,
+                (true, null, true) => FollowerLogRefusal.NotReady,
+                (true, null, false) => null,
+            };
         }
     }
 

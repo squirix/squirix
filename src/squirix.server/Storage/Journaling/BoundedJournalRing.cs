@@ -84,10 +84,12 @@ internal sealed class BoundedJournalRing : IDisposable
     private static int ComputeRemainingWaitMs(long deadline)
     {
         var remaining = deadline - Environment.TickCount64;
-        if (remaining <= 0)
-            return 0;
-
-        return remaining > int.MaxValue ? int.MaxValue : Convert.ToInt32(remaining);
+        return remaining switch
+        {
+            <= 0 => 0,
+            > int.MaxValue => int.MaxValue,
+            _ => Convert.ToInt32(remaining),
+        };
     }
 
     private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);

@@ -199,7 +199,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
     /// <summary>Try-add stores entry tags so reads and snapshot capture observe them (issue #421).</summary>
     [Fact]
-    public async Task TryAddPreservesTags()
+    public async Task AddPreservesTags()
     {
         var cache = new PhysicalCache<string>();
         _ = await cache.TryAddAsync(new CacheKey("ns", "added"), new NodeCacheEntry<string>("v", tags: TestTags), DefaultCancellationToken);

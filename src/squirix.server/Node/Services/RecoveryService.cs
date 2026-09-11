@@ -98,32 +98,20 @@ internal sealed class RecoveryService<T> : IHostedService
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment == 0 && manifestCurrentJournal != 1;
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
-        if (!missingInitialSegment && !journalGapDetected)
-            return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
-        throw CreateJournalReplayBoundaryFailure();
+        var isHistoryIntact = !missingInitialSegment && !journalGapDetected;
+        var hasAvailableSegments = firstAvailableSegment > 0;
+        return (isHistoryIntact, hasAvailableSegments) switch
+        {
+            (true, true) => firstAvailableSegment,
+            (true, false) => 1,
+            (false, _) => throw CreateJournalReplayBoundaryFailure(),
+        };
     }
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
     private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
         record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
-
-    private void RestoreStartedMutation(JournalRecord record)
-    {
-        if (record.MutationOperationId is not { } operationId)
-            return;
-
-        _idempotency.RestoreStarted(operationId, ResolveIdempotencyCreatedUtc(record));
-    }
-
-    /// <summary>Restores the write-ahead started intent for a mutation frame and normalizes its cache key.</summary>
-    /// <param name="record">The journal record being replayed.</param>
-    /// <returns>The normalized cache key.</returns>
-    private CacheKey PrepareMutationKey(JournalRecord record)
-    {
-        RestoreStartedMutation(record);
-        return record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-    }
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
@@ -236,6 +224,15 @@ internal sealed class RecoveryService<T> : IHostedService
         context.FirstAvailableSegment,
         fromSegment);
 
+    /// <summary>Restores the write-ahead started intent for a mutation frame and normalizes its cache key.</summary>
+    /// <param name="record">The journal record being replayed.</param>
+    /// <returns>The normalized cache key.</returns>
+    private CacheKey PrepareMutationKey(JournalRecord record)
+    {
+        RestoreStartedMutation(record);
+        return record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+    }
+
     private async Task ReplayAsync(CancellationToken cancellationToken)
     {
         try
@@ -333,6 +330,14 @@ internal sealed class RecoveryService<T> : IHostedService
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
         return new ReplayState(fromSegment, lastAppliedSeq);
+    }
+
+    private void RestoreStartedMutation(JournalRecord record)
+    {
+        if (record.MutationOperationId is not { } operationId)
+            return;
+
+        _idempotency.RestoreStarted(operationId, ResolveIdempotencyCreatedUtc(record));
     }
 
     [Immutable]

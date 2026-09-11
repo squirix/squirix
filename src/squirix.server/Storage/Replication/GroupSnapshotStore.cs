@@ -187,22 +187,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                     total += read;
                 }
 
-                byte observedVersion = 0;
-                if (total != byteCount || !GroupSnapshotCodec.TryValidateAndDecode(bytes.AsSpan(0, byteCount), _maxSnapshotBytes, out var snapshot, out observedVersion))
+                byte v = 0;
+                if (total == byteCount && GroupSnapshotCodec.TryValidateAndDecode(bytes.AsSpan(0, byteCount), _maxSnapshotBytes, out var snapshot, out v))
                 {
-                    if (observedVersion != 0 && observedVersion != GroupSnapshotCodec.SnapshotVersion)
-                    {
-                        throw new InvalidDataException(
-                            $"Replica group snapshot at '{_snapshotPath}' uses format version {observedVersion}; version {GroupSnapshotCodec.SnapshotVersion} is required.");
-                    }
-
-                    throw new InvalidDataException($"Replica group snapshot at '{_snapshotPath}' is corrupt.");
+                    var message = $"Replica group snapshot at '{_snapshotPath}' belongs to a different group.";
+                    return !string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal) ? throw new InvalidDataException(message) : snapshot;
                 }
 
-                if (!string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal))
-                    throw new InvalidDataException($"Replica group snapshot at '{_snapshotPath}' belongs to a different group.");
+                if (v == 0 || v == GroupSnapshotCodec.SnapshotVersion)
+                    throw new InvalidDataException($"Replica group snapshot at '{_snapshotPath}' is corrupt.");
 
-                return snapshot;
+                throw new InvalidDataException($"Replica group snapshot at '{_snapshotPath}' uses format version {v}; version {GroupSnapshotCodec.SnapshotVersion} is required.");
             }
             finally
             {
@@ -222,8 +217,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved or its log index exceeds the boundary.</exception>
     private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(GroupSnapshot snapshot)
     {
-        var outcomes = snapshot.CommittedOutcomes ?? ThrowHelper.Throw<IReadOnlyList<GroupIdempotencyRecord>>(
-            new ArgumentNullException(nameof(snapshot), "Snapshot committed outcomes must not be null."));
+        const string message = "Snapshot committed outcomes must not be null.";
+        var outcomes = snapshot.CommittedOutcomes ?? ThrowHelper.Throw<IReadOnlyList<GroupIdempotencyRecord>>(new ArgumentNullException(nameof(snapshot), message));
 
         var records = new GroupIdempotencyRecord[outcomes.Count];
         for (var i = 0; i < records.Length; i++)
@@ -430,10 +425,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                 length += ComputeOutcomeEncodedLength(in outcome);
             }
 
-            if (length > int.MaxValue)
-                throw new InvalidOperationException($"Replica group snapshot encoded length {length} exceeds the maximum.");
-
-            return int.CreateTruncating(length);
+            return length > int.MaxValue ? throw new InvalidOperationException($"Replica group snapshot encoded length {length} exceeds the maximum.")
+                : int.CreateTruncating(length);
         }
 
         /// <summary>Validates a complete snapshot file: header, declared length, checksum, and bounded size.</summary>
@@ -469,10 +462,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[^Crc32ByteCount..]);
             var payload = fileBytes.Slice(SnapshotHeaderByteCount, declaredLength);
-            if (Crc32C.Compute(payload) != storedCrc)
-                return false;
-
-            return GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot);
+            return Crc32C.Compute(payload) == storedCrc && GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot);
         }
 
         /// <summary>Computes the exact encoded length of one committed idempotency outcome.</summary>

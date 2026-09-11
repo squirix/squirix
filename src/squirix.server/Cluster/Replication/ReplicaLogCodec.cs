@@ -31,25 +31,8 @@ internal static class ReplicaLogCodec
         var decoder = new Decoder(bytes[2..]);
         try
         {
-            if (decoder.ReadHead() is not { } head || decoder.ReadMiddle() is not { } middle || decoder.ReadTail() is not { } tail || !decoder.AtEnd)
-                return null;
-
-            return new ReplicaLogRecord(
-                head.LogIndex,
-                head.Term,
-                head.OperationId,
-                head.OperationScope,
-                head.OperationFingerprint,
-                head.RecordKind,
-                head.CacheName,
-                middle.KeyPayload,
-                middle.MutationKind,
-                middle.MutationPayload,
-                middle.OutcomePayload,
-                tail.ExpiresUtcTicks,
-                tail.CreatedUtcTicks,
-                tail.ResolvedUtcTicks,
-                tail.PayloadChecksum);
+            var isComplete = decoder.TryReadRecord(out var record) && decoder.AtEnd;
+            return isComplete ? record : null;
         }
         catch (DecoderFallbackException)
         {
@@ -138,35 +121,146 @@ internal static class ReplicaLogCodec
 
         internal bool AtEnd => _offset == _buffer.Length;
 
-        internal (ulong LogIndex, ulong Term, string OperationId, string OperationScope, ReadOnlyMemory<byte> OperationFingerprint, string RecordKind, string CacheName)? ReadHead()
+        /// <summary>Reads the head, middle, and tail sections in field order into a record.</summary>
+        /// <param name="record">The assembled record when all sections decode; otherwise <see langword="null" />.</param>
+        /// <returns><see langword="true" /> when every section decoded; otherwise <see langword="false" />.</returns>
+        internal bool TryReadRecord(out ReplicaLogRecord? record)
         {
-            if (!TryTake(8, out var logIndexBytes) || !TryTake(8, out var termBytes) || !TryTakeLengthPrefixed(out var operationIdBytes) ||
-                !TryTakeLengthPrefixed(out var operationScopeBytes) || !TryTakeLengthPrefixed(out var fingerprintBytes) || !TryTakeLengthPrefixed(out var recordKindBytes) ||
-                !TryTakeLengthPrefixed(out var cacheNameBytes))
-                return null;
+            record = null;
 
-            return (BinaryPrimitives.ReadUInt64LittleEndian(logIndexBytes), BinaryPrimitives.ReadUInt64LittleEndian(termBytes), StrictUtf8.GetString(operationIdBytes),
-                StrictUtf8.GetString(operationScopeBytes), OwnedBufferKit.CopyToOwned(fingerprintBytes), StrictUtf8.GetString(recordKindBytes),
-                StrictUtf8.GetString(cacheNameBytes));
+            if (!TryReadHead(out var head))
+                return false;
+            if (!TryReadMiddle(out var middle))
+                return false;
+            if (!TryReadTail(out var tail))
+                return false;
+
+            record = CreateRecord(head, middle, tail);
+            return true;
         }
 
-        internal (ReadOnlyMemory<byte> KeyPayload, string MutationKind, ReadOnlyMemory<byte> MutationPayload, ReadOnlyMemory<byte> OutcomePayload)? ReadMiddle()
+        private static ReplicaLogRecord CreateRecord(HeadSection head, MiddleSection middle, TailSection tail)
         {
-            if (!TryTakeLengthPrefixed(out var keyBytes) || !TryTakeLengthPrefixed(out var mutationKindBytes) || !TryTakeLengthPrefixed(out var mutationBytes) ||
-                !TryTakeLengthPrefixed(out var outcomeBytes))
-                return null;
-
-            return (OwnedBufferKit.CopyToOwned(keyBytes), StrictUtf8.GetString(mutationKindBytes), OwnedBufferKit.CopyToOwned(mutationBytes),
-                OwnedBufferKit.CopyToOwned(outcomeBytes));
+            return new ReplicaLogRecord(
+                head.LogIndex,
+                head.Term,
+                head.OperationId,
+                head.OperationScope,
+                head.Fingerprint,
+                head.RecordKind,
+                head.CacheName,
+                middle.Key,
+                middle.MutationKind,
+                middle.Mutation,
+                middle.Outcome,
+                tail.ExpiresUtcTicks,
+                tail.CreatedUtcTicks,
+                tail.ResolvedUtcTicks,
+                tail.PayloadChecksum);
         }
 
-        internal (long ExpiresUtcTicks, long CreatedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum)? ReadTail()
+        private bool TryReadHead([NotNullWhen(true)] out HeadSection? head)
         {
-            if (!TryTake(8, out var expiresBytes) || !TryTake(8, out var createdBytes) || !TryTake(8, out var resolvedBytes) || !TryTake(4, out var checksumBytes))
-                return null;
+            head = null;
+            if (!TryReadUInt64(out var logIndex))
+                return false;
+            if (!TryReadUInt64(out var term))
+                return false;
+            if (!TryReadString(out var operationId))
+                return false;
+            if (!TryReadString(out var operationScope))
+                return false;
+            if (!TryReadBytes(out var fingerprint))
+                return false;
+            if (!TryReadString(out var recordKind))
+                return false;
+            if (!TryReadString(out var cacheName))
+                return false;
 
-            return (BinaryPrimitives.ReadInt64LittleEndian(expiresBytes), BinaryPrimitives.ReadInt64LittleEndian(createdBytes),
-                BinaryPrimitives.ReadInt64LittleEndian(resolvedBytes), BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes));
+            head = new HeadSection(logIndex, term, operationId, operationScope, fingerprint, recordKind, cacheName);
+            return true;
+        }
+
+        private bool TryReadMiddle([NotNullWhen(true)] out MiddleSection? middle)
+        {
+            middle = null;
+            if (!TryReadBytes(out var key))
+                return false;
+            if (!TryReadString(out var mutationKind))
+                return false;
+            if (!TryReadBytes(out var mutation))
+                return false;
+            if (!TryReadBytes(out var outcome))
+                return false;
+
+            middle = new MiddleSection(key, mutationKind, mutation, outcome);
+            return true;
+        }
+
+        private bool TryReadTail([NotNullWhen(true)] out TailSection? tail)
+        {
+            tail = null;
+            if (!TryReadInt64(out var expires))
+                return false;
+            if (!TryReadInt64(out var created))
+                return false;
+            if (!TryReadInt64(out var resolved))
+                return false;
+            if (!TryReadUInt32(out var checksum))
+                return false;
+
+            tail = new TailSection(expires, created, resolved, checksum);
+            return true;
+        }
+
+        private bool TryReadUInt64(out ulong value)
+        {
+            value = 0;
+            if (!TryTake(8, out var bytes))
+                return false;
+
+            value = BinaryPrimitives.ReadUInt64LittleEndian(bytes);
+            return true;
+        }
+
+        private bool TryReadInt64(out long value)
+        {
+            value = 0;
+            if (!TryTake(8, out var bytes))
+                return false;
+
+            value = BinaryPrimitives.ReadInt64LittleEndian(bytes);
+            return true;
+        }
+
+        private bool TryReadUInt32(out uint value)
+        {
+            value = 0;
+            if (!TryTake(4, out var bytes))
+                return false;
+
+            value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+            return true;
+        }
+
+        private bool TryReadString(out string value)
+        {
+            value = string.Empty;
+            if (!TryTakeLengthPrefixed(out var bytes))
+                return false;
+
+            value = StrictUtf8.GetString(bytes);
+            return true;
+        }
+
+        private bool TryReadBytes(out byte[] value)
+        {
+            value = [];
+            if (!TryTakeLengthPrefixed(out var bytes))
+                return false;
+
+            value = OwnedBufferKit.CopyToOwned(bytes);
+            return true;
         }
 
         private bool TryTake(int size, out ReadOnlySpan<byte> slice)
@@ -189,6 +283,15 @@ internal static class ReplicaLogCodec
             var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
             return length >= 0 && TryTake(length, out slice);
         }
+
+        [Immutable]
+        private sealed record HeadSection(ulong LogIndex, ulong Term, string OperationId, string OperationScope, byte[] Fingerprint, string RecordKind, string CacheName);
+
+        [Immutable]
+        private sealed record MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
+
+        [Immutable]
+        private sealed record TailSection(long ExpiresUtcTicks, long CreatedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum);
 
         /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
         /// <remarks>

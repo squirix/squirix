@@ -20,42 +20,42 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     private readonly ulong _generation;
     private readonly string[] _groupIds;
     private readonly FollowerLogOptions? _options;
-    private readonly string _persistenceRoot;
+    private readonly string _root;
     private readonly int _replicaCount;
-    private readonly ReadOnlyMemory<byte> _topologyFingerprint;
+    private readonly ReadOnlyMemory<byte> _fingerprint;
     private int _disposed;
     private FrozenDictionary<string, GroupState>? _groups;
     private int _opened;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupRegistry" /> class.</summary>
-    /// <param name="persistenceRoot">Exclusive node data directory owning the group storage.</param>
+    /// <param name="root">Exclusive node data directory owning the group storage.</param>
     /// <param name="groupIds">Replica group identifiers served by this node.</param>
     /// <param name="replicaCount">Fixed replica count shared by every group.</param>
-    /// <param name="topologyFingerprint">Static topology fingerprint shared by the replica set.</param>
+    /// <param name="fingerprint">Static topology fingerprint shared by the replica set.</param>
     /// <param name="generation">Static configuration generation shared by the replica set.</param>
     /// <param name="options">Follower log options applied to every group log.</param>
     /// <exception cref="ArgumentException">Thrown when a group identifier is missing or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the replica count is out of range.</exception>
     internal ReplicaGroupRegistry(
-        string persistenceRoot,
+        string root,
         IReadOnlyList<string> groupIds,
         int replicaCount,
-        ReadOnlyMemory<byte> topologyFingerprint,
+        ReadOnlyMemory<byte> fingerprint,
         ulong generation,
         FollowerLogOptions? options = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(persistenceRoot);
+        ArgumentException.ThrowIfNullOrEmpty(root);
         ArgumentNullException.ThrowIfNull(groupIds);
         if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range.");
         ValidateGroupIds(groupIds);
-        if (topologyFingerprint.IsEmpty)
-            throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint));
+        if (fingerprint.IsEmpty)
+            throw new ArgumentException("Topology fingerprint must not be empty.", nameof(fingerprint));
 
-        _persistenceRoot = persistenceRoot;
+        _root = root;
         _groupIds = [.. groupIds];
         _replicaCount = replicaCount;
-        _topologyFingerprint = topologyFingerprint;
+        _fingerprint = fingerprint;
         _generation = generation;
         _options = options;
     }
@@ -79,16 +79,11 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     }
 
     /// <summary>Gets the participation gate for a served group.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="id">Replica group identifier.</param>
     /// <returns>The participation gate.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
-    internal ReplicaEligibility EligibilityFor(string groupId)
-    {
-        if (_groups == null)
-            throw new InvalidOperationException("Replica group registry is not opened.");
-        return _groups[groupId].Eligibility;
-    }
+    internal ReplicaEligibility EligibilityFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Eligibility;
 
     /// <summary>Creates and opens every group log for durable replication.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -107,7 +102,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                 FollowerLog? log = null;
                 try
                 {
-                    log = new FollowerLog(_persistenceRoot, _groupIds[i], GroupComposition.Create(_groupIds[i]), _options);
+                    log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _options);
                     await log.OpenAsync(cancellationToken).ConfigureAwait(false);
                     var eligibility = new ReplicaEligibility(_replicaCount);
 
@@ -118,7 +113,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                     var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
                     if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
                     {
-                        var zero = new ReplicaProgress(1, 0, 0, 0, 0, _topologyFingerprint, _generation, 0);
+                        var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
                         for (var r = 0; r < eligibility.ReplicaCount; r++)
                             _ = eligibility.TryMarkReady(r, in zero, in zero);
                     }

@@ -46,13 +46,14 @@ internal sealed class ExploreProfile
 
     internal static ExploreProfile ForCli(string profile, bool symmetryReduce)
     {
-        if (string.Equals(profile, "small", StringComparison.OrdinalIgnoreCase))
-            return Small(symmetryReduce);
-
-        if (string.Equals(profile, "full", StringComparison.OrdinalIgnoreCase))
-            return Full(symmetryReduce);
-
-        throw new ArgumentOutOfRangeException(nameof(profile), profile, "Expected small or full.");
+        var isSmall = string.Equals(profile, "small", StringComparison.OrdinalIgnoreCase);
+        var isFull = string.Equals(profile, "full", StringComparison.OrdinalIgnoreCase);
+        return (isSmall, isFull) switch
+        {
+            (true, _) => Small(symmetryReduce),
+            (false, true) => Full(symmetryReduce),
+            (false, false) => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Expected small or full."),
+        };
     }
 
     internal static ExploreProfile ForReplicaCount(int replicaCount, int maxTerm, int maxLogEntries, int maxInFlight, int maxPendingReads, bool allowCrash, bool symmetryReduce)

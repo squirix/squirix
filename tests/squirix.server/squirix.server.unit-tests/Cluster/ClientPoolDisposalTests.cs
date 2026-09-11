@@ -47,10 +47,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     {
         var peers = new ServerPeer[count];
         for (var i = 0; i < count; i++)
-        {
-            var nodeId = $"n{NodeInvariantIndexStrings.Format(i)}";
-            peers[i] = new ServerPeer { NodeId = nodeId, Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", 6500 + i)) };
-        }
+            peers[i] = new ServerPeer { NodeId = $"n{NodeInvariantIndexStrings.Format(i)}", Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", 6500 + i)) };
 
         return peers;
     }
@@ -73,10 +70,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         public ValueTask DisposeAsync()
         {
             Disposed = true;
-            if (_disposeError != null)
-                throw _disposeError;
-
-            return ValueTask.CompletedTask;
+            return _disposeError != null ? ValueTask.FromException(_disposeError) : ValueTask.CompletedTask;
         }
 
         public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>

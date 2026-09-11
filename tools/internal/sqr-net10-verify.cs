@@ -61,12 +61,10 @@ string ResolveDefaultRepoRoot()
     var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
     if (string.IsNullOrWhiteSpace(entryDir))
         return Environment.CurrentDirectory;
-    var internalDir = Directory.GetParent(entryDir);
-    var toolsDir = internalDir?.Parent;
-    var repoDir = toolsDir?.Parent;
-    if (repoDir != null)
-        return repoDir.FullName;
-    return Environment.CurrentDirectory;
+    var parent = Directory.GetParent(entryDir);
+    var info = parent?.Parent;
+    var dir = info?.Parent;
+    return dir != null ? dir.FullName : Environment.CurrentDirectory;
 }
 
 IEnumerable<string> EnumerateProjectFiles(string repoRoot)
@@ -123,7 +121,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
         return;
     }
-    catch (System.Xml.XmlException ex)
+    catch (XmlException ex)
     {
         outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
         return;

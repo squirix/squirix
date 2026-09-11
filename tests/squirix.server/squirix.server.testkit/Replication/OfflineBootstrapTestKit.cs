@@ -13,56 +13,46 @@ namespace Squirix.Server.TestKit.Replication;
 public static class OfflineBootstrapTestKit
 {
     /// <summary>Prepares a bootstrap manifest with an explicit target topology and reports the seeded groups.</summary>
-    /// <param name="dataDirectory">Stopped node data directory.</param>
+    /// <param name="directory">Stopped node data directory.</param>
     /// <param name="groupIds">Replica groups to seed.</param>
-    /// <param name="targetReplicaCount">Seeded target replica count.</param>
-    /// <param name="targetGeneration">Seeded target configuration generation.</param>
+    /// <param name="count">Seeded target replica count.</param>
+    /// <param name="generation">Seeded target configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared manifest summary.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="dataDirectory" /> or <paramref name="groupIds" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="directory" /> or <paramref name="groupIds" /> is <see langword="null" />.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the target replica count or generation is invalid.</exception>
-    public static Task<OfflineBootstrapSummary> PrepareAsync(
-        string dataDirectory,
-        IReadOnlyList<string> groupIds,
-        int targetReplicaCount,
-        ulong targetGeneration,
-        CancellationToken cancellationToken)
+    public static Task<OfflineBootstrapSummary> PrepareAsync(string directory, IReadOnlyList<string> groupIds, int count, ulong generation, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(dataDirectory);
+        ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(groupIds);
-        if (targetReplicaCount <= 1)
-            throw new ArgumentOutOfRangeException(nameof(targetReplicaCount), targetReplicaCount, "Bootstrap target must replicate (RF > 1).");
-
-        if (targetReplicaCount > 3)
-            throw new ArgumentOutOfRangeException(nameof(targetReplicaCount), targetReplicaCount, "Bootstrap target exceeds the three TestKit topology peers.");
-
-        if (targetGeneration == 0)
-            throw new ArgumentOutOfRangeException(nameof(targetGeneration), targetGeneration, "Bootstrap target generation must be positive.");
-
-        return PrepareCoreAsync(dataDirectory, groupIds, targetReplicaCount, targetGeneration, cancellationToken);
+        return count switch
+        {
+            <= 1 => throw new ArgumentOutOfRangeException(nameof(count), count, "Bootstrap target must replicate (RF > 1)."),
+            > 3 => throw new ArgumentOutOfRangeException(nameof(count), count, "Bootstrap target exceeds the three TestKit topology peers."),
+            _ => generation switch
+            {
+                0 => throw new ArgumentOutOfRangeException(nameof(generation), generation, "Bootstrap target generation must be positive."),
+                _ => PrepareCoreAsync(directory, groupIds, count, generation, cancellationToken),
+            },
+        };
     }
 
-    private static async Task<OfflineBootstrapSummary> PrepareCoreAsync(
-        string dataDirectory,
-        IReadOnlyList<string> groupIds,
-        int targetReplicaCount,
-        ulong targetGeneration,
-        CancellationToken cancellationToken)
+    private static async Task<OfflineBootstrapSummary> PrepareCoreAsync(string dir, IReadOnlyList<string> ids, int count, ulong generation, CancellationToken cancellationToken)
     {
         var request = new BootstrapPreparationRequest
         {
-            GroupIds = groupIds,
+            GroupIds = ids,
             LegacyOutcomes = [],
-            Persistence = new PersistenceOptions { DataDir = dataDirectory },
+            Persistence = new PersistenceOptions { DataDir = dir },
             SourceMtls = new MtlsOptions { InternalListenPort = 7000 },
             SourceTopology = Topology(1, 1UL),
             TargetMtls = new MtlsOptions { InternalListenPort = 7000 },
-            TargetTopology = Topology(targetReplicaCount, targetGeneration),
+            TargetTopology = Topology(count, generation),
         };
 
         var prepared = await new BootstrapPlanner().PrepareAsync(request, cancellationToken).ConfigureAwait(false);
-        var decoded = await new BootstrapManifestStore(dataDirectory).ReadAsync(cancellationToken).ConfigureAwait(false) ??
-                      ThrowHelper.Throw<BootstrapManifest>(new InvalidOperationException($"Bootstrap manifest is missing in '{dataDirectory}' after preparation."));
+        var decoded = await new BootstrapManifestStore(dir).ReadAsync(cancellationToken).ConfigureAwait(false) ??
+                      ThrowHelper.Throw<BootstrapManifest>(new InvalidOperationException($"Bootstrap manifest is missing in '{dir}' after preparation."));
 
         var pending = new List<string>(decoded.Groups.Count);
         foreach (var group in decoded.Groups)

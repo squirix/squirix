@@ -293,9 +293,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             oldestKey = pair.Key;
         }
 
-        if (oldestKey == null)
-            return false;
-
-        return _records.Remove(oldestKey);
+        return oldestKey != null && _records.Remove(oldestKey);
     }
 }

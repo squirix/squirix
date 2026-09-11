@@ -175,7 +175,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies TryAddAsync(string, T) observes existing named-cache values across nodes.</summary>
     [Fact]
-    public async Task TryAddOnNodeBLosesToExistingKeyFromNodeA()
+    public async Task AddLosesToRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
 
@@ -186,7 +186,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies a stored null value remains distinguishable from a missing key across nodes.</summary>
     [Fact]
-    public async Task TryGetValueOnNodeBReturnsNullFromNodeA()
+    public async Task GetRemoteNull()
     {
         await Cluster.CacheA.SetAsync("null-key", null, cancellationToken: DefaultCancellationToken);
 
@@ -198,7 +198,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies GetValueAsync sees a named-cache value written by another node.</summary>
     [Fact]
-    public async Task TryGetValueOnNodeBReturnsValueFromNodeA()
+    public async Task GetRemoteValue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
 
@@ -211,7 +211,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies RemoveAsync can remove a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBDeletesEntryFromNodeA()
+    public async Task RemoveDeletesRemote()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
 
@@ -224,7 +224,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies remote RemoveAsync removes an entry after it was read.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBReturnsRemovedMetadata()
+    public async Task RemoveRemoteAfterRead()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
 
@@ -241,7 +241,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies remote RemoveAsync removes a stored null value.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBStoredNullReportsRemoved()
+    public async Task RemoveRemoteNull()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
 

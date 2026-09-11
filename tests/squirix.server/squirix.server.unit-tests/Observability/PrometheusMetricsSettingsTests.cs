@@ -25,7 +25,7 @@ public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
         };
 
         using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""", DefaultCancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.False(merged.Enabled);
@@ -43,7 +43,7 @@ public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
         };
 
         using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"enabled":false}}""", DefaultCancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.False(merged.Enabled);
@@ -61,7 +61,7 @@ public sealed class PrometheusMetricsSettingsTests : ServerUnitTestBase
         };
 
         using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{}}""", DefaultCancellationToken);
-        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
         Assert.True(found);
         Assert.True(merged.Enabled);

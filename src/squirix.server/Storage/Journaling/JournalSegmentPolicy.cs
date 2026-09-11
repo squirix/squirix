@@ -28,16 +28,12 @@ internal sealed class JournalSegmentPolicy
 
     private int SegmentCountProbeLimit { get; }
 
-    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes)
+    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes) => (usedBytes >= maxBytes, usedBytes >= highWaterBytes) switch
     {
-        if (usedBytes >= maxBytes)
-            return "critical";
-
-        if (usedBytes >= highWaterBytes)
-            return "high";
-
-        return "normal";
-    }
+        (true, _) => "critical",
+        (false, true) => "high",
+        (false, false) => "normal",
+    };
 
     internal void EnsureAppendCapacityOrThrow(long onDiskTotalBytes, int incomingFrameBytes)
     {
@@ -50,13 +46,7 @@ internal sealed class JournalSegmentPolicy
 
     internal bool ShouldRollSegment(long activeSegmentWrittenBytes, int incomingFrameBytes) => activeSegmentWrittenBytes + incomingFrameBytes > _maxSegmentBytes;
 
-    private static int Clamp(int value, int defaultValue, int hardMax)
-    {
-        if (value <= 0)
-            return defaultValue;
-
-        return Math.Min(value, hardMax);
-    }
+    private static int Clamp(int value, int defaultValue, int hardMax) => value <= 0 ? defaultValue : Math.Min(value, hardMax);
 
     private static long ClampMb(int valueMb, int defaultMb, int hardMaxMb)
     {

@@ -91,10 +91,14 @@ internal static class ConformanceTestKit
 
             // A faulted task, not a synchronous throw: production gateways are async, so transport
             // failures surface as faulted follower tasks that the coordinator records as lagging.
-            if (replicaIndex == _unavailableReplica)
-                return ValueTask.FromException<ReplicaDurableAcknowledgement>(new IOException("Simulated replica unavailable."));
-
-            return replicaIndex == _laggingReplica ? new ValueTask<ReplicaDurableAcknowledgement>(_lagging.Task) : ValueTask.FromResult(Acknowledge(mutation));
+            var isUnavailable = replicaIndex == _unavailableReplica;
+            var isLagging = replicaIndex == _laggingReplica;
+            return (isUnavailable, isLagging) switch
+            {
+                (true, _) => ValueTask.FromException<ReplicaDurableAcknowledgement>(new IOException("Simulated replica unavailable.")),
+                (false, true) => new ValueTask<ReplicaDurableAcknowledgement>(_lagging.Task),
+                (false, false) => ValueTask.FromResult(Acknowledge(mutation)),
+            };
         }
 
         public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)

@@ -47,7 +47,7 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
                 new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
             DefaultCancellationToken);
 
-        var granted = await log.TryRequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
+        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
         Assert.True(granted.Granted);
 
         // The catch-up flag is derived from the replicated log state, not passed literally.

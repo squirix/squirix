@@ -11,26 +11,14 @@ public static class InvariantIndexStrings
     private static readonly string[] CachedNonNegative = CreateCachedNonNegative();
 
     /// <summary>Formats a non-negative integer with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="value">The value to format.</param>
+    /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
-    public static string Format(int value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[value];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    public static string Format(int v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[v] : v.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Formats a non-negative long with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="value">The value to format.</param>
+    /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
-    public static string Format(long value)
-    {
-        if (value is >= 0 and < CachedNonNegativeCount)
-            return CachedNonNegative[Convert.ToInt32(value)];
-
-        return value.ToString(CultureInfo.InvariantCulture);
-    }
+    public static string Format(long v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(v)] : v.ToString(CultureInfo.InvariantCulture);
 
     private static string[] CreateCachedNonNegative()
     {
