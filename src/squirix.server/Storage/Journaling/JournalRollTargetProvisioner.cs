@@ -64,9 +64,20 @@ internal sealed class JournalRollTargetProvisioner
         }
     }
 
-    /// <summary>Checks whether the roll target segment file already exists.</summary>
-    /// <returns>Whether a file exists at the roll target path (regardless of its content).</returns>
-    internal bool RollTargetSegmentExists() => File.Exists(BuildRollTargetPath());
+    /// <summary>Gets the current length of the roll target segment file.</summary>
+    /// <returns>File length in bytes, or <see langword="null"/> when the target does not exist or cannot be statted.</returns>
+    internal long? GetRollTargetExistingLength()
+    {
+        try
+        {
+            var targetPath = BuildRollTargetPath();
+            return !File.Exists(targetPath) ? null : new FileInfo(targetPath).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     private static bool HasUsableRollTargetHeader(string targetPath)
     {

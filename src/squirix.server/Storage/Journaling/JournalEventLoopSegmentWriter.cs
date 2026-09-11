@@ -90,8 +90,22 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
-            var rollTargetPreexists = needsRoll && _rollTarget.RollTargetSegmentExists();
-            var requiredBytes = needsRoll && !rollTargetPreexists ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
+            long? existingTargetLength = null;
+            var headerDelta = 0;
+            if (needsRoll)
+            {
+                // Reserve exactly the header bytes the roll is about to add, mirroring
+                // PrepareRollTargetSegment: full header for a new target, replacement delta for a
+                // torn/empty one, none for a usable target.
+                existingTargetLength = _rollTarget.GetRollTargetExistingLength();
+                if (existingTargetLength == null)
+                    headerDelta = JournalFraming.FileHeaderSize;
+                else if (existingTargetLength.Value < JournalFraming.FileHeaderSize)
+                    headerDelta = JournalFraming.FileHeaderSize - Convert.ToInt32(existingTargetLength.Value);
+            }
+
+            var rollTargetPreexists = existingTargetLength != null;
+            var requiredBytes = item.FrameLength + headerDelta;
             _owner.Policy.EnsureAppendCapacityOrThrow(GetEffectiveJournalTotalBytes(), requiredBytes);
             if (needsRoll)
             {
