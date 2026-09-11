@@ -10,6 +10,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -17,9 +18,10 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Racing appends against disposal must settle explicitly: every append either completes durably or
-/// fails with <see cref="ObjectDisposedException" />. Nothing may hang, and no acknowledged write
-/// may be missing from the journal.
+/// Racing appends against disposal must settle explicitly: every published frame is flushed by
+/// disposal (durable) or its append fails with <see cref="ObjectDisposedException" />. Nothing
+/// may hang, and no acknowledged frame may be missing from the journal. The durability wait past
+/// publication is best effort: shutdown may fail it routinely without un-counting the frame.
 /// </summary>
 [Immutable]
 public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
@@ -90,7 +92,9 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             var key = $"q{writer}-{i}";
             try
             {
-                await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default(key), payload, CancellationToken.None);
+                // Phase 1 (counted): publish the frame. The gate orders it ahead of the shutdown
+                // marker, so disposal flushes it: durable. ODE means shutdown won the race.
+                await journal.AppendPutAsync(CacheKey.Default(key), payload, CancellationToken.None);
             }
             catch (ObjectDisposedException)
             {
@@ -99,6 +103,17 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
             lock (gate)
                 _ = successes.Add(key);
+
+            // Phase 2 (best effort): cover durability. ODE here is routine during shutdown and
+            // must not un-count the append above (e.g. every batch waiter failed at once).
+            try
+            {
+                await journal.AwaitDurabilityCommitAsync(CancellationToken.None);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                TestLog.Suppressed("Durability wait raced disposal; the append above stays counted.", ex);
+            }
         }
     }
 
