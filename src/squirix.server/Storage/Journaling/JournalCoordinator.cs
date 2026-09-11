@@ -537,22 +537,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _producerGate.Enter();
             try
             {
-                try
-                {
-                    // Shutdown rejection lands in the same cleanup below: the frame never entered
-                    // the ring, so the buffer and the queued-append slot are released here.
-                    _producerGate.ThrowIfShutdownInitiated();
-                    var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
-                    await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // The frame never entered the ring, so the journal thread will never release
-                    // it: return the buffer and the queued-append slot here.
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                    _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
-                    throw;
-                }
+                // Shutdown rejection lands in the same cleanup below: the frame never entered
+                // the ring, so the buffer and the queued-append slot are released here.
+                _producerGate.ThrowIfShutdownInitiated();
+                var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
+                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The frame never entered the ring, so the journal thread will never release
+                // it: return the buffer and the queued-append slot here.
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
+                throw;
             }
             finally
             {
@@ -571,22 +568,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             _producerGate.Enter();
             try
             {
-                try
-                {
-                    // Shutdown rejection lands in the same cleanup below: the frame never entered
-                    // the ring, so the buffer and the queued-append slot are released here.
-                    _producerGate.ThrowIfShutdownInitiated();
-                    var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
-                    await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // The frame never entered the ring, so the journal thread will never release
-                    // it: return the buffer and the queued-append slot here.
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                    _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
-                    throw;
-                }
+                // Shutdown rejection lands in the same cleanup below: the frame never entered
+                // the ring, so the buffer and the queued-append slot are released here.
+                _producerGate.ThrowIfShutdownInitiated();
+                var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
+                await _owner.Ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The frame never entered the ring, so the journal thread will never release
+                // it: return the buffer and the queued-append slot here.
+                ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
+                _ = Interlocked.Decrement(ref _owner.QueuedAppendsCounter.Value);
+                throw;
             }
             finally
             {
