@@ -53,14 +53,22 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         _ = coordinator.DurabilityAcks.Remove(registered);
     }
 
-    /// <summary>Ensures a failure drain closes the registry: late checkpoint registrations fail fast.</summary>
+    /// <summary>Ensures a failure drain closes the registry: pending acks drain once, late registrations fail with the recorded reason.</summary>
     [Fact]
     public void TakeAllClosesRegistryForAdds()
     {
         var registry = new DurabilityAckRegistry();
         var reason = new ObjectDisposedException(nameof(JournalCoordinator));
-        Assert.Empty(registry.TakeAll(reason));
 
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(registry, static r => r.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)));
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Add(pending);
+
+        var drained = registry.TakeAll(reason);
+        Assert.Same(pending, Assert.Single(drained));
+
+        var thrown = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
+            registry,
+            static r => r.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)));
+        Assert.Same(reason, thrown);
     }
 }

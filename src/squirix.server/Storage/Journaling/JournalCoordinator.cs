@@ -29,6 +29,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(30);
 
+    private static readonly TimeSpan GraceJoinFloor = TimeSpan.FromSeconds(5);
+
     private readonly VolatileDouble _appendLatency = new();
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
@@ -226,7 +228,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
         DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
 
-        if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false))
+        // The grace join always gets a floor: with an exhausted budget the thread still deserves
+        // a last chance before its resources are leaked.
+        var graceJoin = TimeSpan.FromTicks(Math.Max(RemainingBeforeShutdown(shutdownDeadline).Ticks, GraceJoinFloor.Ticks));
+        if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(graceJoin).ConfigureAwait(false))
         {
             // The join timed out: tearing down the writer, ring, or gates under a live journal
             // thread corrupts slot accounting and races in-flight writes. Leak them instead and
