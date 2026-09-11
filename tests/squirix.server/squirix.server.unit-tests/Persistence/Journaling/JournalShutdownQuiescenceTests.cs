@@ -151,6 +151,11 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         foreach (var key in successes)
             Assert.True(found.Contains(key), $"acknowledged append '{key}' is missing from the journal.");
+
+        // Self-check, not luck: polling above guarantees at least one admitted append, and an
+        // admitted append always completes (or trips the hang guard), so zero successes would mean
+        // the shutdown overlap never happened rather than a passing test.
+        Assert.True(successes.Count > 0, "the race admitted no appends; the shutdown overlap was not exercised.");
     }
 
     private static Task StartAppendTrafficAsync(IJournalCoordinator journal, byte[] payload, int writers, int opsPerWriter, HashSet<string> successes, Lock gate)
