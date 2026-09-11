@@ -57,7 +57,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (Volatile.Read(ref _disposed) == 1)
         {
-            _ = completion.TrySetException(new ObjectDisposedException(GetType().FullName));
+            _ = completion.TrySetException(new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
             return completion.Task;
         }
 
@@ -67,7 +67,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         }
         catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
         {
-            _ = completion.TrySetException(exception as ObjectDisposedException ?? new ObjectDisposedException(GetType().FullName));
+            _ = completion.TrySetException(exception as ObjectDisposedException ?? new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
         }
 
         return completion.Task;
@@ -84,7 +84,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         var work = new QueuedItem(null, item);
         if (Volatile.Read(ref _disposed) == 1)
         {
-            InvokeOnFault(item, new ObjectDisposedException(GetType().FullName));
+            InvokeOnFault(item, new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
             return;
         }
 
