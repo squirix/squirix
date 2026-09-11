@@ -13,15 +13,6 @@ internal sealed class DurabilityAckRegistry
     private List<TaskCompletionSource> _acks = [];
     private Exception? _failure;
 
-    internal int Count
-    {
-        get
-        {
-            lock (_sync)
-                return _acks.Count;
-        }
-    }
-
     internal void Add(TaskCompletionSource ack)
     {
         lock (_sync)

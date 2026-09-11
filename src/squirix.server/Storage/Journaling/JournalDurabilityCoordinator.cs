@@ -121,8 +121,6 @@ internal sealed class JournalDurabilityCoordinator
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
-
     /// <summary>Enqueues the shutdown marker, giving up after the remaining budget.</summary>
     /// <param name="failures">Disposal failures to record a marker timeout into.</param>
     /// <param name="remaining">Time left in the shared shutdown budget.</param>
@@ -141,16 +139,6 @@ internal sealed class JournalDurabilityCoordinator
             LogManager.JournalShutdownMarkerTimedOut(_logger);
             failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
         }
-    }
-
-    /// <summary>Waits for the journal thread to exit within the given timeout without recording failures.</summary>
-    /// <param name="timeout">Maximum time to wait for the thread exit.</param>
-    /// <returns>Whether the journal thread exited in time.</returns>
-    internal async ValueTask<bool> TryJoinJournalThreadAsync(TimeSpan timeout)
-    {
-        var work = new JoinJournalThreadWork(this, timeout);
-        await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, CancellationToken.None).ConfigureAwait(false);
-        return work.Joined;
     }
 
     internal void FailJournalPipeline(Exception reason)
@@ -190,6 +178,16 @@ internal sealed class JournalDurabilityCoordinator
     {
         if (_owner.GetJournalThreadFailure() is { } failure)
             throw new InvalidOperationException("journal I/O thread failed.", failure);
+    }
+
+    /// <summary>Waits for the journal thread to exit within the given timeout without recording failures.</summary>
+    /// <param name="timeout">Maximum time to wait for the thread exit.</param>
+    /// <returns>Whether the journal thread exited in time.</returns>
+    internal async ValueTask<bool> TryJoinJournalThreadAsync(TimeSpan timeout)
+    {
+        var work = new JoinJournalThreadWork(this, timeout);
+        await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, CancellationToken.None).ConfigureAwait(false);
+        return work.Joined;
     }
 
     internal async ValueTask<AsyncLockHolder> WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
@@ -251,6 +249,8 @@ internal sealed class JournalDurabilityCoordinator
             DetachDurabilityAck(ack);
         }
     }
+
+    private ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
 
     private void RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
     {

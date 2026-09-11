@@ -24,14 +24,6 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 {
-    /// <summary>Appends racing disposal on the strict fsync path settle explicitly without loss.</summary>
-    [Fact]
-    public Task ShutdownRaceSettlesAppendsStrict() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.Zero, DefaultCancellationToken);
-
-    /// <summary>Appends racing disposal on the group-commit path settle explicitly without loss.</summary>
-    [Fact]
-    public Task ShutdownRaceSettlesAppendsGroupCommit() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.FromMilliseconds(2), DefaultCancellationToken);
-
     /// <summary>Appends issued after disposal fail explicitly instead of hanging or vanishing.</summary>
     [Fact]
     public async Task AppendAfterDisposeThrowsObjectDisposed()
@@ -80,17 +72,16 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await cts.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token));
 
-        Assert.Equal(0, coordinator.DurabilityAcks.Count);
+        Assert.Empty(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator))));
     }
 
-    private static Task StartAppendTrafficAsync(IJournalCoordinator journal, byte[] payload, int writers, int opsPerWriter, HashSet<string> successes, Lock gate)
-    {
-        var tasks = new Task[writers];
-        for (var w = 0; w < writers; w++)
-            tasks[w] = AppendLoopAsync(journal, payload, w, opsPerWriter, successes, gate);
+    /// <summary>Appends racing disposal on the group-commit path settle explicitly without loss.</summary>
+    [Fact]
+    public Task ShutdownRaceSettlesAppendsGroupCommit() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.FromMilliseconds(2), DefaultCancellationToken);
 
-        return Task.WhenAll(tasks);
-    }
+    /// <summary>Appends racing disposal on the strict fsync path settle explicitly without loss.</summary>
+    [Fact]
+    public Task ShutdownRaceSettlesAppendsStrict() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.Zero, DefaultCancellationToken);
 
     private static async Task AppendLoopAsync(IJournalCoordinator journal, byte[] payload, int writer, int ops, HashSet<string> successes, Lock gate)
     {
@@ -160,5 +151,14 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         foreach (var key in successes)
             Assert.True(found.Contains(key), $"acknowledged append '{key}' is missing from the journal.");
+    }
+
+    private static Task StartAppendTrafficAsync(IJournalCoordinator journal, byte[] payload, int writers, int opsPerWriter, HashSet<string> successes, Lock gate)
+    {
+        var tasks = new Task[writers];
+        for (var w = 0; w < writers; w++)
+            tasks[w] = AppendLoopAsync(journal, payload, w, opsPerWriter, successes, gate);
+
+        return Task.WhenAll(tasks);
     }
 }
