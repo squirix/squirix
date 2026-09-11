@@ -35,4 +35,16 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction background loop canceled")]
     internal static partial void CompactionLoopCanceled(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3011, Level = LogLevel.Debug, Message = "Journal producers did not quiesce within the shutdown budget")]
+    internal static partial void JournalProducerQuiescenceTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3012, Level = LogLevel.Debug, Message = "Shutdown marker did not enter the journal ring within the shutdown budget")]
+    internal static partial void JournalShutdownMarkerTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3013, Level = LogLevel.Debug, Message = "Journal I/O thread join timed out during dispose")]
+    internal static partial void JournalThreadJoinTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3014, Level = LogLevel.Debug, Message = "Journal I/O thread still alive after shutdown; writer, ring, and gates are leaked")]
+    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger);
 }

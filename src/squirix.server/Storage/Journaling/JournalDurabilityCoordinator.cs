@@ -43,14 +43,17 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
-    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures)
+    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
     {
         try
         {
-            var work = new JoinJournalThreadWork(this, TimeSpan.FromSeconds(30));
+            var work = new JoinJournalThreadWork(this, timeout);
             await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
             if (!work.Joined)
-                failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
+            {
+                LogManager.JournalThreadJoinTimedOut(_logger);
+                failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
+            }
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
@@ -119,6 +122,26 @@ internal sealed class JournalDurabilityCoordinator
     }
 
     internal ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
+
+    /// <summary>Enqueues the shutdown marker, giving up after the remaining budget.</summary>
+    /// <param name="failures">Disposal failures to record a marker timeout into.</param>
+    /// <param name="remaining">Time left in the shared shutdown budget.</param>
+    /// <returns>A task that completes when the marker entered the ring or timed out.</returns>
+    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, TimeSpan remaining)
+    {
+        // The marker wait is bounded by the shared budget: on a wedged thread with a full ring it
+        // would otherwise hang disposal forever, before the join timeout below ever gets to report.
+        using var markerCts = new CancellationTokenSource(remaining);
+        try
+        {
+            await EnqueueShutdownAsync(markerCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            LogManager.JournalShutdownMarkerTimedOut(_logger);
+            failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
+        }
+    }
 
     /// <summary>Waits for the journal thread to exit within the given timeout without recording failures.</summary>
     /// <param name="timeout">Maximum time to wait for the thread exit.</param>

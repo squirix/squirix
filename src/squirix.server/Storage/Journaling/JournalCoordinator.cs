@@ -27,6 +27,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             eventLoop.Run();
     };
 
+    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(30);
+
     private readonly VolatileDouble _appendLatency = new();
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
@@ -195,19 +197,21 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         var failures = new List<Exception>();
 
+        // All shutdown stages share one budget (the host default): quiescence, marker, join, and
+        // grace join must fit it cumulatively instead of stacking independent fixed waits.
+        var shutdownDeadline = Environment.TickCount64 + Convert.ToInt64(ShutdownBudget.TotalMilliseconds);
+
         // Quiesce producers BEFORE the shutdown marker enters the ring: the gate guarantees every
         // admitted enqueue is published ahead of the marker (ring FIFO), and work arriving after
         // shutdown is rejected explicitly instead of being silently dropped or hung.
-        _producerGate.InitiateShutdown();
-        if (!await _producerGate.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false))
-            failures.Add(new TimeoutException("journal producers did not quiesce within 30 seconds; shutdown proceeds best-effort."));
+        await QuiesceProducersAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
 
         // The shutdown marker must enter the ring BEFORE background cancellation is requested: the
         // journal thread dequeues FIFO, so every item enqueued before it is drained and written, and
         // only then does the thread observe Shutdown and exit. Cancelling first would let the thread
         // exit via OperationCanceledException while frames were still queued, silently dropping them.
-        await EnqueueShutdownMarkerAsync(failures).ConfigureAwait(false);
-        await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
+        await DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
 
         try
         {
@@ -222,15 +226,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
         DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
 
-        if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false))
+        if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false))
         {
             // The join timed out: tearing down the writer, ring, or gates under a live journal
             // thread corrupts slot accounting and races in-flight writes. Leak them instead and
-            // surface the timeout loudly. The earlier join can complete without recording a
-            // failure (canceled wait), so record one here to never leak silently.
-            if (failures.Count == 0)
-                failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
-
+            // surface the timeout loudly alongside any earlier stage failures.
+            LogManager.JournalThreadLeakedOnShutdownTimeout(JournalLog);
+            failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
             JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
             return;
         }
@@ -240,6 +242,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         BackgroundCancellation.Dispose();
         MutationGate.Dispose();
         JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
+
+        static TimeSpan RemainingBeforeShutdown(long shutdownDeadline)
+        {
+            var remainingMs = shutdownDeadline - Environment.TickCount64;
+            return remainingMs <= 0 ? TimeSpan.Zero : TimeSpan.FromMilliseconds(remainingMs);
+        }
     }
 
     public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
@@ -353,22 +361,24 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private void NotifyAppended() => OnAppended?.Invoke(this, EventArgs.Empty);
 
-    /// <summary>Enqueues the shutdown marker, giving up after a bounded wait.</summary>
-    /// <param name="failures">Disposal failures to record a marker timeout into.</param>
-    /// <returns>A task that completes when the marker entered the ring or timed out.</returns>
-    private async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures)
+    /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
+    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
+    /// <param name="remaining">Time left in the shared shutdown budget.</param>
+    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
+    private async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
     {
-        // The marker wait is bounded: on a wedged thread with a full ring it would otherwise hang
-        // disposal forever, before the join timeout below ever gets to report loudly.
-        using var markerCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        try
-        {
-            await DurabilityPipeline.EnqueueShutdownAsync(markerCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within 10 seconds."));
-        }
+        _producerGate.InitiateShutdown();
+        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
+            return;
+
+        // Producers never quiesced: publishing the marker now could let it overtake an admitted
+        // append. Fail reachable waiters explicitly and stop instead of proceeding into
+        // marker/join/teardown with a broken ordering guarantee.
+        LogManager.JournalProducerQuiescenceTimedOut(JournalLog);
+        GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
+        JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
     }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>

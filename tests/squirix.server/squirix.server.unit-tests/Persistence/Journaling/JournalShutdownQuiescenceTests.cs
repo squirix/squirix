@@ -67,6 +67,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 4,
             FlushInterval = 600_000,
             ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
         using var manifestStore = new Ledger(options);
