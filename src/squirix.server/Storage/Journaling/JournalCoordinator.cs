@@ -204,7 +204,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // Quiesce producers BEFORE the shutdown marker enters the ring: the gate guarantees every
         // admitted enqueue is published ahead of the marker (ring FIFO), and work arriving after
         // shutdown is rejected explicitly instead of being silently dropped or hung.
-        await QuiesceProducersAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        await DurabilityPipeline.QuiesceProducersAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
 
         // The shutdown marker must enter the ring BEFORE background cancellation is requested: the
         // journal thread dequeues FIFO, so every item enqueued before it is drained and written, and
@@ -360,26 +360,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     }
 
     private void NotifyAppended() => OnAppended?.Invoke(this, EventArgs.Empty);
-
-    /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
-    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
-    /// <param name="remaining">Time left in the shared shutdown budget.</param>
-    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
-    private async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
-    {
-        _producerGate.InitiateShutdown();
-        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
-            return;
-
-        // Producers never quiesced: publishing the marker now could let it overtake an admitted
-        // append. Fail reachable waiters explicitly and stop instead of proceeding into
-        // marker/join/teardown with a broken ordering guarantee.
-        LogManager.JournalProducerQuiescenceTimedOut(Log);
-        GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
-        DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
-        JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
-    }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>
     [Immutable]

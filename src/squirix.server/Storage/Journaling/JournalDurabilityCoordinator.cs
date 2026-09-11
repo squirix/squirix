@@ -149,6 +149,26 @@ internal sealed class JournalDurabilityCoordinator
         _owner.GroupCommit?.CancelPendingCore(reason);
     }
 
+    /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
+    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
+    /// <param name="remaining">Time left in the shared shutdown budget.</param>
+    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
+    internal async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
+    {
+        _producerGate.InitiateShutdown();
+        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
+            return;
+
+        // Producers never quiesced: publishing the marker now could let it overtake an admitted
+        // append. Fail reachable waiters explicitly and stop instead of proceeding into
+        // marker/join/teardown with a broken ordering guarantee.
+        LogManager.JournalProducerQuiescenceTimedOut(_logger);
+        _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
+        ThrowDisposeFailures(failures);
+    }
+
     internal void FailPendingDurabilityAcks(Exception reason)
     {
         var acks = _owner.DurabilityAcks.TakeAll(reason);
