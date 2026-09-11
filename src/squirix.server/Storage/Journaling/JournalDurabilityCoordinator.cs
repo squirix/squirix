@@ -121,10 +121,10 @@ internal sealed class JournalDurabilityCoordinator
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Enqueues the shutdown marker, giving up after the remaining budget.</summary>
+    /// <summary>Enqueues the shutdown marker, or fails disposal loudly when it cannot enter.</summary>
     /// <param name="failures">Disposal failures to record a marker timeout into.</param>
     /// <param name="remaining">Time left in the shared shutdown budget.</param>
-    /// <returns>A task that completes when the marker entered the ring or timed out.</returns>
+    /// <returns>A task that completes when the marker entered the ring.</returns>
     internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, TimeSpan remaining)
     {
         // The marker wait is bounded by the shared budget: on a wedged thread with a full ring it
@@ -136,8 +136,14 @@ internal sealed class JournalDurabilityCoordinator
         }
         catch (OperationCanceledException)
         {
+            // Without the marker, canceling or tearing down now would let the live thread exit
+            // with queued frames unwritten. Fail reachable waiters explicitly and stop instead,
+            // keeping writer, ring, and gates alive.
             LogManager.JournalShutdownMarkerTimedOut(_logger);
+            _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+            FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
             failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
+            ThrowDisposeFailures(failures);
         }
     }
 
