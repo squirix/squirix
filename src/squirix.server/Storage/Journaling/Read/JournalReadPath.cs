@@ -15,6 +15,8 @@ internal static class JournalReadPath
 {
     internal static string BuildSegmentPath(string dataDir, int segmentIndex) => JournalPaths.BuildSegmentPath(dataDir, segmentIndex);
 
+    internal static string BuildRollTempPath(string dataDir, int segmentIndex) => JournalPaths.BuildRollTempPath(dataDir, segmentIndex);
+
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
     internal static IJournalRecordEnumerator ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>

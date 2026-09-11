@@ -15,11 +15,13 @@ internal sealed class JournalEventLoopSegmentWriter
 {
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
+    private readonly JournalRollTargetProvisioner _rollTarget;
 
     internal JournalEventLoopSegmentWriter(IJournalEventLoopState owner, IJournalEventLoopRollState roll)
     {
         _owner = owner;
         _roll = roll;
+        _rollTarget = new JournalRollTargetProvisioner(owner, roll);
     }
 
     internal void FlushWriteBatch(bool notifyGroupCommit = false)
@@ -88,12 +90,13 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
-            var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
+            var rollTargetPreexists = needsRoll && _rollTarget.RollTargetSegmentExists();
+            var requiredBytes = needsRoll && !rollTargetPreexists ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
             _owner.Policy.EnsureAppendCapacityOrThrow(GetEffectiveJournalTotalBytes(), requiredBytes);
             if (needsRoll)
             {
                 FlushWriteBatch();
-                BeginSegmentRollOnJournalThread();
+                BeginSegmentRollOnJournalThread(rollTargetPreexists);
                 rollDeferred = true;
                 return false;
             }
@@ -122,18 +125,32 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
 
-    private void BeginSegmentRollOnJournalThread()
+    private void BeginSegmentRollOnJournalThread(bool rollTargetPreexists)
     {
         if (_roll.SegmentRollInFlight)
             return;
 
         _owner.FsyncOnJournalThread();
 
+        // The roll target segment is created durably before the manifest advertises
+        // CurrentJournal = target, so a crash can never leave the manifest ahead of the last
+        // available segment (issue #439). The active segment stays on the old full segment until
+        // the manifest publish succeeds, which keeps deferring appends via ShouldRollSegmentForAppend.
+        var targetSegmentIndex = _roll.CurrentSegmentIndex + 1;
+        var targetPath = _rollTarget.BuildRollTargetPath();
+
         // Roll capacity uses in-memory counters maintained by the single journal-thread writer instead
         // of rescanning the directory (two EnumerateFiles passes plus a stat per segment) on the hot
         // roll path. The counters are seeded at startup and resynced after compaction (MaintenanceEnd).
-        _owner.Policy.EnsureRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
-        _roll.SetPendingRollTargetSegmentIndex(_roll.CurrentSegmentIndex + 1);
+        // A pre-created target from a crashed roll is already counted, so it must not consume another slot.
+        if (rollTargetPreexists)
+            _owner.Policy.EnsurePrecreatedRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
+        else
+            _owner.Policy.EnsureRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
+
+        _rollTarget.PrepareRollTargetSegment(targetSegmentIndex, targetPath);
+
+        _roll.SetPendingRollTargetSegmentIndex(targetSegmentIndex);
         _roll.SetSegmentRollInFlight(true);
         _owner.Host.PublishRoll(_roll.PendingRollTargetSegmentIndex);
     }
@@ -143,13 +160,23 @@ internal sealed class JournalEventLoopSegmentWriter
         _roll.SetCurrentSegmentIndex(_roll.PendingRollTargetSegmentIndex);
         var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _roll.CurrentSegmentIndex);
         _roll.SetActiveSegmentPath(segmentPath);
-        _owner.SegmentWriter.OpenSegment(segmentPath, false);
-        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-        JournalFraming.WriteFileHeader(header);
-        _owner.SegmentWriter.Write(header, 0);
-        _owner.SetActiveSegmentWrittenBytes(JournalFraming.FileHeaderSize);
-        _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
-        _roll.IncrementJournalSegmentCount();
+
+        // The target was created durably before the roll manifest was published
+        // (BeginSegmentRollOnJournalThread), so only open it here: never truncate it and never
+        // rewrite an existing header.
+        _owner.SegmentWriter.OpenSegment(segmentPath, true);
+        if (_owner.SegmentWriter.Length == 0)
+        {
+            // Defensive: a headerless target (not expected with atomic pre-create). The empty file was
+            // already counted, so only its new header bytes enter the total.
+            Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+            JournalFraming.WriteFileHeader(header);
+            _owner.SegmentWriter.Write(header, 0);
+            _owner.SegmentWriter.Fsync();
+            _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
+        }
+
+        _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
         _owner.SetDirty(false);
         _roll.SetSegmentRollInFlight(false);
     }
