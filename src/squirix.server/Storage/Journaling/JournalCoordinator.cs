@@ -35,6 +35,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly VolatileField<Exception> _flushLoopFailure = new();
+    private readonly ILogger _log = LogManager.GetLogger<JournalCoordinator>();
     private readonly JournalProducerGate _producerGate = new();
 
     private readonly IJournalSegmentWriter _segmentWriter;
@@ -120,8 +121,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
-
-    private ILogger Log => field ??= LogManager.GetLogger<JournalCoordinator>();
 
     ulong IJournalCoordinatorAppendState.AllocateSequence()
     {
@@ -212,9 +211,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // journal thread dequeues FIFO, so every item enqueued before it is drained and written, and
         // only then does the thread observe Shutdown and exit. Cancelling first would let the thread
         // exit via OperationCanceledException while frames were still queued, silently dropping them.
-        await DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        using var markerCts = new CancellationTokenSource(RemainingBeforeShutdown(shutdownDeadline));
+        await DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, markerCts.Token).ConfigureAwait(false);
         await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
-
         try
         {
             await BackgroundCancellation.CancelAsync().ConfigureAwait(false);
@@ -222,7 +221,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         catch (ObjectDisposedException)
         {
             // Concurrent teardown can dispose the CTS before cancellation is observed.
-            LogManager.JournalBackgroundCancellationDisposedOnDispose(Log);
+            LogManager.JournalBackgroundCancellationDisposedOnDispose(_log);
         }
 
         GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
@@ -236,7 +235,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // The join timed out: tearing down the writer, ring, or gates under a live journal
             // thread corrupts slot accounting and races in-flight writes. Leak them instead and
             // surface the timeout loudly alongside any earlier stage failures.
-            LogManager.JournalThreadLeakedOnShutdownTimeout(Log);
+            LogManager.JournalThreadLeakedOnShutdownTimeout(_log);
             failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
             JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
             return;

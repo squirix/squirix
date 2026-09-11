@@ -123,16 +123,15 @@ internal sealed class JournalDurabilityCoordinator
 
     /// <summary>Enqueues the shutdown marker, or fails disposal loudly when it cannot enter.</summary>
     /// <param name="failures">Disposal failures to record a marker timeout into.</param>
-    /// <param name="remaining">Time left in the shared shutdown budget.</param>
+    /// <param name="cancellationToken">Budget for the marker wait; cancellation aborts disposal.</param>
     /// <returns>A task that completes when the marker entered the ring.</returns>
-    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, TimeSpan remaining)
+    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, CancellationToken cancellationToken)
     {
-        // The marker wait is bounded by the shared budget: on a wedged thread with a full ring it
-        // would otherwise hang disposal forever, before the join timeout below ever gets to report.
-        using var markerCts = new CancellationTokenSource(remaining);
+        // On a wedged thread with a full ring the marker wait would otherwise hang disposal
+        // forever, before the join timeout below ever gets to report.
         try
         {
-            await EnqueueShutdownAsync(markerCts.Token).ConfigureAwait(false);
+            await EnqueueShutdownAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

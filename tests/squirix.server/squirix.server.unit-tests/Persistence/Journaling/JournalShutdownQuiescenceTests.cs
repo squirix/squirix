@@ -77,6 +77,79 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         Assert.Empty(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator))));
     }
 
+    /// <summary>A marker wait with no budget left aborts disposal loudly instead of hanging.</summary>
+    [Fact]
+    public async Task MarkerTimeoutAbortsDisposalLoudly()
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var failures = new List<Exception>();
+        _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(coordinator.DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, cts.Token));
+
+        var failure = Assert.Single(failures);
+        _ = Assert.IsType<TimeoutException>(failure);
+    }
+
+    /// <summary>A join with no budget left records the timeout instead of hanging disposal.</summary>
+    [Fact]
+    public async Task JoinTimeoutRecordsFailure()
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+
+        var failures = new List<Exception>();
+        await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
+
+        var failure = Assert.Single(failures);
+        _ = Assert.IsType<TimeoutException>(failure);
+    }
+
+    /// <summary>A zero-budget join attempt reports the live thread without waiting.</summary>
+    [Fact]
+    public async Task JoinTimeoutReturnsFalse()
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+
+        Assert.False(await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(TimeSpan.Zero));
+    }
+
     /// <summary>Appends racing disposal on the group-commit path settle explicitly without loss.</summary>
     [Fact]
     public Task ShutdownRaceSettlesAppendsGroupCommit() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.FromMilliseconds(2), DefaultCancellationToken);
