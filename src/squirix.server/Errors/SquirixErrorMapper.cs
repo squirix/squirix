@@ -6,6 +6,7 @@ internal static class SquirixErrorMapper
 {
     internal static StatusCode ToGrpcStatusCode(SquirixErrorCode code) => code switch
     {
+        SquirixErrorCode.None => StatusCode.Internal,
         SquirixErrorCode.InvalidCacheKey => StatusCode.InvalidArgument,
         SquirixErrorCode.PayloadTooLarge => StatusCode.ResourceExhausted,
         SquirixErrorCode.TooManyRequests => StatusCode.ResourceExhausted,
@@ -22,6 +23,7 @@ internal static class SquirixErrorMapper
 
     internal static string ToPublicCode(SquirixErrorCode code) => code switch
     {
+        SquirixErrorCode.None => "INTERNAL_ERROR",
         SquirixErrorCode.InvalidCacheKey => "INVALID_CACHE_KEY",
         SquirixErrorCode.PayloadTooLarge => "PAYLOAD_TOO_LARGE",
         SquirixErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",

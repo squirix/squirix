@@ -36,7 +36,7 @@ internal static class RpcMutationContracts
 
         foreach (var c in operationId)
         {
-            if (c is >= '0' and <= '9' or >= 'a' and <= 'f')
+            if (c is (>= '0' and <= '9') or (>= 'a' and <= 'f'))
                 continue;
 
             return false;

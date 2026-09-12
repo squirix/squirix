@@ -380,6 +380,8 @@ internal static class BinaryJournalCodec
             destination,
             offset),
         JournalOperationKind.TouchExpiration => WriteTouchExpirationPayload(record, destination, offset),
+        JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
+            or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
         _ => throw CreateOperationNotEncodableException(),
     };
 

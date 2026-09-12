@@ -121,7 +121,7 @@ internal static class FileCodec
             }
         }
 
-        var crcPayload = destination.Slice(bodyStart, offset - bodyStart);
+        var crcPayload = destination[bodyStart..offset];
 
         // Footer CRC protects the manifest body against torn or partial writes on disk.
         BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(crcPayload));
@@ -190,7 +190,7 @@ internal static class FileCodec
         }
 
         // CRC spans the roll body only; header magic/version are excluded like the full manifest encode path.
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(destination.Slice(bodyStart, offset - bodyStart)));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(destination[bodyStart..offset]));
         return encodedLength;
     }
 
@@ -241,7 +241,7 @@ internal static class FileCodec
             throw new InvalidDataException("Manifest file has an unsupported version.");
 
         var bodyEnd = fileBytes.Length - FooterSize;
-        body = fileBytes.Slice(FileHeaderSize, bodyEnd - FileHeaderSize);
+        body = fileBytes[FileHeaderSize..bodyEnd];
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[bodyEnd..]);
         if (Crc32C.Compute(body) != expectedCrc)
             throw new InvalidDataException("Manifest file failed CRC validation.");

@@ -17,9 +17,9 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         _semaphore = semaphore;
     }
 
-    public readonly override bool Equals([NotNullWhen(true)] object? obj) => obj is AsyncLockHolder other && Equals(other);
+    public override readonly bool Equals([NotNullWhen(true)] object? obj) => obj is AsyncLockHolder other && Equals(other);
 
-    public readonly override int GetHashCode() => HashCode.Combine(_semaphore, _released);
+    public override readonly int GetHashCode() => HashCode.Combine(_semaphore, _released);
 
     public void Dispose()
     {

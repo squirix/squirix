@@ -84,7 +84,6 @@ internal static class StoreFactory
             private readonly SafeFileHandle _handle;
             private readonly bool _strict;
             private uint _crc;
-            private object? _current;
             private int _disposed;
             private bool _footerValidated;
             private long _offset;
@@ -107,7 +106,7 @@ internal static class StoreFactory
                 _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
             }
 
-            public object Current => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
+            public object Current { get => ThrowHelper.Required(field, "Enumerator is not positioned on a valid record."); private set; }
 
             public void Dispose()
             {
@@ -138,7 +137,7 @@ internal static class StoreFactory
                     if (record == null)
                         continue;
 
-                    _current = record;
+                    Current = record;
                     return true;
                 }
             }

@@ -135,7 +135,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
                 Assert.Equal(JournalFrameReadStatus.Success, read.Status);
                 Assert.Equal(bytes.Length, read.NextFrameOffset);
                 Assert.Equal(payload.Length, payloadLength);
-                Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer!.AsSpan(0, payloadLength)));
+                Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer.AsSpan(0, payloadLength)));
 
                 if (rentedBuffer != null)
                     ArrayPool<byte>.Shared.Return(rentedBuffer);

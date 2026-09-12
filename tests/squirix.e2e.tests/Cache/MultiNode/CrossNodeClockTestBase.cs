@@ -15,7 +15,6 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;
-    private TwoNodeNamedCaches<object?>? _clusterCaches;
 
     /// <summary>Initializes a new instance of the <see cref="CrossNodeClockTestBase" /> class.</summary>
     protected CrossNodeClockTestBase()
@@ -28,7 +27,11 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
 
     /// <summary>Gets the object-typed named caches for both nodes of this test's cluster.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the test cluster is not initialized.</exception>
-    protected TwoNodeNamedCaches<object?> Cluster => E2EThrowHelper.Required(_clusterCaches, "Test cluster is not initialized.");
+    protected TwoNodeNamedCaches<object?> Cluster
+    {
+        get => E2EThrowHelper.Required(field, "Test cluster is not initialized.");
+        private set;
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -45,6 +48,6 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
         _cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
         var clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         var clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        _clusterCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);
+        Cluster = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);
     }
 }
