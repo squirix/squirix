@@ -9,6 +9,12 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal interface IJournalEventLoopHost
 {
+    /// <summary>
+    /// Gets the registry of admitted appends. Invariant: every append/marked item dequeued from the
+    /// ring was tracked here before enqueue, so a missing entry always means a failure drain took it.
+    /// </summary>
+    PendingAppendRegistry PendingAppends { get; }
+
     void CompleteDurabilityCheckpoint(JournalWorkItem item);
 
     void DecrementQueuedAppends();

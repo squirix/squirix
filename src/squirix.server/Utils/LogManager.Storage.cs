@@ -21,6 +21,9 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1001, Level = LogLevel.Debug, Message = "Compaction state {Prev} -> {Next}")]
     internal static partial void CompactionStateChanged(ILogger logger, string prev, string next);
 
+    [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "Journal failure drained {Count} abandoned appends; {Bytes} bytes quarantined until the I/O thread joins")]
+    internal static partial void JournalAbandonedAppendsDrained(ILogger logger, int count, long bytes);
+
     [LoggerMessage(EventId = 1009, Level = LogLevel.Warning, Message = "Manifest retention cleanup for {ArtifactKind} failed")]
     internal static partial void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind);
 
