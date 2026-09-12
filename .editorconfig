@@ -50,6 +50,7 @@ dotnet_diagnostic.CA1513.severity = warning # use ObjectDisposedException throw 
 dotnet_diagnostic.IDE0003.severity = warning # suppresses redundant this. qualification
 dotnet_diagnostic.IDE0005.severity = error # remove unused using directives (fails build via EnforceCodeStyleInBuild)
 dotnet_diagnostic.IDE0007.severity = warning # use implicit type (var) where applicable
+dotnet_diagnostic.IDE0010.severity = warning # add missing switch cases
 dotnet_diagnostic.IDE0011.severity = error # IDE0011 unreliable at omitting braces when csharp_prefer_braces=false; SQR0010 is the build gate for single-line bodies
 dotnet_diagnostic.IDE0017.severity = warning # use object initializers
 dotnet_diagnostic.IDE0018.severity = warning # use inlined variable declaration
@@ -581,6 +582,7 @@ resharper_member_can_be_private_global_highlighting = warning # suggest member c
 resharper_member_can_be_private_local_highlighting = warning # suggest member can be private (local)
 resharper_merge_into_logical_pattern_highlighting = none # do not suggest merging into logical patterns
 resharper_move_local_function_after_jump_statement_highlighting = warning # move local function after jump statement
+resharper_redundant_empty_object_creation_argument_list_highlighting = warning # flag redundant empty object creation argument list
 resharper_redundant_empty_switch_section_highlighting = none # do not flag redundant empty switch
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning # flag redundant nullable suppress
 resharper_remove_redundant_braces_highlighting = none # do not remove redundant braces
