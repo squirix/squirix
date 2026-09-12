@@ -100,7 +100,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(!_accepting, this);
 
-            var lookup = _idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, out var retained);
+            var lookup = _idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out var retained);
             if (lookup == GroupIdempotencyLookup.Found)
                 return retained.OutcomePayload;
             if (lookup == GroupIdempotencyLookup.Mismatch)
@@ -382,7 +382,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         try
         {
             var outcome = await ExecuteAsync(mutation, timeout, attempt, cancellationToken).ConfigureAwait(false);
-            _ = _idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome, mutation.LogIndex, mutation.Term);
+            _ = _idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome.Span, mutation.LogIndex, mutation.Term);
             lock (_ownedSync)
                 _ = _operations.Remove(key);
             return outcome;
@@ -479,7 +479,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     {
         var recordKind = string.Equals(mutation.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
             : GroupRecordKind.UserMutation;
-        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint, recordKind, mutation.LogIndex, mutation.Term);
+        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, recordKind, mutation.LogIndex, mutation.Term);
 
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
             throw new InvalidOperationException("Group idempotency capacity is exhausted.");

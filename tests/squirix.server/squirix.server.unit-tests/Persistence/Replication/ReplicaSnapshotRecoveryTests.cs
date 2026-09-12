@@ -35,8 +35,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             for (var index = 1UL; index <= 8UL; index++)
                 _ = await log.AppendAsync(Append(index, 1UL, "durable"), DefaultCancellationToken);
             _ = await log.AdvanceCommitAsync(8UL, DefaultCancellationToken);
-            _ = log.Idempotency.Reserve("client", "op-1", new byte[] { 1 }, GroupRecordKind.UserMutation, 1UL, 1UL);
-            _ = log.Idempotency.TryResolve("client", "op-1", new byte[] { 9 }, 1UL, 1UL);
+            _ = log.Idempotency.Reserve("client", "op-1", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+            _ = log.Idempotency.TryResolve("client", "op-1", [9], 1UL, 1UL);
             _ = await log.AdvanceAppliedAsync(8UL, DefaultCancellationToken);
             _ = await log.CreateSnapshotAsync(8UL, DefaultCancellationToken);
             var compact = await log.CompactAsync(DefaultCancellationToken);
@@ -53,8 +53,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         Assert.Equal(8UL, status.LastLogIndex);
         Assert.Equal(8UL, status.LastAppliedIndex);
         Assert.NotNull(reopened.SnapshotPath);
-        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-1", new byte[] { 1 }, out var record));
-        Assert.Equal(new byte[] { 9 }, record.OutcomePayload.ToArray());
+        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-1", [1], out var record));
+        Assert.True(record.OutcomePayload.Span is [9]);
     }
 
     /// <summary>
@@ -78,8 +78,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         {
             await source.OpenAsync(DefaultCancellationToken);
             _ = await source.AppendAsync(Append(1UL, 1UL, "snapshot"), DefaultCancellationToken);
-            _ = source.Idempotency.Reserve("client", "operation-1", new byte[] { 1, 2, 3 }, GroupRecordKind.UserMutation, 1UL, 1UL);
-            _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
+            _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
+            _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
             _ = await source.AdvanceCommitAsync(1UL, DefaultCancellationToken);
             _ = await source.CreateSnapshotAsync(1UL, DefaultCancellationToken);
         }
@@ -99,7 +99,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         Assert.Equal(new byte[] { 5, 6, 7, 8 }, reopenedStatus.TopologyFingerprint.ToArray());
         Assert.Equal(0UL, reopenedStatus.CommitIndex);
         Assert.Equal(0UL, reopenedStatus.LastAppliedIndex);
-        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "operation-1", new byte[] { 1, 2, 3 }, out _));
+        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out _));
     }
 
     /// <summary>An outcome resolved exactly at Unix epoch survives the snapshot round-trip and remains resolved.</summary>
@@ -116,9 +116,9 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await log.OpenAsync(DefaultCancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
-            _ = log.Idempotency.Reserve("client", "op-epoch", new byte[] { 1 }, GroupRecordKind.UserMutation, 1UL, 1UL);
-            _ = log.Idempotency.TryResolve("client", "op-epoch", new byte[] { 9 }, 1UL, 1UL);
-            Assert.True(log.Idempotency.Lookup("client", "op-epoch", new byte[] { 1 }, out var preRecord) is GroupIdempotencyLookup.Found);
+            _ = log.Idempotency.Reserve("client", "op-epoch", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+            _ = log.Idempotency.TryResolve("client", "op-epoch", [9], 1UL, 1UL);
+            Assert.True(log.Idempotency.Lookup("client", "op-epoch", [1], out var preRecord) is GroupIdempotencyLookup.Found);
             Assert.Equal(DateTime.UnixEpoch, preRecord.ResolvedUtc!.Value);
             _ = await log.CreateSnapshotAsync(1UL, DefaultCancellationToken);
         }
@@ -126,12 +126,12 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using var reopened = new FollowerLog(dir, GroupId, composition, options);
         await reopened.OpenAsync(DefaultCancellationToken);
 
-        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-epoch", new byte[] { 1 }, out var restored));
+        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "op-epoch", [1], out var restored));
         Assert.True(restored.IsResolved);
         Assert.Equal(DateTime.UnixEpoch, restored.ResolvedUtc!.Value);
         clock.Advance(TimeSpan.FromHours(2));
         reopened.Idempotency.Expire();
-        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "op-epoch", new byte[] { 1 }, out _));
+        Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "op-epoch", [1], out _));
     }
 
     /// <summary>Installing a higher-term snapshot clears a vote from the older term and persists the reset.</summary>
@@ -223,8 +223,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await source.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-        _ = source.Idempotency.Reserve("client", "operation-1", new byte[] { 1, 2, 3 }, GroupRecordKind.UserMutation, 1UL, 1UL);
-        _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
+        _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, DefaultCancellationToken);
 
         var snapshot = await source.CreateSnapshotAsync(2UL, DefaultCancellationToken);
@@ -234,7 +234,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await target.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
         _ = await target.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
         _ = await target.AppendAsync(Append(3UL, "old-tail"), DefaultCancellationToken);
-        _ = target.Idempotency.Reserve("client", "pending-tail", new byte[] { 4 }, GroupRecordKind.UserMutation, 3UL, 1UL);
+        _ = target.Idempotency.Reserve("client", "pending-tail", [4], GroupRecordKind.UserMutation, 3UL, 1UL);
 
         var result = await target.InstallSnapshotAsync(snapshot, 1UL, DefaultCancellationToken);
         var status = await target.GetStatusAsync(DefaultCancellationToken);
@@ -246,9 +246,9 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         Assert.Equal("old-tail", Encoding.UTF8.GetString((await target.GetUncommittedTailAsync(DefaultCancellationToken))[0].Payload.ToArray()));
         Assert.Equal(GroupId, snapshot.GroupId);
         Assert.NotNull(target.SnapshotPath);
-        Assert.Equal(GroupIdempotencyLookup.Found, target.Idempotency.Lookup("client", "operation-1", new byte[] { 1, 2, 3 }, out var record));
-        Assert.Equal(new byte[] { 9 }, record.OutcomePayload.ToArray());
-        Assert.Equal(GroupIdempotencyLookup.Unresolved, target.Idempotency.Lookup("client", "pending-tail", new byte[] { 4 }, out var pending));
+        Assert.Equal(GroupIdempotencyLookup.Found, target.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out var record));
+        Assert.True(record.OutcomePayload.Span is [9]);
+        Assert.Equal(GroupIdempotencyLookup.Unresolved, target.Idempotency.Lookup("client", "pending-tail", [4], out var pending));
         Assert.True(pending.IsUnresolved);
     }
 
@@ -267,8 +267,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await source.OpenAsync(DefaultCancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-        _ = source.Idempotency.Reserve("client", "operation-1", new byte[] { 1, 2, 3 }, GroupRecordKind.UserMutation, 1UL, 1UL);
-        _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
+        _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, DefaultCancellationToken);
         var snapshot = await source.CreateSnapshotAsync(2UL, DefaultCancellationToken);
 
@@ -287,8 +287,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         Assert.Equal(2UL, status.CommitIndex);
         Assert.Equal(2UL, status.LastAppliedIndex);
         Assert.Equal(2UL, status.LastLogIndex);
-        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "operation-1", new byte[] { 1, 2, 3 }, out var record));
-        Assert.Equal(new byte[] { 9 }, record.OutcomePayload.ToArray());
+        Assert.Equal(GroupIdempotencyLookup.Found, reopened.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out var record));
+        Assert.True(record.OutcomePayload.Span is [9]);
     }
 
     /// <summary>An oversized snapshot file is rejected before allocating memory for its contents.</summary>

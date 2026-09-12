@@ -378,9 +378,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
             var batch = new FollowerBatch(new[] { append }, _selfId, mutation.Term, _fanoutPrevIndex, _fanoutPrevTerm, _commitIndex);
             var result = await _rpc.AppendEntriesAsync(nodeId, _header, batch, cancellationToken).ConfigureAwait(false);
-            var m = mutation;
-            var followerAsync = new ReplicaDurableAcknowledgement(m.GroupId, m.Term, m.LogIndex, m.OperationFingerprint, m.PayloadChecksum, true, true);
-            return !result.Success ? throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.") : followerAsync;
+            var follr = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
+            return !result.Success ? throw new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}.") : follr;
         }
 
         /// <inheritdoc />

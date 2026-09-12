@@ -82,9 +82,9 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     public void PreAppendFailureReleasesReservation()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", new byte[] { 1 }, GroupRecordKind.UserMutation, 1, 1));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
         Assert.True(state.TryReleaseUnresolved("client", "op-a", 1, 1));
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-b", new byte[] { 2 }, GroupRecordKind.UserMutation, 1, 1));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1));
     }
 
     /// <summary>The stable internal ambiguity code is available after local append.</summary>

@@ -105,7 +105,7 @@ public sealed class ReplicaEligibilityTests
             expected with { CommitIndex = 3 },
             expected with { AppliedIndex = 3 },
             expected with { LastTerm = 2 },
-            expected with { TopologyFingerprint = new byte[] { 9, 9 } },
+            expected with { TopologyFingerprint = new byte[] { 8, 8 } },
             expected with { ConfigurationGeneration = 8 },
             expected with { StateChecksum = 92 },
         ];

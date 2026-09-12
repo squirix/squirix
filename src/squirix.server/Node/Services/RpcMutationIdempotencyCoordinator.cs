@@ -56,6 +56,10 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
                 : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
             IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false),
+
+            // Execution is already in flight elsewhere (or an unknown value arrived): the outcome is unknown
+            // to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+            IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
             _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
         };
     }

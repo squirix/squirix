@@ -101,7 +101,7 @@ internal static class RemoteClientSessionFactory
         {
             null => throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName),
             not null when !e.IsAbsoluteUri || string.IsNullOrWhiteSpace(e.Scheme) || string.IsNullOrWhiteSpace(e.Host) => throw new ArgumentException(message, paramName),
-            { } => e,
+            _ => e,
         };
     }
 

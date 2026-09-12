@@ -55,15 +55,24 @@ public class ManifestPublishBenchmarks
     {
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Action onSuccess = () => completion.TrySetResult();
-        Action<Exception> onFailure = ex => completion.TrySetException(ex);
+
         for (var journal = 1; journal <= _operationsPerInvoke; journal++)
         {
             var isFinal = journal == _operationsPerInvoke;
-            host.Ledger.EnqueueRoll(journal, _nextSequence++, isFinal ? onSuccess : static () => { }, onFailure);
+            host.Ledger.EnqueueRoll(journal, _nextSequence++, isFinal ? OnSuccess : static () => { }, OnFailure);
         }
 
         return completion.Task;
+
+        void OnFailure(Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+
+        void OnSuccess()
+        {
+            completion.TrySetResult();
+        }
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>

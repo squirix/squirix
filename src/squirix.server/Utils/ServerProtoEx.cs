@@ -109,7 +109,7 @@ internal static class ServerProtoEx
         return value switch
         {
             null => DeserializeFromProtoValue<T>(Value.ForStruct(s)),
-            { } => TryReadScalarValue<T>(value, out var scalar) ? scalar : DeserializeFromProtoValue<T>(value),
+            _ => TryReadScalarValue<T>(value, out var scalar) ? scalar : DeserializeFromProtoValue<T>(value),
         };
     }
 

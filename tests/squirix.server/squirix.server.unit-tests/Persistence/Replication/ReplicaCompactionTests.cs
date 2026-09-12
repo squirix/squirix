@@ -176,21 +176,21 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         Assert.Equal(
             GroupIdempotencyReserveResult.Success,
-            log.Idempotency.Reserve("client", "orphan", new byte[] { 1 }, GroupRecordKind.UserMutation, 2UL, 1UL));
+            log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL));
         Assert.Equal(
             GroupIdempotencyReserveResult.Success,
-            log.Idempotency.Reserve("client", "kept", new byte[] { 2 }, GroupRecordKind.UserMutation, 1UL, 1UL));
-        Assert.True(log.Idempotency.TryResolve("client", "kept", new byte[] { 3 }, 1UL, 1UL));
+            log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL));
+        Assert.True(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL));
         _ = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
         var snapshot = await log.CreateSnapshotAsync(2UL, DefaultCancellationToken);
         Assert.Equal(GroupId, snapshot.GroupId);
         var compaction = await log.CompactAsync(DefaultCancellationToken);
         Assert.True(compaction.Success);
 
-        Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "orphan", new byte[] { 1 }, out _));
-        Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "kept", new byte[] { 2 }, out var record));
+        Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "orphan", [1], out _));
+        Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "kept", [2], out var record));
         Assert.True(record.IsResolved);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, log.Idempotency.Reserve("client", "orphan", new byte[] { 1 }, GroupRecordKind.UserMutation, 3UL, 1UL));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL));
     }
 
     /// <summary>A failed replacement after flushing the compacted file preserves the original durable journal and the readable published snapshot.</summary>

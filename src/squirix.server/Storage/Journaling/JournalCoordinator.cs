@@ -198,8 +198,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         var failures = new List<Exception>();
 
-        // All shutdown stages share one budget (the host default): quiescence, marker, join, and
-        // grace join must fit it cumulatively instead of stacking independent fixed waits.
+        // All shutdown stages share one budget (the host default): quiescence, marker, join, and grace join must fit it cumulatively instead of stacking independent fixed waits.
         var shutdownDeadline = Environment.TickCount64 + Convert.ToInt64(ShutdownBudget.TotalMilliseconds);
 
         // Quiesce producers BEFORE the shutdown marker enters the ring: the gate guarantees every

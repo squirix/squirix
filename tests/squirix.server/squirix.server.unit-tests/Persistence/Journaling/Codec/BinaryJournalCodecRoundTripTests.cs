@@ -160,6 +160,7 @@ public sealed class BinaryJournalCodecRoundTripTests
             },
             JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
+            JournalOperationKind.IdempotencyStarted => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
         };
     }
@@ -187,6 +188,7 @@ public sealed class BinaryJournalCodecRoundTripTests
                 nameof(operation),
                 operation,
                 "No golden body length for internal-only operation."),
+            JournalOperationKind.IdempotencyStarted => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No golden body length for operation."),
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No golden body length for operation."),
         };
         Assert.Equal(expectedBodyLength, prepared.BodyLength);

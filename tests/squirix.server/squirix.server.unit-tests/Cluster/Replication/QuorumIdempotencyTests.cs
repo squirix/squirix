@@ -17,7 +17,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public async Task CapacityRejectsBeforeAppend()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "already-reserved", new byte[] { 9 }, GroupRecordKind.UserMutation, 1, 1));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "already-reserved", [9], GroupRecordKind.UserMutation, 1, 1));
         var pipeline = new ReplicaCommitTestKit.Pipeline();
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, state);
 
@@ -31,11 +31,11 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public void CommitUnknownRetryReturnsOriginalOutcome()
     {
         var state = new GroupIdempotencyState(2, TimeSpan.MaxValue);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", new byte[] { 1 }, GroupRecordKind.UserMutation, 1, 1));
-        Assert.True(state.TryResolve("client", "op-a", new byte[] { 7, 8 }, 1, 1));
-        Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "op-a", new byte[] { 1 }, out var record));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
+        Assert.True(state.TryResolve("client", "op-a", [7, 8], 1, 1));
+        Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "op-a", [1], out var record));
         Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
-        Assert.Equal(GroupIdempotencyLookup.Mismatch, state.Lookup("client", "op-a", new byte[] { 9 }, out _));
+        Assert.Equal(GroupIdempotencyLookup.Mismatch, state.Lookup("client", "op-a", [9], out _));
     }
 
     /// <summary>An unresolved reservation survives expiration and blocks new capacity.</summary>
@@ -43,13 +43,13 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public void UnresolvedOutcomeSurvivesRetention()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.Zero);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", new byte[] { 1 }, GroupRecordKind.UserMutation, 1, 1));
+        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
         Assert.Equal(1, state.UnresolvedCount);
 
         state.Expire();
 
-        Assert.Equal(GroupIdempotencyReserveResult.CapacityExceeded, state.Reserve("client", "op-b", new byte[] { 2 }, GroupRecordKind.UserMutation, 2, 1));
-        Assert.Equal(GroupIdempotencyLookup.Unresolved, state.Lookup("client", "op-a", new byte[] { 1 }, out _));
+        Assert.Equal(GroupIdempotencyReserveResult.CapacityExceeded, state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1));
+        Assert.Equal(GroupIdempotencyLookup.Unresolved, state.Lookup("client", "op-a", [1], out _));
         Assert.Equal(1, state.UnresolvedCount);
 
         Assert.True(state.TryReleaseUnresolved("client", "op-a", 1, 1));
