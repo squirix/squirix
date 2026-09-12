@@ -13,6 +13,7 @@
         <LangVersion>14.0</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
+        <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
     <PropertyGroup Label="Analyzers">

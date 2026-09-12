@@ -45,7 +45,8 @@ internal static class NodeOptionsRegistration
         return services;
     }
 
-    private static void AddValidatedInstance<TOptions, TValidator>(IServiceCollection services, TOptions source)
+    private static void AddValidatedInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TValidator>(IServiceCollection services, TOptions source)
         where TOptions : class
         where TValidator : class, IValidateOptions<TOptions>
     {
@@ -79,7 +80,9 @@ internal static class NodeOptionsRegistration
         });
     }
 
-    private static void AddValidatedOptionsInstance<TOptions>(IServiceCollection services, TOptions source)
+    private static void AddValidatedOptionsInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
+        IServiceCollection services,
+        TOptions source)
         where TOptions : class
     {
         // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
@@ -147,7 +150,7 @@ internal static class NodeOptionsRegistration
     }
 
     [Immutable]
-    private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
+    private sealed class StaticOptionsMonitor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions> : IOptionsMonitor<TOptions>
         where TOptions : class
     {
         internal StaticOptionsMonitor(TOptions value)

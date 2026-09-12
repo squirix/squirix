@@ -29,7 +29,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         Assert.Equal(tiny, new NodeCacheEntry<object?>(tiny).Normalize());
         Assert.Equal(4m, new NodeCacheEntry<object?>(4m).Normalize());
 
-        var normalized = new NodeCacheEntry<object?>(new { Id = 1 }).Normalize();
+        var normalized = new NodeCacheEntry<object?>(new IdPayload { Id = 1 }).Normalize();
         var element = Assert.IsType<JsonElement>(normalized);
         Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
         Assert.Equal(1, id.GetInt32());
@@ -50,9 +50,15 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
     }
 
     [Immutable]
-    private sealed record DerivedValue : IValueContract
+    internal sealed record DerivedValue : IValueContract
     {
         [UsedImplicitly]
         public string? DerivedField { get; init; }
+    }
+
+    [Immutable]
+    internal sealed class IdPayload
+    {
+        public int Id { get; init; }
     }
 }

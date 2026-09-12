@@ -1,4 +1,5 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
 
 // The file-based release app keeps its options DTO inline so the validator remains directly runnable.

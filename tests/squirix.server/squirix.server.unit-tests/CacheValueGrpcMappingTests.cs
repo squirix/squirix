@@ -409,7 +409,7 @@ public sealed class CacheValueGrpcMappingTests
     }
 
     [Immutable]
-    private sealed class SamplePayload
+    internal sealed class SamplePayload
     {
         public int Id { get; init; }
 
@@ -419,7 +419,7 @@ public sealed class CacheValueGrpcMappingTests
     }
 
     [Immutable]
-    private sealed class ValuePayload
+    internal sealed class ValuePayload
     {
         public string Value { get; init; } = string.Empty;
     }

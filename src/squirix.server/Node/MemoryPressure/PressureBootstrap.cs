@@ -86,19 +86,19 @@ internal static class PressureBootstrap
     }
 
     [Immutable]
-    private sealed class PressureSettings
+    internal sealed class PressureSettings
     {
         [JsonInclude]
         [JsonPropertyName("criticalPressureThresholdPercent")]
-        private int? CriticalPressureThresholdPercent { get; init; }
+        internal int? CriticalPressureThresholdPercent { get; init; }
 
         [JsonInclude]
         [JsonPropertyName("highPressureThresholdPercent")]
-        private int? HighPressureThresholdPercent { get; init; }
+        internal int? HighPressureThresholdPercent { get; init; }
 
         [JsonInclude]
         [JsonPropertyName("maxEstimatedCacheBytes")]
-        private long? MaxEstimatedCacheBytes { get; init; }
+        internal long? MaxEstimatedCacheBytes { get; init; }
 
         /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
         /// <param name="baseline">Baseline options.</param>

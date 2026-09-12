@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Threading;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -52,6 +52,46 @@ internal static class SquirixEndpointMapping
         return app;
     }
 
+    private static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
+    {
+        var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
+        var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
+        var coordination = new HealthCoordinationDetails(
+            new HealthLeaseDetails(
+                snapshot.Coordination.Lease.Enabled,
+                snapshot.Coordination.Lease.ActiveLeases,
+                snapshot.Coordination.Lease.PendingGrants,
+                snapshot.Coordination.Lease.PendingReleases),
+            new HealthWatchDetails(
+                snapshot.Coordination.Watch.Enabled,
+                snapshot.Coordination.Watch.ActiveWatches,
+                snapshot.Coordination.Watch.DroppedEvents,
+                snapshot.Coordination.Watch.BufferedEvents));
+        var memoryPressure = new HealthMemoryPressureDetails(
+            snapshot.MemoryPressure.State,
+            snapshot.MemoryPressure.MaxEstimatedCacheBytes,
+            snapshot.MemoryPressure.EstimatedBytes,
+            snapshot.MemoryPressure.EntryCount,
+            snapshot.MemoryPressure.RejectedWriteCount,
+            snapshot.MemoryPressure.WriteRejectionActive);
+        var journalDisk = new HealthJournalDiskDetails(
+            snapshot.JournalDisk.State,
+            snapshot.JournalDisk.MaxBytes,
+            snapshot.JournalDisk.UsedBytes,
+            snapshot.JournalDisk.HighWaterBytes,
+            snapshot.JournalDisk.WriteRejectionActive);
+        var retentionCleanup = new HealthRetentionCleanupDetails(
+            snapshot.RetentionCleanup.Degraded,
+            snapshot.RetentionCleanup.ConsecutiveWriteFailures,
+            snapshot.RetentionCleanup.RecentFailureCount,
+            snapshot.RetentionCleanup.LastFailureUtc);
+        return new HealthReadyDetailsResponse(
+            snapshot.JournalBacklogOps,
+            snapshot.SnapshotAgeSeconds,
+            snapshot.SnapshotInFlight,
+            new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk));
+    }
+
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)
     {
         _ = app.MapHealthChecks(
@@ -66,59 +106,43 @@ internal static class SquirixEndpointMapping
             {
                 Predicate = static registration => registration.Tags.Contains("ready"),
             });
-        _ = app.MapGet("/health", static () => Results.Ok("OK"));
+
+        // Manual response writing (instead of Results.Ok): the MapGet overload taking Delegate
+        // is trim-unsafe, while this RequestDelegate-shaped handler binds the AOT-clean overload.
+        // The bytes below match Results.Ok("OK") exactly: 200 + application/json + "\"OK\"".
+        _ = app.MapGet(
+            "/health",
+            static async ctx =>
+            {
+                ctx.Response.ContentType = "application/json; charset=utf-8";
+                await ctx.Response.WriteAsync("\"OK\"", ctx.RequestAborted).ConfigureAwait(false);
+            });
         MapReadyDetailsEndpoint(app);
     }
 
     private static void MapReadyDetailsEndpoint(IEndpointRouteBuilder app)
     {
+        // RequestDelegate-shaped handler (instead of a Delegate with DI parameters): the MapGet
+        // overload taking Delegate is trim-unsafe, while this shape binds the AOT-clean overload.
+        // Services resolve explicitly and the DTO is written with source-generated metadata,
+        // so the wire behavior matches the previous Results-based version exactly.
         _ = app.MapGet(
             "/health/ready/details",
-            static async (HttpContext ctx, IHealthReadyDetailsProvider provider, CancellationToken cancellationToken) =>
+            static async ctx =>
             {
                 if (!ConnectionSecurity.IsRequestAuthorized(ctx))
-                    return Results.Unauthorized();
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return;
+                }
 
-                var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
-                var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
-                var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
-                var coordination = new HealthCoordinationDetails(
-                    new HealthLeaseDetails(
-                        snapshot.Coordination.Lease.Enabled,
-                        snapshot.Coordination.Lease.ActiveLeases,
-                        snapshot.Coordination.Lease.PendingGrants,
-                        snapshot.Coordination.Lease.PendingReleases),
-                    new HealthWatchDetails(
-                        snapshot.Coordination.Watch.Enabled,
-                        snapshot.Coordination.Watch.ActiveWatches,
-                        snapshot.Coordination.Watch.DroppedEvents,
-                        snapshot.Coordination.Watch.BufferedEvents));
-                var memoryPressure = new HealthMemoryPressureDetails(
-                    snapshot.MemoryPressure.State,
-                    snapshot.MemoryPressure.MaxEstimatedCacheBytes,
-                    snapshot.MemoryPressure.EstimatedBytes,
-                    snapshot.MemoryPressure.EntryCount,
-                    snapshot.MemoryPressure.RejectedWriteCount,
-                    snapshot.MemoryPressure.WriteRejectionActive);
-                var journalDisk = new HealthJournalDiskDetails(
-                    snapshot.JournalDisk.State,
-                    snapshot.JournalDisk.MaxBytes,
-                    snapshot.JournalDisk.UsedBytes,
-                    snapshot.JournalDisk.HighWaterBytes,
-                    snapshot.JournalDisk.WriteRejectionActive);
-                var retentionCleanup = new HealthRetentionCleanupDetails(
-                    snapshot.RetentionCleanup.Degraded,
-                    snapshot.RetentionCleanup.ConsecutiveWriteFailures,
-                    snapshot.RetentionCleanup.RecentFailureCount,
-                    snapshot.RetentionCleanup.LastFailureUtc);
+                var provider = ctx.RequestServices.GetRequiredService<IHealthReadyDetailsProvider>();
+                var snapshot = await provider.GetSnapshotAsync(ctx.RequestAborted).ConfigureAwait(false);
+                var details = BuildReadyDetailsResponse(snapshot);
 
-                return Results.Json(
-                    new HealthReadyDetailsResponse(
-                        snapshot.JournalBacklogOps,
-                        snapshot.SnapshotAgeSeconds,
-                        snapshot.SnapshotInFlight,
-                        new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk)),
-                    RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
+                ctx.Response.ContentType = "application/json; charset=utf-8";
+                await JsonSerializer.SerializeAsync(ctx.Response.Body, details, RestJsonSerializerContext.Default.HealthReadyDetailsResponse, ctx.RequestAborted)
+                                    .ConfigureAwait(false);
             });
     }
 }

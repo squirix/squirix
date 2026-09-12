@@ -84,7 +84,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
     }
 
     [Immutable]
-    private sealed record DerivedValue : IValueContract
+    internal sealed record DerivedValue : IValueContract
     {
         [UsedImplicitly]
         public string? DerivedField { get; init; }

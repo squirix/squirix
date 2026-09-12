@@ -1,4 +1,7 @@
 using System;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Utils;
 
@@ -39,42 +42,30 @@ namespace Squirix.Server.Storage.Snapshot;
 ///     </list>
 ///     </para>
 /// </remarks>
+[JsonConverter(typeof(TriggerOptionsJsonConverter))]
 internal sealed class TriggerOptions
 {
-    [JsonConstructor]
     internal TriggerOptions()
-        : this(0L, 0d, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), 128L * 1024 * 1024, 250_000L, TimeSpan.FromMinutes(5))
     {
-    }
-
-    private TriggerOptions(
-        long journalGrowthThrottleBytes,
-        double latencySloMilliseconds,
-        TimeSpan latencyThrottleDuration,
-        TimeSpan minGapBetweenSnapshots,
-        long snapshotEveryNBytes,
-        long snapshotEveryNOps,
-        TimeSpan snapshotInterval)
-    {
-        JournalGrowthThrottleBytes = journalGrowthThrottleBytes;
-        LatencySloMilliseconds = latencySloMilliseconds;
-        LatencyThrottleDuration = latencyThrottleDuration;
-        MinGapBetweenSnapshots = minGapBetweenSnapshots;
-        SnapshotEveryNBytes = snapshotEveryNBytes;
-        SnapshotEveryNOps = snapshotEveryNOps;
-        SnapshotInterval = snapshotInterval;
+        JournalGrowthThrottleBytes = 0L;
+        LatencySloMilliseconds = 0d;
+        LatencyThrottleDuration = TimeSpan.FromSeconds(10);
+        MinGapBetweenSnapshots = TimeSpan.FromMinutes(1);
+        SnapshotEveryNBytes = 128L * 1024 * 1024;
+        SnapshotEveryNOps = 250_000L;
+        SnapshotInterval = TimeSpan.FromMinutes(5);
     }
 
     /// <summary>
     /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
-    /// Default is 0 (disabled).
+    /// The default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     [JsonInclude]
     internal long JournalGrowthThrottleBytes
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGrowthThrottleBytes cannot be negative.");
@@ -93,7 +84,7 @@ internal sealed class TriggerOptions
     internal double LatencySloMilliseconds
     {
         get;
-        private init
+        init
         {
             if (value < 0 || double.IsNaN(value) || double.IsInfinity(value))
                 throw new ArgumentOutOfRangeException(nameof(value), value, "LatencySloMilliseconds must be a finite non-negative value.");
@@ -111,7 +102,7 @@ internal sealed class TriggerOptions
     internal TimeSpan LatencyThrottleDuration
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegative(nameof(value), "LatencyThrottleDuration cannot be negative.");
             field = value;
@@ -127,7 +118,7 @@ internal sealed class TriggerOptions
     internal TimeSpan MinGapBetweenSnapshots
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegative(nameof(value), "MinGapBetweenSnapshots cannot be negative.");
             field = value;
@@ -143,7 +134,7 @@ internal sealed class TriggerOptions
     internal long SnapshotEveryNBytes
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNBytes cannot be negative.");
@@ -161,7 +152,7 @@ internal sealed class TriggerOptions
     internal long SnapshotEveryNOps
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNOps cannot be negative.");
@@ -179,10 +170,183 @@ internal sealed class TriggerOptions
     internal TimeSpan SnapshotInterval
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "SnapshotInterval must be greater than zero.");
             field = value;
+        }
+    }
+
+    /// <summary>Source-generated-friendly JSON converter preserving partial-payload semantics.</summary>
+    /// <remarks>
+    /// The source generator assigns <see langword="default" /> to absent <c language="csharp">init</c> properties, which trips
+    /// validating setters. This converter sets only properties present in the payload, matching
+    /// the historical reflection behavior for partial option documents.
+    /// </remarks>
+    internal sealed class TriggerOptionsJsonConverter : JsonConverter<TriggerOptions>
+    {
+        public override TriggerOptions? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null)
+                return null;
+            if (reader.TokenType != JsonTokenType.StartObject)
+                throw new JsonException($"Unexpected token {reader.TokenType} when reading TriggerOptions.");
+
+            var state = new TriggerOptionsState
+            {
+                LatencyThrottleDuration = TimeSpan.FromSeconds(10),
+                MinGapBetweenSnapshots = TimeSpan.FromMinutes(1),
+                SnapshotEveryNBytes = 128L * 1024 * 1024,
+                SnapshotEveryNOps = 250_000L,
+                SnapshotInterval = TimeSpan.FromMinutes(5),
+            };
+
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject)
+                    return state.Build();
+
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException($"Unexpected token {reader.TokenType} when reading TriggerOptions.");
+
+                var name = reader.GetString();
+                if (!reader.Read())
+                    throw new JsonException("Unexpected end of TriggerOptions payload.");
+
+                ReadProperty(ref reader, name, ref state);
+            }
+
+            throw new JsonException("Unexpected end of TriggerOptions payload.");
+        }
+
+        public override void Write(Utf8JsonWriter writer, TriggerOptions value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("journalGrowthThrottleBytes", value.JournalGrowthThrottleBytes);
+            writer.WriteNumber("latencySloMilliseconds", value.LatencySloMilliseconds);
+            writer.WriteString("latencyThrottleDuration", value.LatencyThrottleDuration.ToString("c", CultureInfo.InvariantCulture));
+            writer.WriteString("minGapBetweenSnapshots", value.MinGapBetweenSnapshots.ToString("c", CultureInfo.InvariantCulture));
+            writer.WriteNumber("snapshotEveryNBytes", value.SnapshotEveryNBytes);
+            writer.WriteNumber("snapshotEveryNOps", value.SnapshotEveryNOps);
+            writer.WriteString("snapshotInterval", value.SnapshotInterval.ToString("c", CultureInfo.InvariantCulture));
+            writer.WriteEndObject();
+        }
+
+        private static TimeSpan ReadTimeSpan(ref Utf8JsonReader reader)
+        {
+            try
+            {
+                return TimeSpan.Parse(reader.GetString() ?? string.Empty, CultureInfo.InvariantCulture);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to TimeSpan for TriggerOptions.", exception);
+            }
+            catch (FormatException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to TimeSpan for TriggerOptions.", exception);
+            }
+            catch (OverflowException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to TimeSpan for TriggerOptions.", exception);
+            }
+        }
+
+        private static void ReadProperty(ref Utf8JsonReader reader, string? name, ref TriggerOptionsState state)
+        {
+            if (string.Equals(name, "journalGrowthThrottleBytes", StringComparison.OrdinalIgnoreCase))
+                state.JournalGrowthThrottleBytes = ReadInt64(ref reader);
+            else if (string.Equals(name, "latencySloMilliseconds", StringComparison.OrdinalIgnoreCase))
+                state.LatencySloMilliseconds = ReadDouble(ref reader);
+            else if (string.Equals(name, "latencyThrottleDuration", StringComparison.OrdinalIgnoreCase))
+                state.LatencyThrottleDuration = ReadTimeSpan(ref reader);
+            else if (string.Equals(name, "minGapBetweenSnapshots", StringComparison.OrdinalIgnoreCase))
+                state.MinGapBetweenSnapshots = ReadTimeSpan(ref reader);
+            else if (string.Equals(name, "snapshotEveryNBytes", StringComparison.OrdinalIgnoreCase))
+                state.SnapshotEveryNBytes = ReadInt64(ref reader);
+            else if (string.Equals(name, "snapshotEveryNOps", StringComparison.OrdinalIgnoreCase))
+                state.SnapshotEveryNOps = ReadInt64(ref reader);
+            else if (string.Equals(name, "snapshotInterval", StringComparison.OrdinalIgnoreCase))
+                state.SnapshotInterval = ReadTimeSpan(ref reader);
+            else
+                reader.Skip();
+        }
+
+        private static long ReadInt64(ref Utf8JsonReader reader)
+        {
+            try
+            {
+                if (reader.TokenType == JsonTokenType.Number)
+                    return reader.GetInt64();
+                if (reader.TokenType == JsonTokenType.String
+                    && long.TryParse(reader.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                    return parsed;
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to Int64 for TriggerOptions.", exception);
+            }
+            catch (OverflowException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to Int64 for TriggerOptions.", exception);
+            }
+
+            throw new JsonException($"Cannot convert {reader.TokenType} to Int64 for TriggerOptions.");
+        }
+
+        private static double ReadDouble(ref Utf8JsonReader reader)
+        {
+            try
+            {
+                if (reader.TokenType == JsonTokenType.Number)
+                    return reader.GetDouble();
+                if (reader.TokenType == JsonTokenType.String
+                    && double.TryParse(
+                        reader.GetString(),
+                        NumberStyles.Float | NumberStyles.AllowThousands,
+                        CultureInfo.InvariantCulture,
+                        out var parsed))
+                    return parsed;
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to Double for TriggerOptions.", exception);
+            }
+            catch (OverflowException exception)
+            {
+                throw new JsonException($"Cannot convert {reader.TokenType} to Double for TriggerOptions.", exception);
+            }
+
+            throw new JsonException($"Cannot convert {reader.TokenType} to Double for TriggerOptions.");
+        }
+
+        [StructLayout(LayoutKind.Auto)]
+        private struct TriggerOptionsState
+        {
+            internal long JournalGrowthThrottleBytes { get; set; }
+
+            internal double LatencySloMilliseconds { get; set; }
+
+            internal TimeSpan LatencyThrottleDuration { get; set; }
+
+            internal TimeSpan MinGapBetweenSnapshots { get; set; }
+
+            internal long SnapshotEveryNBytes { get; set; }
+
+            internal long SnapshotEveryNOps { get; set; }
+
+            internal TimeSpan SnapshotInterval { get; set; }
+
+            internal readonly TriggerOptions Build() => new()
+            {
+                JournalGrowthThrottleBytes = JournalGrowthThrottleBytes,
+                LatencySloMilliseconds = LatencySloMilliseconds,
+                LatencyThrottleDuration = LatencyThrottleDuration,
+                MinGapBetweenSnapshots = MinGapBetweenSnapshots,
+                SnapshotEveryNBytes = SnapshotEveryNBytes,
+                SnapshotEveryNOps = SnapshotEveryNOps,
+                SnapshotInterval = SnapshotInterval,
+            };
         }
     }
 }

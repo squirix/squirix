@@ -65,15 +65,15 @@ internal static class PrometheusMetricsBootstrap
     }
 
     [Immutable]
-    private sealed class PrometheusMetricsSettings
+    internal sealed class PrometheusMetricsSettings
     {
         [JsonInclude]
         [JsonPropertyName("enabled")]
-        private bool? Enabled { get; init; }
+        internal bool? Enabled { get; init; }
 
         [JsonInclude]
         [JsonPropertyName("path")]
-        private string? Path { get; init; }
+        internal string? Path { get; init; }
 
         /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
         /// <param name="baseline">Baseline options.</param>

@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -163,6 +162,8 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     {
         var resp = await HttpClient.GetAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
+        var text = await resp.Content.ReadAsStringAsync(DefaultCancellationToken);
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
     }
 }

@@ -31,7 +31,9 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     private static readonly SocketsHttpHandler LoopbackHandler = LoopbackHttp.CreateHandler();
     private static readonly HttpClient LoopbackClient = new(LoopbackHandler, false);
 
-    private static readonly Action<WebApplication> MapExtensionTestEndpoint = static app => app.MapGet("/extension-test", static () => "ok");
+    private static readonly Action<WebApplication> MapExtensionTestEndpoint = static app => app.MapGet(
+        "/extension-test",
+        static context => context.Response.WriteAsync("ok", context.RequestAborted));
 
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]
