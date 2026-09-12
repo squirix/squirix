@@ -4,9 +4,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Default evaluator using <see cref="IOptions{TOptions}" /> thresholds and limits.
-/// </summary>
+/// <summary>Default evaluator using <see cref="IOptions{TOptions}" /> thresholds and limits.</summary>
 [Immutable]
 internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
 {

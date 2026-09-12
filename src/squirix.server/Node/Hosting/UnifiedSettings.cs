@@ -18,9 +18,7 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal static class UnifiedSettings
 {
-    /// <summary>
-    /// Merges the <c language="csharp">Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
-    /// </summary>
+    /// <summary>Merges the <c language="csharp">Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.</summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>

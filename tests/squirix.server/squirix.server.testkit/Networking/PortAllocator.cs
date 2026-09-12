@@ -24,17 +24,11 @@ public sealed class PortAllocator : IDisposable
     /// <summary>Rolling cursor.</summary>
     private int _next;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PortAllocator" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="PortAllocator" /> class.</summary>
     /// <param name="startPort">Inclusive lower bound of the port range (1–65,535).</param>
     /// <param name="endPortInclusive">Inclusive upper bound of the port range (1–65,535).</param>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown if either <paramref name="startPort" /> or <paramref name="endPortInclusive" /> is outside 1–65,535.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// Thrown if <paramref name="endPortInclusive" /> is less than <paramref name="startPort" />.
-    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if either <paramref name="startPort" /> or <paramref name="endPortInclusive" /> is outside 1–65,535.</exception>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="endPortInclusive" /> is less than <paramref name="startPort" />.</exception>
     /// <remarks>
     /// The allocator will hand out ports within <c language="csharp">[startPort, endPortInclusive]</c> on later allocation calls.
     /// This constructor only validates numeric bounds; it does not probe the OS for port availability.
@@ -130,9 +124,7 @@ public sealed class PortAllocator : IDisposable
     /// <param name="maxAttempts">The maximum number of candidate starting ports to try before giving up. The default is 3,000.</param>
     /// <returns>The reserved port numbers, all bound and held open until released via <see cref="ReleasePort" />.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="count" /> is less than 1.</exception>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if no contiguous range of <paramref name="count" /> free ports can be found within the attempt budget.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">Thrown if no contiguous range of <paramref name="count" /> free ports can be found within the attempt budget.</exception>
     /// <remarks>
     /// Each port in the returned range stays bound (with exclusive address use) and marked as an in-process
     /// reservation until the caller releases it via <see cref="ReleasePort" />, so the pool will not hand any of

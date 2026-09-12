@@ -26,9 +26,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     private readonly IDisposable? _scope;
     private int _disposed;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TestNodeHost" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
     /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
@@ -55,9 +53,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
     public IServiceProvider Services => _app.Services;
 
-    /// <summary>
-    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).
-    /// </summary>
+    /// <summary>Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).</summary>
     public Uri Uri { get; }
 
     /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
@@ -74,9 +70,7 @@ public sealed class TestNodeHost : IAsyncDisposable
         await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
-    /// </summary>
+    /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)

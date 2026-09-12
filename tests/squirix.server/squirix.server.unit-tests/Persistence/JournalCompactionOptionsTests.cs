@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Unit tests for <see cref="JournalCompactionOptions" /> scalar validation.
-/// </summary>
+/// <summary>Unit tests for <see cref="JournalCompactionOptions" /> scalar validation.</summary>
 [Immutable]
 public sealed class JournalCompactionOptionsTests
 {

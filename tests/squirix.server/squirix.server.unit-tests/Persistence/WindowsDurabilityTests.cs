@@ -14,9 +14,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
 public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
 {
-    /// <summary>
-    /// Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.
-    /// </summary>
+    /// <summary>Verifies that <see cref="Ledger" /> creates an initial manifest and updates the CURRENT pointer.</summary>
     [Fact]
     public async Task FirstWriteCreatesCurrentPointer()
     {

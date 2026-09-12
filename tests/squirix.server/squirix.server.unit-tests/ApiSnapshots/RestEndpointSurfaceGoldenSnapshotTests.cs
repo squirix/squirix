@@ -17,9 +17,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>
-/// Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServer</c>.
-/// </summary>
+/// <summary>Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
 [Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {

@@ -80,9 +80,7 @@ internal static class ServerTypeCatalog
         }
     }
 
-    /// <summary>
-    /// Collects declared types under <c language="csharp">src/squirix.server</c> whose simple name ends with <paramref name="suffix" />.
-    /// </summary>
+    /// <summary>Collects declared types under <c language="csharp">src/squirix.server</c> whose simple name ends with <paramref name="suffix" />.</summary>
     /// <param name="suffix">Required simple-name suffix.</param>
     /// <param name="includeInterfaces">When <see langword="false" />, interface declarations are omitted.</param>
     /// <param name="excludeFullNames">Exact <c language="csharp">namespace.type</c> names to skip.</param>

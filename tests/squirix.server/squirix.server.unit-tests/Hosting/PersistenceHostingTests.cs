@@ -34,9 +34,7 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
         Assert.Null(app.Services.GetService<PersistenceOptions>());
     }
 
-    /// <summary>
-    /// Ensures <see cref="SquirixServerOptions.UsePersistence" /> registers persistence options.
-    /// </summary>
+    /// <summary>Ensures <see cref="SquirixServerOptions.UsePersistence" /> registers persistence options.</summary>
     [Fact]
     public async Task UsePersistenceRegistersItsOptions()
     {

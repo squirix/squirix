@@ -132,9 +132,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         /// <summary>Gets the effective operation-count multiplier.</summary>
         private static double Scale { get; } = ResolveScale();
 
-        /// <summary>
-        /// Scales a base operation count by <see cref="Scale" />, never returning less than one.
-        /// </summary>
+        /// <summary>Scales a base operation count by <see cref="Scale" />, never returning less than one.</summary>
         /// <param name="baseOperations">The unscaled operation count.</param>
         /// <returns>The scaled operation count.</returns>
         internal static int ScaleOperations(int baseOperations)

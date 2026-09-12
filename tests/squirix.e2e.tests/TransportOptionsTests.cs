@@ -11,15 +11,11 @@ using Xunit;
 
 namespace Squirix.E2ETests;
 
-/// <summary>
-/// End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.
-/// </summary>
+/// <summary>End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.</summary>
 [Immutable]
 public sealed class TransportOptionsTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
-    /// </summary>
+    /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.</summary>
     [Fact]
     public async Task ConnectsWithBearerTokenProvider()
     {
@@ -47,9 +43,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         Assert.Equal("ok", (await cache.GetValueAsync("jwt-e2e", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.
-    /// </summary>
+    /// <summary>Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.</summary>
     [Fact]
     public async Task FailsWhenJwtRequiredButUnconfigured()
     {

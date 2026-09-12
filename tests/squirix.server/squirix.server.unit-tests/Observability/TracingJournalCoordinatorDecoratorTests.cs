@@ -15,9 +15,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
-/// </summary>
+/// <summary>Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.</summary>
 [Immutable]
 public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTestBase
 {
@@ -76,9 +74,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         Assert.Equal(groupCommitMaxWaitMilliseconds > 0, context.GroupCommitEnabled);
     }
 
-    /// <summary>
-    /// Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.
-    /// </summary>
+    /// <summary>Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.</summary>
     [Immutable]
     private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
     {

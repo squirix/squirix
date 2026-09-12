@@ -6,9 +6,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.
-/// </summary>
+/// <summary>Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.</summary>
 [Immutable]
 public sealed class BackpressureOptionsTests
 {

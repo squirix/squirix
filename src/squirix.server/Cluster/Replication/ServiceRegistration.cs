@@ -9,9 +9,7 @@ internal static class ServiceRegistration
     {
         /// <summary>Registers physical replica ring, replica locator, feature state, and topology fingerprint.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
-        /// <param name="foundationOnly">
-        /// When <see langword="true" />, maps the closed replication service for transport tests without enabling RF&gt;1 mutations.
-        /// </param>
+        /// <param name="foundationOnly">When <see langword="true" />, maps the closed replication service for transport tests without enabling RF&gt;1 mutations.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterReplication(TopologyOptions cluster, bool foundationOnly = false)
         {

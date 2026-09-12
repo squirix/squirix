@@ -33,13 +33,9 @@ public sealed class TempEnvironmentVariable : IDisposable
     private readonly string? _prev;
     private readonly string? _value;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TempEnvironmentVariable" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TempEnvironmentVariable" /> class.</summary>
     /// <param name="key">Environment variable name (case-insensitive on Windows, case-sensitive on Unix).</param>
-    /// <param name="value">
-    /// Value to set for the duration of this instance. Use <see langword="null" /> to temporarily unset the variable.
-    /// </param>
+    /// <param name="value">Value to set for the duration of this instance. Use <see langword="null" /> to temporarily unset the variable.</param>
     public TempEnvironmentVariable(string key, string? value)
     {
         _key = key;

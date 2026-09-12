@@ -10,9 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>
-/// Unit tests for <see cref="JournalRecoveryReadinessHealthCheck" />.
-/// </summary>
+/// <summary>Unit tests for <see cref="JournalRecoveryReadinessHealthCheck" />.</summary>
 [Immutable]
 public sealed class JournalRecoveryReadinessHealthCheckTests
 {

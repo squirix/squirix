@@ -71,9 +71,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     /// <summary>Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.</summary>
     private static class GrpcEndpointSurfaceCollector
     {
-        /// <summary>
-        /// Builds a production-like host and returns sorted gRPC method identities (<c language="csharp">ServiceName/MethodName</c>).
-        /// </summary>
+        /// <summary>Builds a production-like host and returns sorted gRPC method identities (<c language="csharp">ServiceName/MethodName</c>).</summary>
         /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
         internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()
         {

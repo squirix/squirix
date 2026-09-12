@@ -42,9 +42,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
     /// <summary>Centralized namespace allowlists for naming-convention architecture rules.</summary>
     private static class Allowlists
     {
-        /// <summary>
-        /// Exact namespaces where server <c language="csharp">*Options</c> types are permitted to reside.
-        /// </summary>
+        /// <summary>Exact namespaces where server <c language="csharp">*Options</c> types are permitted to reside.</summary>
         internal static readonly string[] ServerOptionsTypeNamespaces =
         [
             ServerArchitectureNamespaces.Root,
@@ -67,9 +65,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             $"{ServerArchitectureNamespaces.Cluster}.Replication",
         ];
 
-        /// <summary>
-        /// Exact namespaces where <c language="csharp">*Service</c> types are permitted to reside.
-        /// </summary>
+        /// <summary>Exact namespaces where <c language="csharp">*Service</c> types are permitted to reside.</summary>
         /// <remarks>
         /// <c language="csharp">Squirix.Transport.Grpc</c> is intentionally omitted: placement discovery only scans
         /// <c language="csharp">src/squirix.server</c> sources under <c language="csharp">Squirix.Server*</c> namespaces, and the shared

@@ -305,9 +305,7 @@ internal static class ServerProtoEx
             };
         }
 
-        /// <summary>
-        /// Serializes a protobuf <see cref="Value" /> tree to a UTF-8 JSON buffer for serializer decode.
-        /// </summary>
+        /// <summary>Serializes a protobuf <see cref="Value" /> tree to a UTF-8 JSON buffer for serializer decode.</summary>
         /// <param name="value">Protobuf value to encode.</param>
         /// <returns>Buffer containing the JSON payload.</returns>
         internal static ArrayBufferWriter<byte> WriteValueToBuffer(Value value)
@@ -435,9 +433,7 @@ internal static class ServerProtoEx
             WriteStructFields(writer, structValue);
         }
 
-        /// <summary>
-        /// Emits a protobuf <see cref="Value" /> tree as JSON so <c language="csharp">ISquirixSerializer</c> can deserialize complex cache payloads.
-        /// </summary>
+        /// <summary>Emits a protobuf <see cref="Value" /> tree as JSON so <c language="csharp">ISquirixSerializer</c> can deserialize complex cache payloads.</summary>
         /// <param name="writer">JSON writer receiving the encoded tree.</param>
         /// <param name="value">Protobuf value to encode.</param>
         /// <exception cref="InvalidOperationException">Thrown when <paramref name="value" /> has an unsupported kind.</exception>

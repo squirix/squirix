@@ -5,9 +5,7 @@ using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Maps domain results and common transport exceptions to <see cref="CacheOperationResults" /> labels for logical cache operation semantics.
-/// </summary>
+/// <summary>Maps domain results and common transport exceptions to <see cref="CacheOperationResults" /> labels for logical cache operation semantics.</summary>
 internal static class CacheOperationClassifier
 {
     internal static string ClassifyCacheRemoveResult<T>(CacheRemoveResult<T> result) => result.Removed ? CacheOperationResults.Ok : CacheOperationResults.NotFound;

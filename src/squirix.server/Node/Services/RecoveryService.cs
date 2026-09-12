@@ -23,9 +23,7 @@ namespace Squirix.Server.Node.Services;
 /// Skips expired entries so they are not resurrected after restart.
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
-/// <typeparam name="T">
-/// The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).
-/// </typeparam>
+/// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
 internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;

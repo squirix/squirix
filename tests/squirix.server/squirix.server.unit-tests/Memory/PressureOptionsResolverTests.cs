@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests for <see cref="OptionsResolver" />.
-/// </summary>
+/// <summary>Tests for <see cref="OptionsResolver" />.</summary>
 [Immutable]
 public sealed class PressureOptionsResolverTests
 {

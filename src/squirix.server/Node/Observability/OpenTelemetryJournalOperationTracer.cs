@@ -9,9 +9,7 @@ using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// OpenTelemetry-backed <see cref="IJournalOperationTracer" /> implementation.
-/// </summary>
+/// <summary>OpenTelemetry-backed <see cref="IJournalOperationTracer" /> implementation.</summary>
 [Immutable]
 internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTracer
 {

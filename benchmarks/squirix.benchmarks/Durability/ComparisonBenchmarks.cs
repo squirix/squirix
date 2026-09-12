@@ -28,9 +28,7 @@ public class ComparisonBenchmarks
 
     private ICache<object?> SharedCache => BenchmarkThrowHelper.Required(_cacheSession, "Shared cache session was not opened.").Cache;
 
-    /// <summary>
-    /// Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.
-    /// </summary>
+    /// <summary>Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.</summary>
     [Benchmark]
     public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 

@@ -4,9 +4,7 @@ namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Internal activation gate for the replication network path.</summary>
 /// <param name="NetworkReplicationEnabled">Whether internode replication RPCs may mutate state.</param>
-/// <param name="FoundationOnly">
-/// Whether the closed replication service is mapped for transport/identity tests without enabling RF&gt;1 mutations.
-/// </param>
+/// <param name="FoundationOnly">Whether the closed replication service is mapped for transport/identity tests without enabling RF&gt;1 mutations.</param>
 [Immutable]
 internal readonly record struct FeatureState(bool NetworkReplicationEnabled, bool FoundationOnly)
 {

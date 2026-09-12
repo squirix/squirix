@@ -352,9 +352,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                                                                                                 "expected",
                                                                                                 StringComparison.OrdinalIgnoreCase);
 
-            /// <summary>
-            /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
-            /// </summary>
+            /// <summary>Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.</summary>
             /// <param name="message">An exception or RPC status detail string.</param>
             /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
             internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&

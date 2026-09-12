@@ -4,9 +4,7 @@ using Xunit;
 
 namespace Squirix.UnitTests;
 
-/// <summary>
-/// Unit tests for <see cref="CacheConflictException" />.
-/// </summary>
+/// <summary>Unit tests for <see cref="CacheConflictException" />.</summary>
 [Immutable]
 public sealed class CacheConflictExceptionTests
 {

@@ -329,9 +329,7 @@ public sealed class ClusterTls : IDisposable
         private readonly X509Certificate2 _ca;
         private readonly TempDirectory _rootDirectory;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="TestBundle" /> class.
-        /// </summary>
+        /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
         internal TestBundle()
         {
             _rootDirectory = new TempDirectory("squirix-cluster-mtls-cluster");

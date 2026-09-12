@@ -72,9 +72,7 @@ public sealed class ClientArchitectureTests
             Assert.DoesNotContain(frameworkReferences, static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Ensures <see cref="ISquirixClient.GetCacheAsync{T}" /> exposes a non-owning cache projection.
-    /// </summary>
+    /// <summary>Ensures <see cref="ISquirixClient.GetCacheAsync{T}" /> exposes a non-owning cache projection.</summary>
     [Fact]
     public void GetCacheAsyncReturnsNonOwningCacheHandle()
     {

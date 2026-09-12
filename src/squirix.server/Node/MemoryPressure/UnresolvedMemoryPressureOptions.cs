@@ -7,14 +7,10 @@ namespace Squirix.Server.Node.MemoryPressure;
 [Immutable]
 internal sealed record UnresolvedMemoryPressureOptions
 {
-    /// <summary>
-    /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.
-    /// </summary>
+    /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.</summary>
     internal int CriticalPressureThresholdPercent { get; init; } = 95;
 
-    /// <summary>
-    /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.
-    /// </summary>
+    /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.</summary>
     internal int HighPressureThresholdPercent { get; init; } = 80;
 
     /// <summary>

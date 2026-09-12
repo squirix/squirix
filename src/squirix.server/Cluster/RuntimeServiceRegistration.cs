@@ -13,9 +13,7 @@ namespace Squirix.Server.Cluster;
 /// <summary>Cluster-owned DI registrations for static topology location (no child-namespace types).</summary>
 internal static class RuntimeServiceRegistration
 {
-    /// <summary>
-    /// Extension methods that register cluster locator services on <see cref="IServiceCollection" />.
-    /// </summary>
+    /// <summary>Extension methods that register cluster locator services on <see cref="IServiceCollection" />.</summary>
     /// <param name="services">The service collection to register locators on.</param>
     extension(IServiceCollection services)
     {
@@ -51,9 +49,7 @@ internal static class RuntimeServiceRegistration
         return nodeIds;
     }
 
-    /// <summary>
-    /// Node locator backed by a <see cref="ConsistentHashRing" /> built from the cluster peer list at startup.
-    /// </summary>
+    /// <summary>Node locator backed by a <see cref="ConsistentHashRing" /> built from the cluster peer list at startup.</summary>
     [Immutable]
     private sealed class ConsistentHashNodeLocator : INodeLocator
     {
@@ -134,16 +130,12 @@ internal static class RuntimeServiceRegistration
             [Immutable]
             private sealed class Sha256Hasher : IHash
             {
-                /// <summary>
-                /// ASCII &#39;:&#39;.
-                /// </summary>
+                /// <summary>ASCII &#39;:&#39;.</summary>
                 private const byte RouteKeySeparator = 58;
 
                 private const int StackHashBufferThreshold = 512;
 
-                /// <summary>
-                /// ASCII &#39;#&#39;.
-                /// </summary>
+                /// <summary>ASCII &#39;#&#39;.</summary>
                 private const byte VNodeSeparator = 35;
 
                 private static ReadOnlySpan<byte> DecimalDigitUtf8 => "0123456789"u8;

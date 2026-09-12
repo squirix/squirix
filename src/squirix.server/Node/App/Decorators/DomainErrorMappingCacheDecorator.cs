@@ -12,9 +12,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Maps transport-level <see cref="RpcException" /> failures from clustered remote calls where a stable normalization exists.
-/// </summary>
+/// <summary>Maps transport-level <see cref="RpcException" /> failures from clustered remote calls where a stable normalization exists.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
 internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCache<T>

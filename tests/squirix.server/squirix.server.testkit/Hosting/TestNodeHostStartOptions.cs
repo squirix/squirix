@@ -4,9 +4,7 @@ using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-/// <summary>
-/// Optional settings for <see cref="TestNodeHostFactory" /> node startup.
-/// </summary>
+/// <summary>Optional settings for <see cref="TestNodeHostFactory" /> node startup.</summary>
 [Immutable]
 public sealed class TestNodeHostStartOptions
 {

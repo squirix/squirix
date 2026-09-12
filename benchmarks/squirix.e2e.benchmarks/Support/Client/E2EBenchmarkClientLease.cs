@@ -6,9 +6,7 @@ using Squirix.Client;
 
 namespace Squirix.E2EBenchmarks.Support.Client;
 
-/// <summary>
-/// Owns one connected <see cref="ISquirixClient" /> and disposes it exactly once.
-/// </summary>
+/// <summary>Owns one connected <see cref="ISquirixClient" /> and disposes it exactly once.</summary>
 internal sealed class E2EBenchmarkClientLease : IAsyncDisposable
 {
     private ISquirixClient? _client;

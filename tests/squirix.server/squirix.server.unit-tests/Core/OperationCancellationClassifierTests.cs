@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Core;
 
-/// <summary>
-/// Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.
-/// </summary>
+/// <summary>Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.</summary>
 [Immutable]
 public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {

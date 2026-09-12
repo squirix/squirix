@@ -8,9 +8,7 @@ namespace Squirix.Server.SmokeTests;
 /// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
 public sealed class ServerMetricsSmokeTests : SmokeTestBase
 {
-    /// <summary>
-    /// Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.
-    /// </summary>
+    /// <summary>Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.</summary>
     [Fact]
     public async Task MetricsExposeCountersAfterOperations()
     {

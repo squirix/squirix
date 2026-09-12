@@ -6,9 +6,7 @@ using Xunit;
 
 namespace Squirix.UnitTests;
 
-/// <summary>
-/// Tests for <see cref="CacheName" /> validation and equality semantics.
-/// </summary>
+/// <summary>Tests for <see cref="CacheName" /> validation and equality semantics.</summary>
 [Immutable]
 public sealed class CacheNameTests : UnitTestBase
 {

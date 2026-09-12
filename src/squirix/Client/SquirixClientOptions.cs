@@ -5,9 +5,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Client;
 
-/// <summary>
-/// Provides client-side configuration for remote <see cref="SquirixClient" /> sessions.
-/// </summary>
+/// <summary>Provides client-side configuration for remote <see cref="SquirixClient" /> sessions.</summary>
 public sealed class SquirixClientOptions
 {
     /// <summary>

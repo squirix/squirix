@@ -4,9 +4,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>
-/// Shared-friendly reads for the fixed-size <c language="csharp">man-current</c> pointer.
-/// </summary>
+/// <summary>Shared-friendly reads for the fixed-size <c language="csharp">man-current</c> pointer.</summary>
 /// <remarks>
 /// The journal-roll writer opens <c language="csharp">man-current</c> with
 /// <see cref="FileShare.ReadWrite" /> | <see cref="FileShare.Delete" />. Readers must use a compatible

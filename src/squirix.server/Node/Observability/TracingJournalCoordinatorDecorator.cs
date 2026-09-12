@@ -161,9 +161,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
-    /// <summary>
-    /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.
-    /// </summary>
+    /// <summary>Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.</summary>
     private static class JournalCoordinatorTracing
     {
         internal static JournalOperationTraceContext ForKey(CacheKey key) => new()

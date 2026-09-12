@@ -42,9 +42,7 @@ public class PublicSdkOperationsBenchmarks
             await _node.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.
-    /// </summary>
+    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task GetOrAddExistingValueBatchedAsync()
     {
@@ -56,9 +54,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on new unique keys, so the factory and insert path are measured.
-    /// </summary>
+    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on new unique keys, so the factory and insert path are measured.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task GetOrAddMissingValueBatchedAsync()
     {
@@ -97,9 +93,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Overwrites existing keys through the public <c language="csharp">SetAsync</c> API.
-    /// </summary>
+    /// <summary>Overwrites existing keys through the public <c language="csharp">SetAsync</c> API.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task OverwriteExistingValueBatchedAsync()
     {
@@ -111,9 +105,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.
-    /// </summary>
+    /// <summary>Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadExistingValueBatchedAsync()
     {
@@ -134,9 +126,7 @@ public class PublicSdkOperationsBenchmarks
             _consumer.Consume((await cache.GetValueAsync(_expiringKeys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
     }
 
-    /// <summary>
-    /// Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.
-    /// </summary>
+    /// <summary>Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadMissingValueBatchedAsync()
     {
@@ -161,9 +151,7 @@ public class PublicSdkOperationsBenchmarks
         await SeedBackendsAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Writes new unique keys through the public <c language="csharp">SetAsync</c> API.
-    /// </summary>
+    /// <summary>Writes new unique keys through the public <c language="csharp">SetAsync</c> API.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task WriteNewValueBatchedAsync()
     {

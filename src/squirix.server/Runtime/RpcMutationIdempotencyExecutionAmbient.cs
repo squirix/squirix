@@ -8,9 +8,7 @@ internal static class RpcMutationIdempotencyExecutionAmbient
 {
     private static readonly AsyncLocal<ScopeFrame?> Current = new();
 
-    /// <summary>
-    /// Gets the operation identifier of the active idempotent RPC, or <see langword="null" /> when no scope is active.
-    /// </summary>
+    /// <summary>Gets the operation identifier of the active idempotent RPC, or <see langword="null" /> when no scope is active.</summary>
     internal static string? ActiveOperationIdValue => Current.Value?.OperationId;
 
     /// <summary>Gets a value indicating whether durability is currently deferred for an active idempotent RPC.</summary>

@@ -53,9 +53,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// </summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
-    /// <summary>
-    /// Gets a reusable <see cref="HttpClient" /> for REST and health probes.
-    /// </summary>
+    /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>Cleans up sockets handler, HTTP client, and cancellation tokens.</summary>
@@ -213,19 +211,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
         _httpClient?.Dispose();
     }
 
-    /// <summary>
-    /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
-    /// </summary>
+    /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
     /// <param name="value">
     /// The value to store. If a <see cref="JsonDocument" /> or <see cref="JsonElement" /> is supplied,
     /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
     /// </param>
-    /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have an absolute expiry.
-    /// </param>
-    /// <param name="version">
-    /// The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.
-    /// </param>
+    /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have an absolute expiry.</param>
+    /// <param name="version">The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.</param>
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
     /// A new <see cref="NodeCacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
@@ -246,9 +238,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
     /// <param name="host">The started test node host providing access to the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
     private protected static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
 
     private static string BuildTestScope(string? testName, string? extra)
@@ -342,12 +332,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// Starts a new <see cref="NodeHost" /> for integration testing with configurable peers,
     /// persistence, gRPC configuration, and extra services.
     /// </summary>
-    /// <param name="uri">
-    /// The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.
-    /// </param>
-    /// <param name="peers">
-    /// The cluster peer set, including the node being started (its <see cref="ServerPeer.Uri" /> must equal <paramref name="uri" />).
-    /// </param>
+    /// <param name="uri">The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.</param>
+    /// <param name="peers">The cluster peer set, including the node being started (its <see cref="ServerPeer.Uri" /> must equal <paramref name="uri" />).</param>
     /// <param name="options">Optional startup knobs (persistence, security, policies, etc.).</param>
     /// <param name="testName">
     /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
@@ -357,9 +343,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// A started <see cref="TestNodeHost" /> wrapper containing the running application, its base URL, and the resolved data directory.
     /// Dispose it to stop the node and release resources.
     /// </returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).
-    /// </exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).</exception>
     private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
         StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, testName);
 }

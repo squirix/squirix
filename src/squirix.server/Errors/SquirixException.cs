@@ -6,18 +6,14 @@ namespace Squirix.Server.Errors;
 /// <summary>Represents a bounded squirix error with a stable machine-readable code.</summary>
 public sealed class SquirixException : Exception
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SquirixException" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="SquirixException" /> class.</summary>
     [PublicAPI]
     public SquirixException()
     {
         Error = string.Empty;
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SquirixException" /> class with a message.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="SquirixException" /> class with a message.</summary>
     /// <param name="message">The exception message.</param>
     public SquirixException(string message)
         : base(message)
@@ -25,9 +21,7 @@ public sealed class SquirixException : Exception
         Error = message;
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SquirixException" /> class with a message and inner exception.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="SquirixException" /> class with a message and inner exception.</summary>
     /// <param name="message">The exception message.</param>
     /// <param name="innerException">The inner exception.</param>
     public SquirixException(string message, Exception innerException)
@@ -36,9 +30,7 @@ public sealed class SquirixException : Exception
         Error = message;
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SquirixException" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="SquirixException" /> class.</summary>
     /// <param name="code">Stable squirix error code.</param>
     /// <param name="error">Stable error name.</param>
     /// <param name="detail">Optional bounded detail text.</param>

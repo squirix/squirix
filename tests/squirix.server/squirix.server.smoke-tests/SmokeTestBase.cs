@@ -38,9 +38,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.</summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
-    /// <summary>
-    /// Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.
-    /// </summary>
+    /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>
@@ -118,9 +116,7 @@ public abstract class SmokeTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>
-    /// Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.
-    /// </summary>
+    /// <summary>Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.</summary>
     /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
@@ -145,19 +141,13 @@ public abstract class SmokeTestBase : IDisposable
         _httpClient?.Dispose();
     }
 
-    /// <summary>
-    /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
-    /// </summary>
+    /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
     /// <param name="value">
     /// The value to store. If a JsonDocument or JsonElement is supplied, it is cloned to detach from the
     /// underlying document's lifetime; otherwise the value is used as-is.
     /// </param>
-    /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.
-    /// </param>
-    /// <param name="version">
-    /// The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.
-    /// </param>
+    /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.</param>
+    /// <param name="version">The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.</param>
     /// <param name="tags">
     /// Optional set of user-defined tags. When provided, the collection is defensively copied
     /// using an ordinal string comparer to prevent external mutation.
@@ -181,12 +171,8 @@ public abstract class SmokeTestBase : IDisposable
 
     /// <summary>Resolves the cluster-aware cache API client from the node's dependency injection container.</summary>
     /// <param name="host">The started test node host that exposes the service provider.</param>
-    /// <returns>
-    /// The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
-    /// </exception>
+    /// <returns>The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.</exception>
     private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
 
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)

@@ -13,15 +13,11 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Tests trace header propagation on outbound unary calls through <see cref="ClientInterceptor" />.
-/// </summary>
+/// <summary>Tests trace header propagation on outbound unary calls through <see cref="ClientInterceptor" />.</summary>
 [Immutable]
 public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
 {
-    /// <summary>
-    /// Verifies an active activity id is written to gRPC metadata as <c language="csharp">traceparent</c>.
-    /// </summary>
+    /// <summary>Verifies an active activity id is written to gRPC metadata as <c language="csharp">traceparent</c>.</summary>
     [Fact]
     public void InterceptorAddsTraceParentFromActivity()
     {
@@ -42,9 +38,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         Assert.Contains(capture.Headers, static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(entry.Value));
     }
 
-    /// <summary>
-    /// Verifies an existing <c language="csharp">traceparent</c> entry is replaced when the current activity supplies a different id.
-    /// </summary>
+    /// <summary>Verifies an existing <c language="csharp">traceparent</c> entry is replaced when the current activity supplies a different id.</summary>
     [Fact]
     public void InterceptorReplacesTraceParentHeader()
     {
@@ -68,9 +62,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         Assert.NotEqual("00-stale-stale-00", values[0], StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Verifies an existing <c language="csharp">tracestate</c> entry is replaced from the current activity state.
-    /// </summary>
+    /// <summary>Verifies an existing <c language="csharp">tracestate</c> entry is replaced from the current activity state.</summary>
     [Fact]
     public void InterceptorReplacesTraceStateHeader()
     {

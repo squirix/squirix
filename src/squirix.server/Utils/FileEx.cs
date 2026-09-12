@@ -88,9 +88,7 @@ internal static class FileEx
         return true;
     }
 
-    /// <summary>
-    /// Attempts to delete a file at the given <paramref name="path" />.
-    /// </summary>
+    /// <summary>Attempts to delete a file at the given <paramref name="path" />.</summary>
     /// <param name="path">
     /// Absolute or relative path to the file to delete. If <see langword="null" />, empty, or whitespace-only,
     /// the method succeeds without performing any action. If the string contains any character from

@@ -13,9 +13,7 @@ internal readonly record struct DurableMutationCondition<TResult>
 
     internal bool ShouldApply { get; }
 
-    /// <summary>
-    /// Gets the result returned when <see cref="ShouldApply" /> is false.
-    /// </summary>
+    /// <summary>Gets the result returned when <see cref="ShouldApply" /> is false.</summary>
     internal TResult? SkipResult { get; }
 
     internal static DurableMutationCondition<TResult> Apply() => new(true, default);

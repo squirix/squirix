@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
-/// <summary>
-/// Unit tests for <see cref="TriggerOptions" /> scalar validation.
-/// </summary>
+/// <summary>Unit tests for <see cref="TriggerOptions" /> scalar validation.</summary>
 [Immutable]
 public sealed class TriggerOptionsTests
 {

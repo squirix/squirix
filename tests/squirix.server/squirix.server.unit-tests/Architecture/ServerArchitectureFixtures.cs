@@ -88,9 +88,7 @@ internal static class ServerArchitectureFixtures
         return sourceOffenders;
     }
 
-    /// <summary>
-    /// Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.
-    /// </summary>
+    /// <summary>Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.</summary>
     /// <param name="repositoryRoot">Absolute path to the repository root.</param>
     /// <returns>Sorted repo-relative paths of offending projects.</returns>
     internal static List<string> CollectImplicitUsingsProjectOffenders(string repositoryRoot)

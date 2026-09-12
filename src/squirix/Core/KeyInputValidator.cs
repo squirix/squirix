@@ -10,9 +10,7 @@ internal static class KeyInputValidator
 
     private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
 
-    /// <summary>
-    /// Validates a key, or throws <see cref="ArgumentException" /> when invalid.
-    /// </summary>
+    /// <summary>Validates a key, or throws <see cref="ArgumentException" /> when invalid.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="parameterName">The caller parameter name for exceptions.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>

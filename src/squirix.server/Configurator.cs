@@ -109,9 +109,7 @@ public static class Configurator
         return options;
     }
 
-    /// <summary>
-    /// Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.
-    /// </summary>
+    /// <summary>Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.</summary>
     /// <param name="uri">The node URI to probe.</param>
     /// <returns><see langword="true" /> when the port appears available on loopback.</returns>
     public static bool IsListenPortAvailable(Uri uri)
@@ -145,9 +143,7 @@ public static class Configurator
         }
     }
 
-    /// <summary>
-    /// Loads <c language="csharp">Squirix:Cluster</c> from a settings file and validates the result.
-    /// </summary>
+    /// <summary>Loads <c language="csharp">Squirix:Cluster</c> from a settings file and validates the result.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated server options.</returns>
@@ -197,9 +193,7 @@ public static class Configurator
     /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     public static string ResolveValidatedFilePath(string path) => FilePathValidator.ResolveValidatedFilePath(path);
 
-    /// <summary>
-    /// Attempts to load <c language="csharp">Squirix:Cluster</c> from a settings file.
-    /// </summary>
+    /// <summary>Attempts to load <c language="csharp">Squirix:Cluster</c> from a settings file.</summary>
     /// <param name="path">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
@@ -253,9 +247,7 @@ public static class Configurator
         }
     }
 
-    /// <summary>
-    /// Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.
-    /// </summary>
+    /// <summary>Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="strict">When <see langword="true" />, also validates <c language="csharp">MemoryPressure</c>, <c language="csharp">Snapshot</c>, and <c language="csharp">PrometheusMetrics</c> sections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

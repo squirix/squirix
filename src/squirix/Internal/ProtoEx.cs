@@ -9,9 +9,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
 
-/// <summary>
-/// Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.
-/// </summary>
+/// <summary>Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.</summary>
 internal static class ProtoEx
 {
     internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)

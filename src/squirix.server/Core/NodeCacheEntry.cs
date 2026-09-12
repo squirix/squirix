@@ -14,17 +14,13 @@ namespace Squirix.Server.Core;
 [Immutable]
 public sealed class NodeCacheEntry<T>
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="NodeCacheEntry{T}" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="NodeCacheEntry{T}" /> class.</summary>
     public NodeCacheEntry()
     {
         Version = 1;
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="NodeCacheEntry{T}" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="NodeCacheEntry{T}" /> class.</summary>
     /// <param name="value">The value to store.</param>
     /// <param name="version">The monotonic entry version.</param>
     /// <param name="expiresUtc">The absolute UTC expiration time.</param>
@@ -58,9 +54,7 @@ public sealed class NodeCacheEntry<T>
     /// </summary>
     public FrozenDictionary<string, string>? Tags { get; }
 
-    /// <summary>
-    /// Gets the value to store. May be <see langword="null" />.
-    /// </summary>
+    /// <summary>Gets the value to store. May be <see langword="null" />.</summary>
     public required T? Value { get; init; }
 
     /// <summary>

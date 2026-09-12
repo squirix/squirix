@@ -7,33 +7,25 @@ namespace Squirix;
 /// <summary>Abstraction over serialization used by Squirix components.</summary>
 public interface ISquirixSerializer
 {
-    /// <summary>
-    /// Deserializes text into a value of <typeparamref name="T" />.
-    /// </summary>
+    /// <summary>Deserializes text into a value of <typeparamref name="T" />.</summary>
     /// <typeparam name="T">Target type.</typeparam>
     /// <param name="payload">Serialized payload.</param>
     /// <returns>Deserialized value.</returns>
     T? Deserialize<T>(string payload);
 
-    /// <summary>
-    /// Deserializes a JsonElement into <typeparamref name="T" />.
-    /// </summary>
+    /// <summary>Deserializes a JsonElement into <typeparamref name="T" />.</summary>
     /// <typeparam name="T">Target type.</typeparam>
     /// <param name="payload">JsonElement payload.</param>
     /// <returns>Deserialized value.</returns>
     T? Deserialize<T>(JsonElement payload);
 
-    /// <summary>
-    /// Deserializes UTF-8 data into <typeparamref name="T" />.
-    /// </summary>
+    /// <summary>Deserializes UTF-8 data into <typeparamref name="T" />.</summary>
     /// <typeparam name="T">Target type.</typeparam>
     /// <param name="payload">Serialized payload (UTF-8).</param>
     /// <returns>Deserialized value.</returns>
     T? Deserialize<T>(ReadOnlySpan<byte> payload);
 
-    /// <summary>
-    /// Deserializes stream data into <typeparamref name="T" />.
-    /// </summary>
+    /// <summary>Deserializes stream data into <typeparamref name="T" />.</summary>
     /// <typeparam name="T">Target type.</typeparam>
     /// <param name="payload">Stream providing serialized data.</param>
     /// <returns>Deserialized value.</returns>
