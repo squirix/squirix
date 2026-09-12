@@ -213,9 +213,7 @@ internal sealed class Coordinator
             }
         }
 
-        /// <summary>
-        /// Returns <see langword="true" /> when conditions are met to start a new snapshot.
-        /// </summary>
+        /// <summary>Returns <see langword="true" /> when conditions are met to start a new snapshot.</summary>
         /// <param name="utcNow">Current UTC time used for all-time comparisons.</param>
         /// <param name="isInFlight">Whether a snapshot is already running on the coordinator.</param>
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>

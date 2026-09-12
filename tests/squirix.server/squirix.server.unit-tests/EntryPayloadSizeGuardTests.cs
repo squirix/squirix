@@ -10,9 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>
-/// Unit tests for <see cref="EntryPayloadSizeGuard" />.
-/// </summary>
+/// <summary>Unit tests for <see cref="EntryPayloadSizeGuard" />.</summary>
 [Immutable]
 public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
 {

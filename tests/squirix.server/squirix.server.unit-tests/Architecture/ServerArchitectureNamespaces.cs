@@ -1,8 +1,6 @@
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// Canonical namespace roots for types compiled into <see cref="Server" />.
-/// </summary>
+/// <summary>Canonical namespace roots for types compiled into <see cref="Server" />.</summary>
 internal static class ServerArchitectureNamespaces
 {
     internal const string Cluster = Root + ".Cluster";

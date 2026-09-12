@@ -7,9 +7,7 @@ using Squirix.Attributes;
 
 namespace Squirix;
 
-/// <summary>
-/// <see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.
-/// </summary>
+/// <summary><see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.</summary>
 /// <remarks>
 /// Intentional reflection fallback for arbitrary user cache value types (<c language="csharp">Deserialize&lt;T&gt;</c> / <c language="csharp">Serialize&lt;T&gt;</c>).
 /// Known squirix DTOs should use dedicated <see cref="JsonSerializerContext" /> types at call sites instead of this class.

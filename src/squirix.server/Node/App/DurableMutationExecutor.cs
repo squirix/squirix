@@ -177,9 +177,7 @@ internal sealed class DurableMutationExecutor
         /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
         internal bool ShouldApply { get; }
 
-        /// <summary>
-        /// Gets the result returned when <see cref="ShouldApply" /> is false.
-        /// </summary>
+        /// <summary>Gets the result returned when <see cref="ShouldApply" /> is false.</summary>
         internal TResult? SkipResult { get; }
 
         /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>

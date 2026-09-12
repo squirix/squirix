@@ -8,15 +8,11 @@ namespace Squirix.Server.Node.MemoryPressure;
 [Immutable]
 internal sealed record PressureOptions
 {
-    /// <summary>
-    /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.
-    /// </summary>
+    /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.</summary>
     [JsonInclude]
     internal int CriticalPressureThresholdPercent { get; init; } = 95;
 
-    /// <summary>
-    /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.
-    /// </summary>
+    /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.</summary>
     [JsonInclude]
     internal int HighPressureThresholdPercent { get; init; } = 80;
 
@@ -24,9 +20,7 @@ internal sealed record PressureOptions
     [JsonInclude]
     internal long MaxEstimatedCacheBytes { get; init; }
 
-    /// <summary>
-    /// Validates configuration; throws <see cref="InvalidOperationException" /> when invalid.
-    /// </summary>
+    /// <summary>Validates configuration; throws <see cref="InvalidOperationException" /> when invalid.</summary>
     /// <exception cref="InvalidOperationException">Thrown when thresholds or cache byte limits are invalid.</exception>
     internal void Validate()
     {

@@ -5,9 +5,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Unit tests for <see cref="RetentionCleanupReadiness" /> degradation thresholds.
-/// </summary>
+/// <summary>Unit tests for <see cref="RetentionCleanupReadiness" /> degradation thresholds.</summary>
 [Immutable]
 public sealed class StorageRetentionCleanupReadinessTests
 {

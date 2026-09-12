@@ -16,9 +16,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.
-/// </summary>
+/// <summary>Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.</summary>
 [Immutable]
 public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 {

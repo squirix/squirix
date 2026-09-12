@@ -8,9 +8,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for <see cref="OpenTelemetryJournalOperationTracer" /> context tag mapping.
-/// </summary>
+/// <summary>Unit tests for <see cref="OpenTelemetryJournalOperationTracer" /> context tag mapping.</summary>
 [Immutable]
 public sealed class OpenTelemetryJournalOperationTracerTests
 {

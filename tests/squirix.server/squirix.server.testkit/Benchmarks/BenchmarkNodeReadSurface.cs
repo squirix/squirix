@@ -21,9 +21,7 @@ public sealed class BenchmarkNodeReadSurface
         _cacheApi = cacheApi;
     }
 
-    /// <summary>
-    /// Resolves the same cache surface used by <see cref="SquirixServiceAdapter{T}" /> for inbound reads.
-    /// </summary>
+    /// <summary>Resolves the same cache surface used by <see cref="SquirixServiceAdapter{T}" /> for inbound reads.</summary>
     /// <param name="host">A started in-process test node.</param>
     /// <param name="cacheName">Logical cache namespace.</param>
     /// <returns>A read surface for benchmark breakdown measurements.</returns>

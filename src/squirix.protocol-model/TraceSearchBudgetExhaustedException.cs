@@ -7,17 +7,13 @@ namespace Squirix.ProtocolModel;
 /// <summary>Thrown when a trace search hits its state budget before the queue drains.</summary>
 public sealed class TraceSearchBudgetExhaustedException : InvalidOperationException
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class.</summary>
     [UsedImplicitly]
     public TraceSearchBudgetExhaustedException()
     {
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with the budget details.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with the budget details.</summary>
     /// <param name="maxStates">The configured state budget that was exhausted.</param>
     /// <param name="visitedStates">The number of states visited before the budget was hit.</param>
     public TraceSearchBudgetExhaustedException(int maxStates, int visitedStates)
@@ -30,9 +26,7 @@ public sealed class TraceSearchBudgetExhaustedException : InvalidOperationExcept
         VisitedStates = visitedStates;
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with a message.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with a message.</summary>
     /// <param name="message">The exception message.</param>
     [UsedImplicitly]
     public TraceSearchBudgetExhaustedException(string message)
@@ -40,9 +34,7 @@ public sealed class TraceSearchBudgetExhaustedException : InvalidOperationExcept
     {
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with a message and inner exception.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TraceSearchBudgetExhaustedException" /> class with a message and inner exception.</summary>
     /// <param name="message">The exception message.</param>
     /// <param name="innerException">The inner exception.</param>
     [UsedImplicitly]

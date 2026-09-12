@@ -9,9 +9,7 @@ internal static class OptionsResolver
     /// <summary>Hard-coded fraction of available process memory used as the default cache limit and maximum configurable limit.</summary>
     internal const int RamBudgetPercent = 80;
 
-    /// <summary>
-    /// Resolves <paramref name="raw" /> into runtime <see cref="PressureOptions" />.
-    /// </summary>
+    /// <summary>Resolves <paramref name="raw" /> into runtime <see cref="PressureOptions" />.</summary>
     /// <param name="raw">Loaded settings before RAM resolution.</param>
     /// <param name="budgetProvider">Process memory budget source.</param>
     /// <returns>Validated runtime options with a positive byte limit.</returns>

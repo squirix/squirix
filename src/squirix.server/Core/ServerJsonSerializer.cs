@@ -7,9 +7,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Core;
 
-/// <summary>
-/// <see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.
-/// </summary>
+/// <summary><see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.</summary>
 /// <remarks>
 /// Intentional reflection fallback for arbitrary application payload types.
 /// Persistence and health/metrics HTTP DTOs use dedicated <see cref="JsonSerializerContext" /> types at call sites.
@@ -20,9 +18,7 @@ internal sealed class ServerJsonSerializer : IServerSerializer
 {
     private readonly JsonSerializerOptions _options;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ServerJsonSerializer" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="ServerJsonSerializer" /> class.</summary>
     internal ServerJsonSerializer()
     {
         _options = CreateDefaultOptions();

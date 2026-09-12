@@ -12,9 +12,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>
-/// Golden snapshot and method allowlist for the intentionally minimal <c language="csharp">Squirix.Server</c> CLR API.
-/// </summary>
+/// <summary>Golden snapshot and method allowlist for the intentionally minimal <c language="csharp">Squirix.Server</c> CLR API.</summary>
 [Immutable]
 public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {

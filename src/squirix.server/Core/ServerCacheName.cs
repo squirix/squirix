@@ -15,16 +15,12 @@ internal sealed record ServerCacheName
     /// <summary>Gets the canonical string used consistently across routing, persistence keys, and observability.</summary>
     internal string Canonical { get; }
 
-    /// <summary>
-    /// Maps null, empty, or whitespace-only names to <see cref="ServerCacheNames.DefaultNamespace" /> without applying public validation.
-    /// </summary>
+    /// <summary>Maps null, empty, or whitespace-only names to <see cref="ServerCacheNames.DefaultNamespace" /> without applying public validation.</summary>
     /// <param name="cacheName">Logical name from an already-validated pipeline segment or trusted persistence.</param>
     /// <returns>The canonical cache name string for routing and <see cref="CacheKey" /> construction.</returns>
     internal static string NormalizeUnvalidated(string? cacheName) => string.IsNullOrWhiteSpace(cacheName) ? ServerCacheNames.DefaultNamespace : cacheName;
 
-    /// <summary>
-    /// Validates <paramref name="name" /> using public cache name rules and returns the canonical runtime value.
-    /// </summary>
+    /// <summary>Validates <paramref name="name" /> using public cache name rules and returns the canonical runtime value.</summary>
     /// <param name="name">Logical cache name from a public or wire boundary.</param>
     /// <param name="parameterName">Caller parameter name for exceptions.</param>
     /// <returns>A <see cref="ServerCacheName" /> whose <see cref="Canonical" /> is safe for the internal pipeline.</returns>

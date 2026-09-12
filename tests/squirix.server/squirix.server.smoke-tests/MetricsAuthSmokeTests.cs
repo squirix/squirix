@@ -9,18 +9,14 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
-/// <summary>
-/// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c language="csharp">/metrics</c> endpoint.
-/// </summary>
+/// <summary>Smoke tests verifying JWT auth rules on the Prometheus-compatible <c language="csharp">/metrics</c> endpoint.</summary>
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
     private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
-    /// <summary>
-    /// Ensures <c language="csharp">/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
-    /// </summary>
+    /// <summary>Ensures <c language="csharp">/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
     [Fact]
     public async Task MetricsValidatesJwtWhenConfigured()
     {

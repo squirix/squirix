@@ -16,9 +16,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
-/// </summary>
+/// <summary>Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.</summary>
 [Immutable]
 public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 {
@@ -35,9 +33,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         controller.Dispose();
     }
 
-    /// <summary>
-    /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerAsync" /> returns false without waiting.
-    /// </summary>
+    /// <summary>When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerAsync" /> returns false without waiting.</summary>
     [Fact]
     public async Task TriggerNowFalseWhenMutexUnavailableAsync()
     {

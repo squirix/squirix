@@ -4,9 +4,7 @@ using System.Threading;
 
 namespace Squirix.Server.TestKit.Networking;
 
-/// <summary>
-/// Process-scoped HTTPS listen port pools backed by <see cref="PortAllocator" />.
-/// </summary>
+/// <summary>Process-scoped HTTPS listen port pools backed by <see cref="PortAllocator" />.</summary>
 /// <remarks>
 /// Each preset allocates from this process's exclusive slice of its <see cref="HostPortRegion" />,
 /// claimed via <see cref="ConsumerPortSlicer" />, so concurrently running processes of the same

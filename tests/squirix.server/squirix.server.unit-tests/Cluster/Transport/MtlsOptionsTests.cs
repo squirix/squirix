@@ -9,9 +9,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>
-/// Unit tests for <see cref="MtlsOptions" /> validation.
-/// </summary>
+/// <summary>Unit tests for <see cref="MtlsOptions" /> validation.</summary>
 [Immutable]
 public sealed class MtlsOptionsTests : IsolatedStorageTestBase
 {

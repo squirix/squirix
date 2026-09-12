@@ -20,9 +20,7 @@ public sealed class NodeMeasurementSink : IDisposable
     private readonly Meter? _meter;
     private readonly string? _meterName;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.</summary>
     /// <param name="name">Meter name to subscribe to (e.g., "Squirix").</param>
     public NodeMeasurementSink(string name)
     {
@@ -77,9 +75,7 @@ public sealed class NodeMeasurementSink : IDisposable
     public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2, (string Key, string Value) tag3) =>
         HasEventCore(_events, instrumentName, tag1, tag2, tag3);
 
-    /// <summary>
-    /// Disposes the underlying <see cref="MeterListener" /> and releases resources.
-    /// </summary>
+    /// <summary>Disposes the underlying <see cref="MeterListener" /> and releases resources.</summary>
     public void Dispose() => _listener.Dispose();
 
     private static void Enqueue(object? state, string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)

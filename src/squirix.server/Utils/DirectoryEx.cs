@@ -26,9 +26,7 @@ internal static class DirectoryEx
     /// target directory; the method throws if a link is detected. When <see langword="false" />, link checks are skipped.
     /// </param>
     /// <returns>The normalized absolute path of the created (or already existing) directory.</returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown if <paramref name="path" /> (or <paramref name="baseDir" /> when provided) is empty or contains invalid characters.
-    /// </exception>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="path" /> (or <paramref name="baseDir" /> when provided) is empty or contains invalid characters.</exception>
     /// <exception cref="UnauthorizedAccessException">
     /// Thrown when the resolved target escapes <paramref name="baseDir" /> or the process lacks permissions to create/clean the directory.
     /// </exception>

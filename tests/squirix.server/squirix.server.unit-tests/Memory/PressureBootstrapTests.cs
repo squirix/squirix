@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests for <see cref="PressureBootstrap" /> environment variable overrides.
-/// </summary>
+/// <summary>Tests for <see cref="PressureBootstrap" /> environment variable overrides.</summary>
 [Immutable]
 public sealed class PressureBootstrapTests : ServerUnitTestBase
 {

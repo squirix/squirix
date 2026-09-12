@@ -15,9 +15,7 @@ internal sealed record MtlsOptions
     /// <summary>Gets the path to the PEM-encoded node certificate.</summary>
     internal string? CertPath { get; init; }
 
-    /// <summary>
-    /// Gets the optional password for <see cref="CertPfxPath" />.
-    /// </summary>
+    /// <summary>Gets the optional password for <see cref="CertPfxPath" />.</summary>
     internal string? CertPfxPassword { get; init; }
 
     /// <summary>Gets the path to the node certificate PFX/PKCS#12 file.</summary>

@@ -8,9 +8,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.
-/// </summary>
+/// <summary>Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.</summary>
 internal static class PressureBootstrap
 {
     /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>
@@ -102,9 +100,7 @@ internal static class PressureBootstrap
         [JsonPropertyName("maxEstimatedCacheBytes")]
         private long? MaxEstimatedCacheBytes { get; init; }
 
-        /// <summary>
-        /// Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).
-        /// </summary>
+        /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
         /// <param name="baseline">Baseline options.</param>
         /// <returns>Merged options.</returns>
         internal UnresolvedMemoryPressureOptions MergeInto(UnresolvedMemoryPressureOptions baseline) => new()

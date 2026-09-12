@@ -14,9 +14,7 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class CustomSerializerConfigurationTests
 {
-    /// <summary>
-    /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> keeps a public setter for configure-delegate assignment.
-    /// </summary>
+    /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> keeps a public setter for configure-delegate assignment.</summary>
     [Fact]
     public void BearerTokenHasPublicSetterForConfigure()
     {

@@ -6,16 +6,12 @@ namespace Squirix.Server.Errors;
 /// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
 internal static class ServerOpContractClassifier
 {
-    /// <summary>
-    /// When <paramref name="detail" /> matches the unknown-commit-outcome contract, returns <see langword="true" />.
-    /// </summary>
+    /// <summary>When <paramref name="detail" /> matches the unknown-commit-outcome contract, returns <see langword="true" />.</summary>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> identifies an outcome that may have committed.</returns>
     internal static bool IsCommitOutcomeUnknownDetail(string? detail) => string.Equals(detail, ServerOpContract.CommitOutcomeUnknownDetail, StringComparison.Ordinal);
 
-    /// <summary>
-    /// When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.
-    /// </summary>
+    /// <summary>When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.</summary>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches the stable reuse mismatch contract.</returns>
     internal static bool IsOperationIdReuseMismatchDetail(string? detail) => ClassifyFailedPreconditionDetail(detail) is ServerFailedPreconditionKind.OperationIdReuseMismatch;

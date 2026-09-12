@@ -11,9 +11,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Tests for <see cref="ItemsGaugeReporterService" /> observable gauge wiring.
-/// </summary>
+/// <summary>Tests for <see cref="ItemsGaugeReporterService" /> observable gauge wiring.</summary>
 [Immutable]
 public sealed class ItemsGaugeReporterServiceTests
 {

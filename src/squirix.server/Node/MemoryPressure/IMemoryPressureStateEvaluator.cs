@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Computes <see cref="PressureLevel" /> from configured limits and estimated usage (independent from transport backpressure).
-/// </summary>
+/// <summary>Computes <see cref="PressureLevel" /> from configured limits and estimated usage (independent from transport backpressure).</summary>
 internal interface IMemoryPressureStateEvaluator
 {
     /// <summary>Evaluates pressure state for the given estimated cache usage in bytes.</summary>

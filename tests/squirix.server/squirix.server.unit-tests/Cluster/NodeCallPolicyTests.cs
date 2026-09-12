@@ -16,9 +16,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>
-/// Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.
-/// </summary>
+/// <summary>Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.</summary>
 [Immutable]
 public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
 {

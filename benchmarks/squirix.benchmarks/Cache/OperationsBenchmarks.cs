@@ -17,9 +17,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     private const int LightBatch = 10_000;
     private const string MissingKey = "bench_missing";
 
-    /// <summary>
-    /// Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.
-    /// </summary>
+    /// <summary>Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.</summary>
     [Benchmark]
     public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
@@ -44,9 +42,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
             _ = await SharedCache.GetValueAsync(ExistingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Batches lightweight <c language="csharp">SetAsync</c> calls to amortize per-iteration BenchmarkDotNet overhead.
-    /// </summary>
+    /// <summary>Batches lightweight <c language="csharp">SetAsync</c> calls to amortize per-iteration BenchmarkDotNet overhead.</summary>
     [Benchmark(OperationsPerInvoke = LightBatch)]
     public async Task InsertNewKeyBatchedAsync()
     {

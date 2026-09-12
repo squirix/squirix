@@ -45,16 +45,12 @@ public static class NodePathKit
     /// <inheritdoc cref="Combine(bool,string,string)" />
     public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4);
 
-    /// <summary>
-    /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
-    /// </summary>
+    /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
     /// <param name="subdirectory">
     /// Optional root subdirectory under the system temp path. When provided, it is appended before
     /// the target-framework and process-id segments.
     /// </param>
-    /// <returns>
-    /// A path of the form <c language="csharp">&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
-    /// </returns>
+    /// <returns>A path of the form <c language="csharp">&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.</returns>
     public static string GetProcTempPath(string subdirectory = "")
     {
         var root = Combine(Path.GetTempPath(), subdirectory);

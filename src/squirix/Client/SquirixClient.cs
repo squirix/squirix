@@ -66,9 +66,7 @@ public sealed class SquirixClient : ISquirixClient
         await _remoteSession.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Returns the primary <see cref="ICache{T}" /> facade for a logical cache name.
-    /// </summary>
+    /// <summary>Returns the primary <see cref="ICache{T}" /> facade for a logical cache name.</summary>
     /// <typeparam name="T">The value type stored in the cache.</typeparam>
     /// <param name="cacheName">The logical cache name to access.</param>
     /// <param name="cancellationToken">A cancellation token used during cache resolution.</param>

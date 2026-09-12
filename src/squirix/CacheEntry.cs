@@ -8,9 +8,7 @@ namespace Squirix;
 [Immutable]
 public sealed class CacheEntry<T>
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CacheEntry{T}" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="CacheEntry{T}" /> class.</summary>
     public CacheEntry()
     {
     }
@@ -27,8 +25,6 @@ public sealed class CacheEntry<T>
     /// </summary>
     public DateTime? ExpiresUtc { get; init; }
 
-    /// <summary>
-    /// Gets the value to store. May be <see langword="null" />.
-    /// </summary>
+    /// <summary>Gets the value to store. May be <see langword="null" />.</summary>
     public required T? Value { get; init; }
 }

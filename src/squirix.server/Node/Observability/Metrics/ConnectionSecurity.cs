@@ -19,9 +19,7 @@ internal static class ConnectionSecurity
         return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated == true;
     }
 
-    /// <summary>
-    /// Returns <see langword="true" /> when the request arrived over a loopback client connection.
-    /// </summary>
+    /// <summary>Returns <see langword="true" /> when the request arrived over a loopback client connection.</summary>
     /// <param name="httpContext">The active HTTP context.</param>
     /// <returns><see langword="true" /> for localhost / loopback clients; otherwise <see langword="false" />.</returns>
     private static bool IsLoopbackClient(HttpContext httpContext)

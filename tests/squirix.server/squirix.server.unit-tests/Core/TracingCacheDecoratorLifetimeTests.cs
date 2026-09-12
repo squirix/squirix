@@ -9,9 +9,7 @@ namespace Squirix.Server.UnitTests.Core;
 [Immutable]
 public sealed class TracingCacheDecoratorLifetimeTests
 {
-    /// <summary>
-    /// Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.
-    /// </summary>
+    /// <summary>Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.</summary>
     [Fact]
     public void TracingDecoratorDeclaresNoDispose() => Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>)));
 }

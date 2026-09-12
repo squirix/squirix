@@ -32,9 +32,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
         _uri = fixture.Uri;
     }
 
-    /// <summary>
-    /// Verifies mutating RPCs without <c language="csharp">operation_id</c> are rejected at the adapter.
-    /// </summary>
+    /// <summary>Verifies mutating RPCs without <c language="csharp">operation_id</c> are rejected at the adapter.</summary>
     [Fact]
     public async Task EmptyOperationIdReturnsInvalidArgument()
     {

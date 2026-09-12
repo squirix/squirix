@@ -8,9 +8,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests for <see cref="PressureOptions" /> defaults and validation.
-/// </summary>
+/// <summary>Tests for <see cref="PressureOptions" /> defaults and validation.</summary>
 [Immutable]
 public sealed class PressureOptionsTests
 {
@@ -90,9 +88,7 @@ public sealed class PressureOptionsTests
         Assert.Equal(90, options.CriticalPressureThresholdPercent);
     }
 
-    /// <summary>
-    /// Verifies a representative valid configuration passes <see cref="PressureOptions.Validate" />.
-    /// </summary>
+    /// <summary>Verifies a representative valid configuration passes <see cref="PressureOptions.Validate" />.</summary>
     [Fact]
     public void ValidateAcceptsValidConfiguration()
     {

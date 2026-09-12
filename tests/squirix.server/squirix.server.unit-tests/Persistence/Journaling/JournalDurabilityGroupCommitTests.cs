@@ -17,9 +17,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
-/// </summary>
+/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.</summary>
 [Immutable]
 public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {

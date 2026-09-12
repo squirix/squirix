@@ -369,9 +369,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the group log is open and ready.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the group is not part of the local static composition. No storage directory is created.</exception>
-    /// <exception cref="InvalidDataException">
-    /// Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.
-    /// </exception>
+    /// <exception cref="InvalidDataException">Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
     internal async Task OpenAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);

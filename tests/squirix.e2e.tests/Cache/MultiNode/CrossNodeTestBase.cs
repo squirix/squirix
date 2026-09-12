@@ -6,17 +6,13 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>
-/// Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.
-/// </summary>
+/// <summary>Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.</summary>
 [Immutable]
 public abstract class CrossNodeTestBase : EndToEndTestBase, IClassFixture<TwoNodeFixture>
 {
     private readonly TwoNodeFixture _fixture;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CrossNodeTestBase" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="CrossNodeTestBase" /> class.</summary>
     /// <param name="fixture">Shared two-node cluster fixture.</param>
     protected CrossNodeTestBase(TwoNodeFixture fixture)
     {

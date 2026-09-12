@@ -52,9 +52,7 @@ internal static class CacheKeyValidator
         return true;
     }
 
-    /// <summary>
-    /// Validates a key and returns it, or throws <see cref="ArgumentException" />.
-    /// </summary>
+    /// <summary>Validates a key and returns it, or throws <see cref="ArgumentException" />.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="parameterName">The caller parameter name for the exception.</param>
     /// <returns>The original key when valid.</returns>

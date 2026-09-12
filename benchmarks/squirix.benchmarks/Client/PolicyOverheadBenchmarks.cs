@@ -44,9 +44,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Runs through <see cref="EndpointFailover" /> only.
-    /// </summary>
+    /// <summary>Runs through <see cref="EndpointFailover" /> only.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task FailoverCompletedBatchedValueTasksAsync()
     {
@@ -55,9 +53,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
             _consumer.Consume(await failover.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Runs through <see cref="CallPolicy" /> only.
-    /// </summary>
+    /// <summary>Runs through <see cref="CallPolicy" /> only.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task CallPolicyCompletedValueTaskBatchedAsync()
     {
@@ -70,9 +66,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     [GlobalCleanup]
     public ValueTask CleanupAsync() => DisposeAsync();
 
-    /// <summary>
-    /// Runs a baseline completed <see cref="ValueTask{TResult}" /> without wrappers.
-    /// </summary>
+    /// <summary>Runs a baseline completed <see cref="ValueTask{TResult}" /> without wrappers.</summary>
     [Benchmark(Baseline = true, OperationsPerInvoke = Batch)]
     public void DirectCompletedValueTaskBatched()
     {

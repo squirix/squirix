@@ -9,18 +9,14 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
-/// <summary>
-/// Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.
-/// </summary>
+/// <summary>Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.</summary>
 public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
     private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteClient = new(RemoteHandler, false);
 
-    /// <summary>
-    /// Ensures <c language="csharp">/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
-    /// </summary>
+    /// <summary>Ensures <c language="csharp">/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
     [Fact]
     public async Task ReadyDetailsValidatesJwtConfigured()
     {

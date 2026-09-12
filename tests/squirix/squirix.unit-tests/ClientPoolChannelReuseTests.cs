@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.UnitTests;
 
-/// <summary>
-/// Regression coverage for <see cref="ClientPool" /> gRPC channel reuse (issue #1).
-/// </summary>
+/// <summary>Regression coverage for <see cref="ClientPool" /> gRPC channel reuse (issue #1).</summary>
 [Immutable]
 public sealed class ClientPoolChannelReuseTests
 {

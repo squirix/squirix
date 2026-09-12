@@ -19,9 +19,7 @@ using static Squirix.Server.UnitTests.Cluster.Replication.SquirixReplicationAdap
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>
-/// Unit tests for <see cref="SquirixReplicationServiceAdapter"/>.
-/// </summary>
+/// <summary>Unit tests for <see cref="SquirixReplicationServiceAdapter"/>.</summary>
 [Immutable]
 public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 {

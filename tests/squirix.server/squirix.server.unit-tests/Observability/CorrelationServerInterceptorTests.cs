@@ -9,9 +9,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.
-/// </summary>
+/// <summary>Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.</summary>
 [Immutable]
 public sealed class CorrelationServerInterceptorTests
 {

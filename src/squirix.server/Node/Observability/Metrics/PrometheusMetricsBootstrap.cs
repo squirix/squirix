@@ -75,9 +75,7 @@ internal static class PrometheusMetricsBootstrap
         [JsonPropertyName("path")]
         private string? Path { get; init; }
 
-        /// <summary>
-        /// Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).
-        /// </summary>
+        /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
         /// <param name="baseline">Baseline options.</param>
         /// <returns>Merged options.</returns>
         internal PrometheusMetricsEndpointOptions MergeInto(PrometheusMetricsEndpointOptions baseline) => new()

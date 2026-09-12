@@ -9,9 +9,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>
-/// Unit tests for <see cref="RetentionCleanupReadinessCheck" />.
-/// </summary>
+/// <summary>Unit tests for <see cref="RetentionCleanupReadinessCheck" />.</summary>
 [Immutable]
 public sealed class RetentionCleanupReadinessCheckTests
 {

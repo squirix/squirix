@@ -31,9 +31,7 @@ public static class LoopbackHttp
         return handler;
     }
 
-    /// <summary>
-    /// Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c language="csharp">localhost</c>.
-    /// </summary>
+    /// <summary>Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c language="csharp">localhost</c>.</summary>
     /// <returns>A loopback handler that tolerates certificate name mismatch.</returns>
     public static SocketsHttpHandler CreateHandlerAllowingCertNameMismatch()
     {

@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Supplies the process memory budget used to resolve and cap <see cref="PressureOptions.MaxEstimatedCacheBytes" />.
-/// </summary>
+/// <summary>Supplies the process memory budget used to resolve and cap <see cref="PressureOptions.MaxEstimatedCacheBytes" />.</summary>
 internal interface IMemoryBudgetProvider
 {
     /// <summary>Gets the total memory available to the process in bytes.</summary>

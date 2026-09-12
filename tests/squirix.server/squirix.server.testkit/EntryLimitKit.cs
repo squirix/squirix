@@ -11,9 +11,7 @@ public static class EntryLimitKit
     /// <returns>A near-limit string value for benchmarks and integration tests.</returns>
     public static Task<string> CreateNearLimitStringValueAsync() => CreateStringAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
 
-    /// <summary>
-    /// Returns the largest string payload whose encoded entry size is at most <paramref name="maxSerializedBytes" />.
-    /// </summary>
+    /// <summary>Returns the largest string payload whose encoded entry size is at most <paramref name="maxSerializedBytes" />.</summary>
     /// <param name="maxSerializedBytes">Maximum allowed entry byte length.</param>
     /// <returns>A string value whose serialized entry size is within the limit.</returns>
     public static Task<string> CreateStringAtMostSerializedBytesAsync(int maxSerializedBytes)
@@ -33,9 +31,7 @@ public static class EntryLimitKit
         return Task.FromResult(new string('x', low));
     }
 
-    /// <summary>
-    /// Returns the smallest string payload whose encoded entry exceeds <see cref="EntryLimits.MaxEntrySizeBytes" />.
-    /// </summary>
+    /// <summary>Returns the smallest string payload whose encoded entry exceeds <see cref="EntryLimits.MaxEntrySizeBytes" />.</summary>
     /// <returns>A string value guaranteed to exceed the entry limit once serialized.</returns>
     public static async Task<string> CreateStringOverEntryLimitAsync() => new(
         'x',

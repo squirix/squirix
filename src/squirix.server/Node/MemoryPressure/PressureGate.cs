@@ -6,9 +6,7 @@ using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.
-/// </summary>
+/// <summary>Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.</summary>
 [Immutable]
 internal sealed class PressureGate : IMemoryPressureGate
 {
@@ -17,9 +15,7 @@ internal sealed class PressureGate : IMemoryPressureGate
     private readonly string _nodeId;
     private readonly Counter<long> _rejectionsTotal;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PressureGate" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="PressureGate" /> class.</summary>
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>

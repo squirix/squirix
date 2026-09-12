@@ -19,9 +19,7 @@ public sealed class TestNodeSecurityOptions
     /// <summary>Gets the OIDC authority URL used for metadata discovery and JWKS validation.</summary>
     public string? JwtAuthority { get; init; }
 
-    /// <summary>
-    /// Gets the JWT issuer. Required when using <see cref="JwtSigningKey" /> without an authority URL.
-    /// </summary>
+    /// <summary>Gets the JWT issuer. Required when using <see cref="JwtSigningKey" /> without an authority URL.</summary>
     public string? JwtIssuer { get; init; }
 
     /// <summary>Gets the symmetric JWT signing key, raw text or base64.</summary>

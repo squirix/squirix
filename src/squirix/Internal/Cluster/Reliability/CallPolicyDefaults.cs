@@ -19,9 +19,7 @@ internal static class CallPolicyDefaults
     /// <summary>Upper bound for retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMilliseconds(600);
 
-    /// <summary>
-    /// Per-attempt timeout for remote cache RPCs issued by the public <c language="csharp">SquirixClient</c>.
-    /// </summary>
+    /// <summary>Per-attempt timeout for remote cache RPCs issued by the public <c language="csharp">SquirixClient</c>.</summary>
     private static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(3);
 
     internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);

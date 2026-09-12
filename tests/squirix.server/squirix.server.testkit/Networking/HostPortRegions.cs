@@ -3,9 +3,7 @@ using System;
 namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>Sequential, equal-sized port regions for in-process test hosts and auxiliary listeners.</summary>
-/// <remarks>
-/// Each region spans <see cref="RegionSize" /> consecutive ports starting at <see cref="Origin" />.
-/// </remarks>
+/// <remarks>Each region spans <see cref="RegionSize" /> consecutive ports starting at <see cref="Origin" />.</remarks>
 internal static class HostPortRegions
 {
     private const int Origin = 20_000;

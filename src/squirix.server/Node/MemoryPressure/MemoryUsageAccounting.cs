@@ -3,9 +3,7 @@ using System.Threading;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Default <see cref="IMemoryUsageAccounting" /> implementation using interlocked operations.
-/// </summary>
+/// <summary>Default <see cref="IMemoryUsageAccounting" /> implementation using interlocked operations.</summary>
 internal sealed class MemoryUsageAccounting : IMemoryUsageAccounting
 {
     private long _admissionRejections;

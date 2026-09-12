@@ -13,9 +13,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     private BenchmarkCacheSession? _cacheSession;
     private BenchmarkNodeScope? _node;
 
-    /// <summary>
-    /// Gets the shared cache opened by <see cref="StartSharedCacheAsync" />.
-    /// </summary>
+    /// <summary>Gets the shared cache opened by <see cref="StartSharedCacheAsync" />.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the shared cache session was not opened.</exception>
     protected ICache<object?> SharedCache => BenchmarkThrowHelper.Required(_cacheSession, "Shared cache session was not opened.").Cache;
 
@@ -45,9 +43,7 @@ public abstract class RemoteBenchmarkLifecycleBase
         }
     }
 
-    /// <summary>
-    /// Starts the in-process benchmark node. Safe to call from workload methods before class <c language="csharp">[GlobalSetup]</c> runs.
-    /// </summary>
+    /// <summary>Starts the in-process benchmark node. Safe to call from workload methods before class <c language="csharp">[GlobalSetup]</c> runs.</summary>
     /// <returns>A task that completes after the node is started.</returns>
     protected async Task StartNodeAsync()
     {
@@ -66,9 +62,7 @@ public abstract class RemoteBenchmarkLifecycleBase
         _cacheSession = await BenchmarkCacheSession.OpenAsync(RequireNode().Uri, cacheName, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Stops the in-process benchmark node. Call from each benchmark class <c language="csharp">[GlobalCleanup]</c>.
-    /// </summary>
+    /// <summary>Stops the in-process benchmark node. Call from each benchmark class <c language="csharp">[GlobalCleanup]</c>.</summary>
     /// <returns>A task that completes after the node is stopped.</returns>
     protected async Task StopNodeAsync()
     {
@@ -78,9 +72,7 @@ public abstract class RemoteBenchmarkLifecycleBase
             await node.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Disposes the shared cache session opened by <see cref="StartSharedCacheAsync" />.
-    /// </summary>
+    /// <summary>Disposes the shared cache session opened by <see cref="StartSharedCacheAsync" />.</summary>
     /// <returns>A task that completes after the shared cache session is disposed.</returns>
     protected async Task StopSharedCacheAsync()
     {

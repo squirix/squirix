@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for <see cref="JournalMetricsExporterOptions" /> scalar validation.
-/// </summary>
+/// <summary>Unit tests for <see cref="JournalMetricsExporterOptions" /> scalar validation.</summary>
 [Immutable]
 public sealed class JournalMetricsExporterOptionsTests
 {

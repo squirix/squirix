@@ -32,9 +32,7 @@ internal static class MacOsCompatibilitySymlink
         return expectedFull.Length > 0;
     }
 
-    /// <summary>
-    /// Attempts to follow a Darwin root compatibility symlink to its canonical <c language="csharp">/private/...</c> path.
-    /// </summary>
+    /// <summary>Attempts to follow a Darwin root compatibility symlink to its canonical <c language="csharp">/private/...</c> path.</summary>
     /// <param name="directory">Directory entry already known to be a symlink.</param>
     /// <param name="resolvedFullPath">
     /// Canonical absolute path under <c language="csharp">/private</c> when this method returns <see langword="true" />;

@@ -15,8 +15,6 @@ public abstract class ServerUnitTestBase
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
     }
 
-    /// <summary>
-    /// Gets a default <see cref="CancellationToken" /> with a 30s timeout.
-    /// </summary>
+    /// <summary>Gets a default <see cref="CancellationToken" /> with a 30s timeout.</summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 }

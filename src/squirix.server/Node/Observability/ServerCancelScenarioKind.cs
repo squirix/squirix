@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Classifies which cancellation source is authoritative for an <see cref="System.OperationCanceledException" /> path.
-/// </summary>
+/// <summary>Classifies which cancellation source is authoritative for an <see cref="System.OperationCanceledException" /> path.</summary>
 internal enum ServerCancelScenarioKind
 {
     /// <summary>The outer caller token is canceled.</summary>
