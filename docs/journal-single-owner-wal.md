@@ -49,6 +49,19 @@ active segment only after manifest success.
    `WriteAsync` on a shared `FileStream`. Producers may: allocate sequence (lock-free), serialize,
    enqueue to `BoundedJournalRing`, and await completion.
 
+6. **Completion ownership and abandonment** — Every admitted append is tracked in
+   `PendingAppendRegistry` before it enters the ring. Exactly one side owns release: whoever removes
+   the entry first (journal-thread completion via `Untrack`, or a failure drain via `TakeAll`). On
+   pipeline failure the drain faults all tracked waiters, decrements their slots, and quarantines
+   their buffers until the journal thread joins; buffers never return to the pool while the thread
+   may be alive. After any drain the journal thread must not stage or write reclaimed items
+   (staging/write gates fail them idempotently instead).
+
+   Accepted ambiguity: a drain landing mid-write can leave an already-faulted frame on the segment
+   (the batch path truncates it on re-check; a single frame written by the direct path cannot be
+   recalled). A failed durable append is therefore outcome-unknown — it may replay on recovery —
+   and the node requires restart after a pipeline failure before serving reads.
+
 ## Allowed cross-thread mechanisms
 
 | Mechanism                      | Purpose                                                          |

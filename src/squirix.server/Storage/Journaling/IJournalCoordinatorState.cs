@@ -22,6 +22,10 @@ internal interface IJournalCoordinatorState
 
     PersistenceOptions Options { get; }
 
+    PendingAppendRegistry PendingAppends { get; }
+
+    MutableInt32 QueuedAppendsCounter { get; }
+
     BoundedJournalRing Ring { get; }
 
     JournalDurabilityGroupCommit? GroupCommit { get; }
@@ -29,4 +33,6 @@ internal interface IJournalCoordinatorState
     Exception? GetJournalThreadFailure();
 
     void SetJournalThreadFailure(Exception? value);
+
+    bool TrySetJournalThreadFailure(Exception reason);
 }

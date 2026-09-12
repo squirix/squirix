@@ -12,6 +12,8 @@ internal interface IJournalCoordinatorAppendState
 
     PersistenceOptions Options { get; }
 
+    PendingAppendRegistry PendingAppends { get; }
+
     MutableInt32 QueuedAppendsCounter { get; }
 
     BoundedJournalRing Ring { get; }

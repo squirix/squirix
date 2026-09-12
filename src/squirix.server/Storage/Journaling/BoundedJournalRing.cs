@@ -9,6 +9,9 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Bounded ring queue for journal work items (multi-producer, single consumer).</summary>
 internal sealed class BoundedJournalRing : IDisposable
 {
+    /// <summary>Upper bound for one semaphore wait slice: a dead pipeline fails parked producers within this delay.</summary>
+    private static readonly TimeSpan FailurePollInterval = TimeSpan.FromMilliseconds(5);
+
     private readonly SemaphoreSlim _availableSlots;
     private readonly int _mask;
     private readonly int[] _published;
@@ -34,13 +37,26 @@ internal sealed class BoundedJournalRing : IDisposable
         _availableSlots.Dispose();
     }
 
-    internal async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken)
+    internal async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken, Action? throwIfFailed = null)
     {
-        await _availableSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // Slice the semaphore wait so a pipeline failure bounds producers parked on a full ring:
+        // WaitAsync with a timeout still returns the moment a slot frees, so slicing only costs a
+        // timer on contended waits and never delays the fast path. Without slices a dead journal
+        // thread would leave producers parked here forever: the failure drain faults acks and
+        // quarantines buffers but must not touch slot accounting while any thread may be alive.
+        while (!await _availableSlots.WaitAsync(FailurePollInterval, cancellationToken).ConfigureAwait(false))
+            throwIfFailed?.Invoke();
+
         try
         {
+            // Inside the try: the slot is already acquired here, so a throwing post-acquire
+            // poll must still release it instead of leaking semaphore capacity.
+            throwIfFailed?.Invoke();
             while (!TryEnqueueCore(in item))
+            {
+                throwIfFailed?.Invoke();
                 Thread.SpinWait(32);
+            }
 
             NotifyWorkAvailable();
         }
