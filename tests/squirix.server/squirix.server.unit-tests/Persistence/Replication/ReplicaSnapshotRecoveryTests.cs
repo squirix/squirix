@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -573,6 +574,32 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
 
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+    }
+
+    /// <summary>Unspecified snapshot timestamps round-trip as UTC because the encoder relabels rather than converts them.</summary>
+    [Fact]
+    public async Task UnspecifiedTimestampsRoundTripAsUtc()
+    {
+        using var dir = new TempDirectory("squirix-snapshot-unspecified-time");
+        var timestamp = new DateTime(2024, 5, 1, 12, 0, 0, DateTimeKind.Unspecified);
+        var outcomes = new List<GroupIdempotencyRecord>
+        {
+            new("client", "op-1", new byte[] { 1 }, new byte[] { 8 }, GroupRecordKind.UserMutation, timestamp, timestamp, 1UL, 1UL),
+        };
+
+        // PublishAsync writes into the on-disk replication layout, so seed it first like production startup does.
+        await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId)))
+            await seed.OpenAsync(DefaultCancellationToken);
+
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(
+            new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, outcomes),
+            DefaultCancellationToken);
+
+        var published = Assert.NotNull(await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(DefaultCancellationToken));
+        var restored = Assert.Single(published.CommittedOutcomes);
+        var expected = new DateTime(2024, 5, 1, 12, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(expected, restored.CreatedUtc);
+        Assert.Equal(expected, restored.ResolvedUtc);
     }
 
     /// <summary>Recovery refuses a published snapshot whose commit index falls below its included index, so it never persists an applied watermark above the commit watermark.</summary>

@@ -120,6 +120,30 @@ public sealed class PrometheusMetricsScraperTests
         Assert.Equal(3d, lastValue);
     }
 
+    /// <summary>
+    /// Verifies metric and label names outside the Prometheus alphabet are sanitized on scrape
+    /// (colons preserved in metric names, dropped in label names), keeping the exposition valid.
+    /// </summary>
+    [Fact]
+    public void ScrapeSanitizesNames()
+    {
+        _ = PrometheusMetricsScraper.Instance;
+        using var meter = new Meter("Squirix");
+        var dotted = meter.CreateCounter<double>("squirix.Test.Sanitize.Upper9");
+        var colon = meter.CreateCounter<double>("squirix:test:sanitize");
+        var tagged = meter.CreateCounter<double>("squirix_test_sanitize_tags");
+        var taggedTags = new KeyValuePair<string, object?>[] { new("a:b", "v") };
+        dotted.Add(1);
+        colon.Add(2);
+        tagged.Add(3, taggedTags);
+
+        var body = PrometheusMetricsScraper.Instance.Scrape();
+
+        Assert.Contains("squirix_Test_Sanitize_Upper9", body, StringComparison.Ordinal);
+        Assert.Contains("squirix:test:sanitize", body, StringComparison.Ordinal);
+        Assert.Contains("squirix_test_sanitize_tags{a_b=\"v\"} ", body, StringComparison.Ordinal);
+    }
+
     private static int CountSeriesLines(string body, string metricName)
     {
         var count = 0;

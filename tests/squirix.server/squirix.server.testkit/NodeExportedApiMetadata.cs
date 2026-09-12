@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
@@ -102,6 +103,8 @@ public static class NodeExportedApiMetadata
             case IFieldSymbol field:
                 AddFieldIdentity(typeIdentity, field, isEnum, identities);
                 break;
+            default:
+                return;
         }
     }
 
@@ -144,6 +147,27 @@ public static class NodeExportedApiMetadata
     /// <summary>Formatting and naming helpers for exported API identity strings.</summary>
     private static class ApiIdentityFormatting
     {
+        private static readonly FrozenDictionary<SpecialType, string> SpecialTypeMetadataNames = new Dictionary<SpecialType, string>
+        {
+            [SpecialType.System_Boolean] = "System.Boolean",
+            [SpecialType.System_Byte] = "System.Byte",
+            [SpecialType.System_SByte] = "System.SByte",
+            [SpecialType.System_Char] = "System.Char",
+            [SpecialType.System_Int16] = "System.Int16",
+            [SpecialType.System_Int32] = "System.Int32",
+            [SpecialType.System_Int64] = "System.Int64",
+            [SpecialType.System_UInt16] = "System.UInt16",
+            [SpecialType.System_UInt32] = "System.UInt32",
+            [SpecialType.System_UInt64] = "System.UInt64",
+            [SpecialType.System_Single] = "System.Single",
+            [SpecialType.System_Double] = "System.Double",
+            [SpecialType.System_Decimal] = "System.Decimal",
+            [SpecialType.System_String] = "System.String",
+            [SpecialType.System_Object] = "System.Object",
+            [SpecialType.System_Void] = "System.Void",
+            [SpecialType.System_DateTime] = "System.DateTime",
+        }.ToFrozenDictionary();
+
         internal static string FormatEventLine(string typeIdentity, string name) => $"E:{typeIdentity}::{name}";
 
         internal static string FormatFieldLine(string typeIdentity, string name) => $"F:{typeIdentity}::{name}";
@@ -191,12 +215,9 @@ public static class NodeExportedApiMetadata
 
         internal static bool IsOrdinaryMethod(IMethodSymbol method)
         {
-            return method.MethodKind switch
-            {
-                MethodKind.Constructor => true,
-                _ when method.Name.StartsWith("op_", StringComparison.Ordinal) => true,
-                _ => method.MethodKind is MethodKind.Ordinary,
-            };
+            return method.MethodKind is MethodKind.Constructor
+                || method.Name.StartsWith("op_", StringComparison.Ordinal)
+                || method.MethodKind is MethodKind.Ordinary;
         }
 
         private static string FormatGenericTypeName(INamedTypeSymbol namedType)
@@ -241,27 +262,8 @@ public static class NodeExportedApiMetadata
             return ns == null || ns is { IsGlobalNamespace: true } ? string.Empty : ns.ToDisplayString();
         }
 
-        private static string? GetSpecialTypeMetadataName(SpecialType specialType) => specialType switch
-        {
-            SpecialType.System_Boolean => "System.Boolean",
-            SpecialType.System_Byte => "System.Byte",
-            SpecialType.System_SByte => "System.SByte",
-            SpecialType.System_Char => "System.Char",
-            SpecialType.System_Int16 => "System.Int16",
-            SpecialType.System_Int32 => "System.Int32",
-            SpecialType.System_Int64 => "System.Int64",
-            SpecialType.System_UInt16 => "System.UInt16",
-            SpecialType.System_UInt32 => "System.UInt32",
-            SpecialType.System_UInt64 => "System.UInt64",
-            SpecialType.System_Single => "System.Single",
-            SpecialType.System_Double => "System.Double",
-            SpecialType.System_Decimal => "System.Decimal",
-            SpecialType.System_String => "System.String",
-            SpecialType.System_Object => "System.Object",
-            SpecialType.System_Void => "System.Void",
-            SpecialType.System_DateTime => "System.DateTime",
-            _ => null,
-        };
+        private static string? GetSpecialTypeMetadataName(SpecialType specialType) =>
+            SpecialTypeMetadataNames.TryGetValue(specialType, out var name) ? name : null;
 
         private static string GetTypeMetadataName(ITypeSymbol type)
         {

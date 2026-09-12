@@ -694,6 +694,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
                 // Unspecified has no zone to convert; the established contract treats it as already-UTC
                 // (relabel), matching prior behavior, so only Local wall-clock time is converted.
+                DateTimeKind.Unspecified => DateTime.SpecifyKind(utc, DateTimeKind.Utc),
                 _ => DateTime.SpecifyKind(utc, DateTimeKind.Utc),
             };
             return new DateTimeOffset(normalized).ToUnixTimeMilliseconds();

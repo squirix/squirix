@@ -57,8 +57,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount);
         EventLoop = new JournalEventLoop(bridge, Ring, _segmentWriter, Options, eventLoopStartup, BackgroundCancellation.Token);
-        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, () => Ring.NotifyWorkAvailable(), Options)
-            : null;
+        GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
         _nextSequence = JournalRecoveryScan.DetermineNextSequence(manifest, Options);
@@ -506,6 +505,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 JournalOperationKind.Put or JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration or JournalOperationKind.TouchExpiration =>
                     RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue,
+                JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
+                    or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier
+                    or JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => record.MutationOperationId,
                 _ => record.MutationOperationId,
             };
 
@@ -594,11 +596,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         void IJournalEventLoopHost.FailPipeline(Exception reason) => _durabilityPipeline.FailJournalPipeline(reason);
 
-        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex) => _coordinator.Ledger.EnqueueRoll(
-            targetSegmentIndex,
-            Volatile.Read(ref _coordinator._nextSequence),
-            () => _durabilityPipeline.OnManifestRollSucceeded(),
-            ex => _durabilityPipeline.OnManifestRollFailed(ex));
+        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex)
+        {
+            var sequence = Volatile.Read(ref _coordinator._nextSequence);
+            _coordinator.Ledger.EnqueueRoll(targetSegmentIndex, sequence, _durabilityPipeline.OnManifestRollSucceeded, _durabilityPipeline.OnManifestRollFailed);
+        }
 
         void IJournalEventLoopHost.SetNextSequence(ulong value) => Volatile.Write(ref _coordinator._nextSequence, value);
 
