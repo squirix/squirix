@@ -44,6 +44,12 @@ internal sealed class JournalSegmentPolicy
 
     internal void EnsureRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) => EnsureCapacityOrThrow(onDiskSegmentCount + 1, onDiskTotalBytes);
 
+    /// <summary>Roll capacity check for a pre-created target (crash aftermath): the target file is already counted, so it must not consume another segment slot.</summary>
+    /// <param name="onDiskSegmentCount">Current on-disk journal segment count, including the pre-created target.</param>
+    /// <param name="onDiskTotalBytes">Current on-disk journal total bytes, including the pre-created target header.</param>
+    internal void EnsurePrecreatedRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) =>
+        EnsureCapacityOrThrow(onDiskSegmentCount, onDiskTotalBytes);
+
     internal bool ShouldRollSegment(long activeSegmentWrittenBytes, int incomingFrameBytes) => activeSegmentWrittenBytes + incomingFrameBytes > _maxSegmentBytes;
 
     private static int Clamp(int value, int defaultValue, int hardMax) => value <= 0 ? defaultValue : Math.Min(value, hardMax);

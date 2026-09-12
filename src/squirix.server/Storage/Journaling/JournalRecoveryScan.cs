@@ -3,8 +3,10 @@ using System.Buffers;
 using System.IO;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -36,7 +38,42 @@ internal static class JournalRecoveryScan
 
     internal static void PrepareActiveSegmentForSequenceScan(State manifest, PersistenceOptions options)
     {
-        var path = JournalReadPath.BuildSegmentPath(options.DataDir, manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal);
+        var currentJournal = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        PrepareSegmentForSequenceScan(options, currentJournal);
+
+        // The roll target may have been pre-created before its manifest publish (issue #439); a torn
+        // leftover there must not fail the sequence scan, so repair it the same way.
+        PrepareSegmentForSequenceScan(options, currentJournal + 1);
+    }
+
+    /// <summary>
+    /// Deletes orphaned roll-target temp files left by a crash between header staging and atomic publication.
+    /// Best-effort: temp files are invisible to segment enumeration and are truncated on reuse, so a cleanup
+    /// failure must not fail startup.
+    /// </summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    internal static void DeleteOrphanedRollTempFiles(string dataDir)
+    {
+        string[] files;
+        try
+        {
+            if (!Directory.Exists(dataDir))
+                return;
+
+            files = Directory.GetFiles(dataDir, $"{FilePrefixes.Journal}*.tmp", SearchOption.TopDirectoryOnly);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        foreach (var file in files)
+            _ = FileEx.TryDeleteFile(file);
+    }
+
+    private static void PrepareSegmentForSequenceScan(PersistenceOptions options, int segmentIndex)
+    {
+        var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
         if (!File.Exists(path))
             return;
 

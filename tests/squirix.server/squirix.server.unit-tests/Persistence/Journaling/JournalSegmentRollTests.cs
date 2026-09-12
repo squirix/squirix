@@ -32,7 +32,11 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken), ledger, new AsyncManualResetEvent(true));
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -75,6 +79,193 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task OverflowingAppendLandsOnNextRoll()
     {
         var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        await ledger.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+
+        Assert.Equal(2, (await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.False(ContainsPutKey(Dir, 1, "overflow-key"));
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+        return;
+
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
+    }
+
+    /// <summary>The roll target segment is created durably before the roll manifest is published.</summary>
+    [Fact]
+    public async Task RollPrecreatesSegmentBeforeManifest()
+    {
+        var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+
+        Exception? rollError = null;
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ledger.EnqueueRoll(
+            1,
+            1,
+            () => done.TrySetResult(),
+            ex =>
+            {
+                rollError = ex;
+                _ = done.TrySetResult();
+            });
+        await done.Task;
+        rollError.ThrowIfFaulted();
+
+        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], DefaultCancellationToken);
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+
+        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), DefaultCancellationToken);
+        Assert.True(journal.HasFlushLoopFailure);
+
+        // The manifest still advertises segment 1, but the roll already materialized segment 2.
+        Assert.Equal(1, (await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        var segmentTwoPath = SegmentPath(Dir, 2);
+        Assert.True(File.Exists(segmentTwoPath));
+        var header = await File.ReadAllBytesAsync(segmentTwoPath, DefaultCancellationToken);
+        Assert.True(header.Length >= JournalFraming.FileHeaderSize);
+        Assert.True(header.AsSpan(0, 4).SequenceEqual("SJRN"u8));
+        Assert.Equal(JournalFraming.Version, header[4]);
+    }
+
+    /// <summary>After a restart, a roll reuses a pre-created header-only target without double-counting it.</summary>
+    [Fact]
+    public async Task RestartReusesPrecreatedRollTarget()
+    {
+        var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        await using (var journal = JournalCoordinatorFactory.Create(
+                         options,
+                         await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+                         ledger,
+                         new AsyncManualResetEvent(true)))
+        {
+            var pipelined = Assert.IsType<JournalCoordinator>(journal);
+            var overflowPayload = new byte[LargePayloadSize];
+            Array.Fill(overflowPayload, Convert.ToByte('y'));
+            var overflowFrameLen = FrameLength(overflowPayload, CacheKey.Default("overflow-key"));
+            await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+        }
+
+        // Simulate the crash aftermath: a pre-created header-only segment 2 with the manifest still on 1.
+        var segmentTwoPath = SegmentPath(Dir, 2);
+        WriteHeaderOnlySegment(segmentTwoPath);
+
+        await using var restarted = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var restartedPipelined = Assert.IsType<JournalCoordinator>(restarted);
+        Assert.Equal(1, restartedPipelined.CurrentSegmentIndex);
+
+        var payload = new byte[LargePayloadSize];
+        Array.Fill(payload, Convert.ToByte('y'));
+        var key = CacheKey.Default("overflow-key");
+        await restarted.AppendPutAsync(key, payload, DefaultCancellationToken);
+        await restarted.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        await ledger.WaitUntilValueAsync(RolledToTwoAsync, DefaultCancellationToken);
+
+        Assert.Equal(2, (await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.Equal(2, restartedPipelined.CurrentSegmentIndex);
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+
+        // No double counting: in-memory totals match the on-disk layout.
+        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
+        Assert.Equal(2, segmentCount);
+        Assert.Equal(2, restartedPipelined.EventLoop.JournalSegmentCount);
+        Assert.Equal(totalBytes, restartedPipelined.UsedBytes);
+        Assert.Empty(Directory.GetFiles(Dir, "*.tmp"));
+        return;
+
+        static async ValueTask<bool> RolledToTwoAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
+    }
+
+    /// <summary>A torn pre-created roll target does not fail startup; it is repaired like the active segment.</summary>
+    [Fact]
+    public async Task TornPrecreatedTargetRepairedOnStartup()
+    {
+        var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, record);
+        await ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2, LastSnapshot = null }, DefaultCancellationToken);
+
+        // Torn roll target: 3 bytes, shorter than a valid header.
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), [0x53, 0x4A, 0x52], DefaultCancellationToken);
+
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+        Assert.Equal(2UL, journal.NextSequence);
+        Assert.Equal(1, pipelined.CurrentSegmentIndex);
+
+        var repaired = await File.ReadAllBytesAsync(SegmentPath(Dir, 2), DefaultCancellationToken);
+        Assert.Equal(JournalFraming.FileHeaderSize, repaired.Length);
+        Assert.True(repaired.AsSpan(0, 4).SequenceEqual("SJRN"u8));
+        Assert.Equal(JournalFraming.Version, repaired[4]);
+    }
+
+    /// <summary>Orphaned roll-target temp files are deleted on startup.</summary>
+    [Fact]
+    public async Task OrphanRollTempDeletedOnStartup()
+    {
+        var options = CreateOptions(Dir);
+        using var manifestStore = new Ledger(options);
+        var tmpPath = JournalReadPath.BuildRollTempPath(Dir, 5);
+        await File.WriteAllBytesAsync(tmpPath, [0x01, 0x02], DefaultCancellationToken);
+
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+
+        Assert.False(File.Exists(tmpPath));
+    }
+
+    /// <summary>A roll replaces a torn pre-created target; only the replacement delta enters the totals.</summary>
+    [Fact]
+    public async Task RollReplacesTornPrecreatedTarget()
+    {
+        var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
@@ -89,20 +280,134 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
+        // Foreign torn leftover at the roll target (2 bytes, created after startup stats).
+        const int tornLength = 2;
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), [0x53, 0x4A], DefaultCancellationToken);
+
         await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        await manifestStore.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+        await manifestStore.WaitUntilValueAsync(RolledToTwoAsync, DefaultCancellationToken);
 
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
-        Assert.False(ContainsPutKey(Dir, 1, "overflow-key"));
         Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+        var segmentTwoCopyPath = NodePathKit.Combine(NodePathKit.Combine(Dir, "torn-replaced-reader"), "seg2-copy.jsqx");
+        _ = Directory.CreateDirectory(NodePathKit.Combine(Dir, "torn-replaced-reader"));
+        File.Copy(SegmentPath(Dir, 2), segmentTwoCopyPath, true);
+        var segmentTwo = await File.ReadAllBytesAsync(segmentTwoCopyPath, DefaultCancellationToken);
+        Assert.True(segmentTwo.AsSpan(0, 4).SequenceEqual("SJRN"u8));
+        Assert.Equal(JournalFraming.Version, segmentTwo[4]);
+        Assert.Empty(Directory.GetFiles(Dir, "*.tmp"));
+
+        // The foreign torn bytes were never counted (single-writer model counts only writer-caused
+        // growth), so the total lags on-disk by exactly those bytes.
+        var (_, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
+        Assert.Equal(totalBytes - tornLength, pipelined.UsedBytes);
         return;
 
-        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        static async ValueTask<bool> RolledToTwoAsync(Ledger s, CancellationToken ct)
         {
             return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
         }
+    }
+
+    /// <summary>After a restart, a roll reuses a target that already holds frames without truncating it.</summary>
+    [Fact]
+    public async Task RestartReusesSegmentWithFrames()
+    {
+        var options = CreateOptions(Dir);
+        using var manifestStore = new Ledger(options);
+        await using (var journal = JournalCoordinatorFactory.Create(
+                         options,
+                         await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+                         manifestStore,
+                         new AsyncManualResetEvent(true)))
+        {
+            var pipelined = Assert.IsType<JournalCoordinator>(journal);
+            var overflowPayload = new byte[LargePayloadSize];
+            Array.Fill(overflowPayload, Convert.ToByte('y'));
+            var overflowFrameLen = FrameLength(overflowPayload, CacheKey.Default("overflow-key"));
+            await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+        }
+
+        // Pre-existing segment above the manifest journal, holding a record (crash/foreign aftermath).
+        var preexisting = BinaryJournalTestSegmentWriter.BuildPutRecord(100_000UL, "preexisting", "v");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 2, preexisting);
+
+        await using var restarted = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var restartedPipelined = Assert.IsType<JournalCoordinator>(restarted);
+        Assert.Equal(1, restartedPipelined.CurrentSegmentIndex);
+        Assert.Equal(100_001UL, restarted.NextSequence);
+
+        var payload = new byte[LargePayloadSize];
+        Array.Fill(payload, Convert.ToByte('y'));
+        await restarted.AppendPutAsync(CacheKey.Default("overflow-key"), payload, DefaultCancellationToken);
+        await restarted.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        await manifestStore.WaitUntilValueAsync(RolledToTwoAsync, DefaultCancellationToken);
+
+        Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+        Assert.True(ContainsPutKey(Dir, 2, "preexisting"));
+
+        // Reuse adds nothing: in-memory totals match the on-disk layout exactly.
+        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
+        Assert.Equal(2, segmentCount);
+        Assert.Equal(2, restartedPipelined.EventLoop.JournalSegmentCount);
+        Assert.Equal(totalBytes, restartedPipelined.UsedBytes);
+        return;
+
+        static async ValueTask<bool> RolledToTwoAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
+    }
+
+    /// <summary>Startup creates a missing data directory instead of failing.</summary>
+    [Fact]
+    public async Task StartupCreatesMissingDataDir()
+    {
+        var dataDir = NodePathKit.Combine(Dir, "auto-created");
+        var options = CreateOptions(dataDir);
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null },
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        await journal.AppendPutAsync(CacheKey.Default("k"), new byte[] { 1, 2, 3 }, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        Assert.True(Directory.Exists(dataDir));
+        Assert.Equal(1, pipelined.CurrentSegmentIndex);
+    }
+
+    /// <summary>An existing zero-length segment does not fail startup.</summary>
+    [Fact]
+    public async Task ZeroLengthSegmentStartsUp()
+    {
+        var options = CreateOptions(Dir);
+        using var manifestStore = new Ledger(options);
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 1), [], DefaultCancellationToken);
+        await manifestStore.WriteAsync(
+            new State { Format = 1, CurrentJournal = 1, NextSequence = 7, LastSnapshot = null },
+            DefaultCancellationToken);
+
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        Assert.Equal(7UL, journal.NextSequence);
+        Assert.Equal(1, pipelined.CurrentSegmentIndex);
     }
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
@@ -174,4 +479,12 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     }
 
     private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
+
+    private static void WriteHeaderOnlySegment(string path)
+    {
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        RandomAccess.Write(handle, header, 0);
+    }
 }

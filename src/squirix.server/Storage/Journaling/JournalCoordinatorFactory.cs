@@ -11,6 +11,7 @@ internal static class JournalCoordinatorFactory
     internal static IJournalCoordinator Create(PersistenceOptions persistence, State manifest, Ledger store, AsyncManualResetEvent gate)
     {
         ArgumentNullException.ThrowIfNull(persistence);
+        JournalRecoveryScan.DeleteOrphanedRollTempFiles(persistence.DataDir);
         JournalRecoveryScan.PrepareActiveSegmentForSequenceScan(manifest, persistence);
         return new JournalCoordinator(persistence, manifest, store, gate);
     }
