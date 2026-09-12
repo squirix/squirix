@@ -215,6 +215,84 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A roll target with a corrupt header is replaced instead of failing the roll.</summary>
+    [Fact]
+    public async Task RollReplacesCorruptTargetHeader()
+    {
+        var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+
+        // Header-sized garbage: length checks pass, header validation throws inside
+        // the provisioner, which must fall back to replacing the target.
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), new byte[JournalFraming.FileHeaderSize], DefaultCancellationToken);
+
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        await ledger.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+
+        Assert.Equal(2, (await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+        Assert.False(journal.HasFlushLoopFailure);
+        return;
+
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
+    }
+
+    /// <summary>A roll target whose stats cannot be read is treated as missing instead of failing the roll.</summary>
+    [Fact]
+    public async Task RollSurvivesUnreadableTargetStat()
+    {
+        var options = CreateOptions(Dir);
+        using var ledger = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            ledger,
+            new AsyncManualResetEvent(true));
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+
+        var overflowPayload = new byte[LargePayloadSize];
+        Array.Fill(overflowPayload, Convert.ToByte('y'));
+        var overflowKey = CacheKey.Default("overflow-key");
+        var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
+        await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
+
+        var targetPath = SegmentPath(Dir, 2);
+        WriteHeaderOnlySegment(targetPath);
+        if (!TryMakeUnreadable(targetPath))
+            Assert.Skip("This environment cannot deny file reads (needs POSIX permissions).");
+
+        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await ledger.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+
+        Assert.Equal(2, (await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        Assert.True(ContainsPutKey(Dir, 2, "overflow-key"));
+        Assert.False(journal.HasFlushLoopFailure);
+        return;
+
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
+    }
+
     /// <summary>A torn pre-created roll target does not fail startup; it is repaired like the active segment.</summary>
     [Fact]
     public async Task TornPrecreatedTargetRepairedOnStartup()
@@ -479,6 +557,26 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     }
 
     private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
+
+    private static bool TryMakeUnreadable(string path)
+    {
+        // POSIX denies the stat itself while the directory stays writable for the replace.
+        // The probe below also guards elevated environments (root) where permissions
+        // are not enforced: without a failing stat the test would prove nothing.
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try
+        {
+            _ = new FileInfo(path).Length;
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
 
     private static void WriteHeaderOnlySegment(string path)
     {

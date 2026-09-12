@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalDurabilityCoordinator
 {
+    private static readonly TimeSpan MaintenanceAbortBound = TimeSpan.FromSeconds(5);
+
     private readonly ILogger _logger;
     private readonly IJournalCoordinatorState _owner;
     private readonly JournalProducerGate _producerGate;
@@ -99,35 +102,53 @@ internal sealed class JournalDurabilityCoordinator
         }
 
         await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        await action(cancellationToken).ConfigureAwait(false);
 
-        var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
-
-        var end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _producerGate.Enter();
+        // The End ack wait stays outside the try: once End is enqueued, the layout is consistent,
+        // so cancelling the wait is harmless and must not poison the pipeline.
+        // The catch below always rethrows, so reaching the wait proves End was enqueued.
+        TaskCompletionSource end;
         try
         {
-            _producerGate.ThrowIfShutdownInitiated();
-            var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
-            await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+            await action(cancellationToken).ConfigureAwait(false);
+
+            var manifest = await _owner.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+            var resetSequence = JournalRecoveryScan.DetermineNextSequence(manifest, _owner.Options);
+
+            end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _producerGate.Enter();
+            try
+            {
+                _producerGate.ThrowIfShutdownInitiated();
+                var endItem = JournalWorkItem.MaintenanceEnd(end, resetSegmentIndex, resetSequence);
+                await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _producerGate.Exit();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            _producerGate.Exit();
+            // Being was processed but End never entered the ring: the segment path is released
+            // while the in-memory counters are stale. Fail the pipeline loudly first (unconditional),
+            // then resync best-effort for observability. Rollback is impossible in general (the disk
+            // is already mutated), so the failed pipeline requires a restart.
+            _owner.SetJournalThreadFailure(ex);
+            _ = await TryPublishMaintenanceAbortAsync().ConfigureAwait(false);
+            throw;
         }
 
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Enqueues the shutdown marker, or fails disposal loudly when it cannot enter.</summary>
+    /// <summary>Enqueues the shutdown marker or fails disposal loudly when it cannot enter.</summary>
     /// <param name="failures">Disposal failures to record a marker timeout into.</param>
     /// <param name="cancellationToken">Budget for the marker wait; cancellation aborts disposal.</param>
     /// <returns>A task that completes when the marker entered the ring.</returns>
     internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, CancellationToken cancellationToken)
     {
-        // On a wedged thread with a full ring the marker wait would otherwise hang disposal
+        // On a wedged thread with a full ring, the marker wait would otherwise hang disposal
         // forever, before the join timeout below ever gets to report.
         try
         {
@@ -137,7 +158,7 @@ internal sealed class JournalDurabilityCoordinator
         {
             // Without the marker, canceling or tearing down now would let the live thread exit
             // with queued frames unwritten. Fail reachable waiters explicitly and stop instead,
-            // keeping writer, ring, and gates alive.
+            // keeping the writer, ring, and gates alive.
             LogManager.JournalShutdownMarkerTimedOut(_logger);
             _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
             FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
@@ -165,7 +186,7 @@ internal sealed class JournalDurabilityCoordinator
             return;
 
         // Producers never quiesced: publishing the marker now could let it overtake an admitted
-        // append. Fail reachable waiters explicitly and stop instead of proceeding into
+        // appending. Fail reachable waiters explicitly and stop instead of proceeding into
         // marker/join/teardown with a broken ordering guarantee.
         LogManager.JournalProducerQuiescenceTimedOut(_logger);
         _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
@@ -228,6 +249,12 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
+    private static TimeSpan RemainingMaintenanceAbortTime(long deadline)
+    {
+        var remainingMs = deadline - Environment.TickCount64;
+        return remainingMs <= 0 ? throw new TimeoutException("Maintenance abort exceeded its bound.") : TimeSpan.FromMilliseconds(remainingMs);
+    }
+
     private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
 
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
@@ -257,7 +284,7 @@ internal sealed class JournalDurabilityCoordinator
             _producerGate.Exit();
         }
 
-        // The durability wait stays outside the gate: the gate covers only the publish, so a slow
+        // The durability wait stays outside the gate: the gate covers only the publication, so a slow
         // journal thread never blocks shutdown drain on fsync latency.
         try
         {
@@ -283,6 +310,51 @@ internal sealed class JournalDurabilityCoordinator
             return;
 
         _ = ack.TrySetCanceled(cancellationToken);
+    }
+
+    /// <summary>Best-effort maintenance abort publish for observability on a failed pipeline.</summary>
+    /// <returns>Whether the abort was published and acked before the bound expired.</returns>
+    private async ValueTask<bool> TryPublishMaintenanceAbortAsync()
+    {
+        // During shutdown teardown already fails waiters loudly; an abort there is pointless work.
+        // This check is only an optimization: the ring is FIFO, so either Abort/marker order is safe.
+        if (_producerGate.IsShutdownInitiated)
+            return false;
+
+        // Enter without ThrowIfShutdownInitiated: Enter is a plain in-flight counter, so the
+        // quiescence accounting stays intact and the shutdown marker cannot overtake this publication.
+        var deadline = Environment.TickCount64 + Convert.ToInt64(MaintenanceAbortBound.TotalMilliseconds);
+        _producerGate.Enter();
+        try
+        {
+            var abortAck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var enqueueCts = new CancellationTokenSource(RemainingMaintenanceAbortTime(deadline));
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.MaintenanceAbort(abortAck), enqueueCts.Token).ConfigureAwait(false);
+            using var ackCts = new CancellationTokenSource(RemainingMaintenanceAbortTime(deadline));
+            await abortAck.Task.WaitAsync(ackCts.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception abortEx) when (abortEx is OperationCanceledException or TimeoutException or ObjectDisposedException or IOException or UnauthorizedAccessException
+                                            or ArgumentException)
+        {
+            // The abort is diagnostics-only on an already-failed pipeline: log it as suppressed.
+            // The pipeline failure slot was already poisoned by the caller with the original error.
+            LogManager.MaintenanceAbortFailed(_logger, abortEx);
+            return false;
+        }
+        catch (Exception unexpectedEx) when (unexpectedEx is not (OperationCanceledException or TimeoutException or ObjectDisposedException or IOException
+                                                 or UnauthorizedAccessException or ArgumentException))
+        {
+            // Total guard: anything outside the expected set (framework bugs, fatal runtime errors)
+            // must still never replace the original error awaiting the caller. The caller
+            // already poisoned the pipeline failure slot, so logging here preserves the loud failure.
+            LogManager.MaintenanceAbortFailed(_logger, unexpectedEx);
+            return false;
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
     }
 
     private sealed class JoinJournalThreadWork : IWorkPoolItem
