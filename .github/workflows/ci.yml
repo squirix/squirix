@@ -1220,6 +1220,9 @@ jobs:
                       "/d:sonar.qualitygate.wait=false"
                       "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/src/squirix.protocol-model/Program.cs,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
+                      # Intentional cross-assembly twins (nsdepcop forbids references in both directions,
+                      # so the metadata chain engine cannot be shared): excluded from duplication only.
+                      "/d:sonar.cpd.exclusions=**/src/squirix/ClientSerializerMetadata.cs,**/src/squirix.server/Core/ServerSerializerMetadata.cs"
                       "/d:sonar.cs.cobertura.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.cobertura.xml"
                     )
 

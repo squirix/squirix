@@ -657,6 +657,8 @@ dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (
 dotnet_diagnostic.SA1615.severity = none # Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant)
 
 [tests/**]
+dotnet_diagnostic.S1075.severity = none # S1075 (hardcoded URI) is test data, not prod concern
+dotnet_diagnostic.CA1822.severity = none # CA1822 (mark members as static) not applicable to xUnit v3 AOT (test methods must be instance for source gen)
 dotnet_diagnostic.VSTHRD111.severity = none # VSTHRD111 (ConfigureAwait(bool)) targets production code; test classes with [Fact] are excluded
 dotnet_diagnostic.CA1515.severity = none # test classes and fixtures must stay public for xUnit discovery
 dotnet_diagnostic.CA2007.severity = none # no SynchronizationContext in tests; ConfigureAwait is noise

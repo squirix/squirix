@@ -23,7 +23,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = state.TryResolve("client", "operation", [7, 8], 4UL, 2UL);
 
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "operation", [1], out var record));
-        Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8], record.OutcomePayload.ToArray());
         Assert.Equal(GroupIdempotencyLookup.Mismatch, state.Lookup("client", "operation", [2], out _));
 
         // Re-reserving the same identity with a differing fingerprint must be rejected rather than treated as idempotent.
@@ -84,7 +84,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         // TryResolve against the new coordinates must succeed (previously failed on the stale coordinates).
         Assert.True(state.TryResolve("client", "operation", [7, 8], 10UL, 3UL));
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "operation", [1], out var record));
-        Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8], record.OutcomePayload.ToArray());
 
         // The resolved record no longer stays unresolved forever; after retention it expires and frees the slot.
         clock.Advance(TimeSpan.FromHours(2));
@@ -110,7 +110,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "operation", [1], out var record));
         Assert.Equal(4UL, record.LogIndex);
         Assert.Equal(2UL, record.Term);
-        Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8], record.OutcomePayload.ToArray());
     }
 
     /// <summary>Repeated resolution with identical coordinates fails and keeps the original outcome and resolution timestamp.</summary>
@@ -129,7 +129,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         Assert.False(state.TryResolve("client", "operation", [9], 4UL, 2UL));
 
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "operation", [1], out var record));
-        Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8], record.OutcomePayload.ToArray());
         Assert.Equal(resolvedUtc, record.ResolvedUtc);
     }
 
@@ -147,7 +147,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         outcome[0] = 0xFF;
 
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "operation", [1, 2, 3], out var record));
-        Assert.Equal(new byte[] { 7, 8, 9 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8, 9], record.OutcomePayload.ToArray());
         Assert.True(record.IsResolved);
     }
 

@@ -1,4 +1,5 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 using System.Diagnostics;
 
 var output = Console.Out;

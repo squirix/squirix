@@ -147,7 +147,7 @@ public static class ExportedApiMetadata
     /// <summary>Formatting and naming helpers for exported API identity strings.</summary>
     private static class ApiIdentityFormatting
     {
-        private static readonly FrozenDictionary<SpecialType, string> SpecialTypeMetadataNames = new Dictionary<SpecialType, string>()
+        private static readonly FrozenDictionary<SpecialType, string> SpecialTypeMetadataNames = new Dictionary<SpecialType, string>
         {
             [SpecialType.System_Boolean] = "System.Boolean",
             [SpecialType.System_Byte] = "System.Byte",

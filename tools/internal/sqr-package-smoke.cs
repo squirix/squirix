@@ -1,9 +1,11 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
@@ -99,37 +101,33 @@ finally
 
 static string BuildSettingsJson(string uri)
 {
-    var settings = new
+    var peer = new JsonObject
     {
-        Squirix = new
+        ["NodeId"] = "external-smoke",
+        ["Uri"] = uri,
+    };
+    var cluster = new JsonObject
+    {
+        ["NodeId"] = "external-smoke",
+        ["Uri"] = uri,
+        ["VirtualNodes"] = 128,
+        ["Peers"] = new JsonArray(peer),
+    };
+    var settings = new JsonObject
+    {
+        ["Squirix"] = new JsonObject
         {
-            Cluster = new
-            {
-                NodeId = "external-smoke",
-                Uri = uri,
-                VirtualNodes = 128,
-                Peers = new[]
-                {
-                    new
-                    {
-                        NodeId = "external-smoke",
-                        Uri = uri,
-                    },
-                },
-            },
+            ["Cluster"] = cluster,
         },
     };
 
-#pragma warning disable ZA1001 // Ad-hoc smoke settings DTO; source generation is not worth the ceremony here.
-    return JsonSerializer.Serialize(
-        settings,
+    return settings.ToJsonString(
         new JsonSerializerOptions
         {
             WriteIndented = true,
             RespectNullableAnnotations = false,
             RespectRequiredConstructorParameters = false,
         });
-#pragma warning restore ZA1001
 }
 
 static int GetFreeTcpPort()

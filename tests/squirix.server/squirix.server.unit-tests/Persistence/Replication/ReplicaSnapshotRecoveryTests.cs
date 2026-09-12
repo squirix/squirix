@@ -97,7 +97,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
         var reopenedStatus = await reopened.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(new byte[] { 5, 6, 7, 8 }, reopenedStatus.TopologyFingerprint.ToArray());
+        Assert.Equal([5, 6, 7, 8], reopenedStatus.TopologyFingerprint.ToArray());
         Assert.Equal(0UL, reopenedStatus.CommitIndex);
         Assert.Equal(0UL, reopenedStatus.LastAppliedIndex);
         Assert.Equal(GroupIdempotencyLookup.Miss, reopened.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out _));

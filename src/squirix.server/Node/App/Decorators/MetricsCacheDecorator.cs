@@ -63,7 +63,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.Set,
         static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         cancellationToken);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ObserveAsync(
@@ -78,7 +78,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.TryAdd,
         static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
@@ -86,7 +86,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
-        new UpdateArgs(operationId, cacheName, key, value),
+        new UpdateArgs<T>(operationId, cacheName, key, value),
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
@@ -191,19 +191,4 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         operation,
         result,
         Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
-
-    [Immutable]
-    private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
-
-    [Immutable]
-    private readonly record struct ReadKeyArgs(string CacheName, string Key);
-
-    [Immutable]
-    private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
-
-    [Immutable]
-    private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
-
-    [Immutable]
-    private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 }

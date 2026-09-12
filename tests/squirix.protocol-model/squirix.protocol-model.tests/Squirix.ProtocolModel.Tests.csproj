@@ -11,7 +11,4 @@
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
-    <ItemGroup>
-        <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
 </Project>

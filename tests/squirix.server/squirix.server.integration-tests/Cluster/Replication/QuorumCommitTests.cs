@@ -19,7 +19,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
         try
         {
             var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, result.ToArray());
+            Assert.Equal([7], result.ToArray());
             Assert.Equal(2, pipeline.FollowerCalls);
             Assert.Equal(1UL, pipeline.CommitIndex);
             Assert.Equal(1UL, pipeline.AppliedIndex);
@@ -40,7 +40,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
 
         var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
 
-        Assert.Equal(new byte[] { 7 }, result.ToArray());
+        Assert.Equal([7], result.ToArray());
         Assert.Equal(2, pipeline.FollowerCalls);
         Assert.Equal(1UL, pipeline.CommitIndex);
         Assert.Equal(1UL, pipeline.AppliedIndex);

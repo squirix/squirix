@@ -406,6 +406,7 @@ internal sealed class JournalDurabilityCoordinator
     }
 
     /// <summary>Tracked maintenance publish and wait for the durability coordinator.</summary>
+    [Immutable]
     private sealed class MaintenancePublisher
     {
         private readonly JournalDurabilityCoordinator _pipeline;

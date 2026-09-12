@@ -49,7 +49,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithDeadlineAsync(
         static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         cancellationToken);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => WithDeadlineAsync(
@@ -59,12 +59,12 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithDeadlineAsync(
         static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         cancellationToken);
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => WithDeadlineAsync(
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
-        new UpdateArgs(operationId, cacheName, key, value),
+        new UpdateArgs<T>(operationId, cacheName, key, value),
         cancellationToken);
 
     private bool ShouldApplyPipelineDeadline(CancellationToken cancellationToken, out TimeSpan budget)
@@ -128,19 +128,4 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw;
         }
     }
-
-    [Immutable]
-    private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
-
-    [Immutable]
-    private readonly record struct ReadKeyArgs(string CacheName, string Key);
-
-    [Immutable]
-    private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
-
-    [Immutable]
-    private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
-
-    [Immutable]
-    private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 }

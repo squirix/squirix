@@ -213,12 +213,8 @@ public static class NodeExportedApiMetadata
             return true;
         }
 
-        internal static bool IsOrdinaryMethod(IMethodSymbol method)
-        {
-            return method.MethodKind is MethodKind.Constructor
-                || method.Name.StartsWith("op_", StringComparison.Ordinal)
-                || method.MethodKind is MethodKind.Ordinary;
-        }
+        internal static bool IsOrdinaryMethod(IMethodSymbol method) => method.MethodKind is MethodKind.Constructor || method.Name.StartsWith("op_", StringComparison.Ordinal) ||
+                                                                       method.MethodKind is MethodKind.Ordinary;
 
         private static string FormatGenericTypeName(INamedTypeSymbol namedType)
         {
@@ -262,8 +258,7 @@ public static class NodeExportedApiMetadata
             return ns == null || ns is { IsGlobalNamespace: true } ? string.Empty : ns.ToDisplayString();
         }
 
-        private static string? GetSpecialTypeMetadataName(SpecialType specialType) =>
-            SpecialTypeMetadataNames.TryGetValue(specialType, out var name) ? name : null;
+        private static string? GetSpecialTypeMetadataName(SpecialType specialType) => SpecialTypeMetadataNames.GetValueOrDefault(specialType);
 
         private static string GetTypeMetadataName(ITypeSymbol type)
         {

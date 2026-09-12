@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
 
@@ -19,7 +17,7 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int FlushInterval { get; init; } = PersistenceOptionsDefaults.FlushInterval;
 
-    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
+    /// <summary>Gets a value indicating whether a journal group commit is enabled.</summary>
     internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
@@ -29,7 +27,7 @@ internal sealed record PersistenceOptions
 
     /// <summary>
     /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
-    /// When zero, group commit is disabled and each durable mutation flushes independently.
+    /// When zero, a group commit is disabled and each durable mutation flushes independently.
     /// </summary>
     [JsonPropertyName("journalGroupCommitMaxWait")]
     [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
@@ -57,9 +55,8 @@ internal sealed record PersistenceOptions
     internal JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
 
     /// <summary>
-    /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is
-    /// allocated lazily on first staged append. Frames larger than this value bypass coalescing and
-    /// are written directly.
+    /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is allocated lazily on the first-staged appending.
+    /// Frames larger than this value bypass coalescing and are written directly.
     /// </summary>
     [JsonPropertyName("journalWriteBatch")]
     [JsonInclude]
@@ -70,11 +67,6 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int ManifestRetentionCount { get; init; } = PersistenceOptionsDefaults.ManifestRetentionCount;
 
-    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
-    [JsonPropertyName("retentionCleanupDegradedWrites")]
-    [JsonInclude]
-    internal int RetentionCleanupDegradedWrites { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWrites;
-
     /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
     [JsonPropertyName("retentionCleanupDegradedWindowFailures")]
     [JsonInclude]
@@ -84,6 +76,11 @@ internal sealed record PersistenceOptions
     [JsonPropertyName("retentionCleanupDegradedWindowMinutes")]
     [JsonInclude]
     internal int RetentionCleanupDegradedWindowMinutes { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWindowMinutes;
+
+    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
+    [JsonPropertyName("retentionCleanupDegradedWrites")]
+    [JsonInclude]
+    internal int RetentionCleanupDegradedWrites { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWrites;
 
     /// <summary>Gets the number of snapshots to retain before pruning older snapshots.</summary>
     [JsonPropertyName("snapshotRetentionCount")]
@@ -125,11 +122,8 @@ internal sealed record PersistenceOptions
         /// <summary>Default per-coordinator journal write-coalescing buffer size in bytes.</summary>
         internal const int JournalWriteBatch = 16 * 1024 * 1024;
 
-        /// <summary>Default number of manifest versions retained before pruning.</summary>
+        /// <summary>The default number of manifest versions retained before pruning.</summary>
         internal const int ManifestRetentionCount = 3;
-
-        /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
-        internal const int RetentionCleanupDegradedWrites = 3;
 
         /// <summary>Default retention-cleanup failures inside the degradation window required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWindowFailures = 5;
@@ -137,27 +131,13 @@ internal sealed record PersistenceOptions
         /// <summary>Default sliding window in minutes for counting retention-cleanup failures.</summary>
         internal const int RetentionCleanupDegradedWindowMinutes = 15;
 
+        /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
+        internal const int RetentionCleanupDegradedWrites = 3;
+
         /// <summary>Default number of snapshots retained before pruning.</summary>
         internal const int SnapshotRetentionCount = 3;
 
-        /// <summary>Default maximum wait for additional journal appends before a shared durability flush; zero disables group commit.</summary>
+        /// <summary>Default maximum wait for an additional journal appends before a shared durability flush; zero disables group commit.</summary>
         internal static readonly TimeSpan JournalGroupCommitMaxWait = TimeSpan.Zero;
-    }
-
-    private sealed class MillisecondsTimeSpanJsonConverter : JsonConverter<TimeSpan>
-    {
-        public override TimeSpan Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        {
-            if (reader.TokenType is JsonTokenType.Number && reader.TryGetInt64(out var milliseconds))
-                return TimeSpan.FromMilliseconds(milliseconds);
-
-            if (reader.TokenType != JsonTokenType.String)
-                throw new JsonException("Expected a millisecond count or TimeSpan string.");
-            var text = reader.GetString();
-            var isParsed = TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed);
-            return text != null && isParsed ? parsed : throw new JsonException("Expected a millisecond count or TimeSpan string.");
-        }
-
-        public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options) => writer.WriteNumberValue(Convert.ToInt64(value.TotalMilliseconds));
     }
 }

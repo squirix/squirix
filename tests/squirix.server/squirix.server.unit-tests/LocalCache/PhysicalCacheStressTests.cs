@@ -77,17 +77,18 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
     /// the store above its capacity. A ghost entry (present in the store but missing from the
     /// eviction order) is never evicted, so the store grows past the bound permanently.
     /// </summary>
-    /// <param name="policy">The eviction policy to load-test.</param>
+    /// <param name="policyInt">The eviction policy to load-test.</param>
     [Theory]
-    [InlineData(EvictionPolicyType.Lru)]
-    [InlineData(EvictionPolicyType.Fifo)]
-    [InlineData(EvictionPolicyType.Lfu)]
-    internal async Task ConcurrentSetRemoveKeepsCapacityBounded(EvictionPolicyType policy)
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task ConcurrentSetRemoveKeepsCapacityBounded(int policyInt)
     {
         const int capacity = 32;
         const int keyCount = 64;
         const int workers = 8;
         const int iterations = 25_000;
+        var policy = System.Runtime.CompilerServices.Unsafe.As<int, EvictionPolicyType>(ref policyInt);
         var cache = new PhysicalCache<string>(null, new EvictionOptions { Capacity = capacity, Policy = policy });
         var keys = CreateKeys(keyCount);
 

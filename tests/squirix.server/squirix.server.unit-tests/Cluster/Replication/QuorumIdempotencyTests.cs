@@ -34,7 +34,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
         Assert.True(state.TryResolve("client", "op-a", [7, 8], 1, 1));
         Assert.Equal(GroupIdempotencyLookup.Found, state.Lookup("client", "op-a", [1], out var record));
-        Assert.Equal(new byte[] { 7, 8 }, record.OutcomePayload.ToArray());
+        Assert.Equal([7, 8], record.OutcomePayload.ToArray());
         Assert.Equal(GroupIdempotencyLookup.Mismatch, state.Lookup("client", "op-a", [9], out _));
     }
 

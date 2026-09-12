@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,8 +31,28 @@ public sealed class SquirixClientOptions
     public IList<Uri> Endpoints { get; } = [];
 
     /// <summary>
+    /// Gets application-provided source-generation contexts consulted by the default serializer
+    /// when resolving cache value metadata.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     Contexts are registered when the session connects. Registration is additive and process-wide
+    ///     (duplicates are ignored); the built-in default context is always consulted first, so this
+    ///     collection only needs contexts covering application-specific cache value types.
+    ///     </para>
+    ///     <para>
+    ///     Only the default serializer uses this chain. A custom <see cref="Serializer" /> implementation
+    ///     is responsible for its own metadata. Source-generated contexts keep NativeAOT trimming safe:
+    ///     types without registered metadata throw <see cref="InvalidOperationException" /> instead of
+    ///     falling back to reflection.
+    ///     </para>
+    /// </remarks>
+    public IList<JsonSerializerContext> JsonSerializerContexts { get; } = [];
+
+    /// <summary>
     /// Gets or sets the serializer implementation used by the client session created from these options.
-    /// Leave null to use the default <see cref="SystemTextJsonSerializer" /> for this client.
+    /// Leave null to use the default <see cref="SystemTextJsonSerializer" /> for this client,
+    /// extended with <see cref="JsonSerializerContexts" />.
     /// </summary>
     /// <remarks>
     ///     <para>

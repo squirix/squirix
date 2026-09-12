@@ -84,9 +84,17 @@ public sealed class SquirixClient : ISquirixClient
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        RegisterSerializerContexts(options);
         var session = await RemoteClientSessionFactory.ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, cancellationToken)
-                                                      .ConfigureAwait(false);
+                                                       .ConfigureAwait(false);
         return new SquirixClient(session);
+    }
+
+    internal static void RegisterSerializerContexts(SquirixClientOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        foreach (var context in options.JsonSerializerContexts)
+            ClientSerializerMetadata.RegisterContext(context);
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

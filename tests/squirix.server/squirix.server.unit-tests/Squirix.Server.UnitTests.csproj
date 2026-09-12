@@ -26,7 +26,4 @@
             <_Parameter2>$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine($(MSBuildProjectDirectory), '..', '..', '..'))'))</_Parameter2>
         </AssemblyAttribute>
     </ItemGroup>
-    <ItemGroup>
-        <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
 </Project>

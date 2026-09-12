@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Core;
@@ -33,13 +34,13 @@ internal static class ServerProtoEx
         };
     }
 
-    internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
+    internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value, JsonTypeInfo<T>? typeInfo = null)
     {
         return true switch
         {
             _ when typeof(T) == typeof(object) => new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value))),
             _ when TryDecodeExactWirePrimitive(value, out T? exact) => new ValueTask<T?>(exact),
-            _ => FinishMapCacheValueAfterExactMissAsync<T>(value),
+            _ => FinishMapCacheValueAfterExactMissAsync(value, typeInfo),
         };
     }
 
@@ -82,35 +83,35 @@ internal static class ServerProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    private static T? DeserializeFromProtoValue<T>(Value value)
+    private static T? DeserializeFromProtoValue<T>(Value value, JsonTypeInfo<T>? typeInfo = null)
     {
         var buffer = ValueJson.WriteValueToBuffer(value);
-        return SerializerProvider.Deserialize<T>(buffer.WrittenSpan);
+        return SerializerProvider.Deserialize(buffer.WrittenSpan, typeInfo);
     }
 
-    private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire)
+    private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo = null)
     {
         var kind = wire.KindCase;
         return kind switch
         {
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
-            CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct<T>(structValue)),
+            CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct(structValue, typeInfo)),
             CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
-                or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire))),
+                or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(FromStruct(WrapWireScalarAsStruct(wire), typeInfo)),
             _ => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
         };
     }
 
-    private static T? FromStruct<T>(Struct s) => typeof(T) == typeof(object) ? FromStructAsObject<T>(s) : FromStructAsDeclaredType<T>(s);
+    private static T? FromStruct<T>(Struct s, JsonTypeInfo<T>? typeInfo = null) => typeof(T) == typeof(object) ? FromStructAsObject<T>(s) : FromStructAsDeclaredType(s, typeInfo);
 
-    private static T? FromStructAsDeclaredType<T>(Struct s)
+    private static T? FromStructAsDeclaredType<T>(Struct s, JsonTypeInfo<T>? typeInfo = null)
     {
         var value = s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var onlyWrapped) ? onlyWrapped : null;
         return value switch
         {
-            null => DeserializeFromProtoValue<T>(Value.ForStruct(s)),
-            _ => TryReadScalarValue<T>(value, out var scalar) ? scalar : DeserializeFromProtoValue<T>(value),
+            null => DeserializeFromProtoValue(Value.ForStruct(s), typeInfo),
+            _ => TryReadScalarValue<T>(value, out var scalar) ? scalar : DeserializeFromProtoValue(value, typeInfo),
         };
     }
 
