@@ -208,7 +208,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             for (var i = 0; i < name.Length; i++)
             {
                 var ch = name[i];
-                if (ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' || ch == '_' || (allowColon && ch == ':'))
+                if (ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') || ch == '_' || (allowColon && ch == ':'))
                     _ = sb.Append(ch);
                 else
                     _ = sb.Append('_');

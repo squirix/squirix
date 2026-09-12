@@ -96,7 +96,8 @@ internal static class ServerProtoEx
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
             CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct<T>(structValue)),
             CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
-            _ when IsWireScalarKind(kind) => new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire))),
+            CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
+                or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(FromStruct<T>(WrapWireScalarAsStruct(wire))),
             _ => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
         };
     }
@@ -122,13 +123,6 @@ internal static class ServerProtoEx
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return Coerce<T>(document.RootElement.Clone());
     }
-
-    private static bool IsWireScalarKind(CacheValue.KindOneofCase kind) => kind switch
-    {
-        CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
-            or CacheValue.KindOneofCase.DoubleValue => true,
-        _ => false,
-    };
 
     private static object? MapCacheValueAsObject(CacheValue value) => value.KindCase switch
     {
