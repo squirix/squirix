@@ -16,7 +16,6 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
 {
-    private ISquirixClient? _client;
     private HostedCluster? _cluster;
 
     /// <summary>Initializes a new instance of the <see cref="ClockTestBase" /> class.</summary>
@@ -27,7 +26,11 @@ public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
 
     /// <summary>Gets the SDK client connected to this test's node.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the test cluster is not initialized.</exception>
-    protected ISquirixClient Client => E2EThrowHelper.Required(_client, "Test cluster is not initialized.");
+    protected ISquirixClient Client
+    {
+        get => E2EThrowHelper.Required(field, "Test cluster is not initialized.");
+        private set;
+    }
 
     /// <summary>Gets the fake clock driving this test's node. Advance it instead of sleeping for deterministic expiry.</summary>
     protected FakeTimeProvider Clock { get; }
@@ -45,6 +48,6 @@ public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         _cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: Clock, cancellationToken: DefaultCancellationToken);
-        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
+        Client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
     }
 }

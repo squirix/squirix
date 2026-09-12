@@ -28,7 +28,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Fact]
     public static void FollowFailsWhenRootNotALink()
     {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        var root = Path.GetPathRoot(Path.GetTempPath());
         var candidate = Path.Join(root, "tmp");
         var info = new DirectoryInfo(candidate);
 
@@ -53,7 +53,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         Assert.Equal(string.Empty, resolved);
     }
 
-    /// <summary>Non-Apple hosts always fail follow.</summary>
+    /// <summary>Non-Apple hosts always fail to follow.</summary>
     [Fact]
     public static void FollowReturnsFalseWhenNotAppleHost()
     {
@@ -70,7 +70,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [InlineData("etc")]
     public static void RootLinkIdentityAcceptsChildren(string name)
     {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        var root = Path.GetPathRoot(Path.GetTempPath());
         var candidate = Path.Join(root, name);
         Assert.True(MacOsCompatibilitySymlink.TryGetRootLinkIdentity(new DirectoryInfo(candidate), out var pathRoot, out var resolvedName));
         Assert.Equal(root, pathRoot);
@@ -88,7 +88,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Allowlisted root link names are recognized.</summary>
     /// <param name="name">Candidate name.</param>
-    /// <param name="expected">Expected allowlist result.</param>
+    /// <param name="expected">Expected the allowlist result.</param>
     [Theory]
     [InlineData("var", true)]
     [InlineData("tmp", true)]

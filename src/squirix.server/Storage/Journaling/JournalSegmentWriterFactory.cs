@@ -17,7 +17,8 @@ internal static class JournalSegmentWriterFactory
         // there once it is proven safe. For now every backend uses the memory-safe RandomAccess writer.
         return backend switch
         {
-            _ => new RandomAccessJournalSegmentWriter(),
+            JournalPlatformBackend.Auto or JournalPlatformBackend.RandomAccess => new RandomAccessJournalSegmentWriter(),
+            _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, "Unsupported journal platform backend."),
         };
     }
 

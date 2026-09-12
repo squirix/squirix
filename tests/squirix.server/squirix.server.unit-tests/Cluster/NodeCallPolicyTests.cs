@@ -251,7 +251,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 foreach (var caller in callers)
                     await caller;
 
-                Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault!}");
+                Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault}");
             }
             finally
             {

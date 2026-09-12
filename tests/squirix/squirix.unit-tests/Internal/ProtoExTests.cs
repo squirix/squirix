@@ -185,8 +185,8 @@ public sealed class ProtoExTests
         // (2026-08-01T10:00:00Z = unix 1785578400, 2 minutes = 120 seconds),
         // verified against the calendar, not against the reverse mapping.
         Assert.Equal("payload", wire.Value.Fields[ValueEnvelope.ScalarEnvelopeKey].StringValue);
-        Assert.Equal(1785578400L, wire.ExpiresUtc!.Seconds);
-        Assert.Equal(120L, wire.Expiration!.Seconds);
+        Assert.Equal(1785578400L, wire.ExpiresUtc.Seconds);
+        Assert.Equal(120L, wire.Expiration.Seconds);
 
         var roundTrip = await ProtoEx.MapProtoEntryToCacheEntryAsync<string>(wire, serializer);
 

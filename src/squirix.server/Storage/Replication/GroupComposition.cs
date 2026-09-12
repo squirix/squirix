@@ -55,7 +55,7 @@ internal sealed class GroupComposition
 
     /// <summary>Creates an empty composition.</summary>
     /// <returns>An empty composition.</returns>
-    internal static GroupComposition Empty() => new([]);
+    internal static GroupComposition Empty() => new(Array.Empty<string>().ToFrozenSet(StringComparer.Ordinal));
 
     /// <summary>Determines whether <paramref name="groupId" /> is part of this composition.</summary>
     /// <param name="groupId">The replica group identifier.</param>

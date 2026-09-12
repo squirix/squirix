@@ -43,7 +43,9 @@ internal sealed record EncodeContext
             JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
                                                        Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
             JournalOperationKind.IdempotencyStarted => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                                                       Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty),
+                                                        Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty),
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
+                or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw new NotSupportedException("The length of the journal operation cannot be determined."),
             _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
         };
     }

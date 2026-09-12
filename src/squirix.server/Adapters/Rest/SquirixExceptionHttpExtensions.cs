@@ -11,6 +11,7 @@ internal static class SquirixExceptionHttpExtensions
         {
             var statusCode = exception.Code switch
             {
+                SquirixErrorCode.None => StatusCodes.Status500InternalServerError,
                 SquirixErrorCode.InvalidCacheKey => StatusCodes.Status400BadRequest,
                 SquirixErrorCode.InvalidEntryTags => StatusCodes.Status400BadRequest,
                 SquirixErrorCode.OperationIdRequired => StatusCodes.Status400BadRequest,

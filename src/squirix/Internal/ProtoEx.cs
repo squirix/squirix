@@ -22,7 +22,9 @@ internal static class ProtoEx
             _ when ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive) => new ValueTask<T?>(primitive),
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(structValue, serializer)),
-            _ when ProtoScalarMapping.IsTypedPrimitiveKind(value.KindCase) => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(ProtoStructCodec.ToStructValueWrapper(value), serializer)),
+            CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
+                or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(ProtoStructCodec.ToStructValueWrapper(value), serializer)),
+            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(value), "Struct cache value is missing."),
             _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };
     }
@@ -112,8 +114,7 @@ internal static class ProtoEx
             ArgumentNullException.ThrowIfNull(value);
             ArgumentNullException.ThrowIfNull(serializer);
 
-            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped)
-                ? FromValue<T>(wrapped, serializer)
+            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped) ? FromValue<T>(wrapped, serializer)
                 : Deserialize<T>(Value.ForStruct(value), serializer);
         }
 

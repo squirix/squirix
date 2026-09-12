@@ -14,7 +14,6 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     private readonly int _windowFailureThreshold;
 
     private int _consecutiveWriteFailures;
-    private DateTime? _lastFailureUtc;
 
     internal RetentionCleanupReadiness(PersistenceOptions options)
     {
@@ -50,8 +49,10 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
         get
         {
             lock (_lock)
-                return _lastFailureUtc;
+                return field;
         }
+
+        private set;
     }
 
     /// <inheritdoc />
@@ -76,7 +77,7 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
             if (hadFailure)
             {
                 _consecutiveWriteFailures++;
-                _lastFailureUtc = utcNow;
+                LastFailureUtc = utcNow;
                 _recentFailures.Enqueue(utcNow);
                 PruneExpiredFailures(utcNow);
                 return;
