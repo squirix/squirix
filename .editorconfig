@@ -587,6 +587,7 @@ resharper_remove_redundant_braces_highlighting = none # do not remove redundant 
 resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Rider var-for-built-in-types with csharp_style_var_for_built_in_types
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
+resharper_try_statements_can_be_merged_highlighting = warning # flag nested try that can be flattened into one try with combined handlers
 resharper_use_argument_exception_throw_if_method_highlighting = error # prefer ArgumentException.ThrowIfNullOrEmpty/ThrowIfNullOrWhiteSpace over manual if+throw
 resharper_use_throw_if_null_method_highlighting = error # prefer ArgumentNullException.ThrowIfNull over manual if+throw
 resharper_use_utf8_string_literal_highlighting = none # do not suggest utf8 literals

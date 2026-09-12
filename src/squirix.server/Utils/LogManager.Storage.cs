@@ -27,6 +27,9 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1008, Level = LogLevel.Warning, Message = "Manifest retention failed to delete {ArtifactKind} artifact at {Path}")]
     internal static partial void ManifestRetentionDeleteFailed(ILogger logger, string artifactKind, string path);
 
+    [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "Maintenance abort branch failed (suppressed); failing the journal pipeline with the original error")]
+    internal static partial void MaintenanceAbortFailed(ILogger logger, Exception exception);
+
     [LoggerMessage(EventId = 1007, Level = LogLevel.Information, Message = "Manual journal compaction finished.")]
     internal static partial void ManualCompactionFinished(ILogger logger);
 

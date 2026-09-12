@@ -66,6 +66,15 @@ internal sealed record JournalWorkItem
         return new JournalWorkItem(JournalWorkKind.DurabilityCheckpoint, ack, null, 0, 0, 0UL);
     }
 
+    /// <summary>Creates a maintenance abort item that resyncs layout-wide counters without installing reset pointers.</summary>
+    /// <param name="ack">Ack resolved after the journal thread resynced the counters.</param>
+    /// <returns>A new maintenance abort work item for the journal ring.</returns>
+    internal static JournalWorkItem MaintenanceAbort(TaskCompletionSource ack)
+    {
+        ArgumentNullException.ThrowIfNull(ack);
+        return new JournalWorkItem(JournalWorkKind.MaintenanceAbort, ack, null, 0, 0, 0UL);
+    }
+
     /// <summary>Creates a maintenance begin item that flushes staged frames and releases the segment writer.</summary>
     /// <param name="ack">Ack resolved after the journal thread flushed and released the segment.</param>
     /// <returns>A new maintenance begin work item for the journal ring.</returns>

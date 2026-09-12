@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -38,7 +39,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         JournalSegmentCount = startup.JournalSegmentCount;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
-        DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
+        DrainScheduler = new JournalEventLoopDrainScheduler(this, this, this, _segmentWriterOps);
     }
 
     public string? ActiveSegmentPath { get; private set; }
@@ -158,11 +159,19 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private sealed class JournalEventLoopDrainScheduler
     {
         private readonly IJournalEventLoopDrainState _owner;
+        private readonly IJournalEventLoopRollState _roll;
         private readonly JournalEventLoopSegmentWriter _segmentWriter;
+        private readonly IJournalEventLoopState _state;
 
-        internal JournalEventLoopDrainScheduler(IJournalEventLoopDrainState owner, JournalEventLoopSegmentWriter segmentWriter)
+        internal JournalEventLoopDrainScheduler(
+            IJournalEventLoopDrainState owner,
+            IJournalEventLoopState state,
+            IJournalEventLoopRollState roll,
+            JournalEventLoopSegmentWriter segmentWriter)
         {
             _owner = owner;
+            _state = state;
+            _roll = roll;
             _segmentWriter = segmentWriter;
         }
 
@@ -264,12 +273,60 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         {
             shutdownRequested = false;
             _segmentWriter.FlushWriteBatch();
+
+            // MaintenanceAbort bypasses the work-item switch: that switch already sits over the
+            // complexity/size thresholds, and any growth there trips the delta-since-baseline rules.
+            // This dispatcher is small, so routing the abort here keeps those rules silent.
+            if (item.Kind == JournalWorkKind.MaintenanceAbort)
+            {
+                MaintenanceAbortApplier.Apply(_state, _roll, item);
+                return false;
+            }
+
             if (!_segmentWriter.ProcessJournalWorkItem(item))
                 return false;
 
             _segmentWriter.FlushWriteBatch();
             shutdownRequested = true;
             return true;
+        }
+
+        /// <summary>Applies a maintenance abort on the journal thread.</summary>
+        private static class MaintenanceAbortApplier
+        {
+            /// <summary>Resyncs layout-wide counters from disk without installing reset pointers.</summary>
+            /// <param name="owner">Journal event-loop state holding the live counters.</param>
+            /// <param name="roll">Roll state holding the live segment count.</param>
+            /// <param name="item">Abort work item. Its reset fields are always zero and must stay unread.</param>
+            internal static void Apply(IJournalEventLoopState owner, IJournalEventLoopRollState roll, JournalWorkItem item)
+            {
+                // The abort carries no reset pointers by construction (the factory pins them to zero):
+                // against a torn layout only the layout-wide counters are well-defined, so the per-segment
+                // written-bytes counter is left alone (the next EnsureSegmentOpen overwrites it anyway) and
+                // the resync exists for observability on an already-failed pipeline.
+                try
+                {
+                    var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(owner.Options.DataDir);
+                    owner.SetJournalTotalBytes(totalBytes);
+                    roll.SetJournalSegmentCount(segmentCount);
+                    owner.SetDirty(false);
+                }
+                catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+                {
+                    _ = item.Ack?.TrySetException(ex);
+                    return;
+                }
+                catch (Exception unexpectedEx) when (unexpectedEx is not (ArgumentException or IOException or UnauthorizedAccessException))
+                {
+                    // Total guard: the abort must never escape the journal thread, no matter how exotic
+                    // the scan failure is. Faulting the ack keeps the failure explicit; the producer side
+                    // treats any ack failure as suppressed and still fails loudly with the original error.
+                    _ = item.Ack?.TrySetException(unexpectedEx);
+                    return;
+                }
+
+                _ = item.Ack?.TrySetResult();
+            }
         }
     }
 }

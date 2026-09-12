@@ -15,6 +15,8 @@ internal sealed class JournalProducerGate
     private readonly QuiescenceGate _drain = new();
     private int _shutdownInitiated;
 
+    internal bool IsShutdownInitiated => Volatile.Read(ref _shutdownInitiated) != 0;
+
     internal void Enter() => _drain.Enter();
 
     internal void Exit() => _drain.Exit();
