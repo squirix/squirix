@@ -6,19 +6,19 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 
-namespace Squirix.Server.Core;
+namespace Squirix;
 
 /// <summary>Resolves AOT-safe JSON metadata from registered source-generation contexts.</summary>
 /// <remarks>
-/// The chain always contains <see cref="SquirixServerHostingJsonContext" />; hosts and tests
-/// add their own contexts via <see cref="RegisterContext" /> so closed payload types resolve
-/// without reflection. Serialization resolves by runtime type first, so base/interface-declared
-/// entries keep derived properties; deserialization resolves by declared type.
+/// The chain always contains <see cref="SquirixClientJsonContext" />; hosts add their own
+/// contexts via <see cref="RegisterContext" /> so closed payload types resolve without reflection.
+/// Serialization resolves by runtime type first, so base/interface-declared entries keep derived
+/// properties; deserialization resolves by declared type.
 /// </remarks>
-internal static class SerializerMetadata
+internal static class ClientSerializerMetadata
 {
     private static readonly Lock Sync = new();
-    private static volatile List<JsonSerializerContext> _contexts = [SquirixServerHostingJsonContext.Default];
+    private static readonly List<JsonSerializerContext> _contexts = [SquirixClientJsonContext.Default];
 
     /// <summary>Adds a source-generation context to the resolution chain.</summary>
     /// <param name="context">Context to consult after the already registered ones.</param>
@@ -29,7 +29,7 @@ internal static class SerializerMetadata
         {
             if (_contexts.Contains(context))
                 return;
-            _contexts = [.. _contexts, context];
+            _contexts.Add(context);
         }
     }
 
@@ -39,7 +39,9 @@ internal static class SerializerMetadata
     internal static JsonSerializerContext? FindContext(Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        var snapshot = _contexts;
+        List<JsonSerializerContext> snapshot;
+        lock (Sync) snapshot = [.. _contexts];
+
         for (var index = 0; index < snapshot.Count; index++)
         {
             var candidate = snapshot[index];
@@ -68,8 +70,8 @@ internal static class SerializerMetadata
     {
         var context = ResolveContext(value, declaredType, out var effectiveType);
 
-        // Sync by IServerSerializer contract: callers pass already-buffered destinations,
-        // an async state machine per journal write would be pure overhead.
+        // Sync by ISquirixSerializer contract: callers pass already-buffered destinations,
+        // an async state machine per write would be pure overhead.
 #pragma warning disable MA0045
         JsonSerializer.Serialize(destination, value, effectiveType, context);
 #pragma warning restore MA0045

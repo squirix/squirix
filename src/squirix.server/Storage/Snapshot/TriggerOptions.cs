@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Utils;
@@ -213,7 +212,7 @@ internal sealed class TriggerOptions
                 if (!reader.Read())
                     throw new JsonException("Unexpected end of TriggerOptions payload.");
 
-                ReadProperty(ref reader, name, ref state);
+                ReadProperty(ref reader, name, state);
             }
 
             throw new JsonException("Unexpected end of TriggerOptions payload.");
@@ -252,7 +251,7 @@ internal sealed class TriggerOptions
             }
         }
 
-        private static void ReadProperty(ref Utf8JsonReader reader, string? name, ref TriggerOptionsState state)
+        private static void ReadProperty(ref Utf8JsonReader reader, string? name, TriggerOptionsState state)
         {
             if (string.Equals(name, "journalGrowthThrottleBytes", StringComparison.OrdinalIgnoreCase))
                 state.JournalGrowthThrottleBytes = ReadInt64(ref reader);
@@ -320,8 +319,7 @@ internal sealed class TriggerOptions
             throw new JsonException($"Cannot convert {reader.TokenType} to Double for TriggerOptions.");
         }
 
-        [StructLayout(LayoutKind.Auto)]
-        private struct TriggerOptionsState
+        private sealed class TriggerOptionsState
         {
             internal long JournalGrowthThrottleBytes { get; set; }
 
@@ -337,7 +335,7 @@ internal sealed class TriggerOptions
 
             internal TimeSpan SnapshotInterval { get; set; }
 
-            internal readonly TriggerOptions Build() => new()
+            internal TriggerOptions Build() => new()
             {
                 JournalGrowthThrottleBytes = JournalGrowthThrottleBytes,
                 LatencySloMilliseconds = LatencySloMilliseconds,

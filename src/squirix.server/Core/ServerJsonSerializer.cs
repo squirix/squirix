@@ -22,17 +22,17 @@ internal sealed class ServerJsonSerializer : IServerSerializer
     }
 
     /// <inheritdoc />
-    public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? SerializerMetadata.Resolve<T>());
+    public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ServerSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
     public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null) => payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null
-        ? default : payload.Deserialize(typeInfo ?? SerializerMetadata.Resolve<T>());
+        ? default : payload.Deserialize(typeInfo ?? ServerSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? SerializerMetadata.Resolve<T>());
+    public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ServerSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? SerializerMetadata.Resolve<T>());
+    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ServerSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
     public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
@@ -43,7 +43,7 @@ internal sealed class ServerJsonSerializer : IServerSerializer
             return;
         }
 
-        SerializerMetadata.Serialize(destination, value, typeof(T));
+        ServerSerializerMetadata.Serialize(destination, value, typeof(T));
     }
 
     /// <inheritdoc />
@@ -51,7 +51,7 @@ internal sealed class ServerJsonSerializer : IServerSerializer
     {
         return typeInfo != null
             ? JsonSerializer.SerializeToElement(value!, typeInfo)
-            : SerializerMetadata.SerializeToElement(value, typeof(T));
+            : ServerSerializerMetadata.SerializeToElement(value, typeof(T));
     }
 
     /// <inheritdoc />
@@ -59,6 +59,6 @@ internal sealed class ServerJsonSerializer : IServerSerializer
     {
         return typeInfo != null
             ? JsonSerializer.SerializeToUtf8Bytes(value!, typeInfo)
-            : SerializerMetadata.SerializeToUtf8Bytes(value, typeof(T));
+            : ServerSerializerMetadata.SerializeToUtf8Bytes(value, typeof(T));
     }
 }

@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
 
@@ -18,6 +19,11 @@ namespace Squirix.Server;
 public static class Configurator
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
+    static Configurator()
+    {
+        ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
+    }
 
     private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 

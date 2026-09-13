@@ -119,8 +119,9 @@ internal static class ProtoEx
             ArgumentNullException.ThrowIfNull(value);
             ArgumentNullException.ThrowIfNull(serializer);
 
-            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped) ? FromValue(wrapped, serializer, typeInfo)
-                : Deserialize(Value.ForStruct(value), serializer, typeInfo);
+            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped)
+                ? FromValue(wrapped, serializer, typeInfo)
+                : FromMultiFieldStruct(value, serializer, typeInfo);
         }
 
         internal static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
@@ -139,6 +140,11 @@ internal static class ProtoEx
 
         private static T? Deserialize<T>(Value value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
             serializer.Deserialize(WriteToBuffer(value).WrittenSpan, typeInfo);
+
+        private static T? FromMultiFieldStruct<T>(Struct value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
+            typeof(T) == typeof(object)
+                ? ProtoScalarMapping.Coerce<T>(ToUntypedValue(Value.ForStruct(value)))
+                : Deserialize(Value.ForStruct(value), serializer, typeInfo);
 
         private static T? FromValue<T>(Value value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
             typeof(T) == typeof(object) ? ProtoScalarMapping.Coerce<T>(ToUntypedValue(value)) : Deserialize(value, serializer, typeInfo);

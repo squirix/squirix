@@ -8,5 +8,5 @@ public static class PayloadContextRegistration
     /// <summary>Adds a source-generation context to the server metadata resolution chain.</summary>
     /// <param name="context">Context covering the payload types under test.</param>
     public static void RegisterServerPayloadContext(JsonSerializerContext context) =>
-        Core.SerializerMetadata.RegisterContext(context);
+        Core.ServerSerializerMetadata.RegisterContext(context);
 }

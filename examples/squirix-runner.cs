@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Grpc.Core;
 using Squirix;
 using Squirix.Client;
@@ -78,9 +79,17 @@ finally
 
 static async Task DemoDefaultCacheAsync(ICache<object?> cache, CancellationToken cancellationToken)
 {
+    // JsonElement payloads bypass JSON serialization entirely (explicit(proto/codec arms),
+    // so the object cache needs no registered metadata for demo documents.
+    using var sessionDocument = JsonDocument.Parse(
+        new JsonObject
+        {
+            ["Status"] = "active",
+            ["LastSeenUtc"] = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+        }.ToJsonString());
     await cache.SetAsync(
         "session:42",
-        new { Status = "active", LastSeenUtc = DateTime.UtcNow },
+        sessionDocument.RootElement.Clone(),
         new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
         cancellationToken).ConfigureAwait(false);
 
@@ -175,35 +184,31 @@ static int NextFreePort()
 
 static Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
 {
-    var settings = new
+    var peer = new JsonObject
     {
-        Squirix = new
+        ["NodeId"] = "runner",
+        ["Uri"] = endpoint,
+    };
+    var cluster = new JsonObject
+    {
+        ["NodeId"] = "runner",
+        ["Uri"] = endpoint,
+        ["Peers"] = new JsonArray(peer),
+    };
+    var settings = new JsonObject
+    {
+        ["Squirix"] = new JsonObject
         {
-            Cluster = new
-            {
-                NodeId = "runner",
-                Uri = endpoint,
-                Peers = new[]
-                {
-                    new
-                    {
-                        NodeId = "runner",
-                        Uri = endpoint,
-                    },
-                },
-            },
+            ["Cluster"] = cluster,
         },
     };
 
-#pragma warning disable ZA1001 // Ad-hoc demo settings DTO; source generation is not worth the ceremony here.
-    var json = JsonSerializer.Serialize(
-        settings,
+    var json = settings.ToJsonString(
         new JsonSerializerOptions
         {
             WriteIndented = true,
             RespectNullableAnnotations = false,
             RespectRequiredConstructorParameters = false,
         });
-#pragma warning restore ZA1001
     return File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken);
 }

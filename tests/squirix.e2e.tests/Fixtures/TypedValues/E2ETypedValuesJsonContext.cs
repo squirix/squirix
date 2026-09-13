@@ -19,7 +19,7 @@ internal sealed partial class E2ETypedValuesJsonContext : JsonSerializerContext
     [ModuleInitializer]
     internal static void RegisterE2EMetadata()
     {
-        Squirix.SerializerMetadata.RegisterContext(Default);
+        Squirix.ClientSerializerMetadata.RegisterContext(Default);
         PayloadContextRegistration.RegisterServerPayloadContext(Default);
     }
 }
