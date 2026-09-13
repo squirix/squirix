@@ -39,42 +39,30 @@ namespace Squirix.Server.Storage.Snapshot;
 ///     </list>
 ///     </para>
 /// </remarks>
+[JsonConverter(typeof(TriggerOptionsJsonConverter))]
 internal sealed class TriggerOptions
 {
-    [JsonConstructor]
     internal TriggerOptions()
-        : this(0L, 0d, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), 128L * 1024 * 1024, 250_000L, TimeSpan.FromMinutes(5))
     {
-    }
-
-    private TriggerOptions(
-        long journalGrowthThrottleBytes,
-        double latencySloMilliseconds,
-        TimeSpan latencyThrottleDuration,
-        TimeSpan minGapBetweenSnapshots,
-        long snapshotEveryNBytes,
-        long snapshotEveryNOps,
-        TimeSpan snapshotInterval)
-    {
-        JournalGrowthThrottleBytes = journalGrowthThrottleBytes;
-        LatencySloMilliseconds = latencySloMilliseconds;
-        LatencyThrottleDuration = latencyThrottleDuration;
-        MinGapBetweenSnapshots = minGapBetweenSnapshots;
-        SnapshotEveryNBytes = snapshotEveryNBytes;
-        SnapshotEveryNOps = snapshotEveryNOps;
-        SnapshotInterval = snapshotInterval;
+        JournalGrowthThrottleBytes = 0L;
+        LatencySloMilliseconds = 0d;
+        LatencyThrottleDuration = TimeSpan.FromSeconds(10);
+        MinGapBetweenSnapshots = TimeSpan.FromMinutes(1);
+        SnapshotEveryNBytes = 128L * 1024 * 1024;
+        SnapshotEveryNOps = 250_000L;
+        SnapshotInterval = TimeSpan.FromMinutes(5);
     }
 
     /// <summary>
     /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
-    /// Default is 0 (disabled).
+    /// The default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     [JsonInclude]
     internal long JournalGrowthThrottleBytes
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGrowthThrottleBytes cannot be negative.");
@@ -93,7 +81,7 @@ internal sealed class TriggerOptions
     internal double LatencySloMilliseconds
     {
         get;
-        private init
+        init
         {
             if (value < 0 || double.IsNaN(value) || double.IsInfinity(value))
                 throw new ArgumentOutOfRangeException(nameof(value), value, "LatencySloMilliseconds must be a finite non-negative value.");
@@ -111,7 +99,7 @@ internal sealed class TriggerOptions
     internal TimeSpan LatencyThrottleDuration
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegative(nameof(value), "LatencyThrottleDuration cannot be negative.");
             field = value;
@@ -127,7 +115,7 @@ internal sealed class TriggerOptions
     internal TimeSpan MinGapBetweenSnapshots
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegative(nameof(value), "MinGapBetweenSnapshots cannot be negative.");
             field = value;
@@ -143,7 +131,7 @@ internal sealed class TriggerOptions
     internal long SnapshotEveryNBytes
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNBytes cannot be negative.");
@@ -161,7 +149,7 @@ internal sealed class TriggerOptions
     internal long SnapshotEveryNOps
     {
         get;
-        private init
+        init
         {
             if (value < 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNOps cannot be negative.");
@@ -179,7 +167,7 @@ internal sealed class TriggerOptions
     internal TimeSpan SnapshotInterval
     {
         get;
-        private init
+        init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "SnapshotInterval must be greater than zero.");
             field = value;

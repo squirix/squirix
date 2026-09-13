@@ -1,7 +1,7 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
-using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -123,38 +123,30 @@ public sealed class MockOidcAuthority : IAsyncDisposable
 
     private static void MapDiscoveryEndpoint(WebApplication app, OidcDiscoveryDocument discovery)
     {
-        var endpoint = new JsonEndpoint<OidcDiscoveryDocument>(discovery);
-        _ = app.MapGet("/.well-known/openid-configuration", endpoint.Invoke);
+        var typeInfo = MockOidcJsonContext.Default.OidcDiscoveryDocument;
+        var endpoint = new JsonEndpoint<OidcDiscoveryDocument>(discovery, typeInfo);
+        _ = app.MapGet("/.well-known/openid-configuration", new RequestDelegate(endpoint.InvokeAsync));
     }
 
     private static void MapJwksEndpoint(WebApplication app, JsonWebKeySet jwks)
     {
-        var endpoint = new JsonEndpoint<JsonWebKeySet>(jwks);
-        _ = app.MapGet("/.well-known/jwks", endpoint.Invoke);
+        var typeInfo = MockOidcJsonContext.Default.JsonWebKeySet;
+        var endpoint = new JsonEndpoint<JsonWebKeySet>(jwks, typeInfo);
+        _ = app.MapGet("/.well-known/jwks", new RequestDelegate(endpoint.InvokeAsync));
     }
 
     [Immutable]
     private sealed class JsonEndpoint<T>
     {
         private readonly T _payload;
+        private readonly JsonTypeInfo<T> _typeInfo;
 
-        internal JsonEndpoint(T payload)
+        internal JsonEndpoint(T payload, JsonTypeInfo<T> typeInfo)
         {
             _payload = payload;
+            _typeInfo = typeInfo;
         }
 
-        internal IResult Invoke() => Results.Json(_payload);
-    }
-
-    [Immutable]
-    private sealed class OidcDiscoveryDocument
-    {
-        [JsonPropertyName("issuer")]
-        [JsonInclude]
-        internal required string Issuer { get; init; }
-
-        [JsonPropertyName("jwks_uri")]
-        [JsonInclude]
-        internal required string JwksEndpoint { get; init; }
+        internal Task InvokeAsync(HttpContext context) => Results.Json(_payload, _typeInfo).ExecuteAsync(context);
     }
 }

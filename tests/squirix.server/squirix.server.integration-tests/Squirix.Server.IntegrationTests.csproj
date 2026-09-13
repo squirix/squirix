@@ -19,7 +19,4 @@
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server.host\Squirix.Server.Host.csproj"/>
     </ItemGroup>
-    <ItemGroup>
-        <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
 </Project>

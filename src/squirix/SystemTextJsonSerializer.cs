@@ -9,50 +9,54 @@ namespace Squirix;
 
 /// <summary><see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.</summary>
 /// <remarks>
-/// Intentional reflection fallback for arbitrary user cache value types (<c language="csharp">Deserialize&lt;T&gt;</c> / <c language="csharp">Serialize&lt;T&gt;</c>).
-/// Known squirix DTOs should use dedicated <see cref="JsonSerializerContext" /> types at call sites instead of this class.
+/// AOT-safe: every operation uses caller-provided metadata when supplied, otherwise metadata
+/// from the <see cref="ClientSerializerMetadata" /> chain is used without reflection. Types without
+/// registered metadata throw <see cref="InvalidOperationException" /> instead of falling back to
+/// runtime code generation, so trimming never silently breaks serialization. Cache value types
+/// must be registered by the application (typically via a source-generated
+/// <see cref="JsonSerializerContext" />).
 /// </remarks>
-#pragma warning disable ZA1001 // ISquirixSerializer must support arbitrary T; reflection fallback is the public contract.
 [Immutable]
 internal sealed class SystemTextJsonSerializer : ISquirixSerializer
 {
-    private readonly JsonSerializerOptions _options = CreateDefaultOptions();
+    /// <inheritdoc />
+    public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ClientSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload, _options);
+    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null) => payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null
+        ? default : payload.Deserialize(typeInfo ?? ClientSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(JsonElement payload) => payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null ? default : payload.Deserialize<T>(_options);
+    public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ClientSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(ReadOnlySpan<byte> payload) => JsonSerializer.Deserialize<T>(payload, _options);
+    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ClientSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(Stream payload) => JsonSerializer.Deserialize<T>(payload, _options);
-
-    /// <inheritdoc />
-    public void Serialize<T>(Stream destination, T? value) => JsonSerializer.Serialize(destination, value, _options);
-
-    /// <inheritdoc />
-    public JsonElement SerializeToElement<T>(T? value) => JsonSerializer.SerializeToElement(value, _options);
-
-    /// <inheritdoc />
-    public byte[] SerializeToUtf8Bytes<T>(T? value) => JsonSerializer.SerializeToUtf8Bytes(value, _options);
-
-    private static JsonSerializerOptions CreateDefaultOptions()
+    public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        if (typeInfo != null)
         {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            RespectNullableAnnotations = false,
-            RespectRequiredConstructorParameters = false,
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
-        return options;
+            JsonSerializer.Serialize(destination, value!, typeInfo);
+            return;
+        }
+
+        ClientSerializerMetadata.Serialize(destination, value, typeof(T));
+    }
+
+    /// <inheritdoc />
+    public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
+    {
+        return typeInfo != null
+            ? JsonSerializer.SerializeToElement(value!, typeInfo)
+            : ClientSerializerMetadata.SerializeToElement(value, typeof(T));
+    }
+
+    /// <inheritdoc />
+    public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
+    {
+        return typeInfo != null
+            ? JsonSerializer.SerializeToUtf8Bytes(value!, typeInfo)
+            : ClientSerializerMetadata.SerializeToUtf8Bytes(value, typeof(T));
     }
 }
-#pragma warning restore ZA1001

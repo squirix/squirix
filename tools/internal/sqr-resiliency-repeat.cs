@@ -1,4 +1,5 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
 using System.Diagnostics;
 using System.Globalization;

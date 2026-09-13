@@ -1,5 +1,4 @@
 using System.Text.Json;
-using JetBrains.Annotations;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
@@ -11,8 +10,6 @@ namespace Squirix.Server.UnitTests.Core;
 [Immutable]
 public sealed class NodeCacheEntryTests : ServerUnitTestBase
 {
-    private interface IValueContract;
-
     /// <summary>
     /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly encodable values unchanged and
     /// serializes arbitrary objects to a <see cref="JsonElement" />.
@@ -29,7 +26,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         Assert.Equal(tiny, new NodeCacheEntry<object?>(tiny).Normalize());
         Assert.Equal(4m, new NodeCacheEntry<object?>(4m).Normalize());
 
-        var normalized = new NodeCacheEntry<object?>(new { Id = 1 }).Normalize();
+        var normalized = new NodeCacheEntry<object?>(new IdPayload { Id = 1 }).Normalize();
         var element = Assert.IsType<JsonElement>(normalized);
         Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
         Assert.Equal(1, id.GetInt32());
@@ -47,12 +44,5 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         var element = Assert.IsType<JsonElement>(normalized);
         Assert.True(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field));
         Assert.Equal("survives", field.GetString());
-    }
-
-    [Immutable]
-    private sealed record DerivedValue : IValueContract
-    {
-        [UsedImplicitly]
-        public string? DerivedField { get; init; }
     }
 }
