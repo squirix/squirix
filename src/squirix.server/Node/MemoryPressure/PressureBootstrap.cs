@@ -1,8 +1,6 @@
 using System.IO;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
@@ -83,31 +81,5 @@ internal static class PressureBootstrap
     {
         var path = SettingsJson.FindSettingsPath();
         return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
-    }
-
-    [Immutable]
-    internal sealed class PressureSettings
-    {
-        [JsonInclude]
-        [JsonPropertyName("criticalPressureThresholdPercent")]
-        internal int? CriticalPressureThresholdPercent { get; init; }
-
-        [JsonInclude]
-        [JsonPropertyName("highPressureThresholdPercent")]
-        internal int? HighPressureThresholdPercent { get; init; }
-
-        [JsonInclude]
-        [JsonPropertyName("maxEstimatedCacheBytes")]
-        internal long? MaxEstimatedCacheBytes { get; init; }
-
-        /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
-        /// <param name="baseline">Baseline options.</param>
-        /// <returns>Merged options.</returns>
-        internal UnresolvedMemoryPressureOptions MergeInto(UnresolvedMemoryPressureOptions baseline) => new()
-        {
-            MaxEstimatedCacheBytes = MaxEstimatedCacheBytes ?? baseline.MaxEstimatedCacheBytes,
-            HighPressureThresholdPercent = HighPressureThresholdPercent ?? baseline.HighPressureThresholdPercent,
-            CriticalPressureThresholdPercent = CriticalPressureThresholdPercent ?? baseline.CriticalPressureThresholdPercent,
-        };
     }
 }

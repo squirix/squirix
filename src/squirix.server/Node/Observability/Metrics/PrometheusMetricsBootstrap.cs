@@ -1,8 +1,6 @@
 using System.IO;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 
@@ -62,26 +60,5 @@ internal static class PrometheusMetricsBootstrap
     {
         var path = SettingsJson.FindSettingsPath();
         return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
-    }
-
-    [Immutable]
-    internal sealed class PrometheusMetricsSettings
-    {
-        [JsonInclude]
-        [JsonPropertyName("enabled")]
-        internal bool? Enabled { get; init; }
-
-        [JsonInclude]
-        [JsonPropertyName("path")]
-        internal string? Path { get; init; }
-
-        /// <summary>Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).</summary>
-        /// <param name="baseline">Baseline options.</param>
-        /// <returns>Merged options.</returns>
-        internal PrometheusMetricsEndpointOptions MergeInto(PrometheusMetricsEndpointOptions baseline) => new()
-        {
-            Enabled = Enabled ?? baseline.Enabled,
-            Path = string.IsNullOrWhiteSpace(Path) ? baseline.Path : Path,
-        };
     }
 }

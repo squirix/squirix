@@ -150,6 +150,27 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")
 select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source namespaces from JustMyCode</Name>
+notmycode
+from n in Namespaces
+where n.FullNameLike("System.Text.Json.SourceGeneration*")
+select n]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard UnitTestJsonContext support namespace from JustMyCode (STJ generated handlers cause ND1400 false positive)</Name>
+notmycode
+from n in Namespaces
+where n.FullName == "Squirix.Server.UnitTests.Support"
+select n]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard test DTOs from ND2300 (collection init is required for STJ, not a design flaw)</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Squirix.Server.UnitTests.SamplePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.ValuePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.IdPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Persistence.Journaling.Codec.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.AdmissionDataPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.ObjectCacheDataPayload")
+select t]]></Query>
     </CustomJustMyCodeQueries>
     <CustomRuleOverrides>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2500" Group="System.Threading"><![CDATA[// <Name>Don't create threads explicitly</Name>

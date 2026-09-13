@@ -38,7 +38,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
         var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
-        var entry = new NodeCacheEntry<object?> { Value = new DataPayload { Data = new string('y', 250_000) }, Version = 1 };
+        var entry = new NodeCacheEntry<object?> { Value = new AdmissionDataPayload { Data = new string('y', 250_000) }, Version = 1 };
 
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, DefaultCancellationToken));
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, DefaultCancellationToken));
@@ -47,10 +47,4 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
-
-    [Immutable]
-    internal sealed class DataPayload
-    {
-        public string Data { get; init; } = string.Empty;
-    }
 }

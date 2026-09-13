@@ -407,20 +407,4 @@ public sealed class CacheValueGrpcMappingTests
         Assert.NotNull(roundTrip.Value);
         Assert.Equal("x", roundTrip.Value.Value);
     }
-
-    [Immutable]
-    internal sealed class SamplePayload
-    {
-        public int Id { get; init; }
-
-        public string Name { get; init; } = string.Empty;
-
-        public string[] Tags { get; init; } = [];
-    }
-
-    [Immutable]
-    internal sealed class ValuePayload
-    {
-        public string Value { get; init; } = string.Empty;
-    }
 }

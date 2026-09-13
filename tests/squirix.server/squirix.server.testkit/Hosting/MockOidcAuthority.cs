@@ -1,7 +1,6 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
@@ -134,18 +133,6 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         var typeInfo = MockOidcJsonContext.Default.JsonWebKeySet;
         var endpoint = new JsonEndpoint<JsonWebKeySet>(jwks, typeInfo);
         _ = app.MapGet("/.well-known/jwks", new RequestDelegate(endpoint.InvokeAsync));
-    }
-
-    [Immutable]
-    internal sealed class OidcDiscoveryDocument
-    {
-        [JsonPropertyName("issuer")]
-        [JsonInclude]
-        internal required string Issuer { get; init; }
-
-        [JsonPropertyName("jwks_uri")]
-        [JsonInclude]
-        internal required string JwksEndpoint { get; init; }
     }
 
     [Immutable]
