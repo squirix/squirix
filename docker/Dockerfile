@@ -1,5 +1,5 @@
 # Build squirix-server from repository sources (matches current checkout).
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 COPY squirix.slnx ./
@@ -31,7 +31,7 @@ RUN dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj \
     -p:PublishSingleFile=false
 
 # Development HTTPS PFX for Kestrel. SANs cover Docker Compose DNS names and localhost host access.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS https-cert
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS https-cert
 RUN mkdir -p /https \
     && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
         -keyout /https/aspnetapp.key \
@@ -42,7 +42,7 @@ RUN mkdir -p /https \
         -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
         -passout pass:
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS cluster-mtls-certs
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS cluster-mtls-certs
 RUN mkdir -p /mtls \
     && openssl genrsa -out /mtls/cluster-ca.key 4096 \
     && openssl req -x509 -new -nodes -key /mtls/cluster-ca.key -sha256 -days 825 \
