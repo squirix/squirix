@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using Squirix.Server.Attributes;
 
@@ -24,6 +25,12 @@ internal sealed class VolatileField<T>
     private T? _value;
 
     internal T? Read() => Volatile.Read(ref _value);
+
+    internal bool TryWriteIfNull(T value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return Interlocked.CompareExchange(ref _value, value, null) == null;
+    }
 
     internal void Write(T? value) => Volatile.Write(ref _value, value);
 }
