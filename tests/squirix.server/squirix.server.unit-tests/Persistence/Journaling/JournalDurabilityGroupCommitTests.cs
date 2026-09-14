@@ -35,7 +35,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         groupCommit.CancelPending(failure);
-        await WaitUntilCompletedAsync(ack);
+        await ack.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
         Assert.True(ack.IsFaulted);
         Assert.Same(failure, ack.Exception?.InnerException);
@@ -96,10 +96,10 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await firstCts.CancelAsync();
         flushGate.ReleaseFlush();
 
-        await WaitUntilCompletedAsync(first);
-        await WaitUntilCompletedAsync(second);
-        await WaitUntilCompletedAsync(third);
-        await WaitUntilCompletedAsync(fourth);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await third.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await fourth.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(first.IsCanceled);
@@ -110,7 +110,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(followUp);
+        await followUp.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(followUp.IsCompletedSuccessfully);
     }
 
@@ -133,13 +133,13 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var canceled = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(canceledCts.Token));
         await canceledCts.CancelAsync();
 
-        await WaitUntilCompletedAsync(canceled);
+        await canceled.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(canceled.IsCanceled);
 
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(second);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -164,8 +164,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
 
-        await WaitUntilCompletedAsync(first);
-        await WaitUntilCompletedAsync(second);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         var firstFailure = Assert.IsType<InvalidOperationException>(first.Exception?.InnerException);
         var secondFailure = Assert.IsType<InvalidOperationException>(second.Exception?.InnerException);
 
@@ -194,12 +194,12 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         await firstCts.CancelAsync();
 
-        await WaitUntilCompletedAsync(first);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(first.IsCanceled);
 
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(second);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -333,7 +333,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
             await journal.DisposeAsync();
-            await WaitUntilCompletedAsync(durability);
+            await durability.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
             Assert.True(durability.IsFaulted);
         }
         finally
@@ -345,15 +345,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
 
     private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, options, time);
-
-    private static async Task WaitUntilCompletedAsync(Task task)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
-
-        Assert.True(task.IsCompleted);
-    }
 
     private sealed class AtomicCounter
     {

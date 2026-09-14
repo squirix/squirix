@@ -1,9 +1,11 @@
 using System;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Xunit;
 
@@ -54,7 +56,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
     private async Task AssertBlockedUntilReplayAsync(TestNodeHost node, RecoveryReplayDelaySignal replayDelay)
     {
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Uri));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Uri, DefaultCancellationToken));
         Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Uri));
 
         var cache = GetCache(node);
@@ -72,7 +74,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
         replayDelay.Release();
         await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-        await WaitForReadyHealthyAsync(node.Uri);
+        await node.Uri.WaitUntilValueAsync(async (uri, token) => await GetReadyStatusCodeAsync(uri, token) == HttpStatusCode.OK, TimeSpan.FromSeconds(10), DefaultCancellationToken);
     }
 
     private async Task<HttpStatusCode> GetLiveStatusCodeAsync(Uri uri)
@@ -81,9 +83,9 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
         return response.StatusCode;
     }
 
-    private async Task<HttpStatusCode> GetReadyStatusCodeAsync(Uri uri)
+    private async Task<HttpStatusCode> GetReadyStatusCodeAsync(Uri uri, CancellationToken cancellationToken)
     {
-        using var response = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken);
         return response.StatusCode;
     }
 
@@ -106,18 +108,4 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
             ExtraScope = Scope,
             WaitForRecovery = false,
         });
-
-    private async Task WaitForReadyHealthyAsync(Uri uri)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (await GetReadyStatusCodeAsync(uri) is HttpStatusCode.OK)
-                return;
-
-            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken);
-        }
-
-        throw new TimeoutException("Timed out waiting for /health/ready to become healthy.");
-    }
 }

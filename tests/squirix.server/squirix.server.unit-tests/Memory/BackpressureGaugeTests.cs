@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -132,15 +133,15 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
         List<int> trackedClients,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
-        while (DateTime.UtcNow < deadline)
-        {
-            listener.RecordObservableInstruments();
-            if (HasAtLeast(inFlight, 1) && HasAtLeast(queueDepth, 1) && HasAtLeast(trackedClients, 2))
-                return;
-
-            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
-        }
+        var state = (Listener: listener, InFlight: inFlight, QueueDepth: queueDepth, TrackedClients: trackedClients);
+        await state.WaitUntilAsync(
+            static s =>
+            {
+                s.Listener.RecordObservableInstruments();
+                return HasAtLeast(s.InFlight, 1) && HasAtLeast(s.QueueDepth, 1) && HasAtLeast(s.TrackedClients, 2);
+            },
+            TimeSpan.FromSeconds(1),
+            cancellationToken);
 
         Assert.True(HasAtLeast(inFlight, 1));
         Assert.True(HasAtLeast(queueDepth, 1));

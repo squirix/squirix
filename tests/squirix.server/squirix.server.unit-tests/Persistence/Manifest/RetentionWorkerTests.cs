@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -24,23 +24,10 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2 });
 
-        await WaitUntilAsync(static r => r.Outcomes.Count > 0, readiness, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r.Outcomes.Count > 0, DefaultCancellationToken);
 
         Assert.Contains(true, readiness.Outcomes);
         Assert.True(metrics.Failures > 0);
-    }
-
-    private static async Task WaitUntilAsync(Func<RecordingReadiness, bool> condition, RecordingReadiness readiness, CancellationToken cancellationToken)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!condition(readiness))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (DateTime.UtcNow >= deadline)
-                throw new TimeoutException("Timed out waiting for retention worker outcome.");
-
-            await Task.Delay(10, cancellationToken);
-        }
     }
 
     private sealed class RecordingFailureMetrics : IManifestRetentionFailureMetrics
