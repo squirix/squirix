@@ -8,7 +8,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.release
       args:
-        SQUIRIX_VERSION: 0.1.0-preview.7
+        SQUIRIX_VERSION: 0.1.0-preview.8
         LOCAL_PACKAGES: "true"
         NODE_LETTER: A
     container_name: squirix-node-a-release
@@ -36,7 +36,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.release
       args:
-        SQUIRIX_VERSION: 0.1.0-preview.7
+        SQUIRIX_VERSION: 0.1.0-preview.8
         LOCAL_PACKAGES: "true"
         NODE_LETTER: B
     container_name: squirix-node-b-release
@@ -64,7 +64,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.release
       args:
-        SQUIRIX_VERSION: 0.1.0-preview.7
+        SQUIRIX_VERSION: 0.1.0-preview.8
         LOCAL_PACKAGES: "true"
         NODE_LETTER: C
     container_name: squirix-node-c-release
