@@ -1263,7 +1263,7 @@ jobs:
             # CI always runs the reviewed build. Because the image is released via
             # :latest re-tagging (weekly rebuild in the braid repo), bump this digest
             # to adopt a newer analyzer build.
-            image: ghcr.io/squirix/braid-pvs-studio@sha256:881efc3a088ed9ae49409941025cfa94554c41a216e50961988471ea41b9d646
+            image: ghcr.io/squirix/braid-pvs-studio@sha256:cbf1a3b8c43be995955a081be4f1084b265feb8578b6d7cef4c740d67ca3038f
             credentials:
                 username: ${{ github.actor }}
                 password: ${{ secrets.GITHUB_TOKEN }}
