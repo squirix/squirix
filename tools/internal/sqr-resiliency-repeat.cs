@@ -7,10 +7,10 @@ using System.Globalization;
 var runs = new[]
 {
     new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.NodeCallPolicyTests", "CallPolicy unit tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Cluster.Replication.RoutingDeadlineFlowTests", "Routing deadline flow integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcMutationIdempotencyIntegrationTests", "Mutation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.CrossNodeOpIdIdempotencyTests", "Cross-node operation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcIdempotencyRestartTests", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.TimeoutBehaviorIntegrationTests", "Timeout behavior integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.DrainAndShutdownIntegrationTests", "Drain and shutdown integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Metrics.CallPolicyContentionMetricsIntegrationTests", "Call-policy metrics integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.ClientPoolLifecycleIntegrationTests", "Client-pool lifecycle integration tests"),
 };
 
 var output = Console.Out;
@@ -77,8 +77,6 @@ for (var iteration = 1; iteration <= iterations; iteration++)
     foreach (var run in runs)
     {
         await output.WriteLineAsync($"Running {run.Label}").ConfigureAwait(false);
-
-        // No --nologo: under Microsoft.Testing.Platform, dotnet test --nologo discovers zero tests (exit code 5).
         var list = new List<string>
         {
             "test",
@@ -87,6 +85,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
             configuration,
             "--filter",
             run.Filter,
+            "--nologo",
         };
         if (noBuild)
             list.Add("--no-build");
