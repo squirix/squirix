@@ -36,7 +36,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         Assert.Same(reason, thrown);
     }
 
-    /// <summary>A cancelled flush reports cancellation when the caller wins the ack removal.</summary>
+    /// <summary>A canceled flush reports cancellation when the caller wins the ack removal.</summary>
     [Fact]
     public async Task CancelledFlushCancelsWhenCallerWins()
     {
@@ -49,7 +49,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending);
     }
 
-    /// <summary>A cancelled flush propagates the drain failure when the drain wins the ack removal.</summary>
+    /// <summary>A canceled flush propagates the drain failure when the drain wins the ack removal.</summary>
     [Fact]
     public async Task CancelledFlushPropagatesDrainFailure()
     {
@@ -66,20 +66,20 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         Assert.Same(reason, thrown);
     }
 
-    /// <summary>A cancelled maintenance wait reports cancellation when the caller wins the ack removal.</summary>
+    /// <summary>A canceled maintenance wait reports cancellation when the caller wins the ack removal.</summary>
     [Fact]
     public async Task MaintenanceCancelWinsForCaller()
     {
         using var fake = new FakeCoordinatorState(CreateOptions());
         var pipeline = CreatePipeline(fake);
         using var cancelled = new CancellationTokenSource();
-        var pending = pipeline.EnqueueMaintenanceAsync(static (_) => ValueTask.CompletedTask, cancelled.Token);
+        var pending = pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, cancelled.Token);
         await cancelled.CancelAsync();
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending);
     }
 
-    /// <summary>A cancelled maintenance wait propagates the drain failure when the drain wins the ack removal.</summary>
+    /// <summary>A canceled maintenance wait propagates the drain failure when the drain wins the ack removal.</summary>
     [Fact]
     public async Task MaintenanceCancelPropagatesDrainFault()
     {
@@ -87,7 +87,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         IJournalCoordinatorState state = fake;
         var pipeline = CreatePipeline(fake);
         using var cancelled = new CancellationTokenSource();
-        var pending = pipeline.EnqueueMaintenanceAsync(static (_) => ValueTask.CompletedTask, cancelled.Token);
+        var pending = pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, cancelled.Token);
 
         var reason = new InvalidOperationException("pipeline failed");
         _ = state.PendingAppends.FailAll(reason, NullLogger.Instance, state.QueuedAppendsCounter);
@@ -97,7 +97,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         Assert.Same(reason, thrown);
     }
 
-    /// <summary>A maintenance begin arriving after a drain fails fast with the latched reason.</summary>
+    /// <summary>A maintenance begins arriving after a drain fails fast with the latched reason.</summary>
     [Fact]
     public async Task MaintenanceBeginFailsFastAfterDrain()
     {
@@ -108,11 +108,11 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         _ = state.PendingAppends.FailAll(reason, NullLogger.Instance, state.QueuedAppendsCounter);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            pipeline.EnqueueMaintenanceAsync(static (_) => ValueTask.CompletedTask, DefaultCancellationToken));
+            pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, DefaultCancellationToken));
         Assert.Same(reason, thrown);
     }
 
-    /// <summary>A maintenance begin that never enters the ring detaches its ack instead of leaking it.</summary>
+    /// <summary>A maintenance beginning that never enters the ring detaches its ack instead of leaking it.</summary>
     [Fact]
     public async Task MaintenanceBeginDetachesAckOnRingReject()
     {
@@ -124,7 +124,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         await cancelled.CancelAsync();
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(
-            pipeline.EnqueueMaintenanceAsync(static (_) => ValueTask.CompletedTask, cancelled.Token));
+            pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, cancelled.Token));
     }
 
     /// <summary>A quiescence timeout fails reachable waiters loudly instead of hanging disposal.</summary>
@@ -165,14 +165,11 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
     {
         private readonly VolatileField<Exception> _failure = new();
         private readonly CancellationTokenSource _backgroundCancellation = new();
-        private readonly DurabilityAckRegistry _durabilityAcks = new();
         private readonly IJournalSegmentWriter _segmentWriter;
         private readonly JournalEventLoop _eventLoop;
-        private readonly FakeEventLoopHost _host;
         private readonly Ledger _ledger;
         private readonly PersistenceOptions _options;
         private readonly PendingAppendRegistry _pendingAppends = new();
-        private readonly MutableInt32 _queuedAppendsCounter = new();
         private readonly BoundedJournalRing _ring;
         private int _disposed;
 
@@ -181,10 +178,9 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
             _options = options;
             _ring = new BoundedJournalRing(ringCapacity);
             _ledger = new Ledger(options);
-            _host = new FakeEventLoopHost(_pendingAppends);
             _segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
             _eventLoop = new JournalEventLoop(
-                _host,
+                new FakeEventLoopHost(_pendingAppends),
                 _ring,
                 _segmentWriter,
                 options,
@@ -196,7 +192,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
         MutableInt32 IJournalCoordinatorState.DurabilityFlushScheduledFlag { get; } = new();
 
-        DurabilityAckRegistry IJournalCoordinatorState.DurabilityAcks => _durabilityAcks;
+        DurabilityAckRegistry IJournalCoordinatorState.DurabilityAcks { get; } = new();
 
         JournalEventLoop IJournalCoordinatorState.EventLoop => _eventLoop;
 
@@ -208,15 +204,13 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
         PendingAppendRegistry IJournalCoordinatorState.PendingAppends => _pendingAppends;
 
-        MutableInt32 IJournalCoordinatorState.QueuedAppendsCounter => _queuedAppendsCounter;
+        MutableInt32 IJournalCoordinatorState.QueuedAppendsCounter { get; } = new();
 
         BoundedJournalRing IJournalCoordinatorState.Ring => _ring;
 
         JournalDurabilityGroupCommit? IJournalCoordinatorState.GroupCommit => null;
 
         Exception? IJournalCoordinatorState.GetJournalThreadFailure() => _failure.Read();
-
-        void IJournalCoordinatorState.SetJournalThreadFailure(Exception? value) => _failure.Write(value);
 
         bool IJournalCoordinatorState.TrySetJournalThreadFailure(Exception reason) => _failure.TryWriteIfNull(reason);
 

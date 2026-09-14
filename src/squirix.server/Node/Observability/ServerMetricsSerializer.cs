@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 
@@ -28,12 +29,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         _serializerMetrics = new ServerSerializerMetrics(meter);
     }
 
-    public T? Deserialize<T>(string payload)
+    public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
+            var result = _inner.Deserialize(payload, typeInfo);
             Record(OpDeserialize, true, start);
             return result;
         }
@@ -43,12 +44,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public T? Deserialize<T>(JsonElement payload)
+    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
+            var result = _inner.Deserialize(payload, typeInfo);
             Record(OpDeserialize, true, start);
             return result;
         }
@@ -58,12 +59,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public T? Deserialize<T>(ReadOnlySpan<byte> payload)
+    public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
+            var result = _inner.Deserialize(payload, typeInfo);
             Record(OpDeserialize, true, start);
             return result;
         }
@@ -73,12 +74,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public T? Deserialize<T>(Stream payload)
+    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
+            var result = _inner.Deserialize(payload, typeInfo);
             Record(OpDeserialize, true, start);
             return result;
         }
@@ -88,12 +89,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public void Serialize<T>(Stream destination, T? value)
+    public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            _inner.Serialize(destination, value);
+            _inner.Serialize(destination, value, typeInfo);
             Record(OpSerialize, true, start);
         }
         catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
@@ -102,12 +103,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public JsonElement SerializeToElement<T>(T? value)
+    public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.SerializeToElement(value);
+            var result = _inner.SerializeToElement(value, typeInfo);
             Record(OpSerialize, true, start);
             return result;
         }
@@ -117,12 +118,12 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         }
     }
 
-    public byte[] SerializeToUtf8Bytes<T>(T? value)
+    public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.SerializeToUtf8Bytes(value);
+            var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
             Record(OpSerialize, true, start);
             return result;
         }

@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -80,7 +79,9 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 
     private async Task AssertJournalDiskPressureAsync(Uri uri)
     {
-        var details = await HttpClient.GetFromJsonAsync<JsonElement>(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
+        var text = await HttpClient.GetStringAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(text);
+        var details = document.RootElement.Clone();
         Assert.True(details.TryGetProperty("journalDisk", out var journalDisk));
         var state = journalDisk.GetProperty("state").GetString();
         Assert.True(string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal));

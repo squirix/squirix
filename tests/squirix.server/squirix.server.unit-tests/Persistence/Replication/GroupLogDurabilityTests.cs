@@ -55,7 +55,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         var content = new byte[RandomAccess.GetLength(published)];
         var offset = 0L;
         Assert.True(HandleEx.TryReadExact(published, content, ref offset));
-        Assert.Equal(new byte[] { 1, 2, 3 }, content);
+        Assert.Equal([1, 2, 3], content);
     }
 
     /// <summary>Replacement refuses a path without a containing directory and cleans up the temp file.</summary>

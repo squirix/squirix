@@ -117,6 +117,11 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         var overflowKey = CacheKey.Default("overflow-key");
         await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), DefaultCancellationToken);
 
+        // Calibration roll like in FailedRollFailsPendingDurableAppends: it advances the manifest
+        // numbering so the file blocked below is the one the journal-triggered roll writes.
+        // Without it the roll targets a different manifest file and succeeds instead of failing.
+        await EnqueueCalibrationRollAsync(ledger);
+
         var gate = new BlockingMaintenanceAction();
         var maintenance = journal.ExecuteMaintenanceExclusiveAsync(gate.RunAsync, DefaultCancellationToken);
         await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
@@ -149,11 +154,39 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         Assert.Equal(baseline, pipelined.QueuedAppendsCounter.Value);
     }
 
-    private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken) =>
-        journal.AppendPutAndAwaitDurabilityAsync(key, payload, cancellationToken).AsTask();
+    private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
+    {
+        ValueTask pending;
+        try
+        {
+            pending = journal.AppendPutAndAwaitDurabilityAsync(key, payload, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The roll fails fast on the blocked file while this thread is still queueing: the pipeline
+            // may already be dead and the fail-fast guard throws synchronously. Pack it into a faulted
+            // task like the async drain path does; the asserts below only require every append to be faulted.
+            return Task.FromException(ex);
+        }
 
-    private static Task AwaitFlushAsync(IJournalCoordinator journal, CancellationToken cancellationToken) =>
-        journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
+        return pending.AsTask();
+    }
+
+    private static Task AwaitFlushAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
+    {
+        ValueTask pending;
+        try
+        {
+            pending = journal.AwaitDurabilityCommitAsync(cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Same race as above: the flush waiter is expected to fault, whether synchronously or not.
+            return Task.FromException(ex);
+        }
+
+        return pending.AsTask();
+    }
 
     private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
         pending.Add(AwaitFlushAsync(journal, cancellationToken));

@@ -253,7 +253,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         internal JournalWriteBatchBuffer Batch { get; }
 
-        internal FakeEventLoopState State { get; }
+        private FakeEventLoopState State { get; }
 
         /// <summary>Releases the fake segment writer.</summary>
         public void Dispose() => State.Dispose();

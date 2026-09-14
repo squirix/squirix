@@ -263,9 +263,30 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             Readiness);
     }
 
-    /// <inheritdoc />
-    Task<GroupSnapshotInstallResult> IFollowerLog.InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken) =>
-        InstallSnapshotAsync(snapshot, leaderTerm, cancellationToken);
+    /// <summary>Installs a validated snapshot, resetting the journal to start at its included index plus one.</summary>
+    /// <param name="snapshot">The snapshot to install.</param>
+    /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The installation outcome.</returns>
+    public async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
+            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
+
+        // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
+        // A higher term is persisted durably before publication, mirroring the appending path.
+        if (leaderTerm < _meta.CurrentTerm)
+            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.StaleTerm);
+
+        if (leaderTerm <= _meta.CurrentTerm)
+            return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
+        var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        _meta = candidate;
+        return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
@@ -340,43 +361,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return _journal.CollectUncommittedTail(_meta.CommitIndex);
     }
 
-    /// <summary>Installs a validated snapshot, resetting the journal to start at its included index plus one.</summary>
-    /// <param name="snapshot">The snapshot to install.</param>
-    /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome.</returns>
-    internal async Task<GroupSnapshotInstallResult> InstallSnapshotAsync(GroupSnapshot snapshot, ulong leaderTerm, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
-
-        // A stale leader term authorizes nothing: snapshots from a deposed leader are refused like stale appending.
-        // A higher term is persisted durably before publication, mirroring the appending path.
-        if (leaderTerm < _meta.CurrentTerm)
-            return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.StaleTerm);
-
-        if (leaderTerm <= _meta.CurrentTerm)
-            return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
-        var candidate = _meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        _meta = candidate;
-        return await FollowerLogSnapshot.InstallAsync(_journal, this, snapshot, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the group log is open and ready.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the group is not part of the local static composition. No storage directory is created.</exception>
-    /// <exception cref="InvalidDataException">Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
-    internal async Task OpenAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        await OpenCoreAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -449,8 +433,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         };
     }
 
-    private async Task OpenCoreAsync(CancellationToken cancellationToken)
+    /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the group log is open and ready.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the group is not part of the local static composition. No storage directory is created.</exception>
+    /// <exception cref="InvalidDataException">Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
+    internal async Task OpenAsync(CancellationToken cancellationToken)
     {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
         if (!_composition.Contains(GroupId))
             throw new InvalidOperationException($"Group '{GroupId}' is not part of the local static composition.");
 

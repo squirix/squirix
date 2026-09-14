@@ -8,8 +8,4 @@
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>
-
-    <ItemGroup>
-        <Content Include="..\..\xunit.runner.json" Link="xunit.runner.json" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
 </Project>

@@ -6,6 +6,7 @@ using System.IO;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -159,12 +160,12 @@ internal static class RemoteClientSessionFactory
                 _impl = _inner.GetType().Name;
             }
 
-            public T? Deserialize<T>(string payload)
+            public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -174,12 +175,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(JsonElement payload)
+            public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -189,12 +190,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(ReadOnlySpan<byte> payload)
+            public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -204,12 +205,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(Stream payload)
+            public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -219,12 +220,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public void Serialize<T>(Stream destination, T? value)
+            public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    _inner.Serialize(destination, value);
+                    _inner.Serialize(destination, value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                 }
                 catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
@@ -233,12 +234,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public JsonElement SerializeToElement<T>(T? value)
+            public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.SerializeToElement(value);
+                    var result = _inner.SerializeToElement(value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
@@ -248,12 +249,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public byte[] SerializeToUtf8Bytes<T>(T? value)
+            public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.SerializeToUtf8Bytes(value);
+                    var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }

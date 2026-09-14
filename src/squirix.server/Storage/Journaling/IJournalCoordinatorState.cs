@@ -32,7 +32,5 @@ internal interface IJournalCoordinatorState
 
     Exception? GetJournalThreadFailure();
 
-    void SetJournalThreadFailure(Exception? value);
-
     bool TrySetJournalThreadFailure(Exception reason);
 }

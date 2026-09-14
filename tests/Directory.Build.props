@@ -19,7 +19,7 @@
     </PropertyGroup>
 
     <ItemGroup Condition="$(MSBuildProjectName.Contains('Tests'))">
-        <PackageReference Include="xunit.v3"/>
-        <PackageReference Include="xunit.v3.assert"/>
+        <PackageReference Include="xunit.v3.aot"/>
+        <PackageReference Include="xunit.v3.assert.aot"/>
     </ItemGroup>
 </Project>

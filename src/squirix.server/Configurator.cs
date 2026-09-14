@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
 
@@ -18,6 +19,14 @@ namespace Squirix.Server;
 public static class Configurator
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
+    static Configurator()
+    {
+        // Layering seam (ND1400): ServerSerializerMetadata lives in low-level Squirix.Server.Core
+        // and must not reference hosting-layer contexts, so the hosting layer seeds the metadata
+        // chain here. Runs before any Configurator member; unit tests seed via module initializer.
+        ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
+    }
 
     private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 

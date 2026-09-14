@@ -13,6 +13,7 @@
         <LangVersion>14.0</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
+        <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
     <PropertyGroup Label="Analyzers">
@@ -63,8 +64,12 @@
          TODO(Rocks): delete this whole PropertyGroup once Rocks fixes the remaining
          doc-cref rendering (dropped generic args, unqualified names) — issues #2-#3
          on our mirror. -->
+    <PropertyGroup Label="BenchmarkCode" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
+        <NoWarn>$(NoWarn);S1075;S1450</NoWarn>
+    </PropertyGroup>
+
     <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580</NoWarn>
+        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
     </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->

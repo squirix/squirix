@@ -1,6 +1,5 @@
 using System;
 using System.Text.Json;
-using JetBrains.Annotations;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
@@ -14,8 +13,6 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class JournalEntryPayloadTests : ServerUnitTestBase
 {
-    private interface IValueContract;
-
     /// <summary>
     /// Derived properties on a base/interface-declared entry survive the journal encode/decode round-trip
     /// because <see cref="NodeCacheEntry{T}.Normalize" /> serializes the runtime type.
@@ -81,12 +78,5 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         Assert.NotNull(roundTrip);
         Assert.Equal("journal-value", roundTrip.Value);
         Assert.Equal(4, roundTrip.Version);
-    }
-
-    [Immutable]
-    private sealed record DerivedValue : IValueContract
-    {
-        [UsedImplicitly]
-        public string? DerivedField { get; init; }
     }
 }

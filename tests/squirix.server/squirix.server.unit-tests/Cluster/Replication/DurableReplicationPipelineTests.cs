@@ -27,7 +27,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var outcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+            Assert.Equal([7], outcome.ToArray());
             var retryOutcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), DefaultCancellationToken);
             Assert.Equal(outcome.ToArray(), retryOutcome.ToArray());
             Assert.Equal(2, pipeline.FollowerCalls);
@@ -116,7 +116,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+            Assert.Equal([7], outcome.ToArray());
         }
         finally
         {
@@ -197,7 +197,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         {
             // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+            Assert.Equal([7], outcome.ToArray());
 
             // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
             var disposal = coordinator.DisposeAsync().AsTask();
@@ -253,7 +253,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+            Assert.Equal([7], outcome.ToArray());
         }
         finally
         {
@@ -339,7 +339,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal(new byte[] { 7 }, outcome.ToArray());
+            Assert.Equal([7], outcome.ToArray());
         }
         finally
         {

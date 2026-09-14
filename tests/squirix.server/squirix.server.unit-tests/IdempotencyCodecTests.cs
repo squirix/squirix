@@ -101,7 +101,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         Assert.Equal("0123456789abcdef0123456789abcdef", decoded.OperationId);
         Assert.Equal("try-add-entry-async|default|k|abc123", decoded.Fingerprint);
         Assert.Equal(new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc), decoded.CreatedUtc);
-        Assert.Equal(new byte[] { 0x08, 0x01 }, decoded.ResponseBytes);
+        Assert.Equal([0x08, 0x01], decoded.ResponseBytes);
         Assert.Equal(IdempotencyRecordState.Completed, decoded.State);
     }
 
@@ -192,7 +192,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         Assert.Equal("0123456789abcdef0123456789abcdef", decoded.OperationId);
         Assert.Equal("try-add-entry-async|default|k|abc123", decoded.Fingerprint);
         Assert.Equal(createdUtc, decoded.CreatedUtc);
-        Assert.Equal(new byte[] { 0x08, 0x01 }, decoded.ResponseBytes);
+        Assert.Equal([0x08, 0x01], decoded.ResponseBytes);
     }
 
     /// <summary>A state byte outside the versioned layout is rejected.</summary>

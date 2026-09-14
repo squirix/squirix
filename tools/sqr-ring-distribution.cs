@@ -1,5 +1,6 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property PublishAot=false
+#:property IsAotCompatible=true
 using System.Globalization;
 using Squirix.Server.Cluster;
 

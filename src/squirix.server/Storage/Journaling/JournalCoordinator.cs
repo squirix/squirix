@@ -333,10 +333,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         _appendLatency.Write(currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
         _ = Interlocked.Add(ref _bytes, frameLength);
         _ = Interlocked.Increment(ref _ops);
-        NotifyAppended();
+        OnAppended?.Invoke(this, EventArgs.Empty);
     }
-
-    public void SetJournalThreadFailure(Exception? value) => _flushLoopFailure.Write(value);
 
     public bool TrySetJournalThreadFailure(Exception reason) => _flushLoopFailure.TryWriteIfNull(reason);
 
@@ -356,7 +354,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private async ValueTask JoinJournalThreadWithGraceAsync(List<Exception> failures, TimeSpan remaining)
     {
-        // The grace join always gets a floor: with an exhausted budget the thread still deserves
+        // The grace join always gets a floor: with an exhausted budget, the thread still deserves
         // a last chance before its resources are leaked.
         var graceJoin = TimeSpan.FromTicks(Math.Max(remaining.Ticks, GraceJoinFloor.Ticks));
         if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(graceJoin).ConfigureAwait(false))
@@ -374,8 +372,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // buffers to the pool immediately (no live-thread race remains).
         DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
     }
-
-    private void NotifyAppended() => OnAppended?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>
     [Immutable]

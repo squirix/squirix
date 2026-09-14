@@ -1,4 +1,5 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 using System.Xml;
 
 const string supportedTargetFramework = "net10.0";

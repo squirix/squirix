@@ -1,384 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?><NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
-
-
-
-
-<OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
-
-
-
-
-
-
-
-
-
-<IDEFiles><IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU"><RootDirResolvingInfo Enabled="False" Hints="Debug|bin|.bin|b|AnyCPU|x64|x86|v*.*|net*" TimeOut="10"><RootDir>.</RootDir></RootDirResolvingInfo></IDEFile></IDEFiles><RuntimeProfileDesc>.NET 10.0</RuntimeProfileDesc>
-
-
-
-
-<Assemblies/>
-
-
-
-
-<Dirs/>
-
-
-
-
-<MergeCodeGeneratedByCompiler>True</MergeCodeGeneratedByCompiler>
-
-
-
-
-<CompressNDar>True</CompressNDar>
-
-
-
-
-<ZipSourceFiles>True</ZipSourceFiles>
-
-
-
-
-<ForceReturnZeroExitCode>False</ForceReturnZeroExitCode>
-
-
-
-
-<Report Kind="0" SectionsEnabled="110591" XslPath="" DefaultTheme="dark" Flags="4455424" NbItemsToUnfold="3" NbItemsPerRule="20" MaxNbSourceFiles="2000"/>
-
-
-
-
-<BuildComparisonSetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
-
-
-
-
-<BaselineInUISetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
-
-
-
-
-<CoverageFiles CoverageDir="" CoverageDirFilter="" UncoverableAttribute="" CoverageExclusionFile=""/>
-
-
-
-
-<TrendMetrics UseCustomLog="False" LogRecurrence="3" LogLabel="2" UseCustomDir="False" CustomDir="">
-
-
-
-
-<Chart Name="Size" ShowInReport="True">
-
-
-
-
-<Serie MetricName="# Lines of Code" MetricUnit="Loc" Color="#FF00BFFF" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Lines of Code Covered" MetricUnit="Loc" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Lines of Code (NotMyCode)" MetricUnit="Loc" Color="#FFA9A9A9" ChartType="Area" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Lines of Comments" MetricUnit="Lines" Color="#FF008000" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-</Chart>
-
-
-
-
-<Chart Name="% Coverage and % Debt" ShowInReport="True">
-
-
-
-
-<Serie MetricName="Percentage Code Coverage" MetricUnit="%" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="Percentage Debt (Metric)" MetricUnit="%" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-</Chart>
-
-
-
-
-<Chart Name="Issues" ShowInReport="True">
-
-
-
-
-<Serie MetricName="# New Issues since Baseline" MetricUnit="issues" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Issues Fixed since Baseline" MetricUnit="issues" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Blocker/Critical/High Issues" MetricUnit="issues" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Issues" MetricUnit="issues" Color="#FFFFD700" ChartType="Line" ScaleExp="-2"/>
-
-
-
-
-</Chart>
-
-
-
-
-<Chart Name="Rules" ShowInReport="True">
-
-
-
-
-<Serie MetricName="# Rules" MetricUnit="Rules" Color="#FF66CDAA" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Rules Violated" MetricUnit="Rules" Color="#FFFF8C00" ChartType="Area" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Critical Rules Violated" MetricUnit="Rules" Color="#FFFF0000" ChartType="Area" ScaleExp="0"/>
-
-
-
-
-</Chart>
-
-
-
-
-<Chart Name="Quality Gates" ShowInReport="True">
-
-
-
-
-<Serie MetricName="# Quality Gates Fail" MetricUnit="quality gates" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Quality Gates Warn" MetricUnit="quality gates" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="# Quality Gates" MetricUnit="quality gates" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-</Chart>
-
-
-
-
-<Chart Name="Debt" ShowInReport="True">
-
-
-
-
-<Serie MetricName="Debt (Metric)" MetricUnit="man-days" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-<Serie MetricName="Annual Interest (Metric)" MetricUnit="man-days" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
-
-
-
-
-</Chart>
-
-
-
-
-</TrendMetrics>
-
-
-
-
-<GitHub Account="" Repo=""/>
-
-
-
-
-<IssueImport ResolveSarifInSolutionDirectories="True"/>
-
-
-
-
-<HistoricAnalysisResult PersistRecurrence="3" UseCustomDir="False" CustomDir="" RetentionNDays="60"/>
-
-
-
-
-<SourceFileRebasing FromPath="" ToPath=""/>
-
-
-
-
-<PathVariables/>
-
-
-
-
-<GraphFiles/>
-
-
-
-
-<ProjectRules AreActive="True" QueryPersistenceKind="PersistOnlyQueryIdForUntouchedQueries"/>
-
-
-
-
-<ProjectDebtSettings DebtSettingsStorage="0" SettingsFilePath="">
-
-
-
-
-<DebtSettings>
-
-
-
-
-<DebtFactor>1</DebtFactor>
-
-
-
-
-<AnnualInterestFactor>1</AnnualInterestFactor>
-
-
-
-
-<DebtDefault>0</DebtDefault>
-
-
-
-
-<AnnualInterestDefault>0</AnnualInterestDefault>
-
-
-
-
-<DebtStringFormat>$ManDay$</DebtStringFormat>
-
-
-
-
-<MoneyPerManHour>50</MoneyPerManHour>
-
-
-
-
-<Currency>USD</Currency>
-
-
-
-
-<CurrencyLocation>After</CurrencyLocation>
-
-
-
-
-<EstimatedNumberOfManDayToDevelop1000LogicalLinesOfCode>18</EstimatedNumberOfManDayToDevelop1000LogicalLinesOfCode>
-
-
-
-
-<NumberOfWorkDayPerYear>240</NumberOfWorkDayPerYear>
-
-
-
-
-<NumberOfWorkHourPerDay>8</NumberOfWorkHourPerDay>
-
-
-
-
-<A2B_RatingThreshold>5</A2B_RatingThreshold>
-
-
-
-
-<B2C_RatingThreshold>10</B2C_RatingThreshold>
-
-
-
-
-<C2D_RatingThreshold>20</C2D_RatingThreshold>
-
-
-
-
-<D2E_RatingThreshold>50</D2E_RatingThreshold>
-
-
-
-
-<Low2Medium_SeverityThreshold>1200000000</Low2Medium_SeverityThreshold>
-
-
-
-
-<Medium2High_SeverityThreshold>12000000000</Medium2High_SeverityThreshold>
-
-
-
-
-<High2Critical_SeverityThreshold>72000000000</High2Critical_SeverityThreshold>
-
-
-
-
-<Critical2Blocker_SeverityThreshold>360000000000</Critical2Blocker_SeverityThreshold>
-
-
-
-
-</DebtSettings>
-
-
-
-
-</ProjectDebtSettings>
-
-
-
-
-<Queries>
+  <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
+
+  <IDEFiles><IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU"><RootDirResolvingInfo Enabled="False" Hints="Debug|bin|.bin|b|AnyCPU|x64|x86|v*.*|net*" TimeOut="10"><RootDir>.</RootDir></RootDirResolvingInfo></IDEFile></IDEFiles><RuntimeProfileDesc>.NET 10.0</RuntimeProfileDesc>
+  <Assemblies/>
+  <Dirs/>
+  <MergeCodeGeneratedByCompiler>True</MergeCodeGeneratedByCompiler>
+  <CompressNDar>True</CompressNDar>
+  <ZipSourceFiles>True</ZipSourceFiles>
+  <ForceReturnZeroExitCode>False</ForceReturnZeroExitCode>
+  <Report Kind="0" SectionsEnabled="110591" XslPath="" DefaultTheme="dark" Flags="4455424" NbItemsToUnfold="3" NbItemsPerRule="20" MaxNbSourceFiles="2000"/>
+  <BuildComparisonSetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
+  <BaselineInUISetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
+  <CoverageFiles CoverageDir="" CoverageDirFilter="" UncoverableAttribute="" CoverageExclusionFile=""/>
+  <TrendMetrics UseCustomLog="False" LogRecurrence="3" LogLabel="2" UseCustomDir="False" CustomDir="">
+    <Chart Name="Size" ShowInReport="True">
+      <Serie MetricName="# Lines of Code" MetricUnit="Loc" Color="#FF00BFFF" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Code Covered" MetricUnit="Loc" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Code (NotMyCode)" MetricUnit="Loc" Color="#FFA9A9A9" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Comments" MetricUnit="Lines" Color="#FF008000" ChartType="Line" ScaleExp="0"/>
+    </Chart>
+    <Chart Name="% Coverage and % Debt" ShowInReport="True">
+      <Serie MetricName="Percentage Code Coverage" MetricUnit="%" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="Percentage Debt (Metric)" MetricUnit="%" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+    </Chart>
+    <Chart Name="Issues" ShowInReport="True">
+      <Serie MetricName="# New Issues since Baseline" MetricUnit="issues" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Issues Fixed since Baseline" MetricUnit="issues" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Blocker/Critical/High Issues" MetricUnit="issues" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Issues" MetricUnit="issues" Color="#FFFFD700" ChartType="Line" ScaleExp="-2"/>
+    </Chart>
+    <Chart Name="Rules" ShowInReport="True">
+      <Serie MetricName="# Rules" MetricUnit="Rules" Color="#FF66CDAA" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Rules Violated" MetricUnit="Rules" Color="#FFFF8C00" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Critical Rules Violated" MetricUnit="Rules" Color="#FFFF0000" ChartType="Area" ScaleExp="0"/>
+    </Chart>
+    <Chart Name="Quality Gates" ShowInReport="True">
+      <Serie MetricName="# Quality Gates Fail" MetricUnit="quality gates" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Quality Gates Warn" MetricUnit="quality gates" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Quality Gates" MetricUnit="quality gates" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
+    </Chart>
+    <Chart Name="Debt" ShowInReport="True">
+      <Serie MetricName="Debt (Metric)" MetricUnit="man-days" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="Annual Interest (Metric)" MetricUnit="man-days" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
+    </Chart>
+  </TrendMetrics>
+  <GitHub Account="" Repo=""/>
+  <IssueImport ResolveSarifInSolutionDirectories="True"/>
+  <HistoricAnalysisResult PersistRecurrence="3" UseCustomDir="False" CustomDir="" RetentionNDays="60"/>
+  <SourceFileRebasing FromPath="" ToPath=""/>
+  <PathVariables/>
+
+  <GraphFiles/>
+  <ProjectRules AreActive="True" QueryPersistenceKind="PersistOnlyQueryIdForUntouchedQueries"/>
+  <ProjectDebtSettings DebtSettingsStorage="0" SettingsFilePath="">
+    <DebtSettings>
+      <DebtFactor>1</DebtFactor>
+      <AnnualInterestFactor>1</AnnualInterestFactor>
+      <DebtDefault>0</DebtDefault>
+      <AnnualInterestDefault>0</AnnualInterestDefault>
+      <DebtStringFormat>$ManDay$</DebtStringFormat>
+      <MoneyPerManHour>50</MoneyPerManHour>
+      <Currency>USD</Currency>
+      <CurrencyLocation>After</CurrencyLocation>
+      <EstimatedNumberOfManDayToDevelop1000LogicalLinesOfCode>18</EstimatedNumberOfManDayToDevelop1000LogicalLinesOfCode>
+      <NumberOfWorkDayPerYear>240</NumberOfWorkDayPerYear>
+      <NumberOfWorkHourPerDay>8</NumberOfWorkHourPerDay>
+      <A2B_RatingThreshold>5</A2B_RatingThreshold>
+      <B2C_RatingThreshold>10</B2C_RatingThreshold>
+      <C2D_RatingThreshold>20</C2D_RatingThreshold>
+      <D2E_RatingThreshold>50</D2E_RatingThreshold>
+      <Low2Medium_SeverityThreshold>1200000000</Low2Medium_SeverityThreshold>
+      <Medium2High_SeverityThreshold>12000000000</Medium2High_SeverityThreshold>
+      <High2Critical_SeverityThreshold>72000000000</High2Critical_SeverityThreshold>
+      <Critical2Blocker_SeverityThreshold>360000000000</Critical2Blocker_SeverityThreshold>
+    </DebtSettings>
+  </ProjectDebtSettings><Queries>
 
 
 
@@ -1357,7 +1053,24 @@ select new { t, Debt = 2.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2001$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Static fields naming convention</Name>
+// <Id>ND2001:StaticFieldsNamingConvention</Id>
+// ND2001 squirix override: scope to JustMyCode and additionally accept the house
+// _camelCase convention for static fields. StyleCop SA1306 requires a lower-case
+// start, SA1308 bans the s_ prefix and Rider agrees with StyleCop, so _camelCase is
+// the only name satisfying all analyzers for a mutable static field (readonly
+// statics stay PascalCase per the stock conventions below). Generated code excluded.
+warnif count > 0 from f in JustMyCode.Fields where
+   f.IsStatic &&
+   !f.IsEnumValue &&
+   !f.IsLiteral &&
+   !f.IsGeneratedByCompiler &&
+   !f.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+   !f.SimpleNameLike(@"^[A-Z]") &&
+   !f.SimpleNameLike(@"^_[A-Z]") &&
+   !f.SimpleNameLike(@"^s_[A-Z]") &&
+   !f.SimpleNameLike(@"^_[a-z]")
+select new { f, Debt = 3.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
 
 
 
@@ -1377,7 +1090,29 @@ select new { t, Debt = 2.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2005$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[// <Name>Attribute class name should be suffixed with 'Attribute'</Name>
+// <Id>ND2005:AttributeClassNameShouldBeSuffixedWithAttribute</Id>
+// ND2005 squirix override: scope to JustMyCode and drop xUnit generated code.
+// Stock rule matches on Application.Types and flags Xunit.AutoGenerated.* wrappers
+// (InlineDataAttribute0..., MemberDataAttribute0..., TestClass0..., Register*)
+// synthesized by xUnit v3 into test assemblies. JustMyCode already excludes test
+// assemblies; the explicit Xunit.AutoGenerated / compiler-generated /
+// GeneratedCodeAttribute guards cover generators emitting into any assembly.
+warnif count > 0 from t in JustMyCode.Types where
+   t.IsAttributeClass &&
+   !t.IsGeneratedByCompiler &&
+   !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+   !t.FullNameLike("Xunit.AutoGenerated*") &&
+   // We use SimpleName, because in case of generic Attribute type
+   // SimpleName suppresses the generic suffix (like <T>).
+  !t.SimpleNameLike(@"Attribute$") &&
+  !t.SimpleNameLike(@"AttributeBase$") // Allow the second suffix Base
+                                       // for base attribute classes.!t.SimpleName.EndsWith(@"Attribute")
+select new {
+   t,
+   Debt = 5.ToMinutes().ToDebt(),
+   Severity = Severity.High
+}]]></Query>
 
 
 
@@ -2129,7 +1864,46 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Benchmarks",
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")
-select a]]></Query></Group>
+select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source namespaces from JustMyCode</Name>
+notmycode
+from n in Namespaces
+where n.FullNameLike("System.Text.Json.SourceGeneration*")
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard UnitTestJsonContext support namespace from JustMyCode (STJ generated handlers cause ND1400 false positive)</Name>
+notmycode
+from n in Namespaces
+where n.FullName == "Squirix.Server.UnitTests.Support"
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard test DTOs from ND2300 (collection init is required for STJ, not a design flaw)</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Squirix.Server.UnitTests.SamplePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.ValuePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.IdPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Persistence.Journaling.Codec.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.AdmissionDataPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.ObjectCacheDataPayload")
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated namespaces from JustMyCode</Name>
+// xUnit v3 synthesizes Xunit.AutoGenerated.* wrappers (InlineDataAttribute..., MemberDataAttribute...,
+// TestClass..., Register*) that stock Application.* rules (e.g. ND2005) flag as debt.
+// Test assemblies are already notmycode; this covers generators emitting into any assembly.
+notmycode
+from n in Namespaces
+where n.FullNameLike("Xunit.AutoGenerated*")
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated types from JustMyCode</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Xunit.AutoGenerated*")
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated methods from JustMyCode</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      m.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated fields from JustMyCode</Name>
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      f.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select f]]></Query></Group>
 
 
 
@@ -2944,9 +2718,4 @@ select a]]></Query></Group>
 
 
 
-</Queries>
-
-
-
-
-</NDepend>
+</Queries></NDepend>
