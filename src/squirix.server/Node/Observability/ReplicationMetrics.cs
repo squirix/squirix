@@ -19,7 +19,7 @@ internal sealed class ReplicationMetrics
     private const string IndexUnit = "{index}";
 
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, GroupObservation> _groups = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
     private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
 

@@ -14,7 +14,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     private readonly Action<T> _handler;
     private readonly Action<T, Exception> _onFault;
 
-    private readonly BlockingCollection<QueuedItem> _queue = new(new ConcurrentQueue<QueuedItem>());
+    private readonly BlockingCollection<QueuedItem> _queue = [with(new ConcurrentQueue<QueuedItem>())];
     private readonly ManualResetEvent _stopped = new(false);
     private int _disposed;
 

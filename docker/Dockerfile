@@ -1,5 +1,5 @@
 # Build squirix-server from repository sources (matches current checkout).
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 COPY squirix.slnx ./

@@ -7,12 +7,12 @@ var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-tools-verify.cs --").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed tool execution").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-tools-verify.cs --", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed tool execution", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
@@ -20,7 +20,7 @@ var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
 var toolsDir = !string.IsNullOrWhiteSpace(entryDir) ? Directory.GetParent(entryDir)?.FullName : Path.Join(Environment.CurrentDirectory, "tools");
 if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
 {
-    await Console.Error.WriteLineAsync("ERROR: tools directory not found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: tools directory not found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -32,21 +32,21 @@ files.Sort(StringComparer.OrdinalIgnoreCase);
 
 if (files.Count == 0)
 {
-    await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
 var dotnetPath = ResolveDotnetPath();
 if (dotnetPath == null)
 {
-    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
 var repoRoot = Directory.GetParent(toolsDir)?.FullName;
 if (string.IsNullOrWhiteSpace(repoRoot))
 {
-    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -55,7 +55,7 @@ repoRoot = Path.GetFullPath(repoRoot);
 foreach (var file in files)
 {
     var name = Path.GetFileName(file);
-    await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
+    await output.WriteLineAsync($"---- {name} --help ----", CancellationToken.None).ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
         FileName = dotnetPath,
@@ -72,7 +72,7 @@ foreach (var file in files)
         return proc?.ExitCode ?? 1;
 }
 
-await output.WriteLineAsync("OK: all file-based tools responded to --help.").ConfigureAwait(false);
+await output.WriteLineAsync("OK: all file-based tools responded to --help.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 static string? ResolveDotnetPath()

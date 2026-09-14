@@ -10,12 +10,12 @@ if (argv.Length == 0 || (argv.Length == 1 && (string.Equals(argv[0], "--help", S
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
 {
-    await output.WriteLineAsync("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Exit codes: 0 ok, 2 usage, 3 internal").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 2 usage, 3 internal", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
@@ -94,10 +94,10 @@ try
     for (var i = 0; i < sampleSize; i++)
         distribution[ring.GetOwner(cacheName, $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
-    await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
-    await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
-    await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
-    await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+    await output.WriteLineAsync("OK: ring distribution computed", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync($"cache: {cacheName}", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
     var sortedKeys = new List<string>(distribution.Keys);
     sortedKeys.Sort(StringComparer.Ordinal);
     for (var k = 0; k < sortedKeys.Count; k++)
@@ -105,27 +105,27 @@ try
         var key = sortedKeys[k];
         var count = distribution[key];
         var share = Math.Round(1.0 * count / sampleSize, 6, MidpointRounding.ToEven);
-        await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
-        await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
+        await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
     }
 
     return 0;
 }
 catch (InvalidOperationException ex)
 {
-    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
-    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
+    await output.WriteLineAsync("ERROR: unexpected internal failure", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message, CancellationToken.None).ConfigureAwait(false);
     return 3;
 }
 catch (ArgumentException ex)
 {
-    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
-    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
+    await output.WriteLineAsync("ERROR: unexpected internal failure", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message, CancellationToken.None).ConfigureAwait(false);
     return 3;
 }
 
 static async Task<int> UsageAsync(string message)
 {
-    await Console.Out.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"ERROR: {message}", CancellationToken.None).ConfigureAwait(false);
     return 2;
 }

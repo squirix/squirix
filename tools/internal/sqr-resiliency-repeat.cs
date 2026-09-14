@@ -19,10 +19,10 @@ if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-resiliency-repeat — run selected resiliency tests repeatedly.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-resiliency-repeat — run selected resiliency tests repeatedly.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
@@ -73,10 +73,10 @@ if (dotnetPath == null)
 for (var iteration = 1; iteration <= iterations; iteration++)
 {
     await output.WriteLineAsync(
-        $"Iteration {iteration.ToString(CultureInfo.InvariantCulture)}/{iterations.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        $"Iteration {iteration.ToString(CultureInfo.InvariantCulture)}/{iterations.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
     foreach (var run in runs)
     {
-        await output.WriteLineAsync($"Running {run.Label}").ConfigureAwait(false);
+        await output.WriteLineAsync($"Running {run.Label}", CancellationToken.None).ConfigureAwait(false);
 
         // No --nologo: under Microsoft.Testing.Platform, dotnet test --nologo discovers zero tests (exit code 5).
         var list = new List<string>
@@ -101,7 +101,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
     }
 }
 
-await output.WriteLineAsync("All resiliency repeat runs passed.").ConfigureAwait(false);
+await output.WriteLineAsync("All resiliency repeat runs passed.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 static string ResolveRepoRoot()
@@ -177,7 +177,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadO
 
 static async Task<int> FailAsync(string message, int code = 1)
 {
-    await Console.Error.WriteLineAsync(message).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync(message, CancellationToken.None).ConfigureAwait(false);
     return code;
 }
 

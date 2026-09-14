@@ -42,6 +42,7 @@ csharp_style_unused_value_expression_statement_preference = discard_variable:war
 csharp_style_var_elsewhere = true:suggestion # use var where type not apparent
 csharp_style_var_for_built_in_types = true:warning # prefer var for built-in types
 csharp_style_var_when_type_is_apparent = true:suggestion # use var when type apparent
+csharp_preferred_modifier_order = public, private, protected, internal, file, new, static, abstract, virtual, closed, sealed, override, readonly, safe, unsafe, extern, volatile, async, required:warning # IDE0036: enforce modifier order
 
 dotnet_diagnostic.CA1510.severity = warning # throw helpers instead of multi-line ArgumentNullException/ObjectDisposedException blocks
 dotnet_diagnostic.CA1511.severity = warning # use ArgumentException throw helper
@@ -65,6 +66,7 @@ dotnet_diagnostic.IDE0027.severity = warning # use expression body for accessors
 dotnet_diagnostic.IDE0028.severity = warning # use collection initializers
 dotnet_diagnostic.IDE0029.severity = warning # simplify null check with coalesce expression
 dotnet_diagnostic.IDE0031.severity = warning # use null propagation (?.)
+dotnet_diagnostic.IDE0036.severity = warning # modifiers are not ordered
 dotnet_diagnostic.IDE0041.severity = warning # use is null / is not null check
 dotnet_diagnostic.IDE0045.severity = none # do not convert if statement to switch statement
 dotnet_diagnostic.IDE0055.severity = error # enforce code-style formatting in build
@@ -584,7 +586,9 @@ resharper_merge_into_logical_pattern_highlighting = none # do not suggest mergin
 resharper_move_local_function_after_jump_statement_highlighting = warning # move local function after jump statement
 resharper_redundant_empty_object_creation_argument_list_highlighting = warning # flag redundant empty object creation argument list
 resharper_redundant_empty_switch_section_highlighting = none # do not flag redundant empty switch
+resharper_redundant_switch_expression_arms_highlighting = none # exhaustive switch style: explicit arms duplicate _ by design (IDE0072); cf. RCS1069=none
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning # flag redundant nullable suppress
+resharper_redundant_pattern_parentheses_highlighting = none # flag redundant parentheses suppress
 resharper_remove_redundant_braces_highlighting = none # do not remove redundant braces
 resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Rider var-for-built-in-types with csharp_style_var_for_built_in_types
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default

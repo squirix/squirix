@@ -68,7 +68,7 @@ public static class NodePathKit
 
         if (count >= buffer.Length)
         {
-            heapBuffer = new List<string>(buffer.Length + 4);
+            heapBuffer = [with(buffer.Length + 4)];
             for (var i = 0; i < count; i++)
                 heapBuffer.Add(buffer[i]);
             heapBuffer.Add(segment);

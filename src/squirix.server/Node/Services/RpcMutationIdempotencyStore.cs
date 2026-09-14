@@ -19,7 +19,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
     private readonly IdempotencyOptions _options;
-    private readonly Dictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PersistedIdempotencyRecord> _records = [with(StringComparer.Ordinal)];
 
     internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics)
     {

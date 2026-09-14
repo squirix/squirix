@@ -30,11 +30,11 @@ var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-release-validate — validate release readiness and package artifacts.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-release-validate — validate release readiness and package artifacts.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync(
-                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
+                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]", CancellationToken.None)
                 .ConfigureAwait(false);
     return 0;
 }
@@ -47,7 +47,7 @@ var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
 if (dotnetPath == null)
 {
-    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -195,22 +195,22 @@ try
             ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"]).ConfigureAwait(false);
     }
 
-    await output.WriteLineAsync($"Release validation completed. Artifacts: {packageOutputPath}").ConfigureAwait(false);
+    await output.WriteLineAsync($"Release validation completed. Artifacts: {packageOutputPath}", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 catch (InvalidOperationException ex)
 {
-    await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync(ex.Message, CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 catch (IOException ex)
 {
-    await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync(ex.Message, CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 catch (UnauthorizedAccessException ex)
 {
-    await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync(ex.Message, CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -307,7 +307,7 @@ string ResolveRepoRoot()
 
 static Task StepAsync(string name)
 {
-    return Console.Out.WriteLineAsync($"==> {name}");
+    return Console.Out.WriteLineAsync($"==> {name}", CancellationToken.None);
 }
 
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
@@ -593,7 +593,7 @@ internal sealed class ReleaseOptions
 
     public static async Task<ReleaseOptions> InvalidAsync(string message)
     {
-        await Console.Error.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"ERROR: {message}", CancellationToken.None).ConfigureAwait(false);
         return new ReleaseOptions { IsValid = false };
     }
 }
