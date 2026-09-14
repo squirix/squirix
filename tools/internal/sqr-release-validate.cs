@@ -1,6 +1,8 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
-#:property NoWarn=SA1649;S3903
+#:property NoWarn=SA1649;S3903;IDE0010
+
+// IDE0010 is suppressed: the nuspec metadata switch intentionally ignores unknown elements.
 
 // The file-based release app keeps its options DTO inline so the validator remains directly runnable.
 using System.Diagnostics;
