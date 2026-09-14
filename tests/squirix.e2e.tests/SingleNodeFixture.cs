@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Client;
@@ -11,10 +12,14 @@ namespace Squirix.E2ETests;
 public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;
-    private ISquirixClient? _client;
 
     /// <summary>Gets the connected SDK client for the shared cluster node.</summary>
-    public ISquirixClient Client => _client!;
+    /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
+    public ISquirixClient Client
+    {
+        get => field ?? ThrowFixtureNotInitialized();
+        private set;
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -27,6 +32,8 @@ public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         _cluster = await HostedCluster.StartSingleNodeAsync(nameof(SingleNodeFixture), cancellationToken: DefaultCancellationToken);
-        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
+        Client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
     }
+
+    private static ISquirixClient ThrowFixtureNotInitialized() => throw new InvalidOperationException("Fixture is not initialized.");
 }
