@@ -1,0 +1,5 @@
+//V_EXCLUDE_PATH */bin/*
+//V_EXCLUDE_PATH */obj/*
+//V_EXCLUDE_PATH *.g.cs
+//V_EXCLUDE_PATH *.AssemblyInfo.cs
+//V_EXCLUDE_PATH */AssemblyInfo.cs

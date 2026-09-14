@@ -1,7 +1,7 @@
 using System;
 using System.IO;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
@@ -9,22 +9,62 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers operator path validation used before file I/O.</summary>
-public sealed class FilePathValidatorTests : ServerUnitTestBase
+[Immutable]
+public sealed class FilePathValidatorTests : IsolatedStorageTestBase
 {
+    /// <summary>Rejects parent-directory segments in operator paths.</summary>
+    /// <param name="path">Path containing <c language="csharp">.</c> or <c language="csharp">..</c> segments.</param>
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../Squirix.settings.json")]
+    [InlineData("foo/../bar.json")]
+    [InlineData("foo/./bar.json")]
+    public static void ResolveFileRejectsDotSegments(string path)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
+        Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Rejects empty and whitespace paths.</summary>
+    /// <param name="path">Empty or whitespace path.</param>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public static void ResolveValidatedFilePathRejectsEmpty(string? path) =>
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
+
+    /// <summary>Rejects null paths with an ArgumentNullException.</summary>
+    [Fact]
+    public static void ResolveValidatedFilePathRejectsNull()
+    {
+        const string? path = null;
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
+    }
+
+    /// <summary>Rejects wildcards in operator paths.</summary>
+    /// <param name="path">Path containing wildcards.</param>
+    [Theory]
+    [InlineData("*.json")]
+    [InlineData("settings?.json")]
+    public static void ResolveValidatedFilePathRejectsWildcards(string path)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
+        Assert.Contains("wildcard", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>FileEx.TryDeleteFile treats traversal paths as skipped successes.</summary>
     [Fact]
     public void FileExTryDeleteFileSkipsTraversalPaths() => Assert.True(FileEx.TryDeleteFile("../nope.txt"));
 
-    /// <summary>PathEx multi-segment combine keeps results under the root.</summary>
+    /// <summary>PathEx multi-segment combine keeps results under the Dir.</summary>
     [Fact]
-    public void PathExCombineAcceptsMultipleRelativeSegments()
+    public void CombineAcceptsMultipleSegments()
     {
-        using var root = new TempDirectory("squirix-path-ex-multi");
-        var combined = PathEx.Combine(root.Path, "a", "b");
-        Assert.Equal(Path.GetFullPath(Path.Join(root.Path, "a", "b")), combined);
+        var combined = PathEx.Combine(Dir.Path, "a", "b");
+        Assert.Equal(Path.GetFullPath(Path.Join(Dir.Path, "a", "b")), combined);
 
-        var triple = PathEx.Combine(root.Path, "a", "b", "c");
-        Assert.Equal(Path.GetFullPath(Path.Join(root.Path, "a", "b", "c")), triple);
+        var triple = PathEx.Combine(Dir.Path, "a", "b", "c");
+        Assert.Equal(Path.GetFullPath(Path.Join(Dir.Path, "a", "b", "c")), triple);
     }
 
     /// <summary>PathEx relative joins reject parent-directory segments.</summary>
@@ -38,7 +78,7 @@ public sealed class FilePathValidatorTests : ServerUnitTestBase
 
     /// <summary>Accepts an absolute directory path without traversal segments.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathAcceptsAbsolutePath()
+    public void ResolveDirAcceptsAbsolutePath()
     {
         var input = Path.Join(Path.GetTempPath(), "squirix-path-validator");
         var full = FilePathValidator.ResolveValidatedDirectoryPath(input);
@@ -47,43 +87,10 @@ public sealed class FilePathValidatorTests : ServerUnitTestBase
 
     /// <summary>Accepts a simple relative file path and returns an absolute path.</summary>
     [Fact]
-    public void ResolveValidatedFilePathAcceptsRelativeFileName()
+    public void ResolveFileAcceptsRelativeName()
     {
         var full = FilePathValidator.ResolveValidatedFilePath("Squirix.settings.json");
         Assert.True(Path.IsPathRooted(full));
         Assert.EndsWith("Squirix.settings.json", full, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Rejects parent-directory segments in operator paths.</summary>
-    /// <param name="path">Path containing <c>.</c> or <c>..</c> segments.</param>
-    [Theory]
-    [InlineData("..")]
-    [InlineData("../Squirix.settings.json")]
-    [InlineData("foo/../bar.json")]
-    [InlineData("foo/./bar.json")]
-    public void ResolveValidatedFilePathRejectsDotSegments(string path)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
-        Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Rejects empty and whitespace paths.</summary>
-    /// <param name="path">Empty or whitespace path.</param>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void ResolveValidatedFilePathRejectsEmpty(string? path) =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
-
-    /// <summary>Rejects wildcards in operator paths.</summary>
-    /// <param name="path">Path containing wildcards.</param>
-    [Theory]
-    [InlineData("*.json")]
-    [InlineData("settings?.json")]
-    public void ResolveValidatedFilePathRejectsWildcards(string path)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
-        Assert.Contains("wildcard", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -25,7 +25,8 @@ where f.ParentType != null &&
 select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
-// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
+// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**,
+// obj/**/Rocks.Analysis/**/*_Rock_*.g.cs (Rocks mocks).
 // Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
@@ -34,7 +35,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from t in Types
 where t.SourceFileDeclAvailable &&
       t.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -47,7 +50,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from m in Methods
 where m.SourceFileDeclAvailable &&
       m.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -60,7 +65,9 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from f in Fields
 where f.SourceFileDeclAvailable &&
       f.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -85,14 +92,39 @@ where f.ParentType != null &&
        f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
 select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
-// JournalCoordinator and ManifestRollPublisher own long-lived WAL/manifest I/O threads by design.
-// Task.Run is banned on infrastructure paths; do not refactor these to the thread pool.
+// JournalCoordinator owns a long-lived WAL I/O thread by design.
+// Task.Run is banned on infrastructure paths; do not refactor it to the thread pool.
+// Manifest roll publishing now uses a Task (TaskCreationOptions.LongRunning) and no longer
+// creates a raw Thread, so it is not excluded here.
 notmycode
 from m in Methods
 where m.IsConstructor &&
       m.ParentType != null &&
-      (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
-       m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher")
+      m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator"
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection helpers</Name>
+// Collection expressions synthesize <>z__ReadOnly* types that throw reserved exception types.
+notmycode
+from t in Types
+where t.IsGeneratedByCompiler || t.Name.StartsWith("<>z__")
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection methods</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      (m.ParentType.IsGeneratedByCompiler || m.ParentType.Name.StartsWith("<>z__"))
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude JournalSegmentPolicy from class-to-struct suggestion</Name>
+// Sealed reference type keeps Policy property semantics simple; struct conversion fights MA0008/RCS1085.
+notmycode
+from t in Types
+where t.FullName == "Squirix.Server.Storage.Journaling.JournalSegmentPolicy"
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CreateHashLocator offline tool entry</Name>
+// Used by tools/sqr-ring-distribution.cs (file-based app outside analyzed assemblies).
+notmycode
+from m in Methods
+where m.FullName == "Squirix.Server.Cluster.RuntimeServiceRegistration.CreateHashLocator(ReadOnlySpan<String>,Int32)"
 select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard sample assemblies from JustMyCode</Name>
 // Smoke/sample apps under samples/ are not product-layer code. Folder layout need not match
@@ -101,8 +133,79 @@ notmycode
 from a in Application.Assemblies.WithNameIn(
       "ExternalPackageSmoke")
 select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
+// Test harness cohesion and transitive SCA hits are not product-layer debt.
+notmycode
+from a in Application.Assemblies.WithNameIn(
+      "Squirix.UnitTests",
+      "Squirix.Server.UnitTests",
+      "Squirix.Server.TestKit",
+      "Squirix.TestKit",
+      "Squirix.IntegrationTests",
+      "Squirix.Server.IntegrationTests",
+      "Squirix.Server.SmokeTests",
+      "Squirix.E2ETests",
+      "Squirix.ProtocolModel.Tests",
+      "Squirix.Benchmarks",
+      "Squirix.Server.Benchmarks",
+      "Squirix.E2EBenchmarks")
+select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source namespaces from JustMyCode</Name>
+notmycode
+from n in Namespaces
+where n.FullNameLike("System.Text.Json.SourceGeneration*")
+select n]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard UnitTestJsonContext support namespace from JustMyCode (STJ generated handlers cause ND1400 false positive)</Name>
+notmycode
+from n in Namespaces
+where n.FullName == "Squirix.Server.UnitTests.Support"
+select n]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard test DTOs from ND2300 (collection init is required for STJ, not a design flaw)</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Squirix.Server.UnitTests.SamplePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.ValuePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.IdPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Persistence.Journaling.Codec.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.AdmissionDataPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.ObjectCacheDataPayload")
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated namespaces from JustMyCode</Name>
+// xUnit v3 synthesizes Xunit.AutoGenerated.* wrappers (InlineDataAttribute..., MemberDataAttribute...,
+// TestClass..., Register*) that stock Application.* rules (e.g. ND2005) flag as debt.
+// Test assemblies are already notmycode; this covers generators emitting into any assembly.
+notmycode
+from n in Namespaces
+where n.FullNameLike("Xunit.AutoGenerated*")
+select n]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated types from JustMyCode</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Xunit.AutoGenerated*")
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated methods from JustMyCode</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      m.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated fields from JustMyCode</Name>
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      f.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select f]]></Query>
     </CustomJustMyCodeQueries>
     <CustomRuleOverrides>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2500" Group="System.Threading"><![CDATA[// <Name>Don't create threads explicitly</Name>
+// <Id>ND2500:DontCreateThreadsExplicitly</Id>
+// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design
+// (excluded via notmycode "Exclude durability dedicated threads from ND2500").
+warnif count > 0
+from m in JustMyCode.Methods
+where m.CreateA("TYPE:System.Threading.Thread".AllowNoMatch())
+select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2016" Group="Naming Conventions"><![CDATA[// <Name>Methods prefixed with 'Try' should return a boolean</Name>
 // <Id>ND2016:MethodsPrefixedWithTryShouldReturnABoolean</Id>
 // ND2016 squirix override: stock rule uses Application.Methods and ignores notmycode.
@@ -113,241 +216,136 @@ where m.SimpleNameLike("^Try") &&
       m.ReturnType != null &&
       m.ReturnType.FullName != "System.Boolean" &&
       !m.ReturnType.Name.Contains("Task")
-select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1902" Group="Immutability"><![CDATA[// <Name>Avoid static fields with a mutable field type</Name>
-// <Id>ND1902:AvoidStaticFieldsWithAMutableFieldType</Id>
-// ND1902 squirix override: stock rule uses Application.Fields and ignores notmycode.
-// Explicit FullName exclusions for intentional process-wide static cells (notmycode alone is unreliable for Fields).
+      select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2505" Group="System.Threading"><![CDATA[// <Name>Methods that read mutable state without synchronization</Name>
+// <Id>ND2505:MethodNonSynchronizedThatReadMutableStates</Id>
+// ND2505 squirix override: ignore explicitly thread-safe holder types, enum backing
+// values, literals, compiler-generated fields, and analyzer details. Test and benchmark
+// assemblies are already excluded from JustMyCode by the queries above.
 warnif count > 0
-from f in JustMyCode.Fields
-where f.IsStatic &&
-     !f.IsEnumValue &&
-     !f.IsGeneratedByCompiler &&
-     !f.IsLiteral
-let fieldType = f.FieldType
-let isExcludedStaticHolder =
-     f.FullNameLike("(.*\\.)?IdempotencyMetrics\\.Catalog$") ||
-     f.FullNameLike("(.*\\.)?MemoryPressureMetrics\\.Catalog$") ||
-     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.Observers" ||
-     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.ObserversState" ||
-     f.FullName == "Squirix.Server.Node.MemoryPressure.ObjectCacheEntrySizeEstimator.NullPayloadShell" ||
-     f.FullName == "Squirix.Server.TestKit.MockOidcAuthority.PortPool" ||
-     f.FullName == "Squirix.Server.TestKit.Mtls.ClusterTls+InternalPortPool.Allocator"
-where fieldType != null &&
-     !fieldType.IsThirdParty &&
-     !fieldType.IsInterface &&
-     !fieldType.IsDelegate &&
-     !fieldType.IsImmutable &&
-     !isExcludedStaticHolder
-select new {
-   f,
-   mutableFieldType = fieldType,
-   isFieldImmutable = f.IsImmutable ? "Immutable" : "Mutable",
-   isFieldReadOnly = f.IsInitOnly ? "ReadOnly" : "Not ReadOnly",
-   Debt = 10.ToMinutes().ToDebt(),
-   Severity = Severity.Medium
-}]]></Query>
+from m in JustMyCode.Methods
+where (m.ReadsMutableObjectState || m.ReadsMutableTypeState) &&
+      m.ParentType != null &&
+      !m.ParentType.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.IsGeneratedByCompiler &&
+      !m.IsUsing("System.Threading.Monitor".AllowNoMatch()) &&
+      !m.IsUsing("System.Threading.ReaderWriterLock".AllowNoMatch())
+let mutableFieldsUsed = m.FieldsUsed.Where(f =>
+      !f.IsImmutable &&
+      !f.IsEnumValue &&
+      !f.IsGeneratedByCompiler &&
+      !f.IsLiteral)
+where mutableFieldsUsed.Any()
+select new { m, mutableFieldsUsed, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1910" Group="Immutability"><![CDATA[// <Name>Immutable types should be tagged with [Immutable]</Name>
+// <Id>ND1910:ImmutableTypesShouldBeTaggedWithImmutable</Id>
+// ND1910 squirix override: report immutable types unless they are explicitly marked mutable.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsImmutable &&
+      !t.HasAttribute("Squirix.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select new { t, t.NbLinesOfCode, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1914" Group="Immutability"><![CDATA[// <Name>Immutable struct should be declared as readonly</Name>
+// <Id>ND1914:ImmutableStructShouldBeDeclaredAsReadonly</Id>
+// ND1914 squirix override: skip structures explicitly marked thread-safe. A
+// [ThreadSafe] struct changes internal state under its own synchronization (for
+// example AsyncLockHolder flips a release flag via Interlocked) and cannot be
+// declared readonly, so the read-only suggestion is a false positive for it.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsStructure &&
+      t.IsImmutable &&
+      !t.IsReadOnly &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch())
+select new { t, Debt = 2.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1108" Group="Code Smells Regression"><![CDATA[// <Name>Avoid transforming an immutable type into a mutable one</Name>
+// <Id>ND1108:AvoidTransformingAnImmutableTypeIntoAMutableOne</Id>
+// ND1108 squirix override: scope to JustMyCode and drop any type that hosts an
+// xUnit [Fact]/[Theory] test method. Test fixtures (excluded from JustMyCode by
+// "Discard unit-test assemblies from cohesion / SCA gates") and test classes that
+// live inside product assemblies are not held to product-layer immutability
+// standards: they may carry mutable instance state (fixtures, collected values)
+// without signalling a product immutability regression. An explicitly [ThreadSafe]
+// type is also dropped: like ND1910/ND1914, [ThreadSafe] signals that the type is
+// intentionally stateful and synchronized rather than immutable, so gaining the
+// synchronized mutable state it needs to fulfill its contract is not an
+// immutability regression. Product types remain fully covered by JustMyCode.
+warnif count > 0
+from t in JustMyCode.Types where
+   t.CodeWasChanged() &&
+   t.OlderVersion().IsImmutable &&
+  !t.IsImmutable &&
+   !t.IsStatic &&
+   !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+   !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+  !t.Methods.Any(m => m.HasAttribute("Xunit.FactAttribute".AllowNoMatch()) ||
+                       m.HasAttribute("Xunit.TheoryAttribute".AllowNoMatch()))
+let culpritFields = t.InstanceFields.Where(f => !f.IsImmutable)
+select new { t, culpritFields, Debt = (10 + 10 * culpritFields.Count()).ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2802" Group="System.Reflection"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
+// <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
+// ND2802 squirix override (disabled): .NET SDK emits multi-version facade references for Roslyn/xUnit
+// during analyzers-only restore (benign, not loaded at runtime). Rule disabled as false-positive.
+warnif count > 0
+from assembly in Application.Assemblies
+from @using in assembly.AssembliesUsed
+where assembly.Name == @using.Name && @using.Version != assembly.Version
+select new { assembly, @using }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1305" Group="Design"><![CDATA[// <Name>Avoid namespaces with few types</Name>
 // <Id>ND1305:AvoidNamespacesWithFewTypes</Id>
-// ND1305 squirix override: stock infra list plus "Client" for the intentional
-// exported Squirix.Client entry surface (ISquirixClient / SquirixClient / Options).
-// Merging that namespace would break the public API golden contract.
-// Also skip *Benchmarks* namespaces — BDN folders intentionally stay small.
+// ND1305 squirix override: count only non-generated (real) types per namespace.
+// Autogenerated namespaces (gRPC/protobuf/tools *.g.cs) are excluded from the
+// decomposition heuristic. Squirix.Client is the exported v0.1 client surface
+// (intentionally small public API) and is also excluded.
 warnif count > 0
-
-let infraNamespaceNames = new HashSet<string>() {
-      "Services", "Exceptions", "Logging",  "Domain",
-      "Identity",  "Migrations",  "Controllers",
-      "Specifications",  "Interfaces",  "Components",
-      "Bus",  "Models",  "EventHandlers",  "Mappings",
-      "ViewModels",  "ViewComponents",  "Notifications",
-      "Configurations",  "Extensions",  "Events",
-      "Context",  "Data",  "EventSourcing",  "Repository",
-      "IoC",  "Manage",  "Commands",  "CommandHandlers",
-      "Validations",  "EventStoreSQL",  "Authorization",
-      "Formatters",  "Xml",  "Json",  "Enums",
-      "Abstractions",  "BaseClasses",  "Settings",
-      "Helpers",  "Validators",  "Entities",  "Pages",
-      "Client"
-}
-
-from a in JustMyCode.Assemblies
-where a.NbTypes >= 15
-
-from n in a.ChildNamespaces
-where n.Name.Length > 0
- && !n.Name.Contains("Benchmarks")
- && !infraNamespaceNames.Contains(n.SimpleName)
- && !n.ParentNamespaces.Any(pn => infraNamespaceNames.Contains(pn.SimpleName))
- &&  n.Name != n.ParentAssembly.Name
-let types = n.ChildTypes.Where(t => !t.IsGeneratedByCompiler).ToArray()
-where
-   types.Length > 0 &&
-   types.Length < 5 &&
-   types.All(t => JustMyCode.Contains(t))
-   orderby types.Length ascending
-select new {
-   n,
-   types,
-   Debt = 5.ToMinutes().ToDebt(),
-   Severity = Severity.Low
-}]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1206" Group="Object Oriented Design"><![CDATA[// <Name>A stateless class or structure might be turned into a static type</Name>
-// <Id>ND1206:AStatelessClassOrStructureMightBeTurnedIntoAStaticType</Id>
-// ND1206 squirix override: exclude *Tests types. xUnit does not put a Test attribute
-// on the test class itself, so the stock attribute filter still flags them.
+from n in Application.Namespaces
+where n.Name != "Squirix.Client" && !n.Name.Contains(".Grpc.")
+let realTypeCount = JustMyCode.Types.Count(t => t.ParentNamespace != null && t.ParentNamespace.FullName == n.FullName)
+where realTypeCount > 0 && realTypeCount <= 3
+select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1409" Group="Architecture"><![CDATA[// <Name>Avoid mutually-dependent types</Name>
+// <Id>ND1409:AvoidMutuallyDependentTypes</Id>
+// ND1409 squirix override: scope to JustMyCode. Stock rule matches on
+// Application.* and ignores notmycode, so Roslyn source-generator outputs
+// (Rocks *_Rock_Create.g.cs mocks in obj/, protobuf/gRPC *.g.cs) and test
+// assemblies surface as architecture debt. Method-level mutual usage in both
+// directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
+// Two legitimate idioms are excluded: nested types (implementation details reviewed
+// with their declarer; NDepend counts a nested access to an outer static member as
+// usage, e.g. a private Scope.Dispose touching the outer AsyncLocal field) and RAII
+// lease/scope tokens whose entire usage of the owner is construction, disposal, or
+// private helpers (LogLease, AdmissionGate.Lease, ReplicaMutationLease,
+// ReplicaIndexReservation). Genuine peer cycles through public protocol still match.
 warnif count > 0
-
-let testAttributes = ThirdParty.Types
-                  .Where(t => t.IsAttributeClass && t.SimpleName.Contains("Test")).ToArray()
-
-from t in JustMyCode.Types where
-  !t.IsStatic &&
-  !t.IsGeneric &&
-  !t.IsAbstract &&
-   t.InstanceFields.Count() == 0 &&
-   t.SimpleName != "Program" &&
-   !t.SimpleName.EndsWith("Tests") &&
-
-   // Don't match:
-   // --> types that implement some interfaces.
-   t.NbInterfacesImplemented == 0 &&
-
-   // --> or classes that have sub-classes children.
-   t.NbChildren == 0 &&
-
-   // --> or classes that have a base class
-   ((t.IsClass && t.DepthOfDeriveFrom("System.Object".AllowNoMatch()) == 1) ||
-     t.IsStructure) &&
-
-   // Don't match test classes
-   !testAttributes.Any(tAttr => t.HasAttribute(tAttr)) &&
-
-   // Don't warn about classes instantiated by Dependency Injection frameworks
-   !t.TypesUsingMe.Any(t1 => t1.TypesUsed.ParentNamespaces().Any(n => n.Name.StartsWithAny(
-       "Microsoft.Extensions.DependencyInjection",
-       "Autofac", "Microsoft.Practices.Unity", "Ninject",
-       "StructureMap", "SimpleInjector", "Castle.Windsor",
-       "LightInject", "Spring", "Lamar", "AutoMapper"
-   ))) &&
-   !t.BaseClasses.Any(bc => bc.FullName.StartsWith("AutoMapper")) &&
-
-   // Don't match marker classes
-  !(t.IsSealed && t.Members.Count() == 1 &&
-    t.Members.Single().IsMethod &&
-    t.Members.Single().AsMethod.IsConstructor &&
-    t.Members.Single().AsMethod.NbParameters == 0)
-
-let methodsUsingMe = t.TypesUsingMe.ChildMethods().Where(m => m.IsUsing(t))
-
-select new {
-   t,
-   methodsUsingMe,
-   Debt = (1 + methodsUsingMe.Count()).ToMinutes().ToDebt(),
-   Severity = Severity.Low
-}]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1207" Group="Object Oriented Design"><![CDATA[// <Name>Non-static classes should be instantiated or turned to static</Name>
-// <Id>ND1207:NonStaticClassesShouldBeInstantiatedOrTurnedToStatic</Id>
-// ND1207 squirix override: exclude *Tests and *Benchmarks types.
-// xUnit does not put a Test attribute on the test class itself, so the stock
-// attribute filter still flags them. BenchmarkDotNet instantiates *Benchmarks
-// hosts via reflection, so constructors look unused to static analysis.
-warnif count > 0
-
-let testAttributes = Types
-                  .Where(t => t.IsAttributeClass && t.SimpleName.Contains("Test")).ToArray()
-
-from t in JustMyCode.Types
-where  t.IsClass &&
-      //!t.IsPublic &&   // if you are developing a framework,
-                        // you might not want to match public classes
-      !t.IsStatic &&
-      !t.IsAbstract &&
-      !t.IsDelegate &&
-      !t.IsAttributeClass && // Attributes class are never seen as instantiated
-      !t.SimpleName.EndsWith("Tests") &&
-      !t.SimpleName.EndsWith("Benchmarks") &&
-
-      // Don't suggest to turn to static, classes that implement interfaces
-      t.InterfacesImplemented.Count() == 0 &&
-
-      // Find the first constructor of t called
-      // match t if none of its constructors is called.
-      t.Constructors.FirstOrDefault(ctor => ctor.NbMethodsCallingMe > 0) == null &&
-
-      // Don't warn on Program classes generated by designers
-      t.SimpleName != "Program" &&
-
-      // Types instantiated through remoting infrastructure
-      !t.DeriveFrom("System.MarshalByRefObject".AllowNoMatch()) &&
-
-      // JSON, XML and binary serialized types might not be seen as instantiated.
-      !t.IsUsing("Newtonsoft.Json".MatchNamespace().AllowNoMatch()) &&
-      !t.IsUsing("System.Text.Json".MatchNamespace().AllowNoMatch()) &&
-      !t.HasAttribute("System.Xml.Serialization.XmlRootAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Xml.Serialization.XmlElementAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Xml.Serialization.XmlAttributeAttribute".AllowNoMatch()) &&
-      !t.HasAttribute ("System.SerializableAttribute".AllowNoMatch()) &&
-
-      // Serialized type might never be seen as instantiated.
-      !t.HasAttribute("System.Runtime.Serialization.DataContractAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Runtime.Serialization.DataMemberAttribute".AllowNoMatch()) &&
-
-      // ASP.NET Core ViewModel and Repository
-      !t.SimpleName.EndsWithAny("Model","Repository") &&
-      !t.IsUsing("System.ComponentModel.DataAnnotations".AllowNoMatch().MatchNamespace()) &&
-
-      // ASP.NET Classes that are instantiated by the ASP.NET infrastructure.
-      !t.BaseClasses.Any(bc => bc.ParentNamespace.Name.StartsWithAny("System.Web", "Microsoft.AspNetCore"))  &&
-      !(t.Constructors.Count() == 1 && t.Constructors.Single().Name.Contains("(IHostingEnvironment)")) &&
-
-      // Entity Framework ModelSnapshot and DbContext and Migration
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.Infrastructure.ModelSnapshot".AllowNoMatch()) &&
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.DbContext".AllowNoMatch()) &&
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.Migrations.Migration".AllowNoMatch()) &&
-
-      // ASP.NET Core Tag Helpers
-      !t.HasAttribute("Microsoft.AspNetCore.Razor.TagHelpers.HtmlTargetElementAttribute".AllowNoMatch()) &&
-      !t.DeriveFrom("HtmlTags.HtmlTagTagHelper".AllowNoMatch()) &&
-
-      // UWP Pages
-      !t.InstanceMethods.WithName("GetBindingConnector(Int32,Object)").Any() &&
-
-      // Don't match test classes
-      !testAttributes.Any(tAttr => t.HasAttribute(tAttr)) &&
-
-      // Validtor classes might not be instantiated
-      !t.SimpleName.EndsWith("Validator") &&
-
-      // Don't warn about classes instantiated by Dependency Injection frameworks
-      !t.TypesUsingMe.Any(t1 => t1.TypesUsed.ParentNamespaces().Any(n => n.Name.StartsWithAny(
-            "Microsoft.Extensions.DependencyInjection",
-            "Autofac", "Microsoft.Practices.Unity", "Ninject",
-            "StructureMap", "SimpleInjector", "Castle.Windsor",
-            "LightInject", "Spring", "Lamar", "AutoMapper"
-      ))) &&
-      !t.BaseClasses.Any(bc => bc.FullName.StartsWith("AutoMapper")) &&
-
-      // Don't warn if the type is used by some types using some third-party Json related types.
-      // The type is potentially instantiated by a Json serializer like the GetFromJsonAsync() extension methods.
-      !t.TypesUsingMe.SelectMany(t1 => t1.TypesUsed)
-                     .Where(t1 => t1.IsThirdParty && t1.SimpleName.Contains("Json")).Any() &&
-
-      // Classes that derive from Unity classes are instantiated implicitly by the Unity engine
-      !t.BaseClasses.Any(bc => bc.ParentNamespace.Name.StartsWithAny("UnityEngine","UnityEditor")) &&
-
-      // Don't match marker classes
-      !(t.IsSealed && t.Members.Count() == 1 &&
-        t.Members.Single().IsMethod &&
-        t.Members.Single().AsMethod.IsConstructor &&
-        t.Members.Single().AsMethod.NbParameters == 0)
-
-select new {
-   t,
-   t.Visibility,
-   Debt = 2.ToMinutes().ToDebt(),
-   Severity = Severity.Medium
-}]]></Query>
+let justMyCodeTypes = JustMyCode.Types.ToHashSetEx()
+let IsSubordinateUse = new Func<IMethod, bool>(m =>
+    m.IsConstructor ||
+    m.SimpleName == "Dispose" ||
+    m.SimpleName == "DisposeAsync" ||
+    m.IsPrivate)
+from t1 in justMyCodeTypes
+from t2 in t1.TypesUsed
+where justMyCodeTypes.Contains(t2) &&
+      t1.FullName.CompareTo(t2.FullName) < 0 &&
+      !t1.IsNested && !t2.IsNested
+let t1MethodsUsingT2 = t1.Methods.Using(t2).ToArray()
+let t2MethodsUsingT1 = t2.Methods.Using(t1).ToArray()
+where t1MethodsUsingT2.Any() && t2MethodsUsingT1.Any() &&
+      !t1MethodsUsingT2.All(IsSubordinateUse) &&
+      !t2MethodsUsingT1.All(IsSubordinateUse)
+select new { t1, t2, t1MethodsUsingT2, t2MethodsUsingT1, Debt = 20.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
     </CustomRuleOverrides>
   </Queries>
 </NDepend>

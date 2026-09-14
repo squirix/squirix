@@ -2,6 +2,8 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Utils;
@@ -13,12 +15,15 @@ internal static class JournalReadPath
 {
     internal static string BuildSegmentPath(string dataDir, int segmentIndex) => JournalPaths.BuildSegmentPath(dataDir, segmentIndex);
 
+    internal static string BuildRollTempPath(string dataDir, int segmentIndex) => JournalPaths.BuildRollTempPath(dataDir, segmentIndex);
+
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
     internal static IJournalRecordEnumerator ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
         new JournalReplaySequence(dataDir, fromSegment, cancellationToken).CreateEnumerator();
 
     /// <summary>Journal segment replay factory without <see cref="System.Collections.Generic.IEnumerable{T}" />.</summary>
+    [Immutable]
     private sealed class JournalReplaySequence
     {
         private readonly CancellationToken _cancellationToken;
@@ -35,11 +40,11 @@ internal static class JournalReadPath
         private sealed class BinaryJournalSegmentEnumerator : IJournalRecordEnumerator
         {
             private readonly CancellationToken _cancellationToken;
+            private readonly SafeFileHandle? _handle;
             private readonly long _length;
-            private readonly FileStream? _stream;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
-            private bool _disposed;
+            private int _disposed;
             private long _offset;
             private byte[]? _rentedFrameBuffer;
             private bool _valid;
@@ -56,63 +61,52 @@ internal static class JournalReadPath
                     case < JournalFraming.FileHeaderSize:
                         throw JournalFraming.CreateTruncatedHeaderException();
                     default:
-                        _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-                        if (!StreamEx.TryReadExact(_stream, header))
-                            throw JournalFraming.CreateTruncatedHeaderException();
-
-                        JournalFraming.EnsureSegmentHeaderSupported(header);
+                        _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
+                        JournalFraming.ReadAndValidateSegmentHeader(_handle, _offset);
                         _valid = true;
                         _offset = JournalFraming.FileHeaderSize;
                         return;
                 }
             }
 
-            JournalRecord IJournalRecordEnumerator.Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+            JournalRecord IJournalRecordEnumerator.Current => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
 
             void IDisposable.Dispose()
             {
-                if (_disposed)
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
                 ReturnRentedFrameBuffer();
-                _stream?.Dispose();
-                _disposed = true;
+                _handle?.Dispose();
             }
 
             bool IJournalRecordEnumerator.MoveNext()
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (!_valid || _stream is null)
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                if (!_valid || _handle == null)
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
-                if (_offset >= _length)
-                    return false;
-
-                return MoveNextFrame();
+                return _offset < _length && MoveNextFrame();
             }
 
             private bool MoveNextFrame()
             {
                 ReturnRentedFrameBuffer();
 
-                var read = JournalFrameReader.ReadNext(_stream!, _offset, out var buffer, out var payloadLength);
+                var read = JournalFrameReader.ReadNext(_handle!, _offset, out var buffer, out var payloadLength);
                 if (read.Status is JournalFrameReadStatus.EndOfFile)
                     return false;
 
-                if (read.Status is not JournalFrameReadStatus.Success)
+                if (read.Status != JournalFrameReadStatus.Success)
                 {
-                    if (buffer is not null)
-                        ArrayPool<byte>.Shared.Return(buffer);
+                    if (buffer != null)
+                        ArrayPool<byte>.Shared.ReturnCleared(buffer);
 
-                    if (ShouldThrowOnReadFailure(read.Status))
-                        throw new InvalidDataException("journal segment corruption.");
-
-                    return Stop();
+                    return ShouldThrowOnReadFailure(read.Status) ? throw new InvalidDataException("journal segment corruption.") : Stop();
                 }
 
-                _rentedFrameBuffer = buffer ?? throw new InvalidDataException("journal segment missing payload buffer.");
+                _rentedFrameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
                 _current = BinaryJournalCodec.Decode(buffer, payloadLength);
                 _offset = read.NextFrameOffset;
                 return true;
@@ -120,15 +114,15 @@ internal static class JournalReadPath
 
             private void ReturnRentedFrameBuffer()
             {
-                if (_rentedFrameBuffer is null)
+                if (_rentedFrameBuffer == null)
                     return;
 
-                ArrayPool<byte>.Shared.Return(_rentedFrameBuffer);
+                ArrayPool<byte>.Shared.ReturnCleared(_rentedFrameBuffer);
                 _rentedFrameBuffer = null;
             }
 
             private bool ShouldThrowOnReadFailure(JournalFrameReadStatus status) =>
-                !_tolerateTruncatedTail || status is JournalFrameReadStatus.ChecksumMismatch or JournalFrameReadStatus.OversizedFrame;
+                !_tolerateTruncatedTail || status == JournalFrameReadStatus.ChecksumMismatch || status == JournalFrameReadStatus.OversizedFrame;
 
             private bool Stop()
             {
@@ -137,7 +131,7 @@ internal static class JournalReadPath
             }
         }
 
-        /// <summary>Enumerates journal records across segment files.</summary>
+        /// <summary>Lists journal records across segment files.</summary>
         private sealed class JournalReplayEnumerator : IJournalRecordEnumerator
         {
             private readonly CancellationToken _cancellationToken;
@@ -163,8 +157,10 @@ internal static class JournalReadPath
                     return true;
 
                 while (OpenNextSegment())
+                {
                     if (TryMoveCurrentSegment())
                         return true;
+                }
 
                 return false;
             }
@@ -218,7 +214,7 @@ internal static class JournalReadPath
 
             private bool TryMoveCurrentSegment()
             {
-                if (_segmentEnumerator is null)
+                if (_segmentEnumerator == null)
                     return false;
 
                 bool segmentHasNext;

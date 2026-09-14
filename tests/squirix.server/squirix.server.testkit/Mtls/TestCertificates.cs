@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;
@@ -17,7 +18,7 @@ public static class TestCertificates
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
     /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
-    public static SocketsHttpHandler CreateClusterCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    public static SocketsHttpHandler CreateCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
@@ -116,7 +117,7 @@ public static class TestCertificates
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
     public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
-        if (serverCertificate is null)
+        if (serverCertificate == null)
             return false;
 
         using var certificate = new X509Certificate2(serverCertificate);
@@ -129,6 +130,7 @@ public static class TestCertificates
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
         X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
 
+    [Immutable]
     private sealed class PeerCertificateValidator
     {
         private readonly string _expectedPeerNodeId;

@@ -2,20 +2,24 @@ using System;
 using System.Net.Http;
 using System.Net.Security;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for outbound cluster gRPC transport handler configuration.</summary>
+[Immutable]
 public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
 {
     /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the created handler is not a <see cref="SocketsHttpHandler" />.</exception>
     [Fact]
-    public void CreateChannelHandlerDisabledUsesDefaultHandler()
+    public void DisabledChannelUsesDefaultHandler()
     {
         using var createdHandler = TestCertificates.CreateDefaultChannelHandler();
         Assert.Null(createdHandler.SslOptions.ClientCertificates);
@@ -23,7 +27,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
 
     /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
     [Fact]
-    public async Task CreateMtlsHandlerAttachesLocalNodeCertificate()
+    public async Task MtlsHandlerAttachesLocalNodeCert()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var material = MtlsCertificateMaterial.Load(
@@ -47,7 +51,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
     [Fact]
-    public async Task CreateMtlsHandlerRejectsPeerServerCertificate()
+    public async Task MtlsHandlerRejectsUntrustedPeerCert()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var material = MtlsCertificateMaterial.Load(
@@ -61,7 +65,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             true,
             "node-a");
         using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
+        var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         Assert.False(callback(this, null, null, SslPolicyErrors.None));
     }

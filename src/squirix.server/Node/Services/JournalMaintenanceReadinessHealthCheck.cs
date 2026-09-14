@@ -2,12 +2,14 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Reports readiness based on fatal journal maintenance failures.</summary>
+[Immutable]
 internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 {
     private readonly IJournalCompactionStatus _compaction;
@@ -16,17 +18,17 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 
     internal JournalMaintenanceReadinessHealthCheck(IJournalCoordinator journal, IJournalCompactionStatus compaction, ISnapshotReadinessStatus snapshot)
     {
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
-        _compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-        _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+        ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(compaction);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _journal = journal;
+        _compaction = compaction;
+        _snapshot = snapshot;
     }
 
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        _ = context;
-        _ = cancellationToken;
-
         if (_journal.HasFlushLoopFailure)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
 

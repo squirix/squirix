@@ -29,7 +29,7 @@ internal static class FileCodec
         if (pathByteCount > ushort.MaxValue)
             throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
-        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
+        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot == null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
@@ -38,7 +38,7 @@ internal static class FileCodec
         if (snapshotPathUtf8Length > ushort.MaxValue)
             throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
-        var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
+        var bodyLength = snapshot == null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
@@ -56,7 +56,7 @@ internal static class FileCodec
         offset += 4;
         var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
         offset += 8;
-        var hasSnapshot = body[offset++] is not 0;
+        var hasSnapshot = body[offset++] != 0;
         var lastSnapshot = hasSnapshot ? DecodeSnapshotRef(body, ref offset) : null;
 
         return new State
@@ -94,7 +94,7 @@ internal static class FileCodec
         offset += 8;
 
         // Snapshot section is optional; absence is encoded as a single zero flag byte.
-        if (manifest.LastSnapshot is null)
+        if (manifest.LastSnapshot == null)
         {
             destination[offset++] = 0;
         }
@@ -116,12 +116,12 @@ internal static class FileCodec
             // Snapshot path follows the fixed snapshot metadata when present.
             if (pathByteCount > 0)
             {
-                _ = Encoding.UTF8.GetBytes(path!, destination[offset..]);
+                _ = Encoding.UTF8.GetBytes(path, destination[offset..]);
                 offset += pathByteCount;
             }
         }
 
-        var crcPayload = destination.Slice(bodyStart, offset - bodyStart);
+        var crcPayload = destination[bodyStart..offset];
 
         // Footer CRC protects the manifest body against torn or partial writes on disk.
         BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(crcPayload));
@@ -162,7 +162,7 @@ internal static class FileCodec
         offset += 8;
 
         // Journal rolls copy the prior snapshot reference verbatim when one exists.
-        if (snapshot is null)
+        if (snapshot == null)
         {
             destination[offset++] = 0;
         }
@@ -190,7 +190,7 @@ internal static class FileCodec
         }
 
         // CRC spans the roll body only; header magic/version are excluded like the full manifest encode path.
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(destination.Slice(bodyStart, offset - bodyStart)));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(destination[bodyStart..offset]));
         return encodedLength;
     }
 
@@ -241,7 +241,7 @@ internal static class FileCodec
             throw new InvalidDataException("Manifest file has an unsupported version.");
 
         var bodyEnd = fileBytes.Length - FooterSize;
-        body = fileBytes.Slice(FileHeaderSize, bodyEnd - FileHeaderSize);
+        body = fileBytes[FileHeaderSize..bodyEnd];
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[bodyEnd..]);
         if (Crc32C.Compute(body) != expectedCrc)
             throw new InvalidDataException("Manifest file failed CRC validation.");

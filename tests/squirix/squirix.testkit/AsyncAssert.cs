@@ -8,7 +8,7 @@ namespace Squirix.TestKit;
 /// <remarks>
 ///     <para>
 ///     These helpers accept the awaitable itself instead of a delegate, so call sites do not allocate the
-///     display class that <c>Assert.ThrowsAsync</c> requires for its captured state.
+///     display class that <c language="csharp">Assert.ThrowsAsync</c> requires for its captured state.
 ///     </para>
 ///     <para>
 ///     The operation starts before the helper is entered, so only faults captured by the awaitable are
@@ -43,11 +43,5 @@ public static class AsyncAssert
     }
 
     private static XunitException Missing<TException>()
-        where TException : Exception => new(MissingCache<TException>.Message);
-
-    private static class MissingCache<TException>
-        where TException : Exception
-    {
-        internal static readonly string Message = $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
-    }
+        where TException : Exception => new(MissingExceptionMessage.For<TException>());
 }

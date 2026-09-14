@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit.Hosting;
@@ -10,11 +11,12 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Verifies ephemeral nodes do not restore cache state across restart.</summary>
+[Immutable]
 public sealed class EphemeralRestartTests : EndToEndTestBase
 {
     /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>
     [Fact]
-    public async Task RestartShouldNotRestoreValueInEphemeralMode()
+    public async Task EphemeralModeDropsValuesOnRestart()
     {
         await using var node = await EphemeralRestartableSingleNode.StartAsync(DefaultCancellationToken);
         var cache = await node.GetCacheAsync<string>("ephemeral-restart", DefaultCancellationToken);
@@ -64,13 +66,13 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
 
         private async ValueTask StopNodeAsync()
         {
-            if (_client is not null)
+            if (_client != null)
             {
                 await _client.DisposeAsync();
                 _client = null;
             }
 
-            if (_host is not null)
+            if (_host != null)
             {
                 await _host.DisposeAsync();
                 _host = null;

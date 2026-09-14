@@ -7,7 +7,6 @@ namespace Squirix.Server.TestKit.Mtls;
 internal static class TestCertificateExtensions
 {
     private static readonly X509KeyUsageExtension ClusterNodeKeyUsage = new(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true);
-
     private static readonly X509EnhancedKeyUsageExtension ClusterNodeEnhancedKeyUsage = new(CreateClusterNodeEnhancedKeyUsages(), false);
 
     /// <summary>Adds key usage and extended key usage required for mutual TLS client and server authentication.</summary>

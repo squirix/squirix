@@ -22,12 +22,12 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         var clientLease = _clientLease;
         _clientLease = null;
-        if (clientLease is not null)
+        if (clientLease != null)
             await clientLease.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -43,12 +43,7 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
             var cache = await clientLease.Client.GetCacheAsync<object?>(cacheName, cancellationToken).ConfigureAwait(false);
             return new BenchmarkCacheSession(clientLease, cache);
         }
-        catch (InvalidOperationException)
-        {
-            await clientLease.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await clientLease.DisposeAsync().ConfigureAwait(false);
             throw;

@@ -4,21 +4,16 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Background fire-and-forget worker that schedules and runs manifest retention cleanup.</summary>
-internal sealed class RetentionWorker
+internal sealed class RetentionWorker : IWorkPoolItem
 {
-    private static readonly Action<object?> RunRetentionWorkerLoopCallback = static state =>
-    {
-        if (state is RetentionWorker worker)
-            worker.RunRetentionWorkerLoop();
-    };
-
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private volatile State? _pendingRetentionManifest;
@@ -30,23 +25,14 @@ internal sealed class RetentionWorker
         _retentionReadiness = retentionReadiness;
     }
 
-    internal void ScheduleRetentionCleanup(State manifest)
-    {
-        _pendingRetentionManifest = manifest;
-        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
-            return;
-
-        StartRetentionWorkerLoop();
-    }
-
-    private void RunRetentionWorkerLoop()
+    void IWorkPoolItem.Execute()
     {
         try
         {
             while (true)
             {
                 var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
-                if (manifest is null)
+                if (manifest == null)
                     break;
 
                 var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
@@ -62,23 +48,26 @@ internal sealed class RetentionWorker
         }
     }
 
-    private void StartRetentionWorkerLoop() =>
-        _ = Task.Factory.StartNew(
-            RunRetentionWorkerLoopCallback,
-            this,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default);
+    internal void ScheduleRetentionCleanup(State manifest)
+    {
+        _pendingRetentionManifest = manifest;
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
+            return;
+
+        StartRetentionWorkerLoop();
+    }
+
+    private void StartRetentionWorkerLoop() => _ = WorkPool.RunAsync(this, TaskCreationOptions.LongRunning, CancellationToken.None);
 
     /// <summary>Restarts the retention loop when pending work remains after the previous loop released its schedule flag.</summary>
     /// <returns><see langword="true" /> when a new retention loop was scheduled; otherwise <see langword="false" />.</returns>
     private bool TryRestartIfPendingWorkRemains()
     {
         // Another thread may publish work while the drain loop exits with the schedule flag still held.
-        if (_pendingRetentionManifest is null)
+        if (_pendingRetentionManifest == null)
             return false;
 
-        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
             return false;
 
         StartRetentionWorkerLoop();
@@ -141,7 +130,7 @@ internal sealed class RetentionWorker
                 buffer[writeIndex++] = new IndexedStorageFile(path, index);
             }
 
-            if (writeIndex is 0)
+            if (writeIndex == 0)
                 return [];
 
             var result = writeIndex == buffer.Length ? buffer : Trim(buffer, writeIndex);
@@ -168,7 +157,7 @@ internal sealed class RetentionWorker
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
-            if (context.Logger is not null)
+            if (context.Logger != null)
                 LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
@@ -176,7 +165,7 @@ internal sealed class RetentionWorker
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
-            if (context.Logger is not null)
+            if (context.Logger != null)
                 LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
@@ -268,10 +257,7 @@ internal sealed class RetentionWorker
                     return false;
 
                 var ordered = GetIndexedFiles(files, ParseSnapshotIndex);
-                if (ordered.Length <= context.SnapshotRetention)
-                    return false;
-
-                return DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+                return ordered.Length > context.SnapshotRetention && DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
             }
             catch (ArgumentException ex)
             {
@@ -299,6 +285,7 @@ internal sealed class RetentionWorker
             return true;
         }
 
+        [Immutable]
         private sealed record IndexedStorageFile(string Path, int Index);
     }
 }

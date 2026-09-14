@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -7,17 +8,15 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Errors;
 
 /// <summary>Covers public and gRPC projections for every <see cref="SquirixErrorCode" />.</summary>
+[Immutable]
 public sealed class SquirixErrorMapperTests : ServerUnitTestBase
 {
     /// <summary>Maps each known code to its stable public token and gRPC status.</summary>
     [Fact]
     public void MapsEveryKnownErrorCode()
     {
-        AssertMapping(SquirixErrorCode.InvalidCacheName, "INVALID_CACHE_NAME", StatusCode.InvalidArgument);
+        AssertMapping(SquirixErrorCode.None, "INTERNAL_ERROR", StatusCode.Internal);
         AssertMapping(SquirixErrorCode.InvalidCacheKey, "INVALID_CACHE_KEY", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.BadRequest, "BAD_REQUEST", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.NotFound, "NOT_FOUND", StatusCode.NotFound);
-        AssertMapping(SquirixErrorCode.Conflict, "CONFLICT", StatusCode.FailedPrecondition);
         AssertMapping(SquirixErrorCode.PayloadTooLarge, "PAYLOAD_TOO_LARGE", StatusCode.ResourceExhausted);
         AssertMapping(SquirixErrorCode.TooManyRequests, "TOO_MANY_REQUESTS", StatusCode.ResourceExhausted);
         AssertMapping(SquirixErrorCode.MemoryPressure, "MEMORY_PRESSURE", StatusCode.ResourceExhausted);
@@ -27,6 +26,7 @@ public sealed class SquirixErrorMapperTests : ServerUnitTestBase
         AssertMapping(SquirixErrorCode.OperationIdTooLong, "OPERATION_ID_TOO_LONG", StatusCode.InvalidArgument);
         AssertMapping(SquirixErrorCode.OperationIdReuseMismatch, "OPERATION_ID_REUSE_MISMATCH", StatusCode.FailedPrecondition);
         AssertMapping(SquirixErrorCode.InvalidEntryTags, "INVALID_ENTRY_TAGS", StatusCode.InvalidArgument);
+        AssertMapping(SquirixErrorCode.CommitOutcomeUnknown, "COMMIT_OUTCOME_UNKNOWN", StatusCode.Unavailable);
     }
 
     /// <summary>Unknown codes fall back to internal error projections.</summary>

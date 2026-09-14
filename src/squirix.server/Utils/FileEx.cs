@@ -1,10 +1,21 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
 
+/// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
 internal static class FileEx
 {
+    private const int DarwinCloseOnExec = 0x1000000;
+
+    private const int FreeBsdCloseOnExec = 0x00100000;
+
+    /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
+    private const int LinuxCloseOnExec = 0x80000;
+
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
         var cwd = Directory.GetCurrentDirectory();
@@ -26,6 +37,32 @@ internal static class FileEx
         return null;
     }
 
+    /// <summary>
+    /// Flushes the parent directory of <paramref name="filePath" /> so a recent directory-entry change
+    /// (create, rename, or delete) survives a crash.
+    /// </summary>
+    /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
+    /// <remarks>
+    /// On Unix, opens the parent directory and calls <c language="csharp">fsync(2)</c> to guarantee directory-entry durability.
+    /// On Windows, this is a no-op: Microsoft does not document <c language="csharp">FlushFileBuffers</c> as a
+    /// directory-entry durability primitive, and NTFS metadata journaling provides implicit directory-entry
+    /// durability without an explicit flush. This matches upstream SQLite behavior (<c language="csharp">os_win.c</c>),
+    /// which never fsyncs directories on Windows.
+    /// </remarks>
+    /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
+    internal static void FlushDirectoryEntry(string filePath)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(directory))
+            return;
+
+        using var handle = OpenDirectoryForFlush(directory);
+        RandomAccess.FlushToDisk(handle);
+    }
+
     /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
     /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
@@ -34,20 +71,24 @@ internal static class FileEx
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
-    internal static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
+    internal static bool PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-        var validatedBackup = backupPath is null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
+        var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
+
         if (File.Exists(validatedFinal))
             File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
         else
             File.Move(validatedTemp, validatedFinal);
+
+        // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
+        FlushDirectoryEntry(validatedFinal);
+        return true;
     }
 
-    /// <summary>
-    /// Attempts to delete a file at the given <paramref name="path" />.
-    /// </summary>
+    /// <summary>Attempts to delete a file at the given <paramref name="path" />.</summary>
     /// <param name="path">
     /// Absolute or relative path to the file to delete. If <see langword="null" />, empty, or whitespace-only,
     /// the method succeeds without performing any action. If the string contains any character from
@@ -76,6 +117,44 @@ internal static class FileEx
         }
     }
 
+    /// <summary>Returns the platform-specific <c language="csharp">O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
+    /// <remarks>
+    /// Unknown Unix platforms return <c language="csharp">0</c> (no close-on-exec), preserving the previous behavior rather than
+    /// risking an invalid flag. This path only runs on Unix; <see cref="FlushDirectoryEntry" /> no-ops on Windows.
+    /// </remarks>
+    private static int CloseOnExecFlag()
+    {
+        var isApple = OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
+        return true switch
+        {
+            _ when OperatingSystem.IsLinux() => LinuxCloseOnExec,
+            _ when isApple => DarwinCloseOnExec,
+            _ when OperatingSystem.IsFreeBSD() => FreeBsdCloseOnExec,
+            _ => 0,
+        };
+    }
+
+    private static SafeFileHandle OpenDirectoryForFlush(string directory)
+    {
+        // EINTR (interrupted system call) is 4 on Linux, macOS, and the *BSD family.
+        // This path only runs on Unix, where open(2) can be interrupted by a signal.
+        const int eintr = 4;
+        var pathBytes = Encoding.UTF8.GetBytes(directory + "\0");
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var descriptor = NativeMethods.OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
+            if (descriptor >= 0)
+                return new SafeFileHandle(new IntPtr(descriptor), true);
+
+            // A system call interrupted by a signal must be retried; any other failure is surfaced as-is via the existing IOException below.
+            if (Marshal.GetLastPInvokeError() != eintr)
+                break;
+        }
+
+        throw new IOException($"Failed to open directory '{directory}' for flushing; errno={Marshal.GetLastPInvokeError()}.");
+    }
+
     private static bool TryDeleteExistingFile(string validatedPath)
     {
         try
@@ -86,11 +165,7 @@ internal static class FileEx
             File.Delete(validatedPath);
             return true;
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }

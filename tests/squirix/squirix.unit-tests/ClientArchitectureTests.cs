@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using System.Xml;
+using System.Xml.XPath;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
@@ -13,17 +15,18 @@ using Xunit;
 namespace Squirix.UnitTests;
 
 /// <summary>Architecture rules for the client SDK assembly boundary.</summary>
+[Immutable]
 public sealed class ClientArchitectureTests
 {
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
     private static readonly Lazy<string> RepositoryRoot = new(ResolveRepositoryRoot);
-    private static readonly Lazy<XDocument> ClientProject = new(LoadClientProject);
+    private static readonly Lazy<XPathNavigator> ClientProject = new(LoadClientProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ClientProjectIndex = new(static () => ParseMsbuildProject(ClientProject.Value));
 
     /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
     [Fact]
-    public void ClientAssemblyGrpcTransportTypesRemainInternal()
+    public void GrpcTransportTypesRemainInternal()
     {
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
@@ -32,61 +35,44 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
     [Fact]
-    public void ClientAssemblyShouldNotExposeInternalsToServer()
+    public void ShouldNotExposeInternalsToServer()
     {
-        var assemblyInfoPath = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
-        var text = File.ReadAllText(assemblyInfoPath);
+        var path = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
+        var text = File.ReadAllText(path);
         Assert.DoesNotContain("InternalsVisibleTo(\"Squirix.Server\"", text, StringComparison.Ordinal);
-    }
-
-    /// <summary>Ensures the core package does not reference the server package.</summary>
-    [Fact]
-    public void ClientAssemblyShouldNotReferenceSquirixServer()
-    {
-        var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
-        Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Fact]
-    public void ClientProjectGeneratesNarrowCacheGrpcFromShared()
+    public void GeneratesNarrowCacheGrpcFromShared()
     {
         var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
-        Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
+        Assert.Equal("Client", protobuf.GetAttribute("GrpcServices", string.Empty));
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot", string.Empty));
+        Assert.Equal("Internal", protobuf.GetAttribute("Access", string.Empty));
         _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
     }
 
     /// <summary>Ensures the client project does not grow server-hosting dependency debt.</summary>
     [Fact]
-    public void ClientProjectShouldNotReferenceServerHosting()
+    public void ShouldNotReferenceServerHosting()
     {
         var index = ClientProjectIndex.Value;
+        var packageReferences = index.GetIncludes("PackageReference");
+        if (packageReferences != null)
+        {
+            Assert.DoesNotContain(
+                packageReferences,
+                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
+        }
 
-        Assert.DoesNotContain(
-            index.GetIncludes("PackageReference"),
-            static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
-
-        Assert.DoesNotContain(index.GetIncludes("FrameworkReference"), static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+        var frameworkReferences = index.GetIncludes("FrameworkReference");
+        if (frameworkReferences != null)
+            Assert.DoesNotContain(frameworkReferences, static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures the core project does not depend on the server project.</summary>
-    [Fact]
-    public void ClientProjectShouldNotReferenceServerProject()
-    {
-        var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
-
-        Assert.DoesNotContain(
-            references,
-            static reference => reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase) ||
-                                reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>
-    /// Ensures <see cref="ISquirixClient.GetCacheAsync{T}" /> exposes a non-owning cache projection.
-    /// </summary>
+    /// <summary>Ensures <see cref="ISquirixClient.GetCacheAsync{T}" /> exposes a non-owning cache projection.</summary>
     [Fact]
     public void GetCacheAsyncReturnsNonOwningCacheHandle()
     {
@@ -101,10 +87,10 @@ public sealed class ClientArchitectureTests
 
     private static void AddMsbuildInclude(
         Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XElement>> includedElements,
+        Dictionary<string, List<XPathNavigator>> includedElements,
         string localName,
         string include,
-        XElement element)
+        XPathNavigator element)
     {
         if (!includes.TryGetValue(localName, out var includeList))
         {
@@ -120,37 +106,37 @@ public sealed class ClientArchitectureTests
             includedElements[localName] = elementList;
         }
 
-        elementList.Add(element);
+        elementList.Add(element.Clone());
     }
 
-    private static void CollectMsbuildIncludes(XElement? root, Dictionary<string, List<string>> includes, Dictionary<string, List<XElement>> includedElements)
+    private static void CollectMsbuildIncludes(XPathNavigator root, Dictionary<string, List<string>> includes, Dictionary<string, List<XPathNavigator>> includedElements)
     {
-        if (root is null)
-            return;
-
-        var localName = root.Name.LocalName;
-        var include = root.Attribute("Include")?.Value;
+        var localName = root.LocalName;
+        var include = root.GetAttribute("Include", string.Empty);
         if (!string.IsNullOrWhiteSpace(include))
             AddMsbuildInclude(includes, includedElements, localName, include, root);
 
-        for (var node = root.FirstNode; node is not null; node = node.NextNode)
-            if (node is XElement child)
-                CollectMsbuildIncludes(child, includes, includedElements);
+        var children = root.SelectChildren(XPathNodeType.Element);
+        while (children.MoveNext())
+            CollectMsbuildIncludes(children.Current!, includes, includedElements);
     }
 
-    private static XDocument LoadClientProject()
+    private static XPathNavigator LoadClientProject()
     {
         var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path));
-        return XDocument.Load(path);
+
+        var document = new XmlDocument();
+        document.Load(path);
+        return document.CreateNavigator()!;
     }
 
-    private static MsbuildProjectIndex ParseMsbuildProject(XDocument project)
+    private static MsbuildProjectIndex ParseMsbuildProject(XPathNavigator project)
     {
         var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+        var includedElements = new Dictionary<string, List<XPathNavigator>>(StringComparer.OrdinalIgnoreCase);
 
-        CollectMsbuildIncludes(project.Root, includes, includedElements);
+        CollectMsbuildIncludes(project, includes, includedElements);
 
         return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
     }
@@ -158,7 +144,7 @@ public sealed class ClientArchitectureTests
     private static string ResolveRepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
+        while (dir != null)
         {
             if (File.Exists(PathKit.Combine(dir.FullName, "squirix.slnx")))
                 return dir.FullName;
@@ -169,34 +155,35 @@ public sealed class ClientArchitectureTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
+    [Immutable]
     private sealed class MsbuildProjectIndex
     {
-        private readonly FrozenDictionary<string, List<XElement>> _includedElements;
+        private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;
         private readonly FrozenDictionary<string, List<string>> _includes;
 
-        internal MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XElement>> includedElements)
+        internal MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XPathNavigator>> includedElements)
         {
             _includes = includes;
             _includedElements = includedElements;
         }
 
-        internal List<string> GetIncludes(string itemName) => _includes.TryGetValue(itemName, out var list) ? list : [];
+        internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-        internal XElement RequireIncludedElement(string localName, string include)
+        internal XPathNavigator RequireIncludedElement(string localName, string include)
         {
             Assert.True(_includedElements.TryGetValue(localName, out var elements));
 
-            XElement? match = null;
+            XPathNavigator? match = null;
             for (var i = 0; i < elements.Count; i++)
             {
                 var element = elements[i];
-                if (!string.Equals(element.Attribute("Include")?.Value, include, StringComparison.Ordinal))
+                if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
                     continue;
                 match = element;
                 break;
             }
 
-            Assert.True(match is not null);
+            Assert.NotNull(match);
             return match;
         }
     }

@@ -2,15 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 
 namespace Squirix.E2ETests;
 
 /// <summary>
-/// Base class for SDK stress tests. Lives outside <c>Squirix.E2ETests.Cache</c> so it may use extra infrastructure
+/// Base class for SDK stress tests. Lives outside <c language="csharp">Squirix.E2ETests.Cache</c> so it may use extra infrastructure
 /// helpers without widening the cache-test surface, while still exercising only the public SDK.
 /// </summary>
+[Immutable]
 public abstract class LoadTestBase : EndToEndTestBase
 {
     /// <summary>Runs concurrent writer tasks until they complete or the budget elapses.</summary>

@@ -1,5 +1,8 @@
+using Squirix.Server.Attributes;
+
 namespace Squirix.Server.Adapters.Rest;
 
+[Immutable]
 internal sealed record HealthReadyDetailSections
 {
     internal HealthReadyDetailSections(

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -16,9 +17,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     private const int LightBatch = 10_000;
     private const string MissingKey = "bench_missing";
 
-    /// <summary>
-    /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
-    /// </summary>
+    /// <summary>Measures single-key <c language="csharp">AddAsync</c> with a freshly generated key per call.</summary>
     [Benchmark]
     public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
@@ -31,9 +30,9 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>Ensure "missing" key is absent for negative-path benchmarks.</summary>
-    /// <returns>A task that completes after the missing key is removed.</returns>
     [IterationSetup(Targets = [nameof(ContainsMissingBatchedAsync), nameof(RemoveMissingBatchedAsync)])]
-    public async Task EnsureMissingAbsentAsync() => _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void EnsureMissingAbsent() => _ = SharedCache.RemoveAsync(MissingKey, CancellationToken.None).GetAwaiter().GetResult();
 
     /// <summary>Measures repeated reads against a pre-seeded key.</summary>
     [Benchmark]
@@ -43,9 +42,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
             _ = await SharedCache.GetValueAsync(ExistingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Batches lightweight <c>SetAsync</c> calls to amortize per-iteration BenchmarkDotNet overhead.
-    /// </summary>
+    /// <summary>Batches lightweight <c language="csharp">SetAsync</c> calls to amortize per-iteration BenchmarkDotNet overhead.</summary>
     [Benchmark(OperationsPerInvoke = LightBatch)]
     public async Task InsertNewKeyBatchedAsync()
     {

@@ -1,11 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Utils;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -33,38 +34,29 @@ internal sealed class ClientInterceptor : Interceptor
         return OutboundUnaryCallLease<TResponse>.WrapAsync(scope, ownedActivity, rentedHeaders, call);
     }
 
-    private static CallOptions AttachTraceHeaders(
-        CallOptions options,
-        string method,
-        out Activity? ownedActivity,
-        out Metadata? rentedHeaders)
+    private static CallOptions AttachTraceHeaders(CallOptions options, string method, out Activity? ownedActivity, out Metadata? rentedHeaders)
     {
         // Reuse the ambient Activity when present; otherwise start one owned by the outbound call.
         ownedActivity = null;
         rentedHeaders = null;
         var activity = Activity.Current;
-        if (activity is null)
+        if (activity == null)
         {
             activity = ActivitySourceHolder.StartClient(method);
             ownedActivity = activity;
         }
 
-        if (activity is null)
-        {
-            // No trace headers to attach — keep caller headers untouched (including null).
+        // No trace headers to attach — keep caller headers untouched (including null).
+        if (activity == null)
             return options;
-        }
 
-        Metadata metadata;
-        if (options.Headers is null)
-        {
-            metadata = GrpcMetadataPool.Rent();
-            rentedHeaders = metadata;
-        }
-        else
-        {
-            metadata = options.Headers;
-        }
+        // Clone caller headers into a freshly rented bag; never mutate options.Headers in place,
+        // so a Metadata instance shared across calls cannot bleed trace headers or race.
+        var metadata = GrpcMetadataPool.Rent();
+        rentedHeaders = metadata;
+        var callerHeaders = options.Headers;
+        if (callerHeaders != null)
+            GrpcMetadata.CopyInto(metadata, callerHeaders);
 
         var traceParent = activity.Id;
         if (!string.IsNullOrEmpty(traceParent))
@@ -97,8 +89,35 @@ internal sealed class ClientInterceptor : Interceptor
         metadata.Add(key, value);
     }
 
+    private static class GrpcMetadataPool
+    {
+        private static readonly ConcurrentBag<Metadata> Pool = [];
+
+        /// <summary>Rents a cleared <see cref="Metadata" /> instance from the pool or allocates when empty.</summary>
+        /// <returns>A reusable metadata bag owned by the caller until <see cref="Return" />.</returns>
+        internal static Metadata Rent()
+        {
+            if (!Pool.TryTake(out var metadata))
+                return [];
+            metadata.Clear();
+            return metadata;
+        }
+
+        /// <summary>Clears and returns a rented <see cref="Metadata" /> instance to the pool.</summary>
+        /// <param name="metadata">Rented metadata, or <see langword="null" /> when nothing was rented.</param>
+        internal static void Return(Metadata? metadata)
+        {
+            if (metadata == null)
+                return;
+
+            metadata.Clear();
+            Pool.Add(metadata);
+        }
+    }
+
     /// <summary>Owns logging scope, optional client Activity, and rented metadata for an outbound unary call.</summary>
     /// <typeparam name="TResponse">Outbound unary response type.</typeparam>
+    [Immutable]
     private sealed class OutboundUnaryCallLease<TResponse>
     {
         private readonly AsyncUnaryCall<TResponse> _inner;
@@ -107,11 +126,7 @@ internal sealed class ClientInterceptor : Interceptor
         private readonly IDisposable _scope;
         private int _disposed;
 
-        private OutboundUnaryCallLease(
-            IDisposable scope,
-            Activity? ownedActivity,
-            Metadata? rentedHeaders,
-            AsyncUnaryCall<TResponse> inner)
+        private OutboundUnaryCallLease(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             _scope = scope;
             _ownedActivity = ownedActivity;
@@ -119,11 +134,7 @@ internal sealed class ClientInterceptor : Interceptor
             _inner = inner;
         }
 
-        internal static AsyncUnaryCall<TResponse> WrapAsync(
-            IDisposable scope,
-            Activity? ownedActivity,
-            Metadata? rentedHeaders,
-            AsyncUnaryCall<TResponse> inner)
+        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             var lease = new OutboundUnaryCallLease<TResponse>(scope, ownedActivity, rentedHeaders, inner);
             return new AsyncUnaryCall<TResponse>(lease.ResponseAsync(), inner.ResponseHeadersAsync, inner.GetStatus, inner.GetTrailers, lease.DisposeCall);
@@ -131,33 +142,34 @@ internal sealed class ClientInterceptor : Interceptor
 
         private void DisposeCall()
         {
-            DisposeOnce();
+            DisposeScope();
             _inner.Dispose();
         }
 
-        private void DisposeOnce()
+        private void DisposeScope()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) is not 0)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
             _scope.Dispose();
             _ownedActivity?.Dispose();
-            GrpcMetadataPool.Return(_rentedHeaders);
         }
 
         private async Task<TResponse> ResponseAsync()
         {
             try
             {
-#pragma warning disable VSTHRD003
-
                 // Scope, owned client Activity, and rented headers must live until the outbound unary call completes.
-                return await _inner.ResponseAsync.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
+                // The rented bag is returned only from this completion path: an early outer dispose must not
+                // recycle it while the transport may still read it.
+                // ValueTask wraps the foreign gRPC task into one owned by this method (RemoteCache idiom).
+                var responseAsync = _inner.ResponseAsync;
+                return await new ValueTask<TResponse>(responseAsync).ConfigureAwait(false);
             }
             finally
             {
-                DisposeOnce();
+                DisposeScope();
+                GrpcMetadataPool.Return(_rentedHeaders);
             }
         }
     }

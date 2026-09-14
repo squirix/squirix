@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -11,6 +12,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
 [Trait(Category.TraitName, Category.TraitValue)]
+[Immutable]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
     private static readonly string[] WriterValues = CreateWriterValues(string.Empty);
@@ -22,14 +24,15 @@ public sealed class MixedMutationStressTests : LoadTestBase
     /// and a converged final value drawn from the writer set.
     /// </summary>
     [Fact]
-    public async Task ConcurrentMixedMutationsClientVisibleInvariants()
+    public async Task ConcurrentMixedMutationsStayConsistent()
     {
         var profile = LoadProfiles.MixedMutation;
         using var deadline = CreateDeadline(profile);
         var token = deadline.Token;
 
         var keys = CreateKeySet(LoadProfiles.ScaleOperations(50));
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsClientVisibleInvariants), cancellationToken: token);
+        const string name = nameof(ConcurrentMixedMutationsStayConsistent);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(name, timeProvider: TimeProvider.System, cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);
@@ -86,7 +89,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
     {
         var keys = new string[keyCount];
         for (var k = 0; k < keyCount; k++)
-            keys[k] = InvariantIndexStrings.FormatPrefixed("mixed", k);
+            keys[k] = NodeInvariantIndexStrings.FormatPrefixed("mixed", k);
 
         return keys;
     }
@@ -95,28 +98,28 @@ public sealed class MixedMutationStressTests : LoadTestBase
     {
         var values = new string[32];
         for (var w = 0; w < values.Length; w++)
-            values[w] = $"w{InvariantIndexStrings.Format(w)}{suffix}";
+            values[w] = $"w{NodeInvariantIndexStrings.Format(w)}{suffix}";
 
         return values;
     }
 
     private static Task RunInsertContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
-        var runner = new InsertContentionRunner(caches, keys, token);
+        var runner = new InsertContentionRunner(caches, keys, WriterValuesV2, token);
         return RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
     }
 
     private static async Task<int[]> RunTryAddContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
         var addSuccesses = new int[keys.Length];
-        var runner = new TryAddContentionRunner(caches, keys, addSuccesses, token);
+        var runner = new TryAddContentionRunner(caches, keys, WriterValues, addSuccesses, token);
         await RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
 
         return addSuccesses;
     }
 
     /// <summary>
-    /// Named stress workloads. Operation counts scale with <c>SQUIRIX_STRESS_SCALE</c> so the repeat runner can dial
+    /// Named stress workloads. Operation counts scale with <c language="csharp">SQUIRIX_STRESS_SCALE</c> so the repeat runner can dial
     /// intensity without recompiling; DEBUG builds default to a low scale to keep local runs fast.
     /// </summary>
     private static class LoadProfiles
@@ -129,9 +132,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         /// <summary>Gets the effective operation-count multiplier.</summary>
         private static double Scale { get; } = ResolveScale();
 
-        /// <summary>
-        /// Scales a base operation count by <see cref="Scale" />, never returning less than one.
-        /// </summary>
+        /// <summary>Scales a base operation count by <see cref="Scale" />, never returning less than one.</summary>
         /// <param name="baseOperations">The unscaled operation count.</param>
         /// <returns>The scaled operation count.</returns>
         internal static int ScaleOperations(int baseOperations)
@@ -142,28 +143,30 @@ public sealed class MixedMutationStressTests : LoadTestBase
 
         private static double ResolveScale()
         {
-            var raw = Environment.GetEnvironmentVariable(ScaleVariable);
-            if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0d)
-                return parsed;
-
 #if DEBUG
-            return 0.1d;
+            const double defaultScale = 0.1d;
 #else
-            return 1d;
+            const double defaultScale = 1d;
 #endif
+            var rawScale = Environment.GetEnvironmentVariable(ScaleVariable);
+            _ = double.TryParse(rawScale, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed);
+            return parsed > 0d ? parsed : defaultScale;
         }
     }
 
+    [Immutable]
     private sealed class InsertContentionRunner
     {
         private readonly ICache<object?>[] _caches;
         private readonly string[] _keys;
         private readonly CancellationToken _token;
+        private readonly string[] _writerValues;
 
-        internal InsertContentionRunner(ICache<object?>[] caches, string[] keys, CancellationToken token)
+        internal InsertContentionRunner(ICache<object?>[] caches, string[] keys, string[] writerValues, CancellationToken token)
         {
             _caches = caches;
             _keys = keys;
+            _writerValues = writerValues;
             _token = token;
             RunAsync = RunCoreAsync;
         }
@@ -173,23 +176,26 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private async Task RunCoreAsync(int writer)
         {
             var cache = _caches[writer];
-            var value = WriterValuesV2[writer];
+            var value = _writerValues[writer];
             for (var k = 0; k < _keys.Length; k++)
                 await cache.SetAsync(_keys[k], value, cancellationToken: _token);
         }
     }
 
+    [Immutable]
     private sealed class TryAddContentionRunner
     {
         private readonly int[] _addSuccesses;
         private readonly ICache<object?>[] _caches;
         private readonly string[] _keys;
         private readonly CancellationToken _token;
+        private readonly string[] _writerValues;
 
-        internal TryAddContentionRunner(ICache<object?>[] caches, string[] keys, int[] addSuccesses, CancellationToken token)
+        internal TryAddContentionRunner(ICache<object?>[] caches, string[] keys, string[] writerValues, int[] addSuccesses, CancellationToken token)
         {
             _caches = caches;
             _keys = keys;
+            _writerValues = writerValues;
             _addSuccesses = addSuccesses;
             _token = token;
             RunAsync = RunCoreAsync;
@@ -200,10 +206,12 @@ public sealed class MixedMutationStressTests : LoadTestBase
         private async Task RunCoreAsync(int writer)
         {
             var cache = _caches[writer];
-            var value = WriterValues[writer];
+            var value = _writerValues[writer];
             for (var k = 0; k < _keys.Length; k++)
+            {
                 if (await cache.TryAddAsync(_keys[k], value, cancellationToken: _token))
                     _ = Interlocked.Increment(ref _addSuccesses[k]);
+            }
         }
     }
 }

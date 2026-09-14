@@ -12,10 +12,9 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App"/>
         <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp"/>
-        <PackageReference Include="xunit.v3.assert"/>
-        <PackageReference Include="xunit.v3.extensibility.core"/>
+        <PackageReference Include="xunit.v3.assert.aot"/>
+        <PackageReference Include="xunit.v3.extensibility.core.aot"/>
     </ItemGroup>
 
     <ItemGroup>

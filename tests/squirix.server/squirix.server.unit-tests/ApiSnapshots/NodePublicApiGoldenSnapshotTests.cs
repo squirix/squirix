@@ -4,20 +4,21 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>
-/// Golden snapshot and method allowlist for the intentionally minimal <c>Squirix.Server</c> CLR API.
-/// </summary>
-public sealed class NodePublicApiGoldenSnapshotTests
+/// <summary>Golden snapshot and method allowlist for the intentionally minimal <c language="csharp">Squirix.Server</c> CLR API.</summary>
+[Immutable]
+public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesServerAssemblyExports()
+    public async Task MatchesServerAssemblyExportsAsync()
     {
         var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
         var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
@@ -33,7 +34,7 @@ public sealed class NodePublicApiGoldenSnapshotTests
 
     /// <summary>Ensures the server package exposes the canonical lifetime methods.</summary>
     [Fact]
-    public void ServerShouldExposeCanonicalLifetimeMethods()
+    public void ExposesCanonicalLifetimeMethods()
     {
         Assert.NotNull((Func<CancellationToken, ValueTask<SquirixServer>>)StartAsync);
         Assert.NotNull((Func<SquirixServer, ValueTask>)DisposeAsync);
@@ -54,8 +55,10 @@ public sealed class NodePublicApiGoldenSnapshotTests
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -79,11 +82,11 @@ public sealed class NodePublicApiGoldenSnapshotTests
     private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);

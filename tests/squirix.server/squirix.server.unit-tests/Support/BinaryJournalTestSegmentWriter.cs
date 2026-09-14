@@ -1,7 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -14,64 +14,144 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
+    internal static JournalRecord BuildBrokenPutRecord(ulong seq, string key)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = new byte[] { 1, 2, 3 },
+        };
+    }
+
+    internal static JournalRecord BuildIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs, ulong seq)
+    {
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = unixMs,
+            Operation = JournalOperationKind.IdempotencyOutcome,
+            Key = CacheKey.Default(operationId),
+            IdempotencyOperationId = operationId,
+            IdempotencyFingerprint = fingerprint,
+            IdempotencyResponseBytes = responseBytes,
+        };
+    }
+
+    internal static JournalRecord BuildPutRecord(ulong seq, string key, string value)
     {
         var body = JournalEntryPayloadKit.EncodePut(value);
-        return Task.FromResult(
-            new JournalRecord
-            {
-                Sequence = seq,
-                UnixMs = 1,
-                Operation = JournalOperationKind.Put,
-                Key = CacheKey.Default(key),
-                PutEntryBytes = body,
-            });
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = body,
+        };
     }
 
-    internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)
+    internal static JournalRecord BuildPutRecord(ulong seq, string key, NodeCacheEntry<object?> entry)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, record);
+        var body = JournalEntryPayloadKit.Encode(entry);
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = body,
+        };
     }
 
-    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
+    internal static JournalRecord BuildRemoveExpirationRecord(ulong seq, string key)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, records);
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.RemoveExpiration,
+            Key = CacheKey.Default(key),
+        };
     }
 
-    internal static async Task WriteSegmentAsync(string path, JournalRecord record)
+    internal static JournalRecord BuildRemoveRecord(ulong seq, string key)
     {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
-        WriteRecordFrame(stream, record);
-        await stream.FlushAsync(CancellationToken.None);
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Remove,
+            Key = CacheKey.Default(key),
+        };
     }
 
-    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
+    internal static JournalRecord BuildTouchExpirationRecord(ulong seq, string key, DateTime expiresUtc)
     {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = 1,
+            Operation = JournalOperationKind.TouchExpiration,
+            Key = CacheKey.Default(key),
+            TouchExpirationUtc = expiresUtc,
+        };
+    }
+
+    internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        WriteSegment(path, record);
+    }
+
+    internal static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalRecord> records)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        WriteSegment(path, records);
+    }
+
+    internal static void WriteSegment(string path, JournalRecord record)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        long offset = 0;
+        WriteFileHeader(handle, ref offset);
+        WriteRecordFrame(handle, ref offset, record);
+    }
+
+    internal static void WriteSegment(string path, IReadOnlyList<JournalRecord> records)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        long offset = 0;
+        WriteFileHeader(handle, ref offset);
         for (var i = 0; i < records.Count; i++)
-            WriteRecordFrame(stream, records[i]);
-
-        await stream.FlushAsync(CancellationToken.None);
+            WriteRecordFrame(handle, ref offset, records[i]);
     }
 
-    private static void WriteRecordFrame(Stream stream, JournalRecord record)
+    private static void WriteFileHeader(SafeFileHandle handle, ref long offset)
+    {
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        RandomAccess.Write(handle, header, offset);
+        offset += header.Length;
+    }
+
+    private static void WriteRecordFrame(SafeFileHandle handle, ref long offset, JournalRecord record)
     {
         var encode = BinaryJournalCodec.PrepareEncode(record);
         var frameLength = JournalFraming.FrameTotalLength(encode.BodyLength);
         BufferKit.WithBuffer(
             frameLength,
-            (stream, record, encode),
+            (Handle: handle, Record: record, Encode: encode, Offset: offset),
             static (ctx, frame) =>
             {
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
-                var body = frame.Slice(bodyOffset, ctx.encode.BodyLength);
-                _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.encode);
+                var body = frame.Slice(bodyOffset, ctx.Encode.BodyLength);
+                _ = BinaryJournalCodec.Encode(ctx.Record, body, in ctx.Encode);
                 JournalFraming.WriteFrame(frame, body);
-                ctx.stream.Write(frame);
+                RandomAccess.Write(ctx.Handle, frame, ctx.Offset);
             });
+        offset += frameLength;
     }
 }

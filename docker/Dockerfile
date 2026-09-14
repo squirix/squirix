@@ -22,6 +22,7 @@ COPY src/squirix/ src/squirix/
 COPY src/shared/ src/shared/
 COPY src/squirix.server/ src/squirix.server/
 COPY src/squirix.server.host/ src/squirix.server.host/
+COPY src/squirix.attributes/ src/squirix.attributes/
 
 RUN dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj \
     -c Release \
@@ -36,7 +37,7 @@ RUN mkdir -p /https \
         -keyout /https/aspnetapp.key \
         -out /https/aspnetapp.crt \
         -subj "/CN=localhost" \
-        -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,IP:127.0.0.1" \
+        -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,DNS:squirix-node-c,IP:127.0.0.1" \
     && openssl pkcs12 -export -out /https/aspnetapp.pfx \
         -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
         -passout pass:
@@ -46,7 +47,7 @@ RUN mkdir -p /mtls \
     && openssl genrsa -out /mtls/cluster-ca.key 4096 \
     && openssl req -x509 -new -nodes -key /mtls/cluster-ca.key -sha256 -days 825 \
         -out /mtls/cluster-ca.crt -subj "/CN=Squirix Docker Cluster CA" \
-    && for NODE in A B; do \
+    && for NODE in A B C; do \
         openssl genrsa -out /mtls/node-${NODE}.key 2048 \
         && openssl req -new -key /mtls/node-${NODE}.key -out /mtls/node-${NODE}.csr -subj "/CN=${NODE}" \
         && openssl x509 -req -in /mtls/node-${NODE}.csr -CA /mtls/cluster-ca.crt -CAkey /mtls/cluster-ca.key \
@@ -57,7 +58,12 @@ RUN mkdir -p /mtls \
        done \
     && rm -f /mtls/*.csr /mtls/*.srl
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
+
+# Selects which node certificate this image carries (A, B, or C). Each service image receives only
+# its assigned node PFX plus the cluster CA certificate; the CA key and other node identities stay
+# in the build stage and never reach runtime images.
+ARG NODE_LETTER=A
 WORKDIR /app
 
 VOLUME ["/data"]
@@ -65,7 +71,8 @@ RUN mkdir -p /data /https /mtls && chown "$APP_UID:$APP_UID" /data /https /mtls
 
 COPY --from=build --chown=$APP_UID:$APP_UID /app/publish .
 COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/aspnetapp.pfx /https/aspnetapp.pfx
-COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls /mtls
+COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/cluster-ca.crt /mtls/cluster-ca.crt
+COPY --from=cluster-mtls-certs --chown=$APP_UID:$APP_UID /mtls/node-${NODE_LETTER}.pfx /mtls/node-${NODE_LETTER}.pfx
 
 ENV ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
 

@@ -34,4 +34,19 @@ internal interface IJournalSnapshotBarrier
         TState state,
         [RequireStaticDelegate] Func<TState, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs <paramref name="action" /> while the mutation gate is held, ensuring the enqueued journal work item is
+    /// ordered against exclusive maintenance (compaction/snapshot cut). Use this for appending that must not race a
+    /// segment roll or publish, such as idempotency-outcome frames.
+    /// </summary>
+    /// <typeparam name="TState">Caller-owned state passed to the action.</typeparam>
+    /// <param name="state">Caller-owned state.</param>
+    /// <param name="action">Action executed under the mutation gate.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="ValueTask" /> that completes when the action has executed under the gate.</returns>
+    ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+        TState state,
+        [RequireStaticDelegate] Func<TState, CancellationToken, ValueTask> action,
+        CancellationToken cancellationToken);
 }

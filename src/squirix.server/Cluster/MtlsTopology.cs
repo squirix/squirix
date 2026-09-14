@@ -22,7 +22,7 @@ internal static class MtlsTopology
                 remotePeerNodeIds[writeIndex++] = peers[i].NodeId;
         }
 
-        if (writeIndex is 0)
+        if (writeIndex == 0)
             return [];
 
         if (writeIndex == remotePeerNodeIds.Length)

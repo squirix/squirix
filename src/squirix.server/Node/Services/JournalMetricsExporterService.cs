@@ -6,24 +6,27 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
-using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>
 /// Exposes journal on-disk gauges via ObservableGauges:
-/// - <c>squirix_journal_segments{node="..."}</c>: count of journal segment files
-/// - <c>squirix_journal_size_bytes{node="..."}</c>: total size of journal segment files
+/// - <c language="csharp">squirix_journal_segments{node="..."}</c>: count of journal segment files
+/// - <c language="csharp">squirix_journal_size_bytes{node="..."}</c>: total size of journal segment files
 /// The actual filesystem scan is done on a background interval, and the gauges
 /// simply return the latest cached values to keep scrapes cheap.
 /// </summary>
 internal sealed class JournalMetricsExporterService : BackgroundService
 {
     private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
+
+    private readonly ILogger<JournalMetricsExporterService> _log;
 
     private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
@@ -34,18 +37,22 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, TopologyOptions cluster)
+    public JournalMetricsExporterService(
+        PersistenceOptions opt,
+        IOptionsMonitor<JournalMetricsExporterOptions> options,
+        TopologyOptions cluster,
+        ILogger<JournalMetricsExporterService> log,
+        Meter meter)
     {
         _opt = opt;
         _options = options;
+        ArgumentNullException.ThrowIfNull(log);
+        _log = log;
         _nodeId = cluster.NodeId;
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
+        _ = meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_journal_size_bytes",
-            ObserveSize,
-            description: "Total size of journal segment files currently present on disk");
+        _ = meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -76,7 +83,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
     private static long VolatileRead(ref long location) => Interlocked.Read(ref location);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void VolatileWrite(ref long location, long value) => Interlocked.Exchange(ref location, value);
+    private static void VolatileWrite(long value, ref long location) => Interlocked.Exchange(ref location, value);
 
     private Measurement<long> ObserveSegments()
     {
@@ -101,8 +108,8 @@ internal sealed class JournalMetricsExporterService : BackgroundService
         var dir = _opt.DataDir;
         if (!Directory.Exists(dir))
         {
-            VolatileWrite(ref _segments, 0);
-            VolatileWrite(ref _sizeBytes, 0);
+            VolatileWrite(0, ref _segments);
+            VolatileWrite(0, ref _sizeBytes);
             return;
         }
 
@@ -110,20 +117,24 @@ internal sealed class JournalMetricsExporterService : BackgroundService
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)
+        {
             try
             {
                 total += new FileInfo(f).Length;
             }
-            catch (IOException)
+            catch (IOException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
+                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
+                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
             }
+        }
 
-        VolatileWrite(ref _segments, length);
-        VolatileWrite(ref _sizeBytes, total);
+        VolatileWrite(length, ref _segments);
+        VolatileWrite(total, ref _sizeBytes);
     }
 }

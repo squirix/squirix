@@ -1,9 +1,11 @@
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Journal put payload materialized once for sizing and encode.</summary>
+[Immutable]
 internal sealed record PreparedJournalEntry
 {
     private PreparedJournalEntry(NodeCacheEntry<object?> objectEntry, int encodedLength)
@@ -25,6 +27,6 @@ internal sealed record PreparedJournalEntry
     private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry)
     {
         var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
-        return new NodeCacheEntry<object?>(CacheEntryCodec.NormalizeValue(entry.Value), entry.Version, expiresUtc, expiration, entry.Tags);
+        return new NodeCacheEntry<object?>(entry.Normalize(), entry.Version, expiresUtc, expiration, entry.Tags);
     }
 }

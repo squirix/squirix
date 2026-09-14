@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -10,32 +12,45 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Integration tests for the manifest store.</summary>
-public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class StoreTests : IsolatedStorageTestBase
 {
-    private TempDirectory? _dir;
-
-    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
+    /// <inheritdoc />
+    protected override string TempDirectoryName => "manifest";
 
     /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
     [Fact]
-    public async Task PublishRollBlockingIncrementsIndexWithoutDiskRead()
+    public async Task EnqueueRollAdvancesPointerSequentially()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        await RollAsync();
+        using var reloaded = new Ledger(options);
+        Assert.Equal(2, (await reloaded.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        return;
 
-        store.PublishRollBlocking(1, 1);
-        store.PublishRollBlocking(2, 2);
+        static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
+        {
+            return (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 2;
+        }
 
-        var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
-        Assert.Equal(2, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        async Task RollAsync()
+        {
+            using var store = new Ledger(options);
+            Exception? rollError = null;
+            store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
+            store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
+
+            await store.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+            rollError.ThrowIfFaulted();
+            Assert.Equal(2, (await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        }
     }
 
     /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>
     [Fact]
-    public async Task WriteAsyncCreatesCurrentPointerAndManifestFile()
+    public async Task WriteCreatesPointerAndManifestFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
@@ -53,37 +68,14 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
     [Fact]
-    public async Task WriteAsyncUpdatesCurrentPointerInPlaceTmpFile()
+    public async Task WriteUpdatesPointerViaTempFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
         Assert.False(File.Exists(NodePathKit.Combine(Dir.Path, "man-current.tmp")));
         Assert.Equal(12, (await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);
-    }
-
-    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>Creates a temporary directory for test storage.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("manifest");
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
-
-        base.Dispose(disposing);
     }
 }

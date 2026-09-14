@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -19,8 +20,7 @@ internal sealed class JournalMetricsExporterOptions
         get;
         set
         {
-            if (value <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Interval must be greater than zero.");
+            value.ThrowIfNegativeOrZero(nameof(value), "Interval must be greater than zero.");
 
             field = value;
         }

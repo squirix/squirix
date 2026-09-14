@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
@@ -14,6 +15,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.Server.TestKit.Mtls;
 
 /// <summary>Shared cluster CA and per-node mTLS material for multi-node test hosts in one test case.</summary>
+[Mutable]
 public sealed class ClusterTls : IDisposable
 {
     private readonly Dictionary<string, int> _internalPortsByNodeId = new(StringComparer.Ordinal);
@@ -36,11 +38,11 @@ public sealed class ClusterTls : IDisposable
     }
 
     /// <summary>Builds a standalone single-peer topology without allocating a temporary topology span array.</summary>
-    /// <param name="shared">Shared context for the current test case (unused for standalone peers).</param>
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
+    /// <param name="shared">Shared context for the current test case (unused for standalone peers).</param>
     /// <returns>A one-element peer array.</returns>
-    internal static ServerPeer[] CreatePeer(ref ClusterTls? shared, string nodeId, Uri uri)
+    internal static ServerPeer[] CreatePeer(string nodeId, Uri uri, ref ClusterTls? shared)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(uri);
@@ -49,11 +51,11 @@ public sealed class ClusterTls : IDisposable
     }
 
     /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
-    /// <param name="shared">Shared context for the current test case.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="shared">Shared context for the current test case.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty.</exception>
-    internal static ServerPeer[] CreatePeers(ref ClusterTls? shared, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    internal static ServerPeer[] CreatePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology, ref ClusterTls? shared)
     {
         if (topology.IsEmpty)
             throw new ArgumentException("Topology must not be empty.", nameof(topology));
@@ -150,8 +152,10 @@ public sealed class ClusterTls : IDisposable
 
         var firstNodeId = topology[0].NodeId;
         for (var i = 1; i < topology.Length; i++)
+        {
             if (!string.Equals(topology[i].NodeId, firstNodeId, StringComparison.Ordinal))
                 return true;
+        }
 
         return false;
     }
@@ -259,9 +263,7 @@ public sealed class ClusterTls : IDisposable
 
     private static class InternalPortPool
     {
-        private static readonly PortAllocator Allocator = new(
-            HostPortRegions.StartInclusive(HostPortRegion.MtlsInternal),
-            HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1);
+        private static ListenPortPool Pool { get; } = ConsumerPortSlicer.PoolFor(HostPortRegion.MtlsInternal);
 
         /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
         /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
@@ -274,7 +276,7 @@ public sealed class ClusterTls : IDisposable
 
             for (var attempt = 0; attempt < 64; attempt++)
             {
-                var port = Allocator.Allocate();
+                var port = Pool.AllocatePort();
                 var isExcluded = false;
                 foreach (var excludedPort in excludedPorts)
                 {
@@ -292,6 +294,7 @@ public sealed class ClusterTls : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class HandlerFactory
     {
         private readonly X509CertificateCollection _clientCertificates;
@@ -306,6 +309,7 @@ public sealed class ClusterTls : IDisposable
         internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId);
     }
 
+    [Immutable]
     private sealed class NoClientCertificateHandlerFactory
     {
         private readonly X509Certificate2 _trustAnchor;
@@ -315,18 +319,17 @@ public sealed class ClusterTls : IDisposable
             _trustAnchor = trustAnchor;
         }
 
-        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
+        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
     }
 
     /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>
+    [Immutable]
     private sealed class TestBundle : IDisposable
     {
         private readonly X509Certificate2 _ca;
         private readonly TempDirectory _rootDirectory;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="TestBundle" /> class.
-        /// </summary>
+        /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
         internal TestBundle()
         {
             _rootDirectory = new TempDirectory("squirix-cluster-mtls-cluster");
@@ -352,9 +355,10 @@ public sealed class ClusterTls : IDisposable
             CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+            PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
 
             var nodeDirectory = NodePathKit.Combine(_rootDirectory, nodeId);
-            DirectoryKit.CreateDirectory(nodeDirectory);
+            Directory.CreateDirectory(nodeDirectory);
 
             using var nodeCertificate = CreateNodeCertificate(nodeId);
             return await CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);
@@ -392,7 +396,6 @@ public sealed class ClusterTls : IDisposable
             X509Certificate2 nodeCertificate,
             CancellationToken cancellationToken)
         {
-            _ = nodeId;
             var exportableCertificate = TestCertificates.LoadExportableCertificate(nodeCertificate);
             var pfxPath = NodePathKit.Combine(nodeDirectory, "node.pfx");
             await File.WriteAllBytesAsync(pfxPath, exportableCertificate.Export(X509ContentType.Pfx), cancellationToken).ConfigureAwait(false);

@@ -11,23 +11,25 @@ namespace Squirix.Server.Node.Backpressure;
 internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 {
     private readonly ConcurrentDictionary<string, ClientState> _clients = new(StringComparer.Ordinal);
+    private readonly BackpressureMetrics _metrics;
     private readonly RateLimiter? _nodeRateLimiter;
     private readonly IDisposable _observerRegistration;
     private readonly AdmissionOptions _options;
     private readonly SemaphoreSlim _slots;
     private readonly TimeProvider _timeProvider;
-    private bool _disposed;
+    private int _disposed;
     private int _inFlight;
     private int _queueDepth;
 
-    internal AdmissionGate(AdmissionOptions options, TimeProvider? timeProvider = null)
+    internal AdmissionGate(AdmissionOptions options, BackpressureMetrics metrics, TimeProvider? timeProvider = null)
     {
+        _metrics = metrics;
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
         _slots = new SemaphoreSlim(_options.MaxInFlight, _options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
-        _observerRegistration = BackpressureMetrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
+        _observerRegistration = _metrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
@@ -38,24 +40,24 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
 
         var disabledResult = BypassWhenDisabled(transport, operation);
-        if (disabledResult is not null)
+        if (disabledResult != null)
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
         var client = _clients.GetOrAdd(clientId, static (_, options) => new ClientState(options), _options);
 
         var nodeRateLimitReject = RejectByNodeRateLimitIfLimited(transport, operation);
-        if (nodeRateLimitReject is not null)
+        if (nodeRateLimitReject != null)
             return nodeRateLimitReject.Value;
 
         var clientRateLimitReject = RejectByClientRateLimitIfLimited(transport, operation, client);
-        if (clientRateLimitReject is not null)
+        if (clientRateLimitReject != null)
             return clientRateLimitReject.Value;
 
         var inFlight = Volatile.Read(ref _inFlight);
         var queueDepth = Volatile.Read(ref _queueDepth);
         var hardThresholdReject = RejectByHardThresholdIfExceeded(transport, operation, inFlight, queueDepth);
-        if (hardThresholdReject is not null)
+        if (hardThresholdReject != null)
             return hardThresholdReject.Value;
 
         if (inFlight >= _options.SlowdownThreshold)
@@ -67,10 +69,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
         _observerRegistration.Dispose();
         _slots.Dispose();
     }
@@ -83,6 +84,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return;
         }
 
+        // Only Lease.Dispose calls here, and it releases each lease at most once, so this
+        // fallback cannot double-release a slot. It stays (rather than becoming a no-op) for
+        // the detach race: the entry may be removed by RemoveIdleClient between GetOrAdd and
+        // AcquireLease, while the lease still holds one slot and one in-flight unit that must
+        // be returned here.
         AdjustInFlight(-1);
         _ = _slots.Release();
     }
@@ -107,12 +113,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
 
-    private int ObserveInFlight() => Volatile.Read(ref _inFlight);
-
-    private int ObserveQueueDepth() => Volatile.Read(ref _queueDepth);
-
-    private int ObserveTrackedClients() => _clients.Count;
-
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
         var window = Math.Max(1d, _options.RejectThreshold - _options.SlowdownThreshold);
@@ -121,7 +121,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (delay <= TimeSpan.Zero)
             return;
 
-        BackpressureMetrics.AddSlowdown(transport, operation);
+        _metrics.AddSlowdown(transport, operation);
         await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
     }
 
@@ -130,17 +130,23 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_options.Enabled)
             return null;
 
-        BackpressureMetrics.AddBypass(transport, operation);
+        _metrics.AddBypass(transport, operation);
         return (Decision.Accepted(), Lease.Empty);
     }
+
+    private int ObserveInFlight() => Volatile.Read(ref _inFlight);
+
+    private int ObserveQueueDepth() => Volatile.Read(ref _queueDepth);
+
+    private int ObserveTrackedClients() => _clients.Count;
 
     private (Decision Decision, Lease Lease)? RejectByClientRateLimitIfLimited(string transport, string operation, ClientState client)
     {
         if (!_options.Enabled || client.TryAcquire())
             return null;
 
-        BackpressureMetrics.AddRateLimitReject(transport, operation, "client");
-        BackpressureMetrics.AddReject(transport, operation, "client_rate_limit");
+        _metrics.AddRateLimitReject(transport, operation, "client");
+        _metrics.AddReject(transport, operation, "client_rate_limit");
         return (Decision.Rejected("client_rate_limit"), Lease.Empty);
     }
 
@@ -149,17 +155,17 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (inFlight < _options.RejectThreshold || queueDepth <= 0)
             return null;
 
-        BackpressureMetrics.AddReject(transport, operation, "hard_threshold");
+        _metrics.AddReject(transport, operation, "hard_threshold");
         return (Decision.Rejected("hard_threshold"), Lease.Empty);
     }
 
     private (Decision Decision, Lease Lease)? RejectByNodeRateLimitIfLimited(string transport, string operation)
     {
-        if (_nodeRateLimiter?.TryAcquire() is not false)
+        if (_nodeRateLimiter?.TryAcquire() != false)
             return null;
 
-        BackpressureMetrics.AddRateLimitReject(transport, operation, "node");
-        BackpressureMetrics.AddReject(transport, operation, "node_rate_limit");
+        _metrics.AddRateLimitReject(transport, operation, "node");
+        _metrics.AddReject(transport, operation, "node_rate_limit");
         return (Decision.Rejected("node_rate_limit"), Lease.Empty);
     }
 
@@ -174,11 +180,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             var maxClientQueue = _options.PerClientMaxQueue ?? _options.MaxQueue;
             if (queuedForClient > maxClientQueue)
             {
-                BackpressureMetrics.AddReject(transport, operation, "client_queue_full");
+                _metrics.AddReject(transport, operation, "client_queue_full");
                 return (Decision.Rejected("client_queue_full"), Lease.Empty);
             }
 
-            BackpressureMetrics.AddReject(transport, operation, "client_concurrency_limit");
+            _metrics.AddReject(transport, operation, "client_concurrency_limit");
             return (Decision.Rejected("client_concurrency_limit"), Lease.Empty);
         }
         finally
@@ -198,13 +204,13 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {
-        if (client.InFlight is not 0 || client.QueueDepth is not 0 || client.HasRecentActivity is true)
+        if (client.InFlight != 0 || client.QueueDepth != 0 || client.HasRecentActivity == true)
             return;
 
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
     }
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
     private async ValueTask<(Decision Decision, Lease Lease)> WaitInQueueAsync(
         string transport,
@@ -217,7 +223,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (queued > _options.MaxQueue)
         {
             _ = Interlocked.Decrement(ref _queueDepth);
-            BackpressureMetrics.AddReject(transport, operation, "queue_full");
+            _metrics.AddReject(transport, operation, "queue_full");
             return (Decision.Rejected("queue_full"), Lease.Empty);
         }
 
@@ -233,18 +239,18 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                BackpressureMetrics.AddQueueTimeout(transport, operation);
-                BackpressureMetrics.AddReject(transport, operation, "queue_wait_timeout");
+                _metrics.AddQueueTimeout(transport, operation);
+                _metrics.AddReject(transport, operation, "queue_wait_timeout");
                 return (Decision.Rejected("queue_wait_timeout"), Lease.Empty);
             }
 
             var queueWait = Stopwatch.GetElapsedTime(started);
-            BackpressureMetrics.RecordQueueWait(queueWait, transport, operation);
+            _metrics.RecordQueueWait(queueWait, transport, operation);
             return (Decision.Accepted(), AcquireLease(clientId, client));
         }
         catch (OperationCanceledException)
         {
-            BackpressureMetrics.AddQueueCancellation(transport, operation);
+            _metrics.AddQueueCancellation(transport, operation);
             throw;
         }
         finally
@@ -274,7 +280,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         internal ref int QueueDepthRef => ref _queueDepth;
 
-        internal bool TryAcquire() => _rateLimiter?.TryAcquire() is not false;
+        internal bool TryAcquire() => _rateLimiter?.TryAcquire() != false;
     }
 
     private sealed class RateLimiter
@@ -305,8 +311,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             }
         }
 
-        internal static RateLimiter? Create(int? ratePerSecond, int? burst) =>
-            ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        internal static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond != null && burst != null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         internal bool TryAcquire()
         {

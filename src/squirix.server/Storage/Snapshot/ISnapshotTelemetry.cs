@@ -11,7 +11,7 @@ internal interface ISnapshotTelemetry
 
     /// <summary>Records snapshot duration for the given node and outcome.</summary>
     /// <param name="nodeId">Node identifier label.</param>
-    /// <param name="result">Outcome label (<c>success</c> or <c>failure</c>).</param>
+    /// <param name="result">Outcome label (<c language="csharp">success</c> or <c language="csharp">failure</c>).</param>
     /// <param name="elapsed">Observed snapshot duration.</param>
     void RecordDuration(string nodeId, string result, TimeSpan elapsed);
 }

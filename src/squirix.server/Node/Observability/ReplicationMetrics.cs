@@ -1,0 +1,207 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Threading;
+using Squirix.Server.Attributes;
+
+namespace Squirix.Server.Node.Observability;
+
+/// <summary>Stable low-cardinality replication metrics on the host-scoped <see cref="Meter" />.</summary>
+/// <remarks>
+/// Labels stay bounded: node and group identifiers only, plus closed reason and scope values.
+/// Observable gauges report the last observed per-group snapshot; each mismatch reason fires only on
+/// its own transition into mismatch so repeated read-path reports never inflate the series.
+/// </remarks>
+[ThreadSafe]
+internal sealed class ReplicationMetrics
+{
+    private const string IndexUnit = "{index}";
+
+    private readonly Lock _gate = new();
+    private readonly Dictionary<string, GroupObservation> _groups = new(StringComparer.Ordinal);
+    private readonly Counter<long> _mismatchTotal;
+    private readonly Counter1Label _reportsTotal;
+
+    internal ReplicationMetrics(Meter meter)
+    {
+        ArgumentNullException.ThrowIfNull(meter);
+        _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
+        _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
+
+        _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_applied_index", ObserveAppliedIndexes, IndexUnit, "Index last applied to memory observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_commit_lag_entries", ObserveCommitLags, IndexUnit, "Durable entries past the commit index observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_apply_lag_entries", ObserveApplyLags, IndexUnit, "Committed entries not yet applied observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_topology_match", ObserveTopologyMatches, description: "Topology fingerprint agreement as 1=match, 0=mismatch");
+        _ = meter.CreateObservableGauge("squirix_replication_generation_match", ObserveGenerationMatches, description: "Configuration generation agreement as 1=match, 0=mismatch");
+        _ = meter.CreateObservableGauge("squirix_replication_ready", ObserveReady, description: "Replica group readiness as 1=ready, 0=not ready");
+    }
+
+    /// <summary>Observes one replica-group snapshot on a read path without mutating replication state.</summary>
+    /// <param name="snapshot">The observed replica-group status.</param>
+    /// <param name="verdict">The evaluated readiness verdict.</param>
+    internal void ReportGroup(in ReplicaStatusSnapshot snapshot, ReplicaReadinessVerdict verdict)
+    {
+        _reportsTotal.WithLabels(snapshot.NodeId).Inc(1);
+
+        var observation = new GroupObservation(
+            snapshot.NodeId,
+            long.CreateSaturating(snapshot.CurrentTerm),
+            long.CreateSaturating(snapshot.CommitIndex),
+            long.CreateSaturating(snapshot.LastAppliedIndex),
+            long.CreateSaturating(snapshot.LastLogIndex >= snapshot.CommitIndex ? snapshot.LastLogIndex - snapshot.CommitIndex : 0UL),
+            long.CreateSaturating(snapshot.CommitIndex >= snapshot.LastAppliedIndex ? snapshot.CommitIndex - snapshot.LastAppliedIndex : 0UL),
+            snapshot.FingerprintMatch,
+            snapshot.GenerationMatch,
+            verdict == ReplicaReadinessVerdict.Ready);
+
+        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, observation);
+        if (topologyRaised)
+            AddMismatch(snapshot.NodeId, snapshot.GroupId, "topology");
+        if (generationRaised)
+            AddMismatch(snapshot.NodeId, snapshot.GroupId, "generation");
+    }
+
+    private static Measurement<long> MeasureNodeGroup(long value, string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        return new Measurement<long>(value, in tags);
+    }
+
+    private static Measurement<int> MeasureNodeGroup(int value, string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        return new Measurement<int>(value, in tags);
+    }
+
+    private void AddMismatch(string nodeId, string groupId, string reason)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+            { "reason", reason },
+        };
+        _mismatchTotal.Add(1, in tags);
+    }
+
+    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, GroupObservation observation)
+    {
+        lock (_gate)
+        {
+            var raiseTopology = !observation.TopologyMatch;
+            var raiseGeneration = !observation.GenerationMatch;
+            if (_groups.TryGetValue(groupId, out var previous))
+            {
+                raiseTopology = raiseTopology && previous.TopologyMatch;
+                raiseGeneration = raiseGeneration && previous.GenerationMatch;
+            }
+
+            _groups[groupId] = observation with { GroupId = groupId };
+            return (raiseTopology, raiseGeneration);
+        }
+    }
+
+    private IEnumerable<Measurement<long>> ObserveAppliedIndexes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].AppliedIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveApplyLags()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].ApplyLag, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveCommitIndexes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].CommitIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveCommitLags()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveGenerationMatches()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveReady()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveTerms()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveTopologyMatches()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private GroupObservation[] SnapshotGroups()
+    {
+        lock (_gate)
+        {
+            var snapshot = new GroupObservation[_groups.Count];
+            var index = 0;
+            foreach (var pair in _groups)
+            {
+                snapshot[index] = pair.Value;
+                index++;
+            }
+
+            return snapshot;
+        }
+    }
+
+    [Immutable]
+    private readonly record struct GroupObservation(
+        string NodeId,
+        long Term,
+        long CommitIndex,
+        long AppliedIndex,
+        long CommitLag,
+        long ApplyLag,
+        bool TopologyMatch,
+        bool GenerationMatch,
+        bool Ready)
+    {
+        internal string GroupId { get; init; } = string.Empty;
+    }
+
+    [Immutable]
+    private sealed record Counter1Label(Counter<long> Counter, string Key1)
+    {
+        internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "replication");
+    }
+}

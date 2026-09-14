@@ -1,0 +1,74 @@
+using System;
+using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
+using Squirix.Server.UnitTests.Support;
+using Xunit;
+
+namespace Squirix.Server.UnitTests.Persistence.Journaling;
+
+/// <summary>
+/// A durability checkpoint resolves only the ack carried by its own work item. An ack that is
+/// already registered but whose checkpoint is still waiting to be enqueued must stay pending when a
+/// later caller's checkpoint is processed; otherwise mutations would observe durability before
+/// their frames reach the segment file.
+/// </summary>
+[Immutable]
+public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
+{
+    /// <summary>A foreign checkpoint flush completes only its own ack and leaves earlier registered acks pending.</summary>
+    [Fact]
+    public async Task ForeignFlushLeavesAckPending()
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+
+        var registered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.DurabilityAcks.Add(registered);
+
+        // A later caller registers and enqueues its own checkpoint; processing it must not touch
+        // the ack registered above.
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        Assert.False(registered.Task.IsCompleted);
+
+        _ = coordinator.DurabilityAcks.Remove(registered);
+    }
+
+    /// <summary>Ensures a failure drain closes the registry: pending acks drain once, late registrations fail with the recorded reason.</summary>
+    [Fact]
+    public void TakeAllClosesRegistryForAdds()
+    {
+        var registry = new DurabilityAckRegistry();
+        var reason = new ObjectDisposedException(nameof(JournalCoordinator));
+
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Add(pending);
+
+        var drained = registry.TakeAll(reason);
+        Assert.Same(pending, Assert.Single(drained));
+
+        var thrown = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
+            registry,
+            static r => r.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)));
+        Assert.Same(reason, thrown);
+    }
+}

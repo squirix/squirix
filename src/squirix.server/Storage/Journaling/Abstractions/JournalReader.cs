@@ -10,11 +10,21 @@ internal static class JournalReader
 {
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length == 0)
             return [];
 
         Array.Sort(files, StringComparer.Ordinal);
+        return CollectSegments(files, fromSegment);
+    }
 
+    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
+    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir) =>
+        !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) ? default : SumSegmentStats(files);
+
+    private static JournalSegment[] CollectSegments(string[] files, int fromSegment)
+    {
         var segments = new JournalSegment[files.Length];
         var writeIndex = 0;
         for (var i = 0; i < files.Length; i++)
@@ -25,25 +35,11 @@ internal static class JournalReader
             segments[writeIndex++] = segment;
         }
 
-        if (writeIndex is 0)
-            return [];
-
-        if (writeIndex == segments.Length)
-            return segments;
-
-        var trimmed = new JournalSegment[writeIndex];
-        segments.AsSpan(0, writeIndex).CopyTo(trimmed);
-        return trimmed;
+        return TrimSegments(segments, writeIndex);
     }
 
-    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
-    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
-    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
-    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir)
+    private static (int SegmentCount, long TotalBytes) SumSegmentStats(string[] files)
     {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
-            return default;
-
         var segmentCount = 0;
         var totalBytes = 0L;
         for (var i = 0; i < files.Length; i++)
@@ -60,6 +56,19 @@ internal static class JournalReader
         return (segmentCount, totalBytes);
     }
 
+    private static JournalSegment[] TrimSegments(JournalSegment[] segments, int writeIndex)
+    {
+        if (writeIndex == 0)
+            return [];
+
+        if (writeIndex == segments.Length)
+            return segments;
+
+        var trimmed = new JournalSegment[writeIndex];
+        segments.AsSpan(0, writeIndex).CopyTo(trimmed);
+        return trimmed;
+    }
+
     private static bool TryGetJournalFiles(string dataDir, out string[] files)
     {
         try
@@ -68,17 +77,7 @@ internal static class JournalReader
             files = Directory.GetFiles(validatedDataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
             return true;
         }
-        catch (ArgumentException)
-        {
-            files = [];
-            return false;
-        }
-        catch (IOException)
-        {
-            files = [];
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
             files = [];
             return false;
@@ -93,11 +92,7 @@ internal static class JournalReader
             length = new FileInfo(path).Length;
             return true;
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
@@ -131,9 +126,6 @@ internal static class JournalReader
             return false;
 
         var numberPart = name.Slice(prefix.Length, name.Length - prefix.Length - extension.Length);
-        if (numberPart.IsEmpty)
-            return false;
-
-        return int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
+        return !numberPart.IsEmpty && int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
     }
 }

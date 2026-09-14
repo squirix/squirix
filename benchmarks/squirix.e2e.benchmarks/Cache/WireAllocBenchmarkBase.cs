@@ -59,10 +59,10 @@ public abstract class WireAllocBenchmarkBase<T>
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_client is not null)
+        if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node is not null)
+        if (_node != null)
             await _node.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -164,8 +164,8 @@ public abstract class WireAllocBenchmarkBase<T>
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _hitKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("hit", i, "D5", 5);
-            _expiringKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("exp", i, "D5", 5);
+            _hitKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("hit", i, "D5", 5);
+            _expiringKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("exp", i, "D5", 5);
         }
 
         _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
@@ -201,7 +201,7 @@ public abstract class WireAllocBenchmarkBase<T>
 
     /// <summary>Attempts to add a new value for a unique key via <see cref="ICache{T}.TryAddAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task TryAddAsync()
+    public async Task AddUniqueAsync()
     {
         var cache = Cache!;
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
@@ -251,7 +251,7 @@ public abstract class WireAllocBenchmarkBase<T>
 
     private static class Keys
     {
-        internal static string FormatUnique(int index) => InvariantIndexStrings.FormatPrefixedPadded("unique", index, "D8", 8);
+        internal static string FormatUnique(int index) => NodeInvariantIndexStrings.FormatPrefixedPadded("unique", index, "D8", 8);
 
         internal static Task<T?> GetOrAddHitFactoryAsync(string key, CancellationToken cancellationToken)
         {

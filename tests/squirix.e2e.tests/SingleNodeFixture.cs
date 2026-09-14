@@ -19,7 +19,7 @@ public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_cluster is not null)
+        if (_cluster != null)
             await _cluster.DisposeAsync();
     }
 

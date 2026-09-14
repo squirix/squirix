@@ -5,8 +5,10 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Attributes;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster;
 
@@ -14,50 +16,50 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 {
     private readonly ServerActiveOperationCounter _activeOperations = new();
     private readonly Lock _disposeGate = new();
+    private readonly VolatileBool _draining = new();
     private readonly ServerCallPolicyExecutor _executor;
+    private readonly ServerCallPolicyMetrics _metrics;
     private readonly string _peer;
     private readonly SemaphoreSlim _semaphore;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
-    private bool _disposed;
-    private volatile bool _draining;
+    private int _disposed;
     private bool _semaphoreDisposed;
 
     internal ServerCallPolicy(
-        TimeSpan? timeoutPerAttempt = null,
+        ServerCallPolicyInstrumentation instrumentation,
         int maxAttempts = 3,
-        TimeSpan? baseBackoff = null,
-        TimeSpan? maxBackoff = null,
         int maxConcurrentPerPeer = 64,
         string? peer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        CallPolicyTimeouts? timeouts = null)
     {
+        var metrics = instrumentation.CallPolicyMetrics;
+        var rpcMetrics = instrumentation.RpcTimeoutMetrics;
+        _metrics = metrics;
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
         _semaphore = new SemaphoreSlim(cap, cap);
-        _executor = new ServerCallPolicyExecutor(
-            this,
-            new ServerCallPolicySettings(
-                _peer,
-                Math.Max(1, maxAttempts),
-                timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
-                baseBackoff ?? TimeSpan.FromMilliseconds(50),
-                maxBackoff ?? TimeSpan.FromMilliseconds(500)),
-            timeProvider ?? TimeProvider.System,
-            _semaphore);
+        var settings = new ServerCallPolicySettings(
+            _peer,
+            Math.Max(1, maxAttempts),
+            timeouts?.TimeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
+            timeouts?.BaseBackoff ?? TimeSpan.FromMilliseconds(50),
+            timeouts?.MaxBackoff ?? TimeSpan.FromMilliseconds(500));
+        _executor = new ServerCallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining, metrics, rpcMetrics);
     }
 
-    public void BeginDrain() => _draining = true;
+    public void BeginDrain() => _draining.Write(true);
 
     public ValueTask DisposeAsync()
     {
         lock (_disposeGate)
         {
-            if (_disposeTask is not null)
+            if (_disposeTask != null)
                 return new ValueTask(_disposeTask);
 
-            _draining = true;
-            _disposed = true;
+            _draining.Write(true);
+            _ = Interlocked.Exchange(ref _disposed, 1);
             if (_activeOperations.CheckIfIdle())
             {
                 DisposeSemaphoreUnderLockIfIdle();
@@ -75,17 +77,17 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     public async ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        ThrowIfDraining();
-
         _activeOperations.Enter();
-
         try
         {
-            cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
+            // Disposal outranks draining so callers observe the same failure mode as before the
+            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfDraining();
+            cancellationToken.ThrowIfCancellationRequested();
 
             var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            if (budgetRemaining is null)
+            if (budgetRemaining == null)
                 return await _executor.RunQueuedExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.CanBeCanceled)
@@ -115,13 +117,15 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     private void DisposeSemaphoreUnderLockIfIdle()
     {
-        if (!_disposed || _semaphoreDisposed || !_activeOperations.CheckIfIdle())
+        if (Volatile.Read(ref _disposed) == 0 || _semaphoreDisposed || !_activeOperations.CheckIfIdle())
             return;
 
         _semaphore.Dispose();
         _semaphoreDisposed = true;
         _ = _disposeTcs?.TrySetResult(true);
     }
+
+    private bool IsDraining() => _draining.Read();
 
     private void ReleaseActiveOperation()
     {
@@ -132,23 +136,16 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             DisposeSemaphoreUnderLockIfIdle();
     }
 
-    private void ThrowIfDisposed()
-    {
-        if (!_disposed)
-            return;
-
-        throw new ObjectDisposedException(nameof(ServerCallPolicy));
-    }
-
     private void ThrowIfDraining()
     {
-        if (!_draining)
+        if (!_draining.Read())
             return;
 
-        ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
+        _metrics.IncrementDrainRejectsTotal(_peer, 1);
         throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
     }
 
+    [Immutable]
     private sealed record ServerCallPolicySettings(string Peer, int MaxAttempts, TimeSpan TimeoutPerAttempt, TimeSpan BaseBackoff, TimeSpan MaxBackoff);
 
     /// <summary>Thread-safe in-flight operation counter for call-policy dispose gating.</summary>
@@ -156,29 +153,37 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     {
         private int _count;
 
-        internal bool CheckIfIdle() => Volatile.Read(ref _count) is 0;
+        internal bool CheckIfIdle() => Volatile.Read(ref _count) == 0;
 
         internal void Enter() => _ = Interlocked.Increment(ref _count);
 
         /// <summary>Decrements the counter.</summary>
         /// <returns><see langword="true" /> when the count reaches zero; otherwise <see langword="false" />.</returns>
-        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
+        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) == 0;
     }
 
+    [Immutable]
     private sealed class ServerCallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
+        private readonly Func<bool> _isDraining;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
-        private readonly ServerCallPolicy _owner;
+        private readonly ServerCallPolicyMetrics _metrics;
         private readonly string _peer;
+        private readonly ServerRpcTimeoutMetrics _rpcMetrics;
         private readonly SemaphoreSlim _semaphore;
         private readonly TimeProvider _timeProvider;
         private readonly TimeSpan _timeoutPerAttempt;
 
-        internal ServerCallPolicyExecutor(ServerCallPolicy owner, ServerCallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
+        internal ServerCallPolicyExecutor(
+            ServerCallPolicySettings settings,
+            TimeProvider timeProvider,
+            SemaphoreSlim semaphore,
+            Func<bool> isDraining,
+            ServerCallPolicyMetrics metrics,
+            ServerRpcTimeoutMetrics rpcMetrics)
         {
-            _owner = owner;
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
             _timeoutPerAttempt = settings.TimeoutPerAttempt;
@@ -186,6 +191,9 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             _maxBackoff = settings.MaxBackoff;
             _timeProvider = timeProvider;
             _semaphore = semaphore;
+            _isDraining = isDraining;
+            _metrics = metrics;
+            _rpcMetrics = rpcMetrics;
         }
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
@@ -205,11 +213,11 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 // The ambient RPC deadline can expire while queued on the per-peer semaphore. Surface it as
                 // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
                 // TaskCanceledException.
-                ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
-            ServerCallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
+            _metrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
                 ThrowIfDraining();
@@ -221,12 +229,12 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             }
         }
 
-        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining is not null && perAttempt >= budgetRemaining.Value;
+        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
 
         private Task BackoffAsync(TimeSpan d, CancellationToken outerCt)
         {
-            ServerCallPolicyMetrics.IncrementBackoffLabel(_peer, 1);
-            ServerCallPolicyMetrics.ObserveBackoffSeconds(_peer, d);
+            _metrics.IncrementBackoffLabel(_peer, 1);
+            _metrics.ObserveBackoffSeconds(_peer, d);
             return Task.Delay(d, _timeProvider, outerCt);
         }
 
@@ -286,23 +294,20 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             }
         }
 
-        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining) => remaining switch
         {
-            if (remaining is null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
-        }
+            null => _timeoutPerAttempt,
+            { } r when r <= TimeSpan.Zero => TimeSpan.Zero,
+            { } r when r < _timeoutPerAttempt => r,
+            _ => _timeoutPerAttempt,
+        };
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
-            if (attempt >= _maxAttempts || !ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (attempt >= _maxAttempts || !ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
                 return AttemptOutcome<T>.Stop(ex);
 
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(ex));
+            _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(ex));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), ex, effectiveToken).ConfigureAwait(false));
         }
 
@@ -314,31 +319,37 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             CancellationToken attemptToken)
         {
             var cancelKind = ServerCancelClassifier.ClassifyPeerCallAttemptCancellation(cancellationToken, effectiveToken, attemptToken);
-            if (cancelKind is not ServerCancelScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
+            if (cancelKind != ServerCancelScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
+            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            _metrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
         }
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
-            var canRetry = attempt < _maxAttempts && ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken);
+            // A mutation may have committed durably even though its outcome is unknown (write-ahead idempotency
+            // intent). Re-sending the same operation would re-execute it, so the caller must stop retrying and
+            // let the replication/result layer resolve the ambiguous commit by journal index.
+            if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Status.Detail))
+                return AttemptOutcome<T>.Stop(rx);
+
+            var canRetry = attempt < _maxAttempts && ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
-            if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded)
+            if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
-                var reason = rx.StatusCode is StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
-                ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
-                ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
+                var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
+                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
+                _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
 
             if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal or StatusCode.ResourceExhausted))
                 return AttemptOutcome<T>.Stop(rx);
-            ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
+            _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
         }
 
@@ -352,10 +363,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             var attempt = 0;
             Exception? last = null;
 
-            while (ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
+            while (ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
-                var outcome = await TryOneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                var outcome = await OneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
                 if (outcome.Succeeded)
                     return outcome.Value!;
 
@@ -371,7 +382,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
         {
-            if (!hasDeadlineBudget || ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (!hasDeadlineBudget || ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
             {
                 throw last switch
                 {
@@ -381,20 +392,20 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 };
             }
 
-            ServerRpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
         private void ThrowIfDraining()
         {
-            if (!_owner._draining)
+            if (!_isDraining())
                 return;
 
-            ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
+            _metrics.IncrementDrainRejectsTotal(_peer, 1);
             throw new RpcException(new Status(StatusCode.Unavailable, "ServerPeer client pool is draining."));
         }
 
-        private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<TState, T>(
+        private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
             TState state,
             Func<TState, CancellationToken, ValueTask<T>> action,
             int attempt,
@@ -409,19 +420,20 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (effectiveToken.CanBeCanceled)
             {
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
+                if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
                     attemptCts.CancelAfter(perAttempt);
 
                 return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
             }
 
             using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
+            if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
                 standaloneAttemptCts.CancelAfter(perAttempt);
 
             return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
         }
 
+        [Immutable]
         private sealed record AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }

@@ -48,7 +48,7 @@ internal static class MtlsClientCertificateValidator
     private static bool Validate(X509Certificate2? clientCertificate, X509Certificate2 trustAnchor)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
-        return clientCertificate is not null && ValidateTrustChain(clientCertificate, trustAnchor);
+        return clientCertificate != null && ValidateTrustChain(clientCertificate, trustAnchor);
     }
 
     private static bool ValidateTrustChain(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor)

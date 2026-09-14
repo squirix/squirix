@@ -2,22 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Storage.Entries.Binary;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Bridges owner-cache enumeration into snapshot-ready object entries.</summary>
 /// <typeparam name="T">The stored cache value type.</typeparam>
+[Immutable]
 internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 {
     private readonly ILocalCacheSnapshotReader<T> _reader;
 
     internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader)
     {
-        _reader = reader ?? throw new ArgumentNullException(nameof(reader));
+        ArgumentNullException.ThrowIfNull(reader);
+        _reader = reader;
     }
 
     public async ValueTask CaptureEntriesAsync(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> target, DateTime utcNow, CancellationToken cancellationToken)
@@ -39,10 +41,8 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 
     private static NodeCacheEntry<object?> ToSnapshotEntry(NodeCacheEntry<T> source)
     {
-        var normalized = CacheEntryCodec.NormalizeValue(source.Value);
-        if (source is NodeCacheEntry<object?> objectEntry && Equals(normalized, objectEntry.Value))
-            return objectEntry;
-
-        return new NodeCacheEntry<object?>(normalized, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
+        var value = source.Normalize();
+        return source is NodeCacheEntry<object?> entry && Equals(value, entry.Value) ? entry
+            : new NodeCacheEntry<object?>(value, source.Version, source.ExpiresUtc, source.Expiration, source.Tags);
     }
 }

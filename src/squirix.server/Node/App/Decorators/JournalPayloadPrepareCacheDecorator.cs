@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Prepares and size-checks journal put payloads for local-owner writes before durable logging.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly JournalLoggingCacheDecorator<T> _journal;
@@ -18,9 +20,12 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
 
     internal JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        ArgumentNullException.ThrowIfNull(journal);
+        _self = self;
+        _ring = ring;
+        _journal = journal;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -58,28 +63,8 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         return _journal.TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken);
     }
 
-    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
-    {
-        if (!IsLocalOwner(cacheName, key))
-            return await _journal.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
-        var existing = await _journal.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
-            return false;
-
-        var replacement = CreateUpdateReplacement(existing, value);
-        var prepared = JournalEntryPayload.PrepareEncode(replacement);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        return await _journal.UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static NodeCacheEntry<T> CreateUpdateReplacement(NodeCacheEntry<T> existing, T? value) => new()
-    {
-        Value = value,
-        ExpiresUtc = existing.ExpiresUtc,
-        Expiration = existing.Expiration,
-        Version = existing.Version,
-    };
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        _journal.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 }

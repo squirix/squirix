@@ -10,11 +10,9 @@ public static class TestPersistenceScope
     /// <summary>
     /// Returns a stable scope name for the current test run.
     /// When an xUnit test case is active, uses that case’s stable unique id so every case
-    /// (including <c>IAsyncLifetime.InitializeAsync</c> and shared helpers) gets a distinct directory.
+    /// (including <c language="csharp">IAsyncLifetime.InitializeAsync</c> and shared helpers) gets a distinct directory.
     /// </summary>
-    /// <param name="callerMemberName">
-    /// Optional hint when no test case is active (e.g. ad-hoc hosts), usually from <see cref="CallerMemberNameAttribute" />.
-    /// </param>
+    /// <param name="callerMemberName">Optional hint when no test case is active (e.g., ad-hoc hosts), usually from <see cref="CallerMemberNameAttribute" />.</param>
     /// <returns>A non-empty string safe to embed in a path segment.</returns>
     public static string ResolvePersistenceScopeSegment(string? callerMemberName)
     {

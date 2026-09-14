@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server.Benchmarks dependency policy.
+
+  Server-side benchmarks must not pull in the client SDK assembly
+  (separate package boundary).
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Server.Benchmarks" To="Squirix" />
+
+</NsDepCopConfig>

@@ -16,12 +16,10 @@ internal static class ConnectionSecurity
     internal static bool IsRequestAuthorized(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated is true;
+        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated == true;
     }
 
-    /// <summary>
-    /// Returns <see langword="true" /> when the request arrived over a loopback client connection.
-    /// </summary>
+    /// <summary>Returns <see langword="true" /> when the request arrived over a loopback client connection.</summary>
     /// <param name="httpContext">The active HTTP context.</param>
     /// <returns><see langword="true" /> for localhost / loopback clients; otherwise <see langword="false" />.</returns>
     private static bool IsLoopbackClient(HttpContext httpContext)
@@ -29,7 +27,7 @@ internal static class ConnectionSecurity
         ArgumentNullException.ThrowIfNull(httpContext);
 
         var remote = httpContext.Connection.RemoteIpAddress;
-        if (remote is null)
+        if (remote == null)
             return false;
 
         if (remote.IsIPv4MappedToIPv6)

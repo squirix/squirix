@@ -6,9 +6,12 @@ namespace Squirix.Server.Errors;
 /// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
 internal static class ServerOpContractClassifier
 {
-    /// <summary>
-    /// When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.
-    /// </summary>
+    /// <summary>When <paramref name="detail" /> matches the unknown-commit-outcome contract, returns <see langword="true" />.</summary>
+    /// <param name="detail">The gRPC status detail string.</param>
+    /// <returns><see langword="true" /> when <paramref name="detail" /> identifies an outcome that may have committed.</returns>
+    internal static bool IsCommitOutcomeUnknownDetail(string? detail) => string.Equals(detail, ServerOpContract.CommitOutcomeUnknownDetail, StringComparison.Ordinal);
+
+    /// <summary>When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.</summary>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches the stable reuse mismatch contract.</returns>
     internal static bool IsOperationIdReuseMismatchDetail(string? detail) => ClassifyFailedPreconditionDetail(detail) is ServerFailedPreconditionKind.OperationIdReuseMismatch;
@@ -20,7 +23,7 @@ internal static class ServerOpContractClassifier
     /// <param name="detail">The gRPC status detail string.</param>
     /// <param name="message">The invalid-operation message when the method returns <see langword="true" />.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches insert-version precondition contracts.</returns>
-    internal static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string? message)
+    internal static bool TryGetFailedPreconditionMessage(string? detail, out string? message)
     {
         var kind = ClassifyFailedPreconditionDetail(detail);
         if (kind is ServerFailedPreconditionKind.InsertVersionMustExceedCurrent)
@@ -39,11 +42,10 @@ internal static class ServerOpContractClassifier
     /// </summary>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns>The classified contract kind; <see cref="ServerFailedPreconditionKind.None" /> when no stable contract matches.</returns>
-    private static ServerFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
+    private static ServerFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail) => detail switch
     {
-        if (ServerOpContract.IsInsertVersionMustExceedCurrentMessage(detail))
-            return ServerFailedPreconditionKind.InsertVersionMustExceedCurrent;
-
-        return ServerOpContract.IsOperationIdReuseMismatchMessage(detail) ? ServerFailedPreconditionKind.OperationIdReuseMismatch : ServerFailedPreconditionKind.None;
-    }
+        _ when ServerOpContract.IsInsertVersionMustExceedCurrentMessage(detail) => ServerFailedPreconditionKind.InsertVersionMustExceedCurrent,
+        _ when ServerOpContract.IsOperationIdReuseMismatchMessage(detail) => ServerFailedPreconditionKind.OperationIdReuseMismatch,
+        _ => ServerFailedPreconditionKind.None,
+    };
 }

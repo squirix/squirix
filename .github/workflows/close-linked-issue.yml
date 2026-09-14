@@ -1,0 +1,29 @@
+name: Close Linked Issue
+
+on:
+    pull_request:
+        types: [ closed ]
+
+jobs:
+    close-linked:
+        name: Close Linked Issue
+        if: github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        steps:
+            -   name: Close issue referenced as [#N] in PR title
+                env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    PR_TITLE: ${{ github.event.pull_request.title }}
+                    PR_NUMBER: ${{ github.event.pull_request.number }}
+                run: |
+                    if [[ "$PR_TITLE" =~ ^\[#([0-9]+)\] ]]; then
+                        issue="${BASH_REMATCH[1]}"
+                    else
+                        echo "No [#N] reference in PR title; nothing to close."
+                        exit 0
+                    fi
+                    gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
+                        --comment "Closed automatically with merged PR #${PR_NUMBER}."

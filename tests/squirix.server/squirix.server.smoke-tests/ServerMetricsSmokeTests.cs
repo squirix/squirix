@@ -8,11 +8,9 @@ namespace Squirix.Server.SmokeTests;
 /// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
 public sealed class ServerMetricsSmokeTests : SmokeTestBase
 {
-    /// <summary>
-    /// Verifies that the server host exposes <c>/metrics</c> and that basic cache operations appear in the scrape output.
-    /// </summary>
+    /// <summary>Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.</summary>
     [Fact]
-    public async Task MetricsEndpointExposesCountersAfterOperations()
+    public async Task MetricsExposeCountersAfterOperations()
     {
         var uri = GetNextHttpUri();
 
@@ -54,7 +52,7 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
             else
             {
                 var skip = eol + 1;
-                if (remaining[eol] is '\r' && skip < remaining.Length && remaining[skip] is '\n')
+                if (remaining[eol] == '\r' && skip < remaining.Length && remaining[skip] == '\n')
                     skip++;
                 remaining = remaining[skip..];
             }

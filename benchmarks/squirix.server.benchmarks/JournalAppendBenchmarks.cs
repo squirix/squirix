@@ -7,6 +7,7 @@ using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -46,7 +47,7 @@ public class JournalAppendBenchmarks
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AppendPutAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
             await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
@@ -59,7 +60,7 @@ public class JournalAppendBenchmarks
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_host is not null)
+        if (_host != null)
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
     }
@@ -79,6 +80,6 @@ public class JournalAppendBenchmarks
         _host = await JournalBenchmarkHost.CreateAsync("journal-bench", options, CancellationToken.None).ConfigureAwait(false);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('x'));
-        _key = new CacheKey("bench", $"payload-{InvariantIndexStrings.Format(PutPayloadBytes)}");
+        _key = new CacheKey("bench", $"payload-{NodeInvariantIndexStrings.Format(PutPayloadBytes)}");
     }
 }

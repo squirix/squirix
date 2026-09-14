@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
@@ -18,9 +18,15 @@ internal static class SnapshotCodec
 
     internal const int RecordHeaderSize = 5;
 
+    /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
+    internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
+
     internal const byte Version = 1;
 
     private const int RecordFooterSize = 4;
+
+    /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
+    private const int Utf8LengthPrefixSize = sizeof(ushort);
 
     private static ReadOnlySpan<byte> Magic => "SQSS"u8;
 
@@ -28,10 +34,13 @@ internal static class SnapshotCodec
     {
         var namespaceBytes = Encoding.UTF8.GetByteCount(key.Namespace);
         var keyBytes = Encoding.UTF8.GetByteCount(key.Key);
-        if (namespaceBytes > ushort.MaxValue || keyBytes > ushort.MaxValue)
-            throw new InvalidDataException("Snapshot key or namespace exceeds maximum encoded length.");
+        var oversizedKey = namespaceBytes > ushort.MaxValue || keyBytes > ushort.MaxValue;
 
-        return 2 + namespaceBytes + 2 + keyBytes + CacheEntryCodec.ComputeEncodedLength(entry);
+        // Each string is stored as a UInt16 length prefix followed by its UTF-8 bytes.
+        var section = Utf8LengthPrefixSize + namespaceBytes;
+        var keySection = Utf8LengthPrefixSize + keyBytes;
+        const string message = "Snapshot key or namespace exceeds maximum encoded length.";
+        return oversizedKey ? throw new InvalidDataException(message) : section + keySection + CacheEntryCodec.ComputeEncodedLength(entry);
     }
 
     internal static int ComputeRecordLength(int bodyLength) => RecordHeaderSize + bodyLength + RecordFooterSize;
@@ -65,6 +74,9 @@ internal static class SnapshotCodec
             return false;
 
         var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
+        if (bodyLength > MaxRecordBodyLength)
+            return false;
+
         var bodyLengthInt = int.CreateChecked(bodyLength);
         var total = RecordHeaderSize + bodyLengthInt + RecordFooterSize;
         if (source.Length < total)
@@ -72,10 +84,7 @@ internal static class SnapshotCodec
 
         body = source.Slice(RecordHeaderSize, bodyLengthInt);
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(source[(RecordHeaderSize + bodyLengthInt)..]);
-        if (Crc32C.Compute(body) != expectedCrc)
-            throw new InvalidDataException("Binary snapshot record CRC mismatch.");
-
-        return true;
+        return Crc32C.Compute(body) == expectedCrc ? true : throw new InvalidDataException("Binary snapshot record CRC mismatch.");
     }
 
     internal static void ValidateFileFooter(ReadOnlySpan<byte> fileBytes, uint crc)
@@ -96,7 +105,7 @@ internal static class SnapshotCodec
         if (!source[..Magic.Length].SequenceEqual(Magic))
             throw new InvalidDataException("Binary snapshot magic is invalid.");
 
-        if (source[Magic.Length] is not Version)
+        if (source[Magic.Length] != Version)
             throw new InvalidDataException($"Unsupported binary snapshot version: {source[Magic.Length]}.");
     }
 
@@ -123,6 +132,9 @@ internal static class SnapshotCodec
 
     internal static void WriteRecord(Span<byte> destination, RecordKind kind, ReadOnlySpan<byte> body)
     {
+        if (body.Length > MaxRecordBodyLength)
+            throw new InvalidDataException("Snapshot record body exceeds the maximum allowed length and cannot be restored on read.");
+
         if (destination.Length < ComputeRecordLength(body.Length))
             throw new ArgumentException("Destination span is too small for the encoded record.", nameof(destination));
 

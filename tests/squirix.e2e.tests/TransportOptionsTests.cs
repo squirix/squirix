@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
@@ -10,16 +11,13 @@ using Xunit;
 
 namespace Squirix.E2ETests;
 
-/// <summary>
-/// End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.
-/// </summary>
+/// <summary>End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.</summary>
+[Immutable]
 public sealed class TransportOptionsTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
-    /// </summary>
+    /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.</summary>
     [Fact]
-    public async Task ClientAuthenticatesWithBearerTokenProvider()
+    public async Task ConnectsWithBearerTokenProvider()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -31,8 +29,9 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ClientAuthenticatesWithBearerTokenProvider),
+            nameof(ConnectsWithBearerTokenProvider),
             security,
+            timeProvider: TimeProvider.System,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
         var provider = CreateBearerTokenProvider(bearerToken);
@@ -44,11 +43,9 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         Assert.Equal("ok", (await cache.GetValueAsync("jwt-e2e", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.
-    /// </summary>
+    /// <summary>Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.</summary>
     [Fact]
-    public async Task ClientFailsWhenJwtRequiredButNotConfigured()
+    public async Task FailsWhenJwtRequiredButUnconfigured()
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var security = new TestNodeSecurityOptions
@@ -58,8 +55,9 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             JwtAudience = credentials.Audience,
         };
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
-            nameof(ClientFailsWhenJwtRequiredButNotConfigured),
+            nameof(FailsWhenJwtRequiredButUnconfigured),
             security,
+            timeProvider: TimeProvider.System,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
 
@@ -70,6 +68,5 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
-    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) =>
-        new FixedBearerTokenProvider(token).ProvideAsync;
+    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
 }

@@ -1,20 +1,24 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Hosts a journal coordinator for journal benchmarks.</summary>
+[Immutable]
 internal sealed class JournalBenchmarkHost : IAsyncDisposable
 {
     private readonly TempDirectory _dataDir;
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
 
-    private JournalBenchmarkHost(TempDirectory dataDir, IJournalCoordinator coordinator, ManifestStore manifestStore)
+    private JournalBenchmarkHost(TempDirectory dataDir, IJournalCoordinator coordinator, Ledger manifestStore)
     {
         _dataDir = dataDir;
         Coordinator = coordinator;
@@ -37,10 +41,10 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
 
         var dataDir = new TempDirectory(tempDirectoryPrefix);
         var persistence = options with { DataDir = dataDir.Path };
-        var manifestStore = new ManifestStore(persistence);
-        var gate = new JournalStartupGate();
+        var manifestStore = new Ledger(persistence);
+        var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        var coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
+        var coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
         return new JournalBenchmarkHost(dataDir, coordinator, manifestStore);
     }
 }

@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -7,11 +8,12 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for multi-node public CRUD and cross-node visibility.</summary>
 /// <param name="fixture">Shared two-node cluster fixture.</param>
+[Immutable]
 public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>
     [Fact]
-    public async Task AddValueOnNodeBThrowsWhenKeyInsertedOnNodeA()
+    public async Task AddingOnNodeBThrowsForDuplicateFromNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
 
@@ -22,7 +24,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>
     [Fact]
-    public async Task ConcurrentAddFromBothNodesOnlyOneSucceeds()
+    public async Task ConcurrentAddFromBothNodesOneWinner()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
 
@@ -31,14 +33,14 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
         var errors = await Task.WhenAll(a, b);
 
-        _ = Assert.Single(errors, static e => e is null);
+        _ = Assert.Single(errors, static e => e == null);
         _ = Assert.Single(errors, static e => e is CacheConflictException);
         Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>Verifies only one concurrent TryAddAsync returns true for the same key across nodes.</summary>
     [Fact]
-    public async Task ConcurrentTryAddFromBothNodesOnlyOneReturnsTrue()
+    public async Task ConcurrentTryAddFromBothNodesOneTrue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
 
@@ -54,14 +56,18 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies concurrent upserts from different nodes converge to one visible value without corrupting reads.</summary>
     [Fact]
-    public async Task ConcurrentUpsertsFromBothNodesLeaveReadableValue()
+    public async Task ConcurrentUpsertsLeaveReadableValue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
-            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken)
-                : Cluster.CacheB.SetAsync(key, $"b-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken);
+        {
+            tasks[i] = i % 2 == 0 ? Cluster.CacheA.SetAsync(key, $"a-{NodeInvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken) : Cluster.CacheB.SetAsync(
+                key,
+                $"b-{NodeInvariantIndexStrings.Format(i)}",
+                cancellationToken: DefaultCancellationToken);
+        }
 
         await Task.WhenAll(tasks);
 
@@ -74,7 +80,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.</summary>
     [Fact]
-    public async Task ExternalClientConnectedNodeMutationOwnerNodeB()
+    public async Task ExternalClientMutationsOwnedByNodeB()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
         await using var client = await LoopbackConnect.ConnectAsync(Cluster.NodeAAddress, DefaultCancellationToken);
@@ -88,7 +94,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies GetEntryAsync sees a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task GetEntryOnNodeBReturnsEntryInsertedOnNodeA()
+    public async Task GetEntryOnNodeBReturnsEntryFromNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
 
@@ -101,7 +107,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies GetValueAsync sees a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
+    public async Task GetValueOnNodeBFindsKeyInsertedOnNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-value");
 
@@ -112,7 +118,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies an update through one node is immediately visible when reading through another node.</summary>
     [Fact]
-    public async Task InsertNodeAUpdateNodeBGetOnNodeAReturnsLatestValue()
+    public async Task InsertNodeAUpdateNodeBReadsBackOnNodeA()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
 
@@ -124,7 +130,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies SetAsync(string, T) writes are visible from another node for the same named cache.</summary>
     [Fact]
-    public async Task InsertValueOnNodeAGetOnNodeBReturnsInsertedValue()
+    public async Task InsertOnNodeAReadsSameValueOnNodeB()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
 
@@ -158,7 +164,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies the same key in different named caches remains isolated across cluster nodes.</summary>
     [Fact]
-    public async Task SameKeyInDifferentNamedCachesRemainsIsolatedNodes()
+    public async Task NamedCachesIsolateSameKeyAcrossNodes()
     {
         await Cluster.CacheA.SetAsync("same-key", "order-value", cancellationToken: DefaultCancellationToken);
         await Cluster.CustomerCacheA.SetAsync("same-key", "customer-value", cancellationToken: DefaultCancellationToken);
@@ -169,7 +175,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies TryAddAsync(string, T) observes existing named-cache values across nodes.</summary>
     [Fact]
-    public async Task TryAddValueOnNodeBReturnsFalseKeyInsertedOnNodeA()
+    public async Task AddLosesToRemoteKey()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
 
@@ -180,7 +186,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies a stored null value remains distinguishable from a missing key across nodes.</summary>
     [Fact]
-    public async Task TryGetValueNodeBReturnsFoundNullValueInsertedNodeA()
+    public async Task GetRemoteNull()
     {
         await Cluster.CacheA.SetAsync("null-key", null, cancellationToken: DefaultCancellationToken);
 
@@ -192,7 +198,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies GetValueAsync sees a named-cache value written by another node.</summary>
     [Fact]
-    public async Task TryGetValueOnNodeBReturnsValueInsertedOnNodeA()
+    public async Task GetRemoteValue()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
 
@@ -205,7 +211,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies RemoveAsync can remove a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBRemovesEntryInsertedOnNodeA()
+    public async Task RemoveDeletesRemote()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
 
@@ -218,7 +224,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies remote RemoveAsync removes an entry after it was read.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBReturnsRemoteRemovedEntryMetadata()
+    public async Task RemoveRemoteAfterRead()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
 
@@ -235,7 +241,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies remote RemoveAsync removes a stored null value.</summary>
     [Fact]
-    public async Task TryRemoveOnNodeBStoredNullReportsRemoved()
+    public async Task RemoveRemoteNull()
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
 

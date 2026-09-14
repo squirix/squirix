@@ -76,3 +76,23 @@ on write and materialized as owned `JsonElement` on read.
 
 Writes go to `sn-NNNNNN.tmp` and are published atomically to `sn-NNNNNN.bsqx` via
 `IStorageFileOperations.PublishSnapshot`.
+
+## Replica-group snapshots
+
+Replica-group recovery snapshots are separate from cache snapshots and are stored as `group.snapshot` inside the
+group persistence directory. The format is:
+
+```text
+SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
+```
+
+All integer fields are little-endian. The payload begins with a length-prefixed UTF-8 `groupId` encoded from
+`snapshot.GroupId` by `GroupSnapshotStore`, followed by the topology fingerprint, configuration generation,
+`lastIncludedTerm`, `lastIncludedIndex`, `commitIndex`, and resolved idempotency outcomes whose journal index is
+covered by the snapshot. The default maximum accepted file size is 64 MiB, configurable through
+`FollowerLogOptions.MaxSnapshotBytes`.
+
+Publication writes `group.snapshot.tmp`, flushes it, and atomically replaces `group.snapshot`. Recovery validates the
+magic, version, declared length, size bound, and CRC before restoring the committed baseline. Journal compaction keeps
+the snapshot published and retains the log header plus entries after `lastIncludedIndex`, so a crash during or after
+compaction remains restartable and the snapshot remains installable by a lagging replica.

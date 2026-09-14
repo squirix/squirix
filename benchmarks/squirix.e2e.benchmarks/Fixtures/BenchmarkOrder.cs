@@ -9,9 +9,7 @@ namespace Squirix.E2EBenchmarks.Fixtures;
 /// <summary>Custom class used by nested class serialization benchmarks.</summary>
 public sealed class BenchmarkOrder
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="BenchmarkOrder" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="BenchmarkOrder" /> class.</summary>
     [UsedImplicitly]
     public BenchmarkOrder()
     {
@@ -19,9 +17,7 @@ public sealed class BenchmarkOrder
         Tags = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="BenchmarkOrder" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="BenchmarkOrder" /> class.</summary>
     /// <param name="id">Order identifier.</param>
     /// <param name="customerId">Customer identifier.</param>
     /// <param name="createdAt">Creation timestamp.</param>

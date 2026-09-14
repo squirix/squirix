@@ -1,10 +1,11 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -13,22 +14,22 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private IJournalCoordinator? _coordinator;
 
-    internal IJournalCoordinator Coordinator => _coordinator ?? throw new InvalidOperationException("Journal coordinator is not initialized.");
+    internal IJournalCoordinator Coordinator => ThrowHelper.Required(_coordinator, "Journal coordinator is not initialized.");
 
     public async ValueTask DisposeAsync()
     {
-        if (_coordinator is null)
+        if (_coordinator == null)
             return;
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
         _coordinator = null;
     }
 
-    internal async Task InitializeAsync(PersistenceOptions persistence, State manifest, ManifestStore manifestStore, JournalStartupGate gate, CancellationToken cancellationToken)
+    internal void Initialize(PersistenceOptions persistence, State manifest, Ledger manifestStore, AsyncManualResetEvent gate)
     {
-        if (_coordinator is not null)
+        if (_coordinator != null)
             return;
 
-        _coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
+        _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate);
     }
 }

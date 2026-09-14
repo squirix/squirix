@@ -2,15 +2,18 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
 internal static class DirectoryEx
 {
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectoryEx");
+
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
-    /// The target directory path. May be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
+    /// The target directory path. Can be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
     /// and must not contain invalid characters or wildcards.
     /// </param>
     /// <param name="baseDir">
@@ -23,9 +26,7 @@ internal static class DirectoryEx
     /// target directory; the method throws if a link is detected. When <see langword="false" />, link checks are skipped.
     /// </param>
     /// <returns>The normalized absolute path of the created (or already existing) directory.</returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown if <paramref name="path" /> (or <paramref name="baseDir" /> when provided) is empty or contains invalid characters.
-    /// </exception>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="path" /> (or <paramref name="baseDir" /> when provided) is empty or contains invalid characters.</exception>
     /// <exception cref="UnauthorizedAccessException">
     /// Thrown when the resolved target escapes <paramref name="baseDir" /> or the process lacks permissions to create/clean the directory.
     /// </exception>
@@ -38,12 +39,12 @@ internal static class DirectoryEx
     ///     The method performs the following steps:
     ///     (1) validates inputs; (2) resolves an absolute path (combining with <paramref name="baseDir" /> or current working directory
     ///     for relative inputs); (3) ensures the target is within <paramref name="baseDir" /> if provided;
-    ///     (4) validates path segments (e.g., on Windows: reserved names like <c>CON</c>, <c>PRN</c>, trailing dot/space);
+    ///     (4) validates path segments (e.g., on Windows: reserved names like <c language="csharp">CON</c>, <c language="csharp">PRN</c>, trailing dot/space);
     ///     (5) optionally checks for symlinks/junctions; (6) creates the directory when it does not exist.
     ///     </para>
     ///     <para>
     ///     This routine minimizes directory traversal and link attacks by rejecting targets that escape the base directory
-    ///     and, by default, forbidding symlinks. Use the returned path immediately for subsequent operations.
+    ///     and, by default, forbidding symlinks. Use the returned path immediately for later operations.
     ///     </para>
     /// </remarks>
     internal static string CreateDirectory(string path, string? baseDir = null, bool forbidSymlinks = true)
@@ -77,6 +78,7 @@ internal static class DirectoryEx
         const int delayMs = 80;
 
         for (var attempt = 0; attempt < retries; attempt++)
+        {
             try
             {
                 var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
@@ -109,6 +111,7 @@ internal static class DirectoryEx
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
+        }
     }
 
     private static void ClearReadOnlyAttributes(string file)
@@ -116,16 +119,18 @@ internal static class DirectoryEx
         try
         {
             var attrs = File.GetAttributes(file);
-            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
+            if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
         }
     }
 

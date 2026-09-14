@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit;
 
@@ -10,20 +12,37 @@ namespace Squirix.Server.TestKit;
 /// A simple metrics sink based on <see cref="MeterListener" /> that captures
 /// measurements from a specified meter for assertions in tests.
 /// </summary>
+[Immutable]
 public sealed class NodeMeasurementSink : IDisposable
 {
     private readonly ConcurrentQueue<CapturedMeasurement> _events = new();
     private readonly MeterListener _listener = new();
-    private readonly string _meterName;
+    private readonly Meter? _meter;
+    private readonly string? _meterName;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.</summary>
     /// <param name="name">Meter name to subscribe to (e.g., "Squirix").</param>
     public NodeMeasurementSink(string name)
     {
         _meterName = name;
         _listener.InstrumentPublished = OnInstrumentPublished;
+        _listener.SetMeasurementEventCallback<int>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.SetMeasurementEventCallback<long>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.SetMeasurementEventCallback<double>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
+        _listener.Start();
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to measurements from the
+    /// specified meter instance only.
+    /// </summary>
+    /// <param name="meter">Meter instance to subscribe to.</param>
+    public NodeMeasurementSink(Meter meter)
+    {
+        ArgumentNullException.ThrowIfNull(meter);
+        _meter = meter;
+        _listener.InstrumentPublished = OnInstrumentPublished;
+        _listener.SetMeasurementEventCallback<int>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.SetMeasurementEventCallback<long>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.SetMeasurementEventCallback<double>(static (instrument, _, tags, state) => Enqueue(state, instrument.Name, tags));
         _listener.Start();
@@ -56,9 +75,7 @@ public sealed class NodeMeasurementSink : IDisposable
     public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2, (string Key, string Value) tag3) =>
         HasEventCore(_events, instrumentName, tag1, tag2, tag3);
 
-    /// <summary>
-    /// Disposes the underlying <see cref="MeterListener" /> and releases resources.
-    /// </summary>
+    /// <summary>Disposes the underlying <see cref="MeterListener" /> and releases resources.</summary>
     public void Dispose() => _listener.Dispose();
 
     private static void Enqueue(object? state, string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
@@ -72,8 +89,10 @@ public sealed class NodeMeasurementSink : IDisposable
     private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName)
     {
         foreach (var measurement in events)
+        {
             if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 return true;
+        }
 
         return false;
     }
@@ -81,8 +100,10 @@ public sealed class NodeMeasurementSink : IDisposable
     private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName, (string Key, string Value) tag1)
     {
         foreach (var measurement in events)
-            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
+        {
+            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(tag1.Key, tag1.Value, in measurement))
                 return true;
+        }
 
         return false;
     }
@@ -94,7 +115,7 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value))
+            if (MeasurementHasTag(tag1.Key, tag1.Value, in measurement) && MeasurementHasTag(tag2.Key, tag2.Value, in measurement))
                 return true;
         }
 
@@ -113,21 +134,23 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value) &&
-                MeasurementHasTag(in measurement, tag3.Key, tag3.Value))
+            if (MeasurementHasTag(tag1.Key, tag1.Value, in measurement) && MeasurementHasTag(tag2.Key, tag2.Value, in measurement) &&
+                MeasurementHasTag(tag3.Key, tag3.Value, in measurement))
                 return true;
         }
 
         return false;
     }
 
-    private static bool MeasurementHasTag(in CapturedMeasurement measurement, string key, string expectedValue)
+    private static bool MeasurementHasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
-        if (measurement.OverflowTags is not null)
+        if (measurement.OverflowTags != null)
         {
             foreach (var tag in measurement.OverflowTags)
+            {
                 if (string.Equals(tag.Key, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, expectedValue))
                     return true;
+            }
 
             return false;
         }
@@ -151,89 +174,129 @@ public sealed class NodeMeasurementSink : IDisposable
 
     private void OnInstrumentPublished(Instrument instrument, MeterListener listener)
     {
+        if (_meter != null)
+        {
+            if (ReferenceEquals(instrument.Meter, _meter))
+                listener.EnableMeasurementEvents(instrument, _events);
+            return;
+        }
+
         if (string.Equals(instrument.Meter.Name, _meterName, StringComparison.OrdinalIgnoreCase))
             listener.EnableMeasurementEvents(instrument, _events);
     }
 
-    private readonly struct CapturedMeasurement
+    [Immutable]
+    private readonly struct CapturedMeasurement : IEquatable<CapturedMeasurement>
     {
-        private readonly string? _tagKey0;
-        private readonly string? _tagKey1;
-        private readonly string? _tagKey2;
-        private readonly object? _tagValue0;
-        private readonly object? _tagValue1;
-        private readonly object? _tagValue2;
+        internal readonly string InstrumentName;
+        internal readonly KeyValuePair<string, object?>[]? OverflowTags;
+        internal readonly int TagCount;
+        private readonly InlineTags _inlineTags;
 
-        private CapturedMeasurement(
-            string instrumentName,
-            int tagCount,
-            string? tagKey0,
-            string? tagKey1,
-            string? tagKey2,
-            object? tagValue0,
-            object? tagValue1,
-            object? tagValue2,
-            KeyValuePair<string, object?>[]? overflowTags)
+        private CapturedMeasurement(string instrumentName, int tagCount, InlineTags inlineTags, KeyValuePair<string, object?>[]? overflowTags)
         {
             InstrumentName = instrumentName;
             TagCount = tagCount;
-            _tagKey0 = tagKey0;
-            _tagKey1 = tagKey1;
-            _tagKey2 = tagKey2;
-            _tagValue0 = tagValue0;
-            _tagValue1 = tagValue1;
-            _tagValue2 = tagValue2;
+            _inlineTags = inlineTags;
             OverflowTags = overflowTags;
         }
 
-        internal string InstrumentName { get; }
+        public static bool operator ==(CapturedMeasurement left, CapturedMeasurement right)
+        {
+            return left.Equals(right);
+        }
 
-        internal KeyValuePair<string, object?>[]? OverflowTags { get; }
+        public static bool operator !=(CapturedMeasurement left, CapturedMeasurement right)
+        {
+            return !left.Equals(right);
+        }
 
-        internal int TagCount { get; }
+        public override bool Equals([NotNullWhen(true)] object? obj) => obj is CapturedMeasurement other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(InstrumentName, TagCount, _inlineTags, OverflowTags);
+
+        public bool Equals(CapturedMeasurement other)
+        {
+            return string.Equals(InstrumentName, other.InstrumentName, StringComparison.Ordinal) && TagCount == other.TagCount && _inlineTags.Equals(other._inlineTags) &&
+                   Equals(OverflowTags, other.OverflowTags);
+        }
 
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
-            if (tags.Length is 0)
-                return new CapturedMeasurement(instrumentName, 0, null, null, null, null, null, null, null);
+            if (tags.Length == 0)
+                return new CapturedMeasurement(instrumentName, 0, default, null);
 
             if (tags.Length <= 3)
-            {
-                return new CapturedMeasurement(
-                    instrumentName,
-                    tags.Length,
-                    tags.Length > 0 ? tags[0].Key : null,
-                    tags.Length > 1 ? tags[1].Key : null,
-                    tags.Length > 2 ? tags[2].Key : null,
-                    tags.Length > 0 ? tags[0].Value : null,
-                    tags.Length > 1 ? tags[1].Value : null,
-                    tags.Length > 2 ? tags[2].Value : null,
-                    null);
-            }
+                return new CapturedMeasurement(instrumentName, tags.Length, new InlineTags(tags), null);
 
             var overflow = new KeyValuePair<string, object?>[tags.Length];
             tags.CopyTo(overflow);
-            return new CapturedMeasurement(instrumentName, tags.Length, null, null, null, null, null, null, overflow);
+            return new CapturedMeasurement(instrumentName, tags.Length, default, overflow);
         }
 
         internal void GetTag(int index, out string key, out object? value)
         {
-            switch (index)
+            if (OverflowTags != null)
             {
-                case 0:
-                    key = _tagKey0 ?? string.Empty;
-                    value = _tagValue0;
-                    return;
-                case 1:
-                    key = _tagKey1 ?? string.Empty;
-                    value = _tagValue1;
-                    return;
-                case 2:
-                    key = _tagKey2 ?? string.Empty;
-                    value = _tagValue2;
-                    return;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(index));
+                var tag = OverflowTags[index];
+                key = tag.Key;
+                value = tag.Value;
+                return;
+            }
+
+            _inlineTags.GetTag(index, out key, out value);
+        }
+
+        [Immutable]
+        private readonly struct InlineTags : IEquatable<InlineTags>
+        {
+            private readonly string? _key0;
+            private readonly string? _key1;
+            private readonly string? _key2;
+            private readonly object? _value0;
+            private readonly object? _value1;
+            private readonly object? _value2;
+
+            internal InlineTags(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+            {
+                _key0 = tags.Length > 0 ? tags[0].Key : null;
+                _key1 = tags.Length > 1 ? tags[1].Key : null;
+                _key2 = tags.Length > 2 ? tags[2].Key : null;
+                _value0 = tags.Length > 0 ? tags[0].Value : null;
+                _value1 = tags.Length > 1 ? tags[1].Value : null;
+                _value2 = tags.Length > 2 ? tags[2].Value : null;
+            }
+
+            public override bool Equals([NotNullWhen(true)] object? obj) => obj is InlineTags other && Equals(other);
+
+            public override int GetHashCode() => HashCode.Combine(_key0, _key1, _key2, _value0, _value1, _value2);
+
+            public bool Equals(InlineTags other)
+            {
+                return string.Equals(_key0, other._key0, StringComparison.Ordinal) && string.Equals(_key1, other._key1, StringComparison.Ordinal) &&
+                       string.Equals(_key2, other._key2, StringComparison.Ordinal) && Equals(_value0, other._value0) && Equals(_value1, other._value1) &&
+                       Equals(_value2, other._value2);
+            }
+
+            internal void GetTag(int index, out string key, out object? value)
+            {
+                switch (index)
+                {
+                    case 0:
+                        key = _key0 ?? string.Empty;
+                        value = _value0;
+                        return;
+                    case 1:
+                        key = _key1 ?? string.Empty;
+                        value = _value1;
+                        return;
+                    case 2:
+                        key = _key2 ?? string.Empty;
+                        value = _value2;
+                        return;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(index));
+                }
             }
         }
     }

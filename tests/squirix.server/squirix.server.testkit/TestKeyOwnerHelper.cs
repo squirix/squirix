@@ -1,18 +1,19 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Key ownership helper mirroring server consistent-hash route behavior for multi-node tests.</summary>
+[Immutable]
 public sealed class TestKeyOwnerHelper
 {
-    /// <summary>Shared ring for smoke tests that label peers <c>A</c> and <c>B</c>.</summary>
+    /// <summary>Shared ring for smoke tests that label peers <c language="csharp">A</c> and <c language="csharp">B</c>.</summary>
     public static readonly TestKeyOwnerHelper SmokeTwoNode = new(["A", "B"]);
 
-    /// <summary>Shared ring for the default two-node topology (<c>node-a</c>, <c>node-b</c>).</summary>
+    /// <summary>Shared ring for the default two-node topology (<c language="csharp">node-a</c>, <c language="csharp">node-b</c>).</summary>
     public static readonly TestKeyOwnerHelper TwoNode = new(["node-a", "node-b"]);
 
     private readonly (ulong Hash, string Node)[] _ring;
@@ -24,10 +25,12 @@ public sealed class TestKeyOwnerHelper
     {
         var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
+        {
             if (!string.IsNullOrWhiteSpace(nodeId))
                 _ = uniqueNodes.Add(nodeId);
+        }
 
-        if (uniqueNodes.Count is 0)
+        if (uniqueNodes.Count == 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));
 
         var nodes = new string[uniqueNodes.Count];
@@ -56,7 +59,7 @@ public sealed class TestKeyOwnerHelper
     {
         for (var i = 0; i < 200_000; i++)
         {
-            var candidate = InvariantIndexStrings.FormatPrefixed(prefix, i);
+            var candidate = NodeInvariantIndexStrings.FormatPrefixed(prefix, i);
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                 return candidate;
         }
@@ -94,17 +97,9 @@ public sealed class TestKeyOwnerHelper
             return HashBytes(buffer);
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-        try
-        {
-            var buffer = rented.AsSpan(0, byteCount);
-            WriteRouteKey(canonical, key, buffer);
-            return HashBytes(buffer);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var owned = new byte[byteCount];
+        WriteRouteKey(canonical, key, owned);
+        return HashBytes(owned);
     }
 
     private static ulong HashVNode(string node, int index)
@@ -116,15 +111,8 @@ public sealed class TestKeyOwnerHelper
             return HashBytes(WriteVNodeKey(node, index, buffer));
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-        try
-        {
-            return HashBytes(WriteVNodeKey(node, index, rented.AsSpan(0, byteCount)));
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        var owned = new byte[byteCount];
+        return HashBytes(WriteVNodeKey(node, index, owned));
     }
 
     private static int WriteNonNegativeIntUtf8(int value, Span<byte> destination)

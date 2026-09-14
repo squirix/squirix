@@ -1,12 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Connected two-node named caches for multi-node public API tests.</summary>
 /// <typeparam name="T">Cached value type.</typeparam>
+[Immutable]
 public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
 {
     private readonly HostedCluster _host;
@@ -24,24 +26,16 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         _ownsLifetime = ownsLifetime;
     }
 
-    /// <summary>
-    /// Gets the node A <c>orders</c> cache facade.
-    /// </summary>
+    /// <summary>Gets the node A <c language="csharp">orders</c> cache facade.</summary>
     public ICache<T> CacheA { get; }
 
-    /// <summary>
-    /// Gets the node B <c>orders</c> cache facade.
-    /// </summary>
+    /// <summary>Gets the node B <c language="csharp">orders</c> cache facade.</summary>
     public ICache<T> CacheB { get; }
 
-    /// <summary>
-    /// Gets the node A <c>customers</c> cache facade.
-    /// </summary>
+    /// <summary>Gets the node A <c language="csharp">customers</c> cache facade.</summary>
     public ICache<T> CustomerCacheA { get; }
 
-    /// <summary>
-    /// Gets the node B <c>customers</c> cache facade.
-    /// </summary>
+    /// <summary>Gets the node B <c language="csharp">customers</c> cache facade.</summary>
     public ICache<T> CustomerCacheB { get; }
 
     /// <summary>Gets the node A listen address.</summary>
@@ -79,6 +73,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         return new TwoNodeNamedCaches<T>(host, new Clients { ClientA = clientA, ClientB = clientB }, caches, ownsLifetime);
     }
 
+    [Immutable]
     private sealed class Caches
     {
         internal required ICache<T> CacheA { get; init; }
@@ -90,6 +85,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         internal required ICache<T> CustomerCacheB { get; init; }
     }
 
+    [Immutable]
     private sealed class Clients
     {
         internal required ISquirixClient ClientA { get; init; }

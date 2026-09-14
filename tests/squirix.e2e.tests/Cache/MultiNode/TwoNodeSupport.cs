@@ -38,7 +38,7 @@ internal static class TwoNodeSupport
 
     internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => KeyOwnerHelper.TwoNode.FindKeyOwnedBy(cacheName, ownerId, prefix);
 
-    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
+    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration == null ? null : Expiry.In(expiration.Value);
 
     internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>(CancellationToken cancellationToken, [CallerMemberName] string testName = "")
     {
@@ -49,17 +49,7 @@ internal static class TwoNodeSupport
             var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
             return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, cancellationToken);
         }
-        catch (InvalidOperationException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (IOException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-        catch (RpcException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or RpcException)
         {
             await cluster.DisposeAsync();
             throw;

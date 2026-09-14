@@ -8,6 +8,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -16,14 +17,13 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>
-/// Golden snapshot for the REST endpoint surface exposed by <c>MapSquirixServer</c>.
-/// </summary>
+/// <summary>Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
+[Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production REST route surface.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesProductionRestEndpointSurface()
+    public async Task MatchesProductionRestEndpointSurface()
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
@@ -34,7 +34,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);
@@ -61,8 +61,10 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -83,7 +85,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         private static void AppendHttpMethods(RouteEndpoint route, string pattern, List<string> routes)
         {
             var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
-            if (methods is null || methods.HttpMethods.Count is 0)
+            if (methods == null || methods.HttpMethods.Count == 0)
             {
                 // Health probes often omit explicit HttpMethodMetadata; treat them as GET for the golden.
                 if (pattern.StartsWith("/health", StringComparison.Ordinal))
@@ -104,7 +106,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 return;
 
             // gRPC endpoints are covered by a separate contract surface and must not dilute REST goldens.
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() is not null)
+            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() != null)
                 return;
 
             var pattern = route.RoutePattern.RawText ?? "/";
@@ -123,7 +125,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 });
 
             _ = await builder.AddSquirixServerAsync(
-                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+                static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
                 loadDiscoveredSettings: false,
                 cancellationToken: CancellationToken.None);
 
@@ -131,7 +133,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         }
 
         /// <summary>
-        /// Collects REST route identities (<c>METHOD /pattern</c>) from the host endpoint data sources,
+        /// Collects REST route identities (<c language="csharp">METHOD /pattern</c>) from the host endpoint data sources,
         /// excluding gRPC methods and unimplemented placeholders.
         /// </summary>
         /// <param name="app">Built web application exposing endpoint route data.</param>

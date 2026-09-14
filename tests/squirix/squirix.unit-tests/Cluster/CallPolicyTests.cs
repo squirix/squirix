@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
 using Xunit;
@@ -10,11 +12,12 @@ using Xunit;
 namespace Squirix.UnitTests.Cluster;
 
 /// <summary>Covers client <see cref="CallPolicy" /> Map* failure classification paths.</summary>
+[Immutable]
 public sealed class CallPolicyTests
 {
     /// <summary>Rejects new calls after BeginDrain.</summary>
     [Fact]
-    public async Task BeginDrainRejectsNewCalls()
+    public async Task BeginDrainRejectsNewCallsAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
@@ -23,78 +26,50 @@ public sealed class CallPolicyTests
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
     }
 
-    /// <summary>Retries DeadlineExceeded RpcException.</summary>
+    /// <summary>
+    /// Dispose racing <see cref="CallPolicy.ExecuteAsync{TState,T}" /> must never surface an
+    /// <see cref="ObjectDisposedException" /> raised from SemaphoreSlim internals: the
+    /// claim-then-recheck ordering makes racing callers observe disposal through the policy's own
+    /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore.
+    /// Mirrors the server-side regression test for issue #423.
+    /// </summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesDeadlineExceededRpc()
+    public async Task DisposeRacingExecuteStaysClean()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
-            },
-            box,
-            CancellationToken.None);
+        const int rounds = 64;
+        const int callersPerRound = 8;
 
-        Assert.Equal(4, value);
-        Assert.Equal(2, box.Count);
-    }
+        for (var round = 0; round < rounds; round++)
+        {
+            await using var policy = new CallPolicy(TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, 1, $"c-race-{round}");
+            using var drained = new ManualResetEventSlim(false);
+            var faults = new ConcurrentQueue<string>();
 
-    /// <summary>Retries HttpRequestException then succeeds.</summary>
-    [Fact]
-    public async Task ExecuteAsyncRetriesHttpRequestException()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
-            },
-            box,
-            CancellationToken.None);
+            // Await every caller reaching its hammer loop (and so its first ExecuteAsync) before
+            // disposing, so a busy runner cannot dispose before any caller enters the race.
+            Task[] callers;
+            foreach (var signal in StartHammerCallers(policy, drained, faults, callersPerRound, out callers))
+                await signal;
 
-        Assert.Equal(3, value);
-        Assert.Equal(2, box.Count);
-    }
+            // Spin-based phase smear: burning a round-dependent number of cycles before disposing
+            // walks the dispose landing point through the callers' execute loop without depending
+            // on coarse OS timer resolution, covering the whole claim window over time.
+            Thread.SpinWait(((round % 64) + 1) * 256);
 
-    /// <summary>Retries Unavailable RpcException.</summary>
-    [Fact]
-    public async Task ExecuteAsyncRetriesUnavailableRpc()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
-            },
-            box,
-            CancellationToken.None);
+            // ReSharper disable once DisposeOnUsingVariable — intentional mid-race disposal: the test covers dispose landing inside the execute loop.
+            await policy.DisposeAsync();
+            drained.Set();
 
-        Assert.Equal(8, value);
-        Assert.Equal(2, box.Count);
-    }
+            foreach (var caller in callers)
+                await caller;
 
-    /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
-    [Fact]
-    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOne()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
-        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
-            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
+            Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault}");
+        }
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
     [Fact]
-    public async Task ExecuteAsyncStopsNonRetryableRpc()
+    public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
         var box = new IntBox();
@@ -112,9 +87,29 @@ public sealed class CallPolicyTests
         Assert.Equal(1, box.Count);
     }
 
+    /// <summary>Retries Unavailable RpcException.</summary>
+    [Fact]
+    public async Task ExecuteRetriesUnavailableRpcAsync()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
+        var box = new IntBox();
+        var value = await policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
+            {
+                _ = cancellationToken;
+                var n = counter.Increment();
+                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
+            },
+            box,
+            CancellationToken.None);
+
+        Assert.Equal(8, value);
+        Assert.Equal(2, box.Count);
+    }
+
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
     [Fact]
-    public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
+    public async Task QueuedCallRejectedOnDrainAsync()
     {
         var timeout = TimeSpan.FromSeconds(5);
         await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
@@ -145,6 +140,107 @@ public sealed class CallPolicyTests
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
     }
 
+    /// <summary>Retries DeadlineExceeded RpcException.</summary>
+    [Fact]
+    public async Task RetriesDeadlineExceededRpcAsync()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
+        var box = new IntBox();
+        var value = await policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
+            {
+                _ = cancellationToken;
+                var n = counter.Increment();
+                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
+            },
+            box,
+            CancellationToken.None);
+
+        Assert.Equal(4, value);
+        Assert.Equal(2, box.Count);
+    }
+
+    /// <summary>Retries HttpRequestException then succeeds.</summary>
+    [Fact]
+    public async Task RetriesHttpRequestExceptionAsync()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
+        var box = new IntBox();
+        var value = await policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
+            {
+                _ = cancellationToken;
+                var n = counter.Increment();
+                return n == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
+            },
+            box,
+            CancellationToken.None);
+
+        Assert.Equal(3, value);
+        Assert.Equal(2, box.Count);
+    }
+
+    /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
+    [Fact]
+    public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
+        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
+            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
+    }
+
+    private static async Task HammerExecuteUntilDisposedAsync(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, TaskCompletionSource readySignal)
+    {
+        while (!drained.IsSet)
+        {
+            try
+            {
+                _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
+                _ = readySignal.TrySetResult();
+            }
+            catch (Exception ex) when (ex is RpcException or OperationCanceledException)
+            {
+                return; // Drain rejection or shutdown cancellation - legitimate outcome.
+            }
+            catch (ObjectDisposedException disposed)
+            {
+                // THE regression signature: use-after-dispose of the concurrency semaphore.
+                // Classification keys on ObjectDisposedException.ObjectName instead of stack-trace
+                // text: both policies throw their post-enter check via ThrowIf(..., this), which
+                // reports the policy type name, so only an ObjectName identifying SemaphoreSlim
+                // counts as a fault.
+                if (string.Equals(disposed.ObjectName, nameof(SemaphoreSlim), StringComparison.Ordinal))
+                    faults.Enqueue(disposed.ToString());
+
+                return;
+            }
+        }
+    }
+
+    private static Task[] StartHammerCallers(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count, out Task[] callers)
+    {
+        var started = new Task[count];
+        callers = new Task[count];
+        for (var i = 0; i < count; i++)
+        {
+            var readySignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            started[i] = readySignal.Task;
+            callers[i] = StartCallerAsync(readySignal);
+        }
+
+        return started;
+
+        Task StartCallerAsync(TaskCompletionSource readySignal)
+        {
+            return Task.Factory.StartNew(
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        }
+    }
+
+    [Immutable]
     private sealed class EnterReleaseGate
     {
         internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
@@ -36,7 +37,7 @@ internal static class NodeOptionsRegistration
         var idempotency = await IdempotencyBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
-        if (args.PersistenceOptions is not null)
+        if (args.PersistenceOptions != null)
             await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, null, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
@@ -44,7 +45,8 @@ internal static class NodeOptionsRegistration
         return services;
     }
 
-    private static void AddValidatedInstance<TOptions, TValidator>(IServiceCollection services, TOptions source)
+    private static void AddValidatedInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TValidator>(IServiceCollection services, TOptions source)
         where TOptions : class
         where TValidator : class, IValidateOptions<TOptions>
     {
@@ -65,7 +67,11 @@ internal static class NodeOptionsRegistration
         _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
             sp.GetRequiredService<IOptions<MtlsOptions>>(),
             sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
-        _ = args.MtlsMaterial is not null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
+
+        // Register through the factory overload so the DI container owns and disposes the certificate material on
+        // host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI, which would
+        // leak the loaded X509 certificates.
+        _ = args.MtlsMaterial != null ? services.AddSingleton(_ => args.MtlsMaterial) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
             var options = provider.GetRequiredService<MtlsOptions>();
@@ -74,7 +80,9 @@ internal static class NodeOptionsRegistration
         });
     }
 
-    private static void AddValidatedOptionsInstance<TOptions>(IServiceCollection services, TOptions source)
+    private static void AddValidatedOptionsInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
+        IServiceCollection services,
+        TOptions source)
         where TOptions : class
     {
         // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
@@ -105,7 +113,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }
 
-    /// <summary>Loads snapshot trigger settings from <c>Squirix.settings.json</c>.</summary>
+    /// <summary>Loads snapshot trigger settings from <c language="csharp">Squirix.settings.json</c>.</summary>
     private static class SnapshotBootstrap
     {
         /// <summary>Loads snapshot trigger settings using the same settings file discovery as cluster bootstrap.</summary>
@@ -113,12 +121,13 @@ internal static class NodeOptionsRegistration
         /// <returns>Loaded snapshot trigger options.</returns>
         internal static async Task<TriggerOptions> LoadAsync(CancellationToken cancellationToken = default)
         {
-            var (_, fileMerged) = await UnifiedSettings.TryMergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
+            var (_, fileMerged) = await UnifiedSettings.MergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
             return fileMerged;
         }
     }
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container via factory.")]
+    [Immutable]
     private sealed class StartupOptionsValidator<TOptions> : IHostedService
         where TOptions : class
     {
@@ -140,7 +149,8 @@ internal static class NodeOptionsRegistration
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
+    [Immutable]
+    private sealed class StaticOptionsMonitor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions> : IOptionsMonitor<TOptions>
         where TOptions : class
     {
         internal StaticOptionsMonitor(TOptions value)

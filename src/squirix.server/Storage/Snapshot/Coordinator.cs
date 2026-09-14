@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -28,7 +29,7 @@ internal sealed class Coordinator
     private readonly CaptureScratch _captureScratch = new();
     private readonly ISnapshotEntryCapture _entryCapture;
     private readonly IIdempotencySnapshotExporter _idempotency;
-    private readonly ManifestStore _manifestStore;
+    private readonly Ledger _manifestStore;
     private readonly string _nodeId;
     private readonly ISnapshotWriter _snapWriter;
     private readonly ISnapshotTelemetry _telemetry;
@@ -41,7 +42,7 @@ internal sealed class Coordinator
         ArgumentNullException.ThrowIfNull(deps);
         _entryCapture = deps.EntryCapture;
         _snapWriter = deps.SnapWriter;
-        _manifestStore = deps.ManifestStore;
+        _manifestStore = deps.Ledger;
         _idempotency = deps.Idempotency;
         _nodeId = deps.NodeId;
         _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;
@@ -50,16 +51,16 @@ internal sealed class Coordinator
 
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
 
-    internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) is not 0;
+    internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
 
-    internal async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
+    internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         if (!_triggerState.ShouldTrigger(DateTime.UtcNow, IsInFlight))
             return;
         if (ShouldSuppressBackgroundSnapshot())
             return;
 
-        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) is not 0)
+        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) != 0)
             return;
 
         using var activity = _telemetry.BeginCreate();
@@ -124,7 +125,13 @@ internal sealed class Coordinator
         var updated = new State
         {
             Format = prev.Format,
-            CurrentJournal = prev.CurrentJournal,
+
+            // The publishing runs outside the mutation-gate barrier, so prev.CurrentJournal can skew
+            // either way: a roll whose manifest publish is still queued leaves it behind the
+            // captured segment, while a roll published during the file write moves it ahead.
+            // Persist the monotonic maximum so the manifest never moves CurrentJournal backward
+            // and never falls behind the snapshot's own replay pointer.
+            CurrentJournal = Math.Max(prev.CurrentJournal, captured.ReplayFromJournalSegmentAtFlush),
             NextSequence = captured.NextSequenceAtFlush,
             LastSnapshot = new SnapshotRef
             {
@@ -143,12 +150,14 @@ internal sealed class Coordinator
 
     private bool ShouldSuppressBackgroundSnapshot() => _backgroundSnapshotMemoryThrottle.ShouldSuppressBackgroundSnapshot();
 
+    [Immutable]
     private sealed record CapturedSnapshotBundle(
         List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items,
         int ReplayFromJournalSegmentAtFlush,
         ulong NextSequenceAtFlush,
         IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecordsAtFlush);
 
+    [Immutable]
     private sealed class CaptureScratch
     {
         internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [];
@@ -166,9 +175,12 @@ internal sealed class Coordinator
     /// Encapsulates snapshot trigger evaluation, latency-throttle tracking, and baseline bookkeeping.
     /// Callers pass the current in-flight flag so this type stays independent of the snapshot-in-flight
     /// state owned by <see cref="Coordinator" />.
+    /// Evaluations and baseline updates are serialized on an internal gate so concurrent trigger checks
+    /// cannot race on the trigger fields; only the CAS winner in <see cref="Coordinator" /> records success.
     /// </summary>
     private sealed class TriggerState
     {
+        private readonly Lock _gate = new();
         private readonly IJournalMetrics _journal;
         private readonly TriggerOptions _opt;
         private long _bytesAtLast;
@@ -183,43 +195,50 @@ internal sealed class Coordinator
         }
 
         /// <summary>Resets the latency throttle so the next evaluation may proceed normally.</summary>
-        internal void ClearLatencyThrottle() => _latencyThrottledUntilUtc = DateTime.MinValue;
+        internal void ClearLatencyThrottle()
+        {
+            lock (_gate)
+                _latencyThrottledUntilUtc = DateTime.MinValue;
+        }
 
         /// <summary>Records the journal baseline after a successful snapshot.</summary>
         /// <param name="now">UTC time of the completed snapshot.</param>
         internal void RecordSuccess(DateTime now)
         {
-            _lastSnapshotUtc = now;
-            _opsAtLast = _journal.AppendedOps;
-            _bytesAtLast = _journal.AppendedBytes;
+            lock (_gate)
+            {
+                _lastSnapshotUtc = now;
+                _opsAtLast = _journal.AppendedOps;
+                _bytesAtLast = _journal.AppendedBytes;
+            }
         }
 
-        /// <summary>
-        /// Returns <see langword="true" /> when conditions are met to start a new snapshot.
-        /// </summary>
+        /// <summary>Returns <see langword="true" /> when conditions are met to start a new snapshot.</summary>
         /// <param name="utcNow">Current UTC time used for all-time comparisons.</param>
         /// <param name="isInFlight">Whether a snapshot is already running on the coordinator.</param>
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
         internal bool ShouldTrigger(DateTime utcNow, bool isInFlight)
         {
-            if (_latencyThrottledUntilUtc > utcNow)
-                return false;
+            lock (_gate)
+            {
+                var opsDelta = _journal.AppendedOps - _opsAtLast;
+                var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
+                var blocked = IsBlockedFromTriggering(utcNow, isInFlight);
+                var throttled = _opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes;
+                return !blocked && !throttled && MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+            }
+        }
 
-            if (ShouldEnterLatencyThrottle(utcNow))
-                return false;
-
-            if (_lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots)
-                return false;
-
-            if (isInFlight)
-                return false;
-
-            var opsDelta = _journal.AppendedOps - _opsAtLast;
-            var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
-            if (_opt.JournalGrowthThrottleBytes > 0 && bytesDelta < _opt.JournalGrowthThrottleBytes)
-                return false;
-
-            return MeetsAnyTriggerThreshold(utcNow, opsDelta, bytesDelta);
+        private bool IsBlockedFromTriggering(DateTime utcNow, bool isInFlight)
+        {
+            var isWithinMinGap = _lastSnapshotUtc != DateTime.MinValue && utcNow - _lastSnapshotUtc < _opt.MinGapBetweenSnapshots;
+            return true switch
+            {
+                _ when _latencyThrottledUntilUtc > utcNow => true,
+                _ when ShouldEnterLatencyThrottle(utcNow) => true,
+                _ when isWithinMinGap => true,
+                _ => isInFlight,
+            };
         }
 
         private bool MeetsAnyTriggerThreshold(DateTime utcNow, long opsDelta, long bytesDelta)

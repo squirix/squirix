@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
@@ -18,6 +19,9 @@ internal interface ICompositionArgs
     Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
     ExtensionOptions? Extensions { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the closed replication gRPC service is mapped for foundation tests.</summary>
+    bool FoundationOnly { get; set; }
 
     PressureOptions? MemoryPressureOptions { get; set; }
 

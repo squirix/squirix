@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -15,12 +16,13 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>Golden snapshot for the gRPC service surface exposed by <c>MapSquirixServer</c>.</summary>
+/// <summary>Golden snapshot for the gRPC service surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
+[Immutable]
 public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production gRPC service surface.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesProductionGrpcEndpointSurface()
+    public async Task MatchesProductionGrpcEndpointSurface()
     {
         var actual = new HashSet<string>(await GrpcEndpointSurfaceCollector.CollectProductionGrpcMethodsAsync(), StringComparer.OrdinalIgnoreCase);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");
@@ -30,7 +32,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
-            if (lines[i].Length is 0)
+            if (lines[i].Length == 0)
                 continue;
 
             _ = expected.Add(lines[i]);
@@ -57,8 +59,10 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -67,9 +71,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     /// <summary>Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.</summary>
     private static class GrpcEndpointSurfaceCollector
     {
-        /// <summary>
-        /// Builds a production-like host and returns sorted gRPC method identities (<c>ServiceName/MethodName</c>).
-        /// </summary>
+        /// <summary>Builds a production-like host and returns sorted gRPC method identities (<c language="csharp">ServiceName/MethodName</c>).</summary>
         /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
         internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()
         {
@@ -87,7 +89,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 });
 
             _ = await builder.AddSquirixServerAsync(
-                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+                static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
                 loadDiscoveredSettings: false,
                 cancellationToken: CancellationToken.None);
 
@@ -105,7 +107,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 {
                     var endpoint = source.Endpoints[index];
                     var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-                    if (grpc is null)
+                    if (grpc == null)
                         continue;
 
                     if (grpc.Method.Name.Contains("grpcunimplemented", StringComparison.Ordinal))

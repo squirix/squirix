@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
@@ -27,7 +28,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     /// Verifies that node B's gRPC server received the same traceparent in its request metadata.
     /// </summary>
     [Fact]
-    public async Task TraceContextFlowsFromGrpcToGrpcAcrossNodes()
+    public async Task TraceContextFlowsAcrossGrpcNodes()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -99,6 +100,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         return traceparent[(firstDash + 1)..secondDash];
     }
 
+    [Immutable]
     private sealed class CaptureServicesConfigure
     {
         private readonly CapturingHeadersInterceptor _capture;

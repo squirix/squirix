@@ -4,20 +4,22 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;
 
 /// <summary>
-/// v0.1: golden snapshot of exported public API identities for the main <c>Squirix</c> assembly.
-/// When the public surface changes intentionally, update <c>ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
+/// v0.1: golden snapshot of exported public API identities for the main <c language="csharp">Squirix</c> assembly.
+/// When the public surface changes intentionally, update <c language="csharp">ApiSnapshots/SquirixPublicTypes.golden.txt</c>.
 /// </summary>
-public sealed class PublicApiGoldenSnapshotTests
+[Immutable]
+public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
     [Fact]
-    public async Task GoldenSnapshotMatchesMainAssemblyExports()
+    public async Task SnapshotMatchesMainAssemblyExportsAsync()
     {
         // Compare the live exported-type identity set against the committed golden file.
         var assemblyPath = PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll");
@@ -34,7 +36,7 @@ public sealed class PublicApiGoldenSnapshotTests
 
     private static void AppendDiffSection(StringBuilder sb, string heading, string marker, List<string> items)
     {
-        if (items.Count is 0)
+        if (items.Count == 0)
             return;
 
         _ = sb.AppendLine(heading);
@@ -47,8 +49,10 @@ public sealed class PublicApiGoldenSnapshotTests
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -69,11 +73,11 @@ public sealed class PublicApiGoldenSnapshotTests
     private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            if (line.Length is 0)
+            if (line.Length == 0)
                 continue;
 
             _ = expected.Add(line);

@@ -1,15 +1,15 @@
 using System;
+using Squirix.Attributes;
 using Xunit.Sdk;
 
 namespace Squirix.TestKit;
 
 /// <summary>Closure-free assertion for a synchronous exception.</summary>
 /// <typeparam name="TException">Expected exception type.</typeparam>
+[Immutable]
 public readonly record struct ExceptionExpectation<TException>
     where TException : Exception
 {
-    private static readonly string MissingMessage = $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
-
     /// <summary>Invokes an operation with one state value and asserts it throws exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TState">Operation state type.</typeparam>
     /// <param name="state">State passed to <paramref name="operation" />.</param>
@@ -54,5 +54,5 @@ public readonly record struct ExceptionExpectation<TException>
         throw Missing();
     }
 
-    private static XunitException Missing() => new(MissingMessage);
+    private static XunitException Missing() => new(MissingExceptionMessage.For<TException>());
 }

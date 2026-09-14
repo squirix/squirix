@@ -1,30 +1,35 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.
-/// </summary>
+/// <summary>Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.</summary>
+[Immutable]
 internal sealed class PressureGate : IMemoryPressureGate
 {
     private readonly IMemoryUsageAccounting _accounting;
     private readonly IMemoryPressureStateEvaluator _evaluator;
     private readonly string _nodeId;
+    private readonly Counter<long> _rejectionsTotal;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PressureGate" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="PressureGate" /> class.</summary>
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
-    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
+    /// <param name="meter">Server-wide meter used to create the rejection counter.</param>
+    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId, Meter meter)
     {
-        _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
-        _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
-        _nodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(accounting);
+        ArgumentNullException.ThrowIfNull(nodeId);
+        _evaluator = evaluator;
+        _accounting = accounting;
+        _nodeId = nodeId;
+        ArgumentNullException.ThrowIfNull(meter);
+        _rejectionsTotal = meter.CreateCounter<long>("squirix_memory_rejections_total", "{rejection}", "Memory admission rejections by operation and reason");
     }
 
     /// <inheritdoc />
@@ -32,18 +37,22 @@ internal sealed class PressureGate : IMemoryPressureGate
     {
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
         var currentBytes = _accounting.ReadEstimatedBytes();
-        if (_evaluator.Evaluate(currentBytes) is not PressureLevel.Critical && (magnitudeUnknown || boundedGrowth <= 0 ||
-                                                                                _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) is not PressureLevel.Critical))
-        {
+        var notCritical = _evaluator.Evaluate(currentBytes) != PressureLevel.Critical;
+        if (notCritical && (magnitudeUnknown || boundedGrowth <= 0 || _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) != PressureLevel.Critical))
             return;
-        }
 
         if (!magnitudeUnknown && boundedGrowth <= 0)
             return;
 
         _accounting.RecordAdmissionRejection();
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
-        RejectionCounter.Record(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
+        var tags = new TagList
+        {
+            { "node", _nodeId },
+            { "operation", unknown },
+            { "reason", ClassifyRejectionReason(magnitudeUnknown, boundedGrowth) },
+        };
+        _rejectionsTotal.Add(1, in tags);
         throw new ResourceExhaustedException();
     }
 
@@ -57,25 +66,5 @@ internal sealed class PressureGate : IMemoryPressureGate
     {
         var classifyRejectionReason = boundedGrowth > 0 ? "estimated_limit" : "critical_pressure";
         return magnitudeUnknown ? "unknown_size" : classifyRejectionReason;
-    }
-
-    /// <summary>Low-cardinality memory admission rejection counter (hot path).</summary>
-    private static class RejectionCounter
-    {
-        private static readonly Counter<long> RejectionsTotal = new Meter("Squirix").CreateCounter<long>(
-            "squirix_memory_rejections_total",
-            "{rejection}",
-            "Memory admission rejections by operation and reason");
-
-        internal static void Record(string nodeId, string operation, string reason)
-        {
-            var tags = new TagList
-            {
-                { "node", nodeId },
-                { "operation", operation },
-                { "reason", reason },
-            };
-            RejectionsTotal.Add(1, in tags);
-        }
     }
 }

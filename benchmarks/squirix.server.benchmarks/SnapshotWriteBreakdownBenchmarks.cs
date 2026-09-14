@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -34,56 +34,54 @@ public class SnapshotWriteBreakdownBenchmarks
 
     /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
     [GlobalSetup]
-    public void GlobalSetup()
+    public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = SnapshotBenchmarkSupport.ResolveOperationsPerInvoke(2);
-        _session = Session.Create(SnapshotBenchmarkSupport.ResolveEntryCount());
+        _session = await Session.CreateAsync(SnapshotBenchmarkSupport.ResolveEntryCount()).ConfigureAwait(false);
     }
 
     /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
-    public void ManifestWriteOnly()
+    public async Task ManifestWriteOnlyAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.WriteManifestOnly();
+            await session.WriteManifestOnlyAsync().ConfigureAwait(false);
     }
 
     /// <summary>Full binary snapshot publish path (tmp write + rename).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
-    public void PublishSnapshot()
+    public async Task PublishSnapshotAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.PublishSnapshot();
+            await session.PublishSnapshotAsync().ConfigureAwait(false);
     }
 
     /// <summary>Writes a complete temp snapshot file and flushes it to disk (no publish rename).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
-    public void WriteTempFileOnly()
+    public async Task WriteTempFileOnlyAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
-            session.WriteTempFileOnly();
+            await session.WriteTempFileOnlyAsync().ConfigureAwait(false);
     }
 
     /// <summary>Hosts warmed binary snapshot items for write-path breakdown benchmarks.</summary>
-    [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
-    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
     private sealed class Session : IDisposable
     {
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
         private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
-        private readonly ManifestStore _manifestStore;
+        private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
         private int _nextFileIndex = 10_000;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, ManifestStore manifestStore)
+        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
         {
             _dataDir = dataDir;
             _items = items;
@@ -101,7 +99,7 @@ public class SnapshotWriteBreakdownBenchmarks
         /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
         /// <param name="entryCount">Number of synthetic entries.</param>
         /// <returns>A session ready for breakdown benchmarks.</returns>
-        internal static Session Create(int entryCount)
+        internal static async Task<Session> CreateAsync(int entryCount)
         {
             var dataDir = new TempDirectory("snapshot-breakdown");
             var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
@@ -109,41 +107,42 @@ public class SnapshotWriteBreakdownBenchmarks
             {
                 object? value = (i % 3) switch
                 {
-                    0 => $"value-{InvariantIndexStrings.Format(i)}",
+                    0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
                     1 => i,
                     _ => i * 1.5d,
                 };
-                items.Add((CacheKey.Default($"key-{InvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+                items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
             }
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
             var writer = new SnapshotWriter(dataDir);
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
-            var manifestStore = new ManifestStore(
-                new PersistenceOptions
-                {
-                    DataDir = dataDir.Path,
-                    ManifestRetentionCount = retention,
-                    SnapshotRetentionCount = retention,
-                });
-            manifestStore.PublishRollBlocking(1, 1);
+            var options = new PersistenceOptions
+            {
+                DataDir = dataDir.Path,
+                ManifestRetentionCount = retention,
+                SnapshotRetentionCount = retention,
+            };
+            var manifestStore = new Ledger(options);
+            var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
+            await warmup.Task.ConfigureAwait(false);
             return new Session(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
-        internal void PublishSnapshot() => _ = _writer.WriteAsync(1, _items, [], CancellationToken.None).GetAwaiter().GetResult();
+        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
 
         /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
-        internal void WriteManifestOnly()
+        internal async Task WriteManifestOnlyAsync()
         {
             var snapshotIndex = _nextSnapshotIndex++;
             var snapshotPath = BuildSnapshotPath(snapshotIndex);
-            File.WriteAllBytes(snapshotPath, []);
 
-            var previous = _manifestStore.ReadCurrentOrDefaultBlocking();
+            var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State
             {
-                Format = previous.Format is 0 ? 1 : previous.Format,
+                Format = previous.Format == 0 ? 1 : previous.Format,
                 CurrentJournal = previous.CurrentJournal,
                 NextSequence = previous.NextSequence + 1,
                 LastSnapshot = new SnapshotRef
@@ -156,23 +155,22 @@ public class SnapshotWriteBreakdownBenchmarks
                 },
             };
 
-            _manifestStore.WriteAsync(updated, CancellationToken.None).GetAwaiter().GetResult();
+            await _manifestStore.WriteAsync(updated, CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <summary>Writes a complete binary snapshot temp file and flushes it to disk.</summary>
-        internal void WriteTempFileOnly()
+        internal async Task WriteTempFileOnlyAsync()
         {
             var path = BuildTempPath(_nextFileIndex++);
-            using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
+            using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
             var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
-            WriteFileBlocking(fs, totalFileSize);
+            await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
+            SnapshotDurability.FlushIfNeeded(handle);
         }
 
-        private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+        private string BuildSnapshotPath(int index) =>
+            PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
-        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}.tmp");
-
-        private void WriteFileBlocking(FileStream destination, long totalFileSize) =>
-            SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).GetAwaiter().GetResult();
+        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
     }
 }

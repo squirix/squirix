@@ -2,6 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -15,15 +19,14 @@ namespace Squirix.Server.TestKit.Hosting;
 /// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will dispose it via
 /// <see cref="DisposeAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
+[Immutable]
 public sealed class TestNodeHost : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly IDisposable? _scope;
     private int _disposed;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TestNodeHost" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
     /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
@@ -41,47 +44,41 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
 
+    /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
+    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificateMaterial>() is { Enabled: true };
+
     /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
     public bool PersistenceEnabled { get; }
 
     /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
     public IServiceProvider Services => _app.Services;
 
-    /// <summary>
-    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
-    /// </summary>
+    /// <summary>Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).</summary>
     public Uri Uri { get; }
 
     /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
     public async ValueTask AbruptShutdownAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
         _scope?.Dispose();
+
+        // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
+        // Offline compact and restart paths open those files immediately; wait until they are shareable.
+        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
-    /// </summary>
+    /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-
-        if (PersistenceEnabled && !string.IsNullOrWhiteSpace(DataDir))
-            try
-            {
-                await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // Best-effort: another teardown path may already have removed or released the segment files.
-            }
+        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
 
         _scope?.Dispose();
     }
@@ -92,9 +89,9 @@ public sealed class TestNodeHost : IAsyncDisposable
         {
             await task.ConfigureAwait(false);
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException ex)
         {
-            // Best-effort teardown during test host shutdown.
+            TestLog.Suppressed("Suppressed ObjectDisposedException during test host teardown.", ex);
         }
     }
 
@@ -102,5 +99,20 @@ public sealed class TestNodeHost : IAsyncDisposable
     {
         using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+    }
+
+    private async ValueTask WaitForPersistenceReleaseBestEffortAsync()
+    {
+        if (!PersistenceEnabled || string.IsNullOrWhiteSpace(DataDir))
+            return;
+
+        try
+        {
+            await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            TestLog.Suppressed("Journal lease release wait timed out during teardown; assuming already released.", ex);
+        }
     }
 }

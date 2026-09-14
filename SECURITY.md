@@ -32,7 +32,7 @@ Squirix is a distributed cache library and runtime. Relevant reports may include
 
 - authentication or authorization bypass;
 - unsafe default network exposure;
-- mTLS, JWT, or API-key handling issues;
+- mTLS or JWT handling issues;
 - persistence, journal, manifest, or snapshot integrity issues;
 - cache isolation or type-binding issues;
 - denial-of-service vectors;

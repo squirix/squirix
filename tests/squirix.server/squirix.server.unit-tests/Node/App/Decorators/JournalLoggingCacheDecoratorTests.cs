@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -10,18 +10,45 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Covers local-owner journal logging paths introduced by the durable pipeline refactor.</summary>
+[Immutable]
 public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
     private const string Remote = "node-b";
     private const string Self = "node-a";
+
+    /// <summary>JournalPayloadPrepareCacheDecorator.UpdateAsync delegates to the journal decorator for an existing key.</summary>
+    [Fact]
+    public async Task PayloadPrepareUpdateDelegatesToJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var prepare = new JournalPayloadPrepareCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(Self), harness.Cache);
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+    }
+
+    /// <summary>Non-local owners skip journal appends.</summary>
+    [Fact]
+    public async Task RemoteOwnerRemoveAppendsNoJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Remote);
+        var before = harness.Journal.AppendedOps;
+        _ = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
+        Assert.Equal(before, harness.Journal.AppendedOps);
+        Assert.Equal(1, harness.Inner.RemoveCalls);
+    }
 
     /// <summary>Local-owner remove appends a journal record then applies memory.</summary>
     [Fact]
@@ -35,17 +62,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         Assert.True(removed.Removed);
         Assert.Equal(before + 1, harness.Journal.AppendedOps);
-    }
-
-    /// <summary>Non-local owners skip journal appends.</summary>
-    [Fact]
-    public async Task RemoveAsyncRemoteOwnerDoesNotAppendJournal()
-    {
-        await using var harness = await CreateHarnessAsync(Remote);
-        var before = harness.Journal.AppendedOps;
-        _ = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
-        Assert.Equal(before, harness.Journal.AppendedOps);
-        Assert.Equal(1, harness.Inner.RemoveCalls);
     }
 
     /// <summary>Local-owner set appends a put journal record.</summary>
@@ -73,9 +89,9 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before + 1, harness.Journal.AppendedOps);
     }
 
-    /// <summary>TryAdd skips journal when the key already exists.</summary>
+    /// <summary>TryAdd skips the journal when the key already exists.</summary>
     [Fact]
-    public async Task TryAddEntryAsyncSkipsJournalWhenKeyExists()
+    public async Task AddSkipsJournalWhenKeyExists()
     {
         await using var harness = await CreateHarnessAsync(Self);
         Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
@@ -85,14 +101,42 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
+    /// <summary>Update on an existing local-owner key appends a put journal record and applies the memory update.</summary>
+    [Fact]
+    public async Task UpdateExistingKeyAppendsAndApplies()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.True(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+
+        var updated = await harness.Inner.GetValueAsync(CacheName, "k", DefaultCancellationToken);
+        Assert.True(updated.Found);
+        Assert.Equal("v2", updated.Value);
+    }
+
     /// <summary>Update returns false without journaling when the key is missing.</summary>
     [Fact]
-    public async Task UpdateAsyncMissingKeyDoesNotAppendJournal()
+    public async Task UpdateMissingKeyAppendsNoJournal()
     {
         await using var harness = await CreateHarnessAsync(Self);
         var before = harness.Journal.AppendedOps;
 
         Assert.False(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "missing", "v", DefaultCancellationToken));
+        Assert.Equal(before, harness.Journal.AppendedOps);
+    }
+
+    /// <summary>Update skips the journal when the key vanishes between the public existence check and the durable apply, so replay cannot resurrect it.</summary>
+    [Fact]
+    public async Task UpdateSkipsJournalWhenKeyVanishes()
+    {
+        await using var harness = await CreateHarnessWithRaceInnerAsync(Self);
+        Assert.True(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), DefaultCancellationToken));
+        var before = harness.Journal.AppendedOps;
+
+        Assert.False(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", DefaultCancellationToken));
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
@@ -105,53 +149,56 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
+            FlushInterval = 5,
             ManifestRetentionCount = 1,
         };
-        var manifestStore = new ManifestStore(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        var manifestStore = new Ledger(options);
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var physical = new PhysicalCache<string>();
         var inner = new RecordingLogicalCache(physical);
         var executor = new DurableMutationExecutor(journal);
-        var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
-        return new Harness(dir, manifestStore, journal, physical, inner, cache);
+        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
+        return new Harness(dir, manifestStore, journal, inner, cache);
     }
 
-    private sealed class FixedOwnerLocator : INodeLocator
+    private static async Task<Harness> CreateHarnessWithRaceInnerAsync(string owner)
     {
-        private readonly string _owner;
-
-        internal FixedOwnerLocator(string owner)
+        var dir = new TempDirectory("squirix-journal-logging-decorator");
+        var options = new PersistenceOptions
         {
-            _owner = owner;
-        }
-
-        public string GetOwner(string cacheName, string key) => _owner;
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushInterval = 5,
+            ManifestRetentionCount = 1,
+        };
+        var manifestStore = new Ledger(options);
+        var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var physical = new PhysicalCache<string>();
+        var inner = new RaceSimulatingInnerCache(physical);
+        var executor = new DurableMutationExecutor(journal);
+        var cache = new JournalLoggingCacheDecorator<string>(Self, RocksDoubles.CreateOwnerLocator(owner), inner, journal, executor);
+        return new Harness(dir, manifestStore, journal, inner, cache);
     }
 
+    [Immutable]
     private sealed class Harness : IAsyncDisposable
     {
         private readonly TempDirectory _dir;
-        private readonly ManifestStore _manifestStore;
-        private readonly PhysicalCache<string> _physical;
+        private readonly Ledger _manifestStore;
 
-        internal Harness(
-            TempDirectory dir,
-            ManifestStore manifestStore,
-            IJournalCoordinator journal,
-            PhysicalCache<string> physical,
-            RecordingLogicalCache inner,
-            JournalLoggingCacheDecorator<string> cache)
+        internal Harness(TempDirectory dir, Ledger manifestStore, IJournalCoordinator journal, RecordingLogicalCache inner, JournalLoggingCacheDecorator<string> cache)
         {
             _dir = dir;
             _manifestStore = manifestStore;
             Journal = journal;
-            _physical = physical;
             Inner = inner;
             Cache = cache;
         }
@@ -165,13 +212,23 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         public async ValueTask DisposeAsync()
         {
             await Journal.DisposeAsync();
-            await _physical.DisposeAsync();
             _manifestStore.Dispose();
             _dir.Dispose();
         }
     }
 
-    private sealed class RecordingLogicalCache : ILogicalNamespacedCache<string>
+    private sealed class RaceSimulatingInnerCache : RecordingLogicalCache
+    {
+        internal RaceSimulatingInnerCache(PhysicalCache<string> physical)
+            : base(physical)
+        {
+        }
+
+        public override ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
+    }
+
+    private class RecordingLogicalCache : ILogicalNamespacedCache<string>
     {
         private readonly ClientCache<string> _inner;
 
@@ -187,7 +244,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        public virtual ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
 
         public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)

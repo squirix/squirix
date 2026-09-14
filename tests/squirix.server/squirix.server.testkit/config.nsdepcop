@@ -5,8 +5,8 @@
   Intended layer stack (outer → inner):
 
     TestKit.Hosting / TestKit.Benchmarks (composition & perf harness)
-      → TestKit.Auth / TestKit.Mtls / TestKit.Journaling (focused helpers)
-        → TestKit.IO / TestKit.Networking / TestKit.Diagnostics / TestKit.Testing / TestKit.XUnit / TestKit.Cluster
+      → TestKit.Mtls (focused helper)
+        → TestKit.IO / TestKit.Networking / TestKit.Replication
 
   TestKit is shared by unit, integration, smoke, and benchmark projects. Keep low-level kits free of
   server orchestration types; reach persistence and transport only through approved helper namespaces.
@@ -25,14 +25,6 @@
   <!-- Client SDK namespaces are out of scope for in-process server test hosts. -->
   <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Core.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Errors.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Serialization.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Atomic.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Batch.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Watch.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Scan.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Mutations.*" />
-  <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Runtime.*" />
 
   <!-- ═══ Foundation kits (helpers only) ═══ -->
 
@@ -48,48 +40,12 @@
   <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.LocalCache.*" />
 
-  <Disallowed From="Squirix.Server.TestKit.Diagnostics.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.Diagnostics.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Diagnostics.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Diagnostics.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.Diagnostics.*" To="Squirix.Server.LocalCache.*" />
-
-  <Disallowed From="Squirix.Server.TestKit.Testing.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.Testing.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Testing.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Testing.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.Testing.*" To="Squirix.Server.LocalCache.*" />
-
-  <Disallowed From="Squirix.Server.TestKit.XUnit.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.XUnit.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.XUnit.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.XUnit.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.XUnit.*" To="Squirix.Server.LocalCache.*" />
-
-  <Disallowed From="Squirix.Server.TestKit.Cluster.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.Cluster.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Cluster.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Cluster.*" To="Squirix.Server.LocalCache.*" />
-
   <!-- ═══ Focused kits ═══ -->
-
-  <!-- Journaling helpers may touch persistence codecs but not transport or node orchestration. -->
-  <Disallowed From="Squirix.Server.TestKit.Journaling.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Journaling.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Journaling.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.Journaling.*" To="Squirix.Server.LocalCache.*" />
 
   <!-- mTLS fixtures wire cluster transport only. -->
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.Node.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.LocalCache.*" />
-
-  <!-- Auth helpers compose test hosts; must not open persistence or adapter surfaces directly. -->
-  <Disallowed From="Squirix.Server.TestKit.Auth.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.Auth.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Auth.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.Auth.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Auth.*" To="Squirix.Server.LocalCache.*" />
 
 </NsDepCopConfig>

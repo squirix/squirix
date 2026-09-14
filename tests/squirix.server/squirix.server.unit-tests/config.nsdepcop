@@ -17,13 +17,11 @@
 
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Core.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Errors.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Serialization.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Atomic.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Batch.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Watch.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Scan.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Mutations.*" />
-  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Runtime.*" />
+
+  <!-- Test-isolation (unit-test-isolation cycle 2): storage unit tests must not
+       reach transport adapters or DI/host composition. Node.Services/App collaborators
+       stay allowed: storage recovery tests are sociable by design. -->
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Hosting.*" />
 
 </NsDepCopConfig>

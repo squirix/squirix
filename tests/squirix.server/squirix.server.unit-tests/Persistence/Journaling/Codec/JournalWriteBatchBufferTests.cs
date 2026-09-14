@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -6,6 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
 /// <summary>Tests for the lazily allocated, configurable journal write-coalescing buffer.</summary>
+[Immutable]
 public sealed class JournalWriteBatchBufferTests
 {
     private static readonly byte[] TwoTabFrame = [0x09, 0x09];
@@ -57,7 +59,7 @@ public sealed class JournalWriteBatchBufferTests
 
     /// <summary>A frame larger than the configured capacity is rejected so callers fall back to a direct write.</summary>
     [Fact]
-    public void StageAppendRejectsFrameLargerThanCapacity()
+    public void StageAppendRejectsOversizedFrame()
     {
         var buffer = new JournalWriteBatchBuffer(8);
 
@@ -65,5 +67,5 @@ public sealed class JournalWriteBatchBufferTests
         Assert.True(buffer.IsEmpty);
     }
 
-    private static JournalWorkItem MakeItem(byte[] frame) => new(JournalWorkKind.Append, frameBytes: frame, frameLength: frame.Length);
+    private static JournalWorkItem MakeItem(byte[] frame) => JournalWorkItem.Append(frame, frame.Length);
 }

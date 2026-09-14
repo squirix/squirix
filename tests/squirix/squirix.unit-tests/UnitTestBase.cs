@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Squirix.TestKit;
 using Xunit;
 
@@ -10,6 +11,7 @@ namespace Squirix.UnitTests;
 /// Provides a common base for unit tests, offering a default
 /// <see cref="CancellationToken" /> with a 30s timeout and safe disposal.
 /// </summary>
+[Immutable]
 public abstract class UnitTestBase : IDisposable
 {
     static UnitTestBase()

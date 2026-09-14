@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -10,11 +11,12 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies extension cache pipeline adapter behavior.</summary>
+[Immutable]
 public sealed class ExtensionCachePipelineAdapterTests
 {
     /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>
     [Fact]
-    public async Task EntryOperationsUseEntryAwareDecoratedPipeline()
+    public async Task EntryOpsUseEntryAwarePipelineAsync()
     {
         var core = new RecordingLogicalCache();
         var decorated = new RecordingEntryPipeline();
@@ -33,7 +35,7 @@ public sealed class ExtensionCachePipelineAdapterTests
 
     /// <summary>Ensures value reads route through the decorated pipeline.</summary>
     [Fact]
-    public async Task GetValueUsesDecoratedPipeline()
+    public async Task GetValueUsesDecoratedPipelineAsync()
     {
         var core = new RecordingLogicalCache();
         var decorated = new RecordingEntryPipeline();
@@ -64,7 +66,7 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             GetValueCalls++;
-            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(_entry is not null, _entry?.Value));
+            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(_entry != null, _entry?.Value));
         }
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>

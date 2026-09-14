@@ -15,7 +15,7 @@ internal interface ICacheEntrySizeEstimator<T>
 
     /// <summary>Returns whether the estimator cannot bound payload growth conservatively for admission checks.</summary>
     /// <param name="entry">The observed cache entry snapshot.</param>
-    /// <param name="payloadIsCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>
+    /// <param name="isCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>
     /// <returns><see langword="true" /> when admission should treat growth magnitude as unknown.</returns>
-    bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter);
+    bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter);
 }

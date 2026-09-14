@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.ProtocolModel (design-time Raft safety explorer) dependency policy.
+
+  Isolated from shipped product packages; must not reference Squirix or Squirix.Server.
+  Assembly rules only: namespace pattern To="Squirix.*" would also match Squirix.ProtocolModel itself.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.ProtocolModel" To="Squirix" />
+  <DisallowedAssembly From="Squirix.ProtocolModel" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix.ProtocolModel" To="Squirix.Server.Host" />
+
+</NsDepCopConfig>

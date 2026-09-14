@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -19,11 +20,12 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies outbound cluster mTLS handlers complete TLS handshakes with Kestrel internal listeners.</summary>
+[Immutable]
 public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 {
     /// <summary>Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.</summary>
     [Fact]
-    public async Task OutboundMtlsHandlerHandshakeInternalListener()
+    public async Task OutboundMtlsHandshakesInternalListener()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
@@ -35,7 +37,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         await host.AuthenticateClientAsync(sslStream, DefaultCancellationToken);
 
         Assert.True(sslStream.IsAuthenticated);
-        Assert.True(sslStream.RemoteCertificate is not null);
+        Assert.NotNull(sslStream.RemoteCertificate);
     }
 
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
@@ -72,7 +74,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
         public async ValueTask DisposeAsync()
         {
-            if (_application is not null)
+            if (_application != null)
             {
                 await _application.DisposeAsync();
                 _application = null;
@@ -142,6 +144,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
             TestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
 
+        [Immutable]
         private sealed class KestrelListenConfigurer
         {
             private readonly MtlsInternalListenerHost _host;

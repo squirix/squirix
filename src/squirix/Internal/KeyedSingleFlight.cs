@@ -2,11 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 
 namespace Squirix.Internal;
 
 /// <summary>Serializes asynchronous work per key so a factory runs at most once for concurrent callers.</summary>
 /// <typeparam name="TResult">The result type produced by the single-flight factory.</typeparam>
+[Immutable]
 internal sealed class KeyedSingleFlight<TResult>
 {
     private readonly ConcurrentDictionary<string, Task<TResult>> _concurrent = new(StringComparer.Ordinal);
@@ -33,6 +35,7 @@ internal sealed class KeyedSingleFlight<TResult>
         }
     }
 
+    [Immutable]
     private readonly record struct RunAsyncState<TState>(
         KeyedSingleFlight<TResult> Flight,
         TState State,

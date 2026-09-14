@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.E2ETests;
 
 /// <summary>Immutable description of a stress workload: writer count, per-writer operation count, and a hard time budget.</summary>
+[Immutable]
 internal sealed record LoadProfile
 {
     internal LoadProfile(int writers, TimeSpan budget)

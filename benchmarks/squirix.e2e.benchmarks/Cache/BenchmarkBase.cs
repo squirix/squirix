@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
+using Squirix.Attributes;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.E2EBenchmarks.Support.Harness;
@@ -15,9 +16,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>Shared setup and cleanup for parameterized E2E benchmark classes.</summary>
 public abstract class BenchmarkBase
 {
-    /// <summary>
-    /// Number of cache operations performed per benchmark invocation.
-    /// </summary>
+    /// <summary>Number of cache operations performed per benchmark invocation.</summary>
     private protected const int BatchSize = 32;
 
     private int _addOffset;
@@ -50,7 +49,7 @@ public abstract class BenchmarkBase
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
     {
-        if (Cluster is not null)
+        if (Cluster != null)
             await Cluster.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -85,13 +84,14 @@ public abstract class BenchmarkBase
 
     /// <summary>Gets the next globally unique add key for benchmark paths that require missing keys across all BenchmarkDotNet iterations.</summary>
     /// <returns>A key that has not been returned by this benchmark instance before.</returns>
-    protected string NextUniqueAddKey() => InvariantIndexStrings.FormatPrefixedPadded("unique:add", Interlocked.Increment(ref _uniqueAddOffset), "D10", 10);
+    protected string NextUniqueAddKey() => NodeInvariantIndexStrings.FormatPrefixedPadded("unique:add", Interlocked.Increment(ref _uniqueAddOffset), "D10", 10);
 
     /// <summary>Allows derived benchmark classes to seed state that is specific to their pure-operation benchmark methods.</summary>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>A task that completes when additional setup is finished.</returns>
     protected virtual Task SeedAdditionalStateAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    [Immutable]
     private sealed class UninitializedBenchmarkValueAdapter : IE2EBenchmarkValueAdapter
     {
         internal static readonly UninitializedBenchmarkValueAdapter Instance = new();

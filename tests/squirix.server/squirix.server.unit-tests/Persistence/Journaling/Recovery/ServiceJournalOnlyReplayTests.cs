@@ -1,30 +1,36 @@
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
 /// <summary>Journal-only recovery must replay from the first on-disk segment, not manifest CurrentJournal.</summary>
-public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
+[Immutable]
+public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>
     [Fact]
-    public async Task JournalRecoveryReplaysClosedManifestCurrentJournal()
+    public async Task RecoveryReplaysClosedCurrentJournal()
     {
-        await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
-        var seg1A = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "seg1-a", "a");
-        var seg1B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "seg1-b", "b");
-        var seg2C = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "seg2-c", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [seg1A, seg1B]);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 2, seg2C);
-        await scenario.ManifestStore.WriteAsync(
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
+        var seg1A = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "seg1-a", "a");
+        var seg1B = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "seg1-b", "b");
+        var seg2C = BinaryJournalTestSegmentWriter.BuildPutRecord(3UL, "seg2-c", "c");
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [seg1A, seg1B]);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 2, seg2C);
+        await scenario.Ledger.WriteAsync(
             new State
             {
                 Format = 1,
@@ -34,17 +40,17 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
             },
             DefaultCancellationToken);
 
-        var gate = new JournalStartupGate(false);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var gate = new AsyncManualResetEvent(true);
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
             NullLogger<RecoveryService<object?>>.Instance,
             new RecoveryDependencies<object?>(
                 persistence,
-                scenario.ManifestStore,
+                scenario.Ledger,
                 scenario.Cache,
                 gate,
-                new RpcMutationIdempotencyStore(),
+                new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
                 StoreFactory.CreateReader(persistence)));
         await recovery.StartAsync(DefaultCancellationToken);
 
@@ -52,4 +58,7 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-b"), DefaultCancellationToken)).Found);
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg2-c"), DefaultCancellationToken)).Found);
     }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 }

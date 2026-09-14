@@ -9,11 +9,6 @@ internal static class DirectoryPathValidator
     private static readonly StringComparison SubPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    /// <summary>Returns whether <paramref name="value" /> is a directory separator.</summary>
-    /// <param name="value">Character to test.</param>
-    /// <returns><see langword="true" /> when the character is a directory separator.</returns>
-    internal static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
-
     /// <summary>Validates <paramref name="path" />, optionally constrains it under <paramref name="baseDir" />, and returns the absolute path.</summary>
     /// <param name="path">Target directory path.</param>
     /// <param name="baseDir">Optional base directory; when set, the target must remain under it.</param>
@@ -24,15 +19,14 @@ internal static class DirectoryPathValidator
     /// <exception cref="IOException">Thrown when a file exists at the target or a forbidden symlink is detected.</exception>
     internal static string ResolveValidatedDirectoryPath(string path, string? baseDir, bool forbidSymlinks)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         PathValidation.ValidateNoInvalidChars(path, nameof(path));
 
         var baseFull = PrepareBaseDirectory(baseDir, forbidSymlinks);
         var full = ResolveFullPath(path, baseFull);
 
-        if (baseFull is not null && !IsSubPathOf(full, baseFull))
+        if (baseFull != null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException("Target path escapes base directory.");
 
         ValidateSegments(full);
@@ -40,67 +34,22 @@ internal static class DirectoryPathValidator
         if (forbidSymlinks)
             DirectorySymlinkGuard.EnsureNoSymlinksInChain(full, baseFull);
 
-        if (File.Exists(full))
-            throw new IOException("A file already exists at the target path.");
-
-        return full;
-    }
-
-    /// <summary>Removes trailing directory separators without allocating a separator <see cref="char" /> array.</summary>
-    /// <param name="path">Path that may end with separators.</param>
-    /// <returns>The original string when no trailing separators exist; otherwise a trimmed copy.</returns>
-    internal static string TrimTrailingSeparators(string path)
-    {
-        var length = path.Length;
-        while (length > 0 && IsDirectorySeparator(path[length - 1]))
-            length--;
-
-        return length == path.Length ? path : path[..length];
-    }
-
-    /// <summary>Reads the next non-empty path segment from <paramref name="path" />.</summary>
-    /// <param name="path">Remaining path span; advanced past the consumed segment.</param>
-    /// <param name="segment">Consumed segment when this method returns <see langword="true" />.</param>
-    /// <returns><see langword="true" /> when a segment was read.</returns>
-    internal static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
-    {
-        while (path.Length > 0 && IsDirectorySeparator(path[0]))
-            path = path[1..];
-
-        if (path.IsEmpty)
-        {
-            segment = default;
-            return false;
-        }
-
-        var end = path.IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (end < 0)
-        {
-            segment = path;
-            path = default;
-            return !segment.IsEmpty;
-        }
-
-        segment = path[..end];
-        path = path[(end + 1)..];
-        return !segment.IsEmpty;
+        return File.Exists(full) ? throw new IOException("A file already exists at the target path.") : full;
     }
 
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
-        if (candidateFull.Equals(baseFull, SubPathComparison))
-            return true;
+        // The same directory is trivially "under" itself.
+        var isSameDirectory = candidateFull.Equals(baseFull, SubPathComparison);
 
-        if (baseFull.EndsWith(Path.DirectorySeparatorChar))
-            return candidateFull.StartsWith(baseFull, SubPathComparison);
+        // A trailing separator rules out partial-name matches ("/base" vs "/base2").
+        var isPrefixedDirectory = baseFull.EndsWith(Path.DirectorySeparatorChar) && candidateFull.StartsWith(baseFull, SubPathComparison);
 
-        if (candidateFull.Length <= baseFull.Length)
-            return false;
-
-        if (!candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison))
-            return false;
-
-        return IsDirectorySeparator(candidateFull[baseFull.Length]);
+        // Otherwise the candidate must extend the base and cut on a separator boundary.
+        var extendsBeyondBase = candidateFull.Length > baseFull.Length;
+        var sharesBasePrefix = extendsBeyondBase && candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison);
+        var isNestedPath = sharesBasePrefix && DirectoryPathHelpers.IsDirectorySeparator(candidateFull[baseFull.Length]);
+        return isSameDirectory || isPrefixedDirectory || isNestedPath;
     }
 
     private static string? PrepareBaseDirectory(string? baseDir, bool forbidSymlinks)
@@ -139,7 +88,7 @@ internal static class DirectoryPathValidator
     {
         var root = Path.GetPathRoot(fullPath) ?? string.Empty;
         var rest = fullPath.AsSpan(root.Length);
-        while (TryReadNextSegment(ref rest, out var segment))
+        while (PathEx.TryReadNextSegment(ref rest, out var segment))
             PathValidation.ValidateSegment(segment, nameof(fullPath), false);
     }
 }

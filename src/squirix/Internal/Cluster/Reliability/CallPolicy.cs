@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 
 namespace Squirix.Internal.Cluster.Reliability;
@@ -18,7 +19,7 @@ internal sealed class CallPolicy : ICallPolicy
     private readonly SemaphoreSlim _semaphore;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
-    private bool _disposed;
+    private int _disposed;
     private volatile bool _draining;
     private bool _semaphoreDisposed;
 
@@ -40,7 +41,7 @@ internal sealed class CallPolicy : ICallPolicy
             timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
             baseBackoff ?? TimeSpan.FromMilliseconds(50),
             maxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new CallPolicyExecutor(this, settings, timeProvider ?? TimeProvider.System, _semaphore);
+        _executor = new CallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining);
     }
 
     public void BeginDrain() => _draining = true;
@@ -49,11 +50,11 @@ internal sealed class CallPolicy : ICallPolicy
     {
         lock (_disposeGate)
         {
-            if (_disposeTask is not null)
+            if (_disposeTask != null)
                 return new ValueTask(_disposeTask);
 
             _draining = true;
-            _disposed = true;
+            _ = Interlocked.Exchange(ref _disposed, 1);
             if (_activeOperations.IsIdle())
             {
                 DisposeSemaphoreUnderLockIfIdle();
@@ -71,17 +72,18 @@ internal sealed class CallPolicy : ICallPolicy
 
     public async ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
-        ThrowIfDraining();
-
         _activeOperations.Enter();
 
         try
         {
+            // Disposal outranks draining so callers observe the same failure mode as before the
+            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested(); // Ensure we never continue with a canceled token
 
             var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            if (budgetRemaining is null)
+            if (budgetRemaining == null)
                 return await _executor.RunQueuedExecutionAsync(action, state, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.CanBeCanceled)
@@ -114,13 +116,15 @@ internal sealed class CallPolicy : ICallPolicy
 
     private void DisposeSemaphoreUnderLockIfIdle()
     {
-        if (!_disposed || _semaphoreDisposed || !_activeOperations.IsIdle())
+        if (Volatile.Read(ref _disposed) == 0 || _semaphoreDisposed || !_activeOperations.IsIdle())
             return;
 
         _semaphore.Dispose();
         _semaphoreDisposed = true;
         _ = _disposeTcs?.TrySetResult(true);
     }
+
+    private bool IsDraining() => _draining;
 
     private void ReleaseActiveOperation()
     {
@@ -129,14 +133,6 @@ internal sealed class CallPolicy : ICallPolicy
 
         lock (_disposeGate)
             DisposeSemaphoreUnderLockIfIdle();
-    }
-
-    private void ThrowIfDisposed()
-    {
-        if (!_disposed)
-            return;
-
-        throw new ObjectDisposedException(nameof(CallPolicy));
     }
 
     private void ThrowIfDraining()
@@ -154,27 +150,27 @@ internal sealed class CallPolicy : ICallPolicy
 
         internal void Enter() => _ = Interlocked.Increment(ref _count);
 
-        internal bool IsIdle() => Volatile.Read(ref _count) is 0;
+        internal bool IsIdle() => Volatile.Read(ref _count) == 0;
 
         /// <summary>Decrements the counter.</summary>
         /// <returns><see langword="true" /> when the count reaches zero; otherwise <see langword="false" />.</returns>
-        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
+        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) == 0;
     }
 
+    [Immutable]
     private sealed class CallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
+        private readonly Func<bool> _isDraining;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
-        private readonly CallPolicy _owner;
         private readonly string _peer;
         private readonly SemaphoreSlim _semaphore;
         private readonly TimeProvider _timeProvider;
         private readonly TimeSpan _timeoutPerAttempt;
 
-        internal CallPolicyExecutor(CallPolicy owner, CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
+        internal CallPolicyExecutor(CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore, Func<bool> isDraining)
         {
-            _owner = owner;
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
             _timeoutPerAttempt = settings.TimeoutPerAttempt;
@@ -182,6 +178,7 @@ internal sealed class CallPolicy : ICallPolicy
             _maxBackoff = settings.MaxBackoff;
             _timeProvider = timeProvider;
             _semaphore = semaphore;
+            _isDraining = isDraining;
         }
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
@@ -205,7 +202,7 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
-        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining is not null && perAttempt >= budgetRemaining.Value;
+        private static bool ShouldUseEffectiveTokenDirectly(TimeSpan? budgetRemaining, TimeSpan perAttempt) => budgetRemaining != null && perAttempt >= budgetRemaining.Value;
 
         private Task BackoffAsync(TimeSpan span, CancellationToken cancellationToken)
         {
@@ -272,18 +269,17 @@ internal sealed class CallPolicy : ICallPolicy
 
         private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
         {
-            if (remaining is null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+            return remaining switch
+            {
+                null => _timeoutPerAttempt,
+                { } value when value <= TimeSpan.Zero => TimeSpan.Zero,
+                { } value => value < _timeoutPerAttempt ? value : _timeoutPerAttempt,
+            };
         }
 
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
-            if (attempt >= _maxAttempts || !OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (attempt >= _maxAttempts || !OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
                 return AttemptOutcome<T>.Stop(ex);
 
             CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(ex));
@@ -298,7 +294,7 @@ internal sealed class CallPolicy : ICallPolicy
             CancellationToken attemptToken)
         {
             var cancelKind = OperationCancellationClassifier.ClassifyPeerCallAttemptCancellation(cancellationToken, effectiveToken, attemptToken);
-            if (cancelKind is not CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
+            if (cancelKind != CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
             RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
@@ -308,13 +304,19 @@ internal sealed class CallPolicy : ICallPolicy
 
         private async ValueTask<AttemptOutcome<T>> MapRpcFailureAsync<T>(RpcException rx, int attempt, CancellationToken effectiveToken)
         {
-            var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken);
+            // A mutation may have committed durably even though its outcome is unknown (server write-ahead
+            // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
+            // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
+            if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
+                return AttemptOutcome<T>.Stop(rx);
+
+            var canRetry = attempt < _maxAttempts && OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
 
-            if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded)
+            if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
-                var reason = rx.StatusCode is StatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
+                var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
                 RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
                 CallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
@@ -336,10 +338,10 @@ internal sealed class CallPolicy : ICallPolicy
             var attempt = 0;
             Exception? last = null;
 
-            while (OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
+            while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
             {
                 attempt++;
-                var outcome = await TryOneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+                var outcome = await OneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
                 if (outcome.Succeeded)
                     return outcome.Value!;
 
@@ -355,13 +357,15 @@ internal sealed class CallPolicy : ICallPolicy
 
         private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
         {
-            if (!hasDeadlineBudget || OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+            if (!hasDeadlineBudget || OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken))
+            {
                 throw last switch
                 {
                     TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
                     RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
                     _ => last!,
                 };
+            }
 
             RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
@@ -369,41 +373,42 @@ internal sealed class CallPolicy : ICallPolicy
 
         private void ThrowIfDraining()
         {
-            if (!_owner._draining)
+            if (!_isDraining())
                 return;
 
             CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
             throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
         }
 
-        private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<TState, T>(
+        private async ValueTask<AttemptOutcome<T>> OneAttemptAsync<TState, T>(
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
             int attempt,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            var perAttempt = GetAttemptTimeoutForRemaining(budgetRemaining);
-            if (ShouldUseEffectiveTokenDirectly(budgetRemaining, perAttempt))
+            var budget = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var remaining = GetAttemptTimeoutForRemaining(budget);
+            if (ShouldUseEffectiveTokenDirectly(budget, remaining))
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
             if (effectiveToken.CanBeCanceled)
             {
-                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
-                    attemptCts.CancelAfter(perAttempt);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
+                if (budget == null || remaining < budget.Value)
+                    cts.CancelAfter(remaining);
 
-                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
+                return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, cts.Token).ConfigureAwait(false);
             }
 
-            using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
-                standaloneAttemptCts.CancelAfter(perAttempt);
+            using var source = new CancellationTokenSource();
+            if (budget == null || remaining < budget.Value)
+                source.CancelAfter(remaining);
 
-            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
+            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, source.Token).ConfigureAwait(false);
         }
 
+        [Immutable]
         private sealed record AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }
@@ -425,6 +430,10 @@ internal sealed class CallPolicy : ICallPolicy
         {
             internal const string Canceled = "canceled";
             internal const string DeadlineExceeded = "deadline_exceeded";
+
+            private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+
+            internal static bool IsCommitOutcomeUnknownStatus(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownDetail, StringComparison.Ordinal);
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {
@@ -468,7 +477,7 @@ internal sealed class CallPolicy : ICallPolicy
                 operationEffectiveToken.IsCancellationRequested,
                 perAttemptCompositeToken.IsCancellationRequested);
 
-            internal static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
+            internal static bool EffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
 
             private static CancellationScenarioKind ClassifyFromLinkedTokenState(bool callerCanceled, bool operationEffectiveCanceled, bool perAttemptScopeCanceled) =>
                 (callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled) switch

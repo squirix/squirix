@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
 
@@ -18,25 +20,38 @@ public static class Configurator
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 
+    static Configurator()
+    {
+        // Layering seam (ND1400): ServerSerializerMetadata lives in low-level Squirix.Server.Core
+        // and must not reference hosting-layer contexts, so the hosting layer seeds the metadata
+        // chain here. Runs before any Configurator member; unit tests seed via module initializer.
+        ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
+    }
+
+    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
+
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="uri">Optional URL override.</param>
+    /// <param name="uri">Optional listen URI override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
+    /// <param name="enableReplication">When <see langword="true" />, opts into RF&gt;1 replication.</param>
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false, bool enableReplication = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (uri is not null)
+        if (uri != null)
             options.Uri = uri;
         if (persist)
             options.UsePersistence();
-        if (dataDirectory is not null)
+        if (enableReplication)
+            options.ReplicationEnabled = true;
+        if (dataDirectory != null)
             options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
         ApplyRuntimeDefaults(options);
         AlignLocalPeerWithNodeUrl(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
     }
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
@@ -45,7 +60,7 @@ public static class Configurator
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (options.DataDirectory is not null)
+        if (options.DataDirectory != null)
             options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
     }
 
@@ -61,15 +76,15 @@ public static class Configurator
         target.NodeId = source.NodeId;
         target.Uri = source.Uri;
         target.VirtualNodes = source.VirtualNodes;
+        target.ReplicaCount = source.ReplicaCount;
+        target.ConfigurationGeneration = source.ConfigurationGeneration;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
+        target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
-        {
-            var peer = source.Peers[i];
-            peers[i] = new SquirixServerPeerOptions { NodeId = peer.NodeId, Uri = peer.Uri };
-        }
+            peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };
 
         target.Peers = peers;
     }
@@ -90,7 +105,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path is not null ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -99,14 +114,12 @@ public static class Configurator
 
         configure?.Invoke(options);
         ApplyRuntimeDefaults(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
         return options;
     }
 
-    /// <summary>
-    /// Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.
-    /// </summary>
-    /// <param name="uri">The node URL to probe.</param>
+    /// <summary>Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.</summary>
+    /// <param name="uri">The node URI to probe.</param>
     /// <returns><see langword="true" /> when the port appears available on loopback.</returns>
     public static bool IsListenPortAvailable(Uri uri)
     {
@@ -131,31 +144,23 @@ public static class Configurator
             {
                 listener.Stop();
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
-            }
-            catch (SocketException)
-            {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+                var port = uri.Port.ToString(CultureInfo.InvariantCulture);
+                LogManager.ListenerReleaseFailed(Logger, exception, port);
             }
         }
     }
 
-    /// <summary>
-    /// Loads <c>Squirix:Cluster</c> from a settings file and validates the result.
-    /// </summary>
+    /// <summary>Loads <c language="csharp">Squirix:Cluster</c> from a settings file and validates the result.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the file is missing, invalid, or fails validation.</exception>
-    public static async Task<SquirixServerOptions> LoadFromFileAsync(string settingsFilePath, CancellationToken cancellationToken = default)
+    public static async Task<SquirixServerOptions> LoadAsync(string settingsFilePath, CancellationToken cancellationToken = default)
     {
-        var (success, options, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
-        if (!success)
-            throw new InvalidOperationException(error);
-
-        return options ?? throw new InvalidOperationException("Settings file did not produce cluster options.");
+        var (success, options, error) = await LoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
     /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
@@ -164,10 +169,10 @@ public static class Configurator
     public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
-        if (path is not null)
+        if (path != null)
         {
-            var (success, options, _) = await TryLoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
-            if (success && options is not null)
+            var (success, options, _) = await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
+            if (success && options != null)
                 return options;
         }
 
@@ -182,38 +187,34 @@ public static class Configurator
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
-    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath is null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
         : ResolveValidatedFilePath(explicitPath);
 
     /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
     /// <param name="dataDirectory">Absolute or relative data directory path.</param>
     /// <returns>Normalized absolute directory path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     public static string ResolveValidatedDataDirectory(string dataDirectory) => FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
     /// <param name="path">Absolute or relative file path.</param>
     /// <returns>Normalized absolute file path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
     public static string ResolveValidatedFilePath(string path) => FilePathValidator.ResolveValidatedFilePath(path);
 
-    /// <summary>
-    /// Attempts to load <c>Squirix:Cluster</c> from a settings file.
-    /// </summary>
-    /// <param name="settingsFilePath">Path to the settings JSON file.</param>
+    /// <summary>Attempts to load <c language="csharp">Squirix:Cluster</c> from a settings file.</summary>
+    /// <param name="path">Path to the settings JSON file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Success</c> is <see langword="true" /> when loading and validation succeed,
-    /// <c>Options</c> holds the validated options, and <c>Error</c> holds failure text when applicable.
+    /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when loading and validation succeed,
+    /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(
-        string settingsFilePath,
-        CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(string path, CancellationToken cancellationToken = default)
     {
         string validatedPath;
         try
         {
-            validatedPath = FilePathValidator.ResolveValidatedFilePath(settingsFilePath);
+            validatedPath = FilePathValidator.ResolveValidatedFilePath(path);
         }
         catch (ArgumentException ex)
         {
@@ -233,15 +234,13 @@ public static class Configurator
             if (!root.TryGetProperty("Cluster", out var cluster))
                 return (false, null, "Settings file must define Squirix.Cluster.");
 
-            var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
-                          throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
-            if (options.DataDirectory is not null)
+            var options = ThrowHelper.Required(
+                JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
+                "Cannot deserialize Squirix.Cluster.");
+            if (options.DataDirectory != null)
                 options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
 
-            if (SquirixServerOptionsValidator.TryValidate(options, out var failures))
-                return (true, options, null);
-
-            return (false, null, string.Join(Environment.NewLine, failures));
+            return options.TryValidate(out var failures) ? (true, options, null) : (false, null, string.Join(Environment.NewLine, failures));
         }
         catch (ArgumentException ex)
         {
@@ -257,18 +256,16 @@ public static class Configurator
         }
     }
 
-    /// <summary>
-    /// Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.
-    /// </summary>
+    /// <summary>Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
-    /// <param name="strict">When <see langword="true" />, also validates <c>MemoryPressure</c>, <c>Snapshot</c>, and <c>PrometheusMetrics</c> sections.</param>
+    /// <param name="strict">When <see langword="true" />, also validates <c language="csharp">MemoryPressure</c>, <c language="csharp">Snapshot</c>, and <c language="csharp">PrometheusMetrics</c> sections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// A tuple where <c>Success</c> is <see langword="true" /> when validation succeeds and <c>Error</c> holds failure text when applicable.
+    /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when validation succeeds and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, string? Error)> ValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
     {
-        var (success, _, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        var (success, _, error) = await LoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
         if (!success)
             return (false, error);
 
@@ -278,7 +275,7 @@ public static class Configurator
         var failures = new List<string>();
         await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
 
-        return failures.Count is 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
+        return failures.Count == 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
     }
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
@@ -286,17 +283,18 @@ public static class Configurator
     /// <returns>Cluster configuration for the node host pipeline.</returns>
     internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
 
-        var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
-        if (options.Peers.Count is 0)
+        var peers = new ServerPeer[options.Peers.Count == 0 ? 1 : options.Peers.Count];
+        if (options.Peers.Count == 0)
+        {
             peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
+        }
         else
+        {
             for (var i = 0; i < options.Peers.Count; i++)
-            {
-                var peer = options.Peers[i];
-                peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
-            }
+                peers[i] = new ServerPeer { NodeId = options.Peers[i].NodeId, Uri = options.Peers[i].Uri };
+        }
 
         return new TopologyOptions(peers)
         {
@@ -304,10 +302,13 @@ public static class Configurator
             NodeId = options.NodeId,
             Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
+            ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.ReplicationEnabled,
+            ConfigurationGeneration = options.ConfigurationGeneration,
         };
     }
 
-    /// <summary>Aligns the local peer URL with the node URL after command-line overrides.</summary>
+    /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>
     /// <param name="options">Server options to update.</param>
     private static void AlignLocalPeerWithNodeUrl(SquirixServerOptions options)
     {
@@ -332,10 +333,7 @@ public static class Configurator
         try
         {
             listener.Start();
-            if (listener.LocalEndpoint is not IPEndPoint endpoint)
-                throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
-
-            return endpoint.Port;
+            return listener.LocalEndpoint is not IPEndPoint endpoint ? throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.") : endpoint.Port;
         }
         finally
         {
@@ -343,13 +341,9 @@ public static class Configurator
             {
                 listener.Stop();
             }
-            catch (ObjectDisposedException)
+            catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
-            }
-            catch (SocketException)
-            {
-                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+                LogManager.ListenerReleaseFailed(Logger, exception, "ephemeral");
             }
         }
     }

@@ -8,13 +8,15 @@ For install, Docker, and first connection steps, see [getting started](getting-s
 
 ## Standalone host
 
-The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URL:
+The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URI:
 `https://localhost:5001`.
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet tool install --global squirix.server.tool --version <version>
 squirix-server run
 ```
+
+Pin `<version>` from the [root README](../README.md).
 
 Durable mode:
 
@@ -29,8 +31,10 @@ CLI reference and Docker examples: [getting-started.md](getting-started.md), [co
 Embed the server runtime from the **`squirix.server`** NuGet package:
 
 ```bash
-dotnet add package squirix.server --version 0.1.0-preview.7
+dotnet add package squirix.server --version <version>
 ```
+
+Pin `<version>` from the [root README](../README.md).
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
@@ -39,7 +43,7 @@ var builder = WebApplication.CreateBuilder(args);
 await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
-    options.Url = new Uri("https://localhost:5001");
+    options.Uri = new Uri("https://localhost:5001");
     options.UsePersistence("./data");
 });
 
@@ -84,13 +88,23 @@ await builder.AddSquirixServerAsync(
 
 ## Tests and samples
 
-`SquirixServer.StartAsync` uses discovered settings or an ephemeral free HTTPS port:
+`SquirixServer.StartAsync` loads discovered `Squirix.settings.json` / `squirix.settings.json`, or creates ephemeral
+defaults with a **free HTTPS port**. The returned handle does **not** expose the listen URI, so do **not** assume
+`https://localhost:5001` unless that origin is set as `Cluster.Uri` in an explicit settings file. Prefer
+`AddSquirixServerAsync` when the client must know the listen URI:
 
 ```csharp
-var listenUrl = "https://localhost:5001"; // or Cluster.Url from Squirix.settings.json
-await using var server = await SquirixServer.StartAsync(cancellationToken);
-await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellationToken);
-```
+using System;
+using Microsoft.AspNetCore.Builder;
+using Squirix.Client;
+using Squirix.Server;
 
-For options controlled entirely in code, prefer `await builder.AddSquirixServerAsync(...)` on `WebApplicationBuilder`
-over `SquirixServer.StartAsync`.
+var builder = WebApplication.CreateBuilder(args);
+var listenUri = new Uri("https://localhost:5001");
+await builder.AddSquirixServerAsync(options => options.Uri = listenUri);
+var app = builder.Build();
+app.MapSquirixServer();
+await app.StartAsync(cancellationToken);
+
+await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);
+```

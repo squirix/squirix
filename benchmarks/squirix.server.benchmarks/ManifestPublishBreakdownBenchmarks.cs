@@ -1,8 +1,8 @@
 using System;
-using System.Buffers;
 using System.Globalization;
-using System.Text;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -33,10 +33,10 @@ public class ManifestPublishBreakdownBenchmarks
 
     /// <summary>Creates a warmed manifest session for the current parameter set.</summary>
     [GlobalSetup]
-    public void GlobalSetup()
+    public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = ManifestBenchmarkSupport.ResolvePublishOperationsPerInvoke();
-        _session = Session.Create();
+        _session = await Session.CreateAsync().ConfigureAwait(false);
         ResetFileIndex();
         _nextJournal = 2;
         _nextSequence = 2;
@@ -45,20 +45,34 @@ public class ManifestPublishBreakdownBenchmarks
     /// <summary>Full production roll publish path via manifest store roll blocking API.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
-    public void PublishRollBlocking()
+    public Task PublishRollBlockingAsync()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         for (var i = 0; i < operations; i++)
-            session.Store.PublishRollBlocking(_nextJournal++, _nextSequence++);
+            session.Ledger.EnqueueRoll(_nextJournal++, _nextSequence++, i == operations - 1 ? OnSuccess : static () => { }, OnFailure);
+
+        return completion.Task;
+
+        void OnFailure(Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+
+        void OnSuccess()
+        {
+            completion.TrySetResult();
+        }
     }
 
-    /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
+    /// <summary>Creates a new <c language="csharp">.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollDataFileOnly()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var encodedLength = session.EncodeRoll(1, 1);
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
@@ -73,7 +87,7 @@ public class ManifestPublishBreakdownBenchmarks
     [Benchmark]
     public void RollEncodeAndDataFile()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
         {
@@ -83,12 +97,12 @@ public class ManifestPublishBreakdownBenchmarks
         }
     }
 
-    /// <summary>Overwrites <c>man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
+    /// <summary>Overwrites <c language="csharp">man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollPointerOnly()
     {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        var session = ThrowHelper.Required(_session, "Benchmark session was not initialized.");
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
             session.WritePointer(TakeNextFileIndex());
@@ -99,6 +113,7 @@ public class ManifestPublishBreakdownBenchmarks
     private int TakeNextFileIndex() => _nextFileIndex++;
 
     /// <summary>Hosts a warmed manifest store for roll-path breakdown benchmarks.</summary>
+    [Immutable]
     private sealed class Session : IDisposable
     {
         private const int EncodeBufferSize = 512;
@@ -106,11 +121,11 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(TempDirectory dataDir, ManifestStore store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
+        private Session(TempDirectory dataDir, Ledger store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
         {
             _dataDir = dataDir;
             _encodeBuffer = warmup.EncodeBuffer;
-            Store = store;
+            Ledger = store;
             Format = warmup.Format;
             Snapshot = warmup.Snapshot;
             SnapshotPathUtf8 = warmup.SnapshotPathUtf8;
@@ -118,7 +133,7 @@ public class ManifestPublishBreakdownBenchmarks
             PointerWriter = pointerWriter;
         }
 
-        internal ManifestStore Store { get; }
+        internal Ledger Ledger { get; }
 
         private int Format { get; }
 
@@ -132,15 +147,13 @@ public class ManifestPublishBreakdownBenchmarks
 
         public void Dispose()
         {
-            ArrayPool<byte>.Shared.Return(_encodeBuffer);
-            PointerWriter.Dispose();
-            Store.Dispose();
+            Ledger.Dispose();
             _dataDir.Dispose();
         }
 
         /// <summary>Creates a warmed manifest session with primed in-memory cache.</summary>
         /// <returns>A session ready for breakdown benchmarks.</returns>
-        internal static Session Create()
+        internal static async Task<Session> CreateAsync()
         {
             var dataDir = new TempDirectory("manifest-breakdown");
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
@@ -150,26 +163,24 @@ public class ManifestPublishBreakdownBenchmarks
                 ManifestRetentionCount = retention,
                 SnapshotRetentionCount = retention,
             };
-            var store = new ManifestStore(options);
-            store.PublishRollBlocking(1, 1);
+            var store = new Ledger(options);
+            var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            store.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
+            await warmup.Task.ConfigureAwait(false);
 
-            var current = store.ReadCurrentOrDefaultBlocking();
-            var snapshotPathUtf8 = current.LastSnapshot?.Path is { Length: > 0 } path ? Encoding.UTF8.GetBytes(path) : [];
-
-            var encodeBuffer = ArrayPool<byte>.Shared.Rent(EncodeBufferSize);
+            var encodeBuffer = new byte[EncodeBufferSize];
             var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);
             var currentPath = PathEx.Combine(dataDir.Path, $"{FilePrefixes.Manifest}current");
-            var pointerWriter = new PersistentPointerWriter(currentPath);
 
             return new Session(
                 dataDir,
                 store,
-                pointerWriter,
+                new PersistentPointerWriter(currentPath),
                 new SessionWarmup
                 {
-                    Format = current.Format is 0 ? 1 : current.Format,
-                    Snapshot = current.LastSnapshot,
-                    SnapshotPathUtf8 = snapshotPathUtf8,
+                    Format = 1,
+                    Snapshot = null,
+                    SnapshotPathUtf8 = [],
                     EncodeBuffer = encodeBuffer,
                     ManifestFileNamePrefix = manifestFileNamePrefix,
                 });
@@ -177,7 +188,7 @@ public class ManifestPublishBreakdownBenchmarks
 
         /// <summary>Builds a numbered manifest file path under the session data directory.</summary>
         /// <param name="index">One-based manifest file index.</param>
-        /// <returns>Absolute path to a <c>.bmqx</c> file.</returns>
+        /// <returns>Absolute path to a <c language="csharp">.bmqx</c> file.</returns>
         internal string BuildManifestFilePath(int index) => string.Create(
             ManifestFileNamePrefix.Length + 6 + FileExtensions.Manifest.Length,
             (Prefix: ManifestFileNamePrefix, Index: index),
@@ -199,7 +210,7 @@ public class ManifestPublishBreakdownBenchmarks
             FileCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, SnapshotPathUtf8, _encodeBuffer);
 
         /// <summary>Writes a pre-encoded manifest file and flushes it to disk.</summary>
-        /// <param name="targetPath">Path to a new <c>.bmqx</c> file.</param>
+        /// <param name="targetPath">Path to a new <c language="csharp">.bmqx</c> file.</param>
         /// <param name="encodedLength">Number of valid bytes in the session encode buffer.</param>
         internal void WriteDataFile(string targetPath, int encodedLength) => FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
 
@@ -213,6 +224,7 @@ public class ManifestPublishBreakdownBenchmarks
         }
 
         /// <summary>Non-owned warmup values for <see cref="Session" /> construction (avoids an 8+ parameter ctor).</summary>
+        [Immutable]
         private sealed class SessionWarmup
         {
             internal required byte[] EncodeBuffer { get; init; }

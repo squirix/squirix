@@ -32,26 +32,24 @@ public static class PathKit
     /// <inheritdoc cref="Combine(string,string)" />
     public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
-    /// <summary>
-    /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
-    /// </summary>
+    /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
     /// <param name="subdirectory">
     /// Optional root subdirectory under the system temp path. When provided, it is appended before
     /// the target-framework and process-id segments.
     /// </param>
-    /// <returns>
-    /// A path of the form <c>&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
-    /// </returns>
+    /// <returns>A path of the form <c language="csharp">&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.</returns>
     public static string GetProcTempPath(string subdirectory = "")
     {
         var root = Combine(Path.GetTempPath(), subdirectory);
-        var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
-        return Combine(root, tfmSegment, ProcessSessionSegment);
+        if (AppContext.TargetFrameworkName == null)
+            return Combine(root, "unknown", ProcessSessionSegment);
+        var segment = SanitizePath(AppContext.TargetFrameworkName);
+        return Combine(root, segment, ProcessSessionSegment);
     }
 
     private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        if (heapBuffer is not null)
+        if (heapBuffer != null)
         {
             heapBuffer.Add(segment);
             return;
@@ -153,24 +151,7 @@ public static class PathKit
 
     private static string BuildProcessSessionSegment()
     {
-        long startTicks;
-        try
-        {
-            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (InvalidOperationException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (PlatformNotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (NotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-
+        var startTicks = GetProcessStartTicks();
         return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
     }
 
@@ -203,32 +184,44 @@ public static class PathKit
 
     private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
     {
-        if (count is 0)
-            return string.Empty;
+        return (count, heapBuffer) switch
+        {
+            (0, _) => string.Empty,
+            (_, { } heap) => JoinSegments(CollectionsMarshal.AsSpan(heap)),
+            _ => JoinSegments(buffer.AsSpan(0, count)),
+        };
+    }
 
-        if (heapBuffer is not null)
-            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
-
-        return JoinSegments(buffer.AsSpan(0, count));
+    private static long GetProcessStartTicks()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return DateTime.UtcNow.Ticks;
+        }
     }
 
     private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)
     {
         var primary = value.IndexOf(Path.DirectorySeparatorChar);
         var alternate = value.IndexOf(Path.AltDirectorySeparatorChar);
-        if (primary < 0)
-            return alternate;
-        if (alternate < 0)
-            return primary;
-        return primary < alternate ? primary : alternate;
+        return primary switch
+        {
+            < 0 => alternate,
+            _ when alternate < 0 => primary,
+            _ => primary < alternate ? primary : alternate,
+        };
     }
 
     private static string JoinSegments(ReadOnlySpan<string> segments)
     {
-        if (segments.Length is 0)
+        if (segments.Length == 0)
             return string.Empty;
 
-        if (segments.Length is 1)
+        if (segments.Length == 1)
             return segments[0];
 
         var result = segments[0];
@@ -257,11 +250,11 @@ public static class PathKit
     /// <summary>
     /// Replaces all characters in a file name that are invalid for the current platform
     /// (as returned by <see cref="Path.GetInvalidFileNameChars" />)
-    /// with an underscore (<c>_</c>).
+    /// with an underscore (<c language="csharp">_</c>).
     /// </summary>
     /// <param name="s">The candidate file name to sanitize.</param>
     /// <returns>
-    /// A new string in which every invalid file-name character has been replaced by <c>_</c>.
+    /// A new string in which every invalid file-name character has been replaced by <c language="csharp">_</c>.
     /// If <paramref name="s" /> contains no invalid characters, the original string is returned unchanged.
     /// </returns>
     /// <remarks>
@@ -269,22 +262,21 @@ public static class PathKit
     /// for file <em>names</em> only. It also preserves character casing and length.
     /// </remarks>
     /// <example>
-    ///     <code>
+    ///     <code language="csharp">
     /// var raw = "report:Q3*final?.txt";
     /// var safe = PathKit.SanitizePath(raw); // "report_Q3_final_.txt"
     /// </code>
     /// </example>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="s" /> is <see langword="null" />.</exception>
-    private static string SanitizePath(string s)
+    private static string SanitizePath(ReadOnlySpan<char> s)
     {
-        ArgumentNullException.ThrowIfNull(s);
-
+        var sb = new StringBuilder(s.Length);
         for (var i = 0; i < s.Length; i++)
         {
             if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
                 continue;
 
-            var sb = new StringBuilder(s.Length);
+            _ = sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];
@@ -294,7 +286,7 @@ public static class PathKit
             return sb.ToString();
         }
 
-        return s;
+        return s.ToString();
     }
 
     private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)

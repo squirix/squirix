@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -12,13 +11,13 @@ using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Utils;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests;
@@ -39,9 +38,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.</summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
-    /// <summary>
-    /// Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.
-    /// </summary>
+    /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>
@@ -57,32 +54,21 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(ref _mtls, topology);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(topology, ref _mtls);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new SmokeNodeStartOptions();
         ArgumentNullException.ThrowIfNull(uri);
         var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
-        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ??
+                         ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
 
         var clusterConfig = new TopologyOptions(peers)
         {
@@ -130,14 +116,12 @@ public abstract class SmokeTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>
-    /// Gets listen URLs for a node bound on all interfaces (<c>0.0.0.0</c>) and scraped via loopback.
-    /// </summary>
+    /// <summary>Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.</summary>
     /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
         var port = ListenPortPool.SmokeTests.AllocatePort();
-        return (InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
+        return (NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
     }
 
     /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
@@ -157,19 +141,13 @@ public abstract class SmokeTestBase : IDisposable
         _httpClient?.Dispose();
     }
 
-    /// <summary>
-    /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
-    /// </summary>
+    /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
     /// <param name="value">
     /// The value to store. If a JsonDocument or JsonElement is supplied, it is cloned to detach from the
     /// underlying document's lifetime; otherwise the value is used as-is.
     /// </param>
-    /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.
-    /// </param>
-    /// <param name="version">
-    /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
-    /// </param>
+    /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.</param>
+    /// <param name="version">The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.</param>
     /// <param name="tags">
     /// Optional set of user-defined tags. When provided, the collection is defensively copied
     /// using an ordinal string comparer to prevent external mutation.
@@ -177,7 +155,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>
     /// A new <see cref="NodeCacheEntry{T}" /> containing the provided <paramref name="value" />,
     /// <paramref name="expiresUtc" />, <paramref name="version" />, and <paramref name="tags" /> (if any).
-    /// The <c>Expiration</c> property is set to <see langword="null" />.
+    /// The <c language="csharp">Expiration</c> property is set to <see langword="null" />.
     /// </returns>
     private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
@@ -193,12 +171,8 @@ public abstract class SmokeTestBase : IDisposable
 
     /// <summary>Resolves the cluster-aware cache API client from the node's dependency injection container.</summary>
     /// <param name="host">The started test node host that exposes the service provider.</param>
-    /// <returns>
-    /// The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
-    /// </exception>
+    /// <returns>The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.</exception>
     private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
 
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
@@ -218,7 +192,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
     /// <returns>A one-element peer array.</returns>
-    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(ref _mtls, nodeId, uri);
+    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(nodeId, uri, ref _mtls);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
@@ -236,10 +210,6 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="options">Optional startup knobs (security, gRPC, services, etc.).</param>
     /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken);
 }

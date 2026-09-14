@@ -1,10 +1,13 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -13,11 +16,14 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Covers per-client isolation through <see cref="BackpressureCacheDecorator{T}" />.</summary>
-public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
+[Immutable]
+public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBase
 {
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Two client ids keep independent PerClientMaxInFlight budgets.</summary>
     [Fact]
-    public async Task TwoClientIdsApplyIndependentPerClientLimits()
+    public async Task TwoClientIdsGetIndependentLimits()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -30,13 +36,14 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
                 RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", DefaultCancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
-        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-a"));
-        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-b"));
+        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
+        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
         var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", DefaultCancellationToken));
         Assert.Equal(SquirixErrorCode.TooManyRequests, rejected.Code);
@@ -48,7 +55,7 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>The void write path enforces the same per-client budgets independently across client ids.</summary>
     [Fact]
-    public async Task WritePathAppliesIndependentPerClientLimits()
+    public async Task WritesApplyIndependentPerClientCaps()
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -61,13 +68,14 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
                 RejectThreshold = 4,
                 MaxSlowdownDelay = TimeSpan.Zero,
                 MaxQueueWait = TimeSpan.FromMilliseconds(50),
-            });
+            },
+            new BackpressureMetrics(_testMeter));
 
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", DefaultCancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
-        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-a"));
-        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, new FixedClientIdResolver("jwt:client-b"));
+        var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
+        var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
 
         var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, DefaultCancellationToken));
@@ -76,6 +84,16 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 
         await cacheB.SetEntryAsync("op-2", "c", "k", entry, DefaultCancellationToken);
         Assert.Equal(1, inner.SetEntryCalls);
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static IBackpressureClientIdResolver CreateClientIdResolver(string clientId)
+    {
+        var expectations = new IBackpressureClientIdResolverCreateExpectations();
+        _ = expectations.Setups.Resolve().ReturnValue(clientId);
+        return expectations.Instance();
     }
 
     private sealed class CompletingLogicalCache : ILogicalNamespacedCache<string>
@@ -92,9 +110,6 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
             _ = Interlocked.Increment(ref _getValueCalls);
             return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
         }
@@ -106,11 +121,6 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
         {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
             _ = Interlocked.Increment(ref _setEntryCalls);
             return ValueTask.CompletedTask;
         }
@@ -122,17 +132,5 @@ public sealed class BackpressureCacheDecoratorTests : ServerUnitTestBase
             ValueTask.FromResult(false);
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-    }
-
-    private sealed class FixedClientIdResolver : IBackpressureClientIdResolver
-    {
-        private readonly string _clientId;
-
-        internal FixedClientIdResolver(string clientId)
-        {
-            _clientId = clientId;
-        }
-
-        public string Resolve() => _clientId;
     }
 }

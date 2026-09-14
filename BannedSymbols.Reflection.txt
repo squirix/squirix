@@ -21,6 +21,9 @@ M:System.Type.GetType(System.String,System.Boolean);Use typeof() with compile-ti
 M:System.Type.GetType(System.String,System.Boolean,System.Boolean);Use typeof() with compile-time types instead of Type.GetType(string).
 M:System.Activator.CreateInstance(System.Type);Use compile-time construction instead of Activator.CreateInstance(Type).
 M:System.Activator.CreateInstance(System.Type,System.Object[]);Use compile-time construction instead of Activator.CreateInstance(Type, object[]).
+M:System.Activator.CreateInstance``1;Use compile-time construction instead of Activator.CreateInstance<T>().
+M:System.Activator.CreateInstance(System.Type,System.Boolean);Use compile-time construction instead of Activator.CreateInstance(Type, bool).
+M:System.Activator.CreateInstance(System.String,System.String);Use compile-time construction instead of Activator.CreateInstance(string, string).
 M:System.Reflection.Assembly.Load(System.Reflection.AssemblyName);Assembly.Load is banned. Reference types at compile time instead.
 M:System.Reflection.Assembly.Load(System.String);Assembly.Load is banned. Reference types at compile time instead.
 M:System.Reflection.Assembly.LoadFrom(System.String);Assembly.LoadFrom is banned. Reference types at compile time instead.
@@ -34,7 +37,9 @@ M:System.Reflection.Assembly.GetName();Use build-time metadata instead of Assemb
 M:System.Reflection.CustomAttributeExtensions.GetCustomAttribute``1(System.Reflection.Assembly);Use build-time metadata instead of reflection-based attributes.
 M:System.Reflection.CustomAttributeExtensions.GetCustomAttributes``1(System.Reflection.Assembly);Use build-time metadata instead of reflection-based attributes.
 M:System.Type.GetMethods(System.Reflection.BindingFlags);Reflection-based member discovery is banned.
+M:System.Type.GetMethods;Reflection-based member discovery is banned.
 M:System.Type.GetMethod(System.String,System.Reflection.BindingFlags);Reflection-based member discovery is banned.
+M:System.Type.GetMethod(System.String);Reflection-based member discovery is banned.
 M:System.Type.GetField(System.String,System.Reflection.BindingFlags);Reflection-based member discovery is banned.
 M:System.Type.GetFields(System.Reflection.BindingFlags);Reflection-based member discovery is banned.
 M:System.Linq.Expressions.LambdaExpression.Compile();Expression.Compile is banned. Use static delegates or source generators instead.

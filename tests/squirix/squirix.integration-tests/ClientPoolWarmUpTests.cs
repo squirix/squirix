@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
@@ -8,13 +9,14 @@ using Xunit;
 namespace Squirix.IntegrationTests;
 
 /// <summary>Client-only transport integration coverage for cluster peer pool warm-up.</summary>
+[Immutable]
 public sealed class ClientPoolWarmUpTests : IntegrationTestBase
 {
     private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
     /// <summary>Verifies warm-up fails when no bootstrap endpoint can be reached.</summary>
     [Fact]
-    public async Task WarmUpFailsFastWhenPeerEndpointIsUnreachable()
+    public async Task WarmUpFailsFastOnUnreachableEndpoint()
     {
         var peers = new[]
         {

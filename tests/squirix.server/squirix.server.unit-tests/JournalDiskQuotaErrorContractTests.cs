@@ -1,11 +1,8 @@
 using System;
-using System.IO;
-using System.Text.Json;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.UnitTests.Support;
@@ -14,6 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Contract tests for journal disk quota mapped through shared error helpers.</summary>
+[Immutable]
 public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies logical cache metrics/tracing classify journal quota as resource exhausted.</summary>
@@ -37,43 +35,27 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 
     /// <summary>Verifies stable codes across REST and gRPC projections for journal disk quota.</summary>
     [Fact]
-    public void JournalDiskQuotaMapsToHttp429AndGrpcExhausted()
-    {
-        var contract = ServerOpContract.JournalDiskQuota();
-
-        Assert.Equal(SquirixErrorCode.JournalDiskQuota, contract.Code);
-        Assert.Equal("JOURNAL_DISK_QUOTA", SquirixErrorMapper.ToPublicCode(contract.Code));
-
-        var rpc = contract.ToRpcException();
-        Assert.Equal(StatusCode.ResourceExhausted, rpc.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, rpc.Status.Detail);
-
-        var direct = new JournalCapacityExceededException().ToRpcException();
-        Assert.Equal(StatusCode.ResourceExhausted, direct.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, direct.Status.Detail);
-    }
+    public void DiskQuotaMapsToHttp429AndGrpcExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
+        ServerOpContract.JournalDiskQuota(),
+        SquirixErrorCode.JournalDiskQuota,
+        "JOURNAL_DISK_QUOTA",
+        JournalCapacityExceededException.StableDetail,
+        static () => new JournalCapacityExceededException().ToRpcException());
 
     /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>
     [Fact]
-    public async Task JournalDiskQuotaRestPayloadUsesStableFields()
+    public async Task DiskQuotaRestPayloadUsesStableFields()
     {
-        var http = new JournalCapacityExceededException().ToHttpResult();
-        var context = new DefaultHttpContext
+        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(new JournalCapacityExceededException().ToHttpResult(), DefaultCancellationToken);
+        using (payload)
         {
-            Response =
-            {
-                Body = new MemoryStream(),
-            },
-            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider(),
-        };
-
-        await http.ExecuteAsync(context);
-        context.Response.Body.Position = 0;
-        using var payload = await JsonDocument.ParseAsync(context.Response.Body, cancellationToken: DefaultCancellationToken);
-
-        Assert.Equal(StatusCodes.Status429TooManyRequests, context.Response.StatusCode);
-        Assert.Equal("JournalDiskQuota", payload.RootElement.GetProperty("error").GetString());
-        Assert.Equal("JOURNAL_DISK_QUOTA", payload.RootElement.GetProperty("code").GetString());
-        Assert.Equal(JournalCapacityExceededException.StableDetail, payload.RootElement.GetProperty("detail").GetString());
+            ErrorContractTestKit.AssertErrorJsonPayload(
+                payload,
+                status,
+                StatusCodes.Status429TooManyRequests,
+                "JournalDiskQuota",
+                "JOURNAL_DISK_QUOTA",
+                JournalCapacityExceededException.StableDetail);
+        }
     }
 }

@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -26,93 +28,108 @@ internal static class StoreFactory
         return new SnapshotWriter(options.DataDir, fileOps);
     }
 
+    [Immutable]
     private sealed class SnapshotReader : ISnapshotReader
     {
         private const int InitialRecordScratchSize = 4096;
 
-        public Task<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
+        public ValueTask<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
             var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
+            {
                 while (enumerator.MoveNext())
-                    switch (enumerator.Current)
-                    {
-                        case EntryRecord entry:
-                            if (skipExpired && IsExpired(entry.Entry))
-                                continue;
+                    AppendRecord(enumerator.Current, skipExpired, entries, idempotencyRecords);
+            }
 
-                            if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped is null)
-                                throw new InvalidDataException("Binary snapshot entry payload could not be read.");
+            return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords));
+        }
 
-                            entries.Add((entry.Key, mapped));
-                            break;
+        private static void AppendRecord<T>(object record, bool skipExpired, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
+        {
+            switch (record)
+            {
+                case EntryRecord entry:
+                    if (skipExpired && IsExpired(entry.Entry))
+                        return;
 
-                        case IdempotencyRecord idempotency:
-                            idempotencyRecords.Add(idempotency.Record);
-                            break;
-                    }
+                    if (!CacheEntryCodec.TryMapEntry<T>(entry.Entry, out var mapped) || mapped == null)
+                        throw new InvalidDataException("Binary snapshot entry payload could not be read.");
 
-            return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
+                    entries.Add((entry.Key, mapped));
+                    return;
+
+                case IdempotencyRecord idempotency:
+                    records.Add(idempotency.Record);
+                    return;
+                default:
+                    throw new InvalidOperationException("Encountered unexpected record.");
+            }
         }
 
         private static bool IsExpired(NodeCacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;
 
+        [Immutable]
         private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry);
 
+        [Immutable]
         private sealed record IdempotencyRecord(PersistedIdempotencyRecord Record);
 
         private sealed class SnapshotRecordEnumerator : IEnumerator<object>
         {
             private readonly CancellationToken _cancellationToken;
             private readonly long _footerOffset;
-            private readonly FileStream _stream;
+            private readonly SafeFileHandle _handle;
             private readonly bool _strict;
             private uint _crc;
-            private object? _current;
-            private bool _disposed;
+            private int _disposed;
             private bool _footerValidated;
+            private long _offset;
             private byte[] _scratch = new byte[InitialRecordScratchSize];
 
             internal SnapshotRecordEnumerator(string path, bool strict, CancellationToken cancellationToken)
             {
                 _strict = strict;
                 _cancellationToken = cancellationToken;
-                _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (_stream.Length < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
+                _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+                if (RandomAccess.GetLength(_handle) < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
                     throw new InvalidDataException("Binary snapshot file is truncated.");
 
                 Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
-                if (!StreamEx.TryReadExact(_stream, header))
+                if (!HandleEx.TryReadExact(_handle, header, ref _offset))
                     throw new EndOfStreamException("Binary snapshot file header is truncated.");
 
                 SnapshotCodec.ValidateFileHeader(header);
                 _crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
-                _footerOffset = _stream.Length - SnapshotCodec.FileFooterSize;
+                _footerOffset = RandomAccess.GetLength(_handle) - SnapshotCodec.FileFooterSize;
             }
 
-            public object Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+            public object Current
+            {
+                get => ThrowHelper.Required(field, "Enumerator is not positioned on a valid record.");
+                private set;
+            }
 
             public void Dispose()
             {
-                if (_disposed)
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
-                _stream.Dispose();
-                _disposed = true;
+                _handle.Dispose();
             }
 
             public bool MoveNext()
             {
                 while (true)
                 {
-                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                     if (_footerValidated)
                         return false;
 
                     _cancellationToken.ThrowIfCancellationRequested();
-                    if (_stream.Position >= _footerOffset)
+                    if (_offset >= _footerOffset)
                     {
                         ValidateFooter();
                         return false;
@@ -121,10 +138,10 @@ internal static class StoreFactory
                     if (!TryReadNextRecord(out var record))
                         return false;
 
-                    if (record is null)
+                    if (record == null)
                         continue;
 
-                    _current = record;
+                    Current = record;
                     return true;
                 }
             }
@@ -136,7 +153,7 @@ internal static class StoreFactory
                 switch (kind)
                 {
                     case RecordKind.Entry:
-                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry is not null)
+                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry != null)
                             return new EntryRecord(key, entry);
                         if (_strict)
                             throw new InvalidDataException("Binary snapshot entry body could not be read.");
@@ -144,7 +161,7 @@ internal static class StoreFactory
                         return null;
 
                     case RecordKind.Idempotency:
-                        return TryReadIdempotency(body, out var idempotencyRecord) && idempotencyRecord is not null ? new IdempotencyRecord(idempotencyRecord) : null;
+                        return TryReadIdempotency(body, out var idempotencyRecord) && idempotencyRecord != null ? new IdempotencyRecord(idempotencyRecord) : null;
 
                     default:
                         if (_strict)
@@ -171,19 +188,14 @@ internal static class StoreFactory
             private bool TryReadNextRecord(out object? record)
             {
                 record = null;
-                if (_stream.Position >= _footerOffset)
+                if (_offset >= _footerOffset)
                     return false;
 
                 if (!TryReadRecordBytes(out var recordBytes))
                     return false;
 
                 if (!SnapshotCodec.TryReadRecord(recordBytes, out var kind, out var body))
-                {
-                    if (_strict)
-                        throw new InvalidDataException("Binary snapshot record is truncated.");
-
-                    return false;
-                }
+                    return _strict ? throw new InvalidDataException("Binary snapshot record is truncated.") : false;
 
                 _crc = Crc32C.Append(_crc, recordBytes);
                 record = MapRecord(kind, body);
@@ -194,27 +206,24 @@ internal static class StoreFactory
             {
                 recordBytes = default;
                 Span<byte> recordHeader = stackalloc byte[SnapshotCodec.RecordHeaderSize];
-                if (!StreamEx.TryReadExact(_stream, recordHeader))
-                {
-                    if (_strict)
-                        throw new EndOfStreamException("Binary snapshot record header is truncated.");
+                if (!HandleEx.TryReadExact(_handle, recordHeader, ref _offset))
+                    return _strict ? throw new EndOfStreamException("Binary snapshot record header is truncated.") : false;
 
-                    return false;
-                }
-
+                var recordStart = _offset - SnapshotCodec.RecordHeaderSize;
                 var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
+                if (bodyLength > SnapshotCodec.MaxRecordBodyLength)
+                    return _strict ? throw new InvalidDataException("Binary snapshot record body exceeds the maximum allowed length.") : false;
+
                 var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
+                if (recordLength > _footerOffset - recordStart)
+                    return _strict ? throw new InvalidDataException("Binary snapshot record extends past the file footer.") : false;
+
                 if (_scratch.Length < recordLength)
                     _scratch = new byte[recordLength];
 
                 recordHeader.CopyTo(_scratch);
-                if (!StreamEx.TryReadExact(_stream, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize)))
-                {
-                    if (_strict)
-                        throw new EndOfStreamException("Binary snapshot record body is truncated.");
-
-                    return false;
-                }
+                if (!HandleEx.TryReadExact(_handle, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize), ref _offset))
+                    return _strict ? throw new EndOfStreamException("Binary snapshot record body is truncated.") : false;
 
                 recordBytes = _scratch.AsSpan(0, recordLength);
                 return true;
@@ -222,7 +231,7 @@ internal static class StoreFactory
 
             private void ValidateFooter()
             {
-                if (_stream.Position != _footerOffset)
+                if (_offset != _footerOffset)
                 {
                     if (_strict)
                         throw new InvalidDataException("Binary snapshot file footer is misaligned.");
@@ -232,7 +241,7 @@ internal static class StoreFactory
                 }
 
                 Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
-                if (!StreamEx.TryReadExact(_stream, footer))
+                if (!HandleEx.TryReadExact(_handle, footer, ref _offset))
                     throw new EndOfStreamException("Binary snapshot file footer is truncated.");
 
                 SnapshotCodec.ValidateFileFooter(footer, Crc32C.Finalize(_crc));

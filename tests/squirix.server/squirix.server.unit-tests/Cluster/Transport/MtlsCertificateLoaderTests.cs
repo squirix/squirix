@@ -2,6 +2,8 @@ using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -11,11 +13,12 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for cluster mTLS certificate loading.</summary>
+[Immutable]
 public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 {
     /// <summary>Ensures PEM loading works for trusted test certificates.</summary>
     [Fact]
-    public async Task LoadLoadsPemBackedNodeCertificateAndTrustAnchor()
+    public async Task LoadsPemNodeCertificateAndTrustAnchor()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
@@ -34,7 +37,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 
     /// <summary>Ensures PFX loading works for trusted test certificates.</summary>
     [Fact]
-    public async Task LoadLoadsPfxBackedNodeCertificateAndTrustAnchor()
+    public async Task LoadsPfxNodeCertificateAndTrustAnchor()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var options = new MtlsOptions
@@ -79,7 +82,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 
     /// <summary>Ensures standalone topology returns an empty material instance.</summary>
     [Fact]
-    public void LoadReturnsDisabledMaterialInterNodeMtlsIsRequired()
+    public void ReturnsDisabledWhenMaterialMissing()
     {
         var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
 

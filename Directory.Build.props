@@ -1,6 +1,6 @@
 <Project>
     <PropertyGroup Label="Squirix NuGet">
-        <SquirixPackageVersion>0.1.0-preview.7</SquirixPackageVersion>
+        <SquirixPackageVersion>0.1.0-preview.8</SquirixPackageVersion>
         <SquirixAssemblyVersion>0.1.0.0</SquirixAssemblyVersion>
         <AssemblyVersion>$(SquirixAssemblyVersion)</AssemblyVersion>
         <FileVersion>$(SquirixAssemblyVersion)</FileVersion>
@@ -13,6 +13,7 @@
         <LangVersion>14.0</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
+        <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
     <PropertyGroup Label="Analyzers">
@@ -31,19 +32,13 @@
         <IsSquirixTestProject>false</IsSquirixTestProject>
         <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
         <IsSquirixProductionProject>false</IsSquirixProductionProject>
-        <IsSquirixAnalyzerProject>false</IsSquirixAnalyzerProject>
+        <IsSquirixProtocolModelProject>false</IsSquirixProtocolModelProject>
     </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.analyzers'))">
-        <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
-        <!-- Skip Sonar.NET on the Roslyn analyzer project itself. -->
-        <SonarQubeExclude>true</SonarQubeExclude>
-        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; shared obj/ races under parallel solution builds. -->
-        <GenerateDependencyFile>false</GenerateDependencyFile>
-        <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
-        <!-- Avoid MSB3491 on AssemblyInfoInputs.cache when many ProjectReferences build this project in parallel. -->
-        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.protocol-model'))">
+        <!-- Design-time Raft safety explorer; not a shipped product package. -->
+        <IsSquirixProtocolModelProject>true</IsSquirixProtocolModelProject>
     </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true'">
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixProtocolModelProject)' != 'true'">
         <IsSquirixProductionProject>true</IsSquirixProductionProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
@@ -53,26 +48,37 @@
         <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058;ZA0901</NoWarn>
+    <!-- Test/benchmark analyzer exemptions live in .editorconfig ([tests/**], [benchmarks/**]);
+         do not reintroduce project-level NoWarn. -->
+    <!-- Rocks doc-cref warnings cannot move to .editorconfig: path-scoped severities do not
+         apply to compiler diagnostics from generated trees (verified: CS1570 still fires).
+         GenerateDocumentationFile must stay on: IDE0005 and StyleCop doc analysis depend on it.
+         Rocks 10.3.1 fixed array-typed params (empty slot / doubled comma, e.g.
+         Target(String,String,,CancellationToken)) via upstream PR JasonBock/Rocks#430
+         (fixes #429): the CS1584/CS1658 cascade is gone (verified), so those entries
+         are dropped from NoWarn below.
+         Measured per project on Rocks 10.3.1: unit-tests emit CS1570,
+         integration/squirix-unit-tests emit CS1574/CS1580 (dropped generic args,
+         unqualified names). The remaining union is required; dropping any entry
+         breaks one of the test projects.
+         TODO(Rocks): delete this whole PropertyGroup once Rocks fixes the remaining
+         doc-cref rendering (dropped generic args, unqualified names) — issues #2-#3
+         on our mirror. -->
+    <PropertyGroup Label="BenchmarkCode" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
+        <NoWarn>$(NoWarn);S1075;S1450</NoWarn>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA2007;MA0004</NoWarn>
+    <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
+        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
     </PropertyGroup>
 
-    <!-- In-repo Roslyn analyzers (skip the analyzer project itself). -->
-    <ItemGroup Label="SquirixAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
-        <ProjectReference Include="$(MSBuildThisFileDirectory)src\squirix.analyzers\Squirix.Analyzers.csproj"
-                          ReferenceOutputAssembly="false"
-                          OutputItemType="Analyzer"
-                          PrivateAssets="all"
-                          SetTargetFramework="TargetFramework=netstandard2.0"
-                          GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishAot;PublishTrimmed;PublishSingleFile;PublishReadyToRun"/>
+    <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
+    <ItemGroup Label="SquirixAnalyzers">
+        <PackageReference Include="squirix.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <!-- Solution-wide Roslyn analyzers (all projects except Squirix.Analyzers). -->
-    <ItemGroup Label="GlobalAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
+    <!-- Solution-wide third-party Roslyn analyzers. -->
+    <ItemGroup Label="GlobalAnalyzers">
         <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
@@ -86,14 +92,22 @@
         <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <!-- Namespace dependency rules for production packages under src/** and server tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="'$(IsSquirixProductionProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <!-- Namespace dependency rules for production packages under src/**, analyzers, protocol-model,
+         all client-bucket tests/benchmarks, e2e harnesses, protocol-model tests, samples, and server
+         tests under tests/squirix.server/**. -->
+    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
     <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
+        <PackageReference Include="Rocks" PrivateAssets="all"/>
         <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <!-- MTP native code coverage for every test executable. -->
+    <ItemGroup Label="MtpCodeCoverage" Condition="'$(IsSquirixTestProject)' == 'true' And $(MSBuildProjectName.Contains('Tests'))">
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"/>
     </ItemGroup>
 
     <!-- BDN Roslyn rules ship inside BenchmarkDotNet.Annotations (BenchmarkDotNet excludes analyzer assets). -->
@@ -105,5 +119,14 @@
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
+    </ItemGroup>
+
+    <!-- PVS-Studio project-level rules for every analyzed project (incl. tests).
+         .pvsconfig itself excludes **/tests/**,**/samples/**,**/benchmarks/** so those
+         trees stay out of findings; without this link, test projects had no rules file. -->
+    <ItemGroup Label="PvsStudioConfig">
+        <None Include="$(MSBuildThisFileDirectory).pvsconfig" Link=".pvsconfig"/>
+        <!-- Solution-root suppress baseline; VS/plugin discovery needs a project item. -->
+        <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>
     </ItemGroup>
 </Project>

@@ -1,15 +1,19 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -17,9 +21,12 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Idempotent durable mutations must append idempotency frames before the durability barrier.</summary>
-public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
+[Immutable]
+public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
+
+    private readonly Meter _testMeter = new("test");
 
     private enum OrderingStep
     {
@@ -30,30 +37,28 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
     /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
     [Fact]
-    public async Task IdempotentMutationAppendsOutcomeDurabilityCommit()
+    public async Task MutationAppendsOutcomeThenCommitsDurably()
     {
-        using var dir = new TempDirectory("squirix-idempotent-durability-order");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
-        using var manifestStore = new ManifestStore(options);
-        await using var inner = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var inner = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
 
         var trace = new OrderingTrace();
         await using var orderingJournal = new OrderingJournal(inner, trace);
         IJournalCoordinator journal = orderingJournal;
-        var store = new RpcMutationIdempotencyStore();
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("durability-order-key");
@@ -78,10 +83,17 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         trace.AssertExpected();
-        await AssertJournalContainsPutAndIdempotencyOutcomeAsync(options.DataDir, manifestStore);
+        await JournalHasPutAndIdempotencyRecordsAsync(options.DataDir, manifestStore);
     }
 
-    private static async Task AssertJournalContainsPutAndIdempotencyOutcomeAsync(string dataDir, ManifestStore manifestStore)
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+        _testMeter.Dispose();
+    }
+
+    private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir, Ledger manifestStore)
     {
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var sawPut = false;
@@ -100,6 +112,7 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
         Assert.True(sawIdempotency);
     }
 
+    [Immutable]
     private sealed class OrderingJournal : IJournalCoordinator
     {
         private readonly IJournalCoordinator _inner;
@@ -107,8 +120,10 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         internal OrderingJournal(IJournalCoordinator inner, OrderingTrace trace)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-            _trace = trace ?? throw new ArgumentNullException(nameof(trace));
+            ArgumentNullException.ThrowIfNull(inner);
+            ArgumentNullException.ThrowIfNull(trace);
+            _inner = inner;
+            _trace = trace;
         }
 
         public event EventHandler? OnAppended
@@ -126,6 +141,8 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
         public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
 
         public long HighWaterBytes => _inner.HighWaterBytes;
+
+        public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
         public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
@@ -165,10 +182,6 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
             return _inner.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
-
-        public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
-
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
         public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
@@ -187,6 +200,9 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
             TState state,
             Func<TState, CancellationToken, ValueTask<TResult>> action,
             CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
+
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
+            _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _inner.WaitForStartupAsync(cancellationToken);
     }

@@ -1,39 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <Nullable>enable</Nullable>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
-        <UseAppHost>true</UseAppHost>
         <RootNamespace>Squirix.Server.IntegrationTests</RootNamespace>
         <AssemblyName>Squirix.Server.IntegrationTests</AssemblyName>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="xunit.v3"/>
-        <PackageReference Include="xunit.v3.assert"/>
-        <PackageReference Include="xunit.runner.visualstudio"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
         <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="Google.Protobuf"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols"/>
-        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="coverlet.collector">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
+        <ProjectReference Include="..\..\..\src\squirix.protocol-model\Squirix.ProtocolModel.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
+        <ProjectReference Include="..\..\..\src\squirix.server.host\Squirix.Server.Host.csproj"/>
     </ItemGroup>
 </Project>

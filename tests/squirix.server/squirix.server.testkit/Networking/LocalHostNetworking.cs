@@ -14,7 +14,7 @@ public static class LocalHostNetworking
         for (var i = 0; i < addresses.Length; i++)
         {
             var address = addresses[i];
-            if (address.AddressFamily is not AddressFamily.InterNetwork)
+            if (address.AddressFamily != AddressFamily.InterNetwork)
                 continue;
 
             if (IPAddress.IsLoopback(address))

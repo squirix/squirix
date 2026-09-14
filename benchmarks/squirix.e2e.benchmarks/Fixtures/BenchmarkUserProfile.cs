@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 // ReSharper disable NotAccessedPositionalProperty.Global
 namespace Squirix.E2EBenchmarks.Fixtures;
@@ -12,6 +13,7 @@ namespace Squirix.E2EBenchmarks.Fixtures;
 /// <param name="Roles">Role names.</param>
 /// <param name="CreatedAt">Creation timestamp.</param>
 /// <param name="Status">User status.</param>
+[Immutable]
 public sealed record BenchmarkUserProfile(
     long Id,
     string Name,

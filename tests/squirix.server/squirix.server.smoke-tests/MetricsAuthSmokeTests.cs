@@ -9,20 +9,16 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
-/// <summary>
-/// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c>/metrics</c> endpoint.
-/// </summary>
+/// <summary>Smoke tests verifying JWT auth rules on the Prometheus-compatible <c language="csharp">/metrics</c> endpoint.</summary>
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
-    /// <summary>
-    /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
-    /// </summary>
+    /// <summary>Ensures <c language="csharp">/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
     [Fact]
-    public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
+    public async Task MetricsValidatesJwtWhenConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));
@@ -30,7 +26,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
         var port = new Uri(bindUrl).Port;
-        var remoteMetricsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/metrics");
+        var remoteMetricsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/metrics");
         var loopbackMetricsUrl = $"{loopbackUrl}/metrics";
 
         await using var node = await StartNodeAsync(

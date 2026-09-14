@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -14,14 +15,14 @@ internal static class ServerRpcDeadlineContext
         var existing = Normalize(existingDeadlineUtc);
         var current = CurrentDeadlineUtc;
         var deadline = existing <= current ? existing : current;
-        var time = current is null ? existing : deadline;
-        return existing is null ? current : time;
+        var time = current == null ? existing : deadline;
+        return existing == null ? current : time;
     }
 
     internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
     {
         var deadline = CurrentDeadlineUtc;
-        return deadline is null ? null : deadline.Value - nowUtc;
+        return deadline == null ? null : deadline.Value - nowUtc;
     }
 
     internal static IDisposable Push(DateTime? deadlineUtc)
@@ -31,14 +32,15 @@ internal static class ServerRpcDeadlineContext
         return new Scope(previous);
     }
 
-    private static DateTime? Normalize(DateTime? deadlineUtc)
+    private static DateTime? Normalize(DateTime? deadlineUtc) => deadlineUtc switch
     {
-        if (deadlineUtc is null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
-            return null;
+        null => null,
+        { } value when value == DateTime.MaxValue || value == DateTime.MinValue => null,
+        { Kind: DateTimeKind.Utc } value => value,
+        { } value => value.ToUniversalTime(),
+    };
 
-        return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
-    }
-
+    [Immutable]
     private sealed class Scope : IDisposable
     {
         private readonly DateTime? _previous;

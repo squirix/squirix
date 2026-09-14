@@ -4,15 +4,19 @@ namespace Squirix.Server.Errors;
 
 internal static class ServerOpContract
 {
+    internal const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
+
     private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
 
     private const string EntryTagKeyTooLargeDetail = "Entry tag key exceeds the maximum UTF-8 size of 256 bytes.";
 
     private const string EntryTagValueTooLargeDetail = "Entry tag value exceeds the maximum UTF-8 size of 1024 bytes.";
 
-    private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
+    private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
     private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
+
+    internal static SquirixException CommitOutcomeUnknown() => new(SquirixErrorCode.CommitOutcomeUnknown, "CommitOutcomeUnknown", CommitOutcomeUnknownDetail);
 
     internal static SquirixException EntryTagCountExceeded() => new(SquirixErrorCode.InvalidEntryTags, "InvalidEntryTags", EntryTagCountExceededDetail);
 
@@ -22,21 +26,17 @@ internal static class ServerOpContract
 
     internal static SquirixException InvalidCacheKey(string detail) => new(SquirixErrorCode.InvalidCacheKey, "InvalidCacheKey", detail);
 
-    /// <summary>
-    /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
-    /// </summary>
+    /// <summary>Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.</summary>
     /// <param name="message">An exception or RPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
     internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                     message.StartsWith(InsertVersionMustExceedCurrentMessagePrefix, StringComparison.Ordinal) &&
+                                                                                     message.StartsWith(InsertVersionMustExceedCurrentPrefix, StringComparison.Ordinal) &&
                                                                                      message.Contains(", provided=", StringComparison.Ordinal);
 
     internal static bool IsOperationIdInvalidFormatMessage(string? message) =>
         string.Equals(message, RpcMutationContracts.OperationIdInvalidFormatDetail, StringComparison.Ordinal);
 
-    /// <summary>
-    /// Determines whether <paramref name="message" /> matches the required operation-id contract.
-    /// </summary>
+    /// <summary>Determines whether <paramref name="message" /> matches the required operation-id contract.</summary>
     /// <param name="message">An exception or RPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="message" /> identifies a missing operation id.</returns>
     internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdRequiredDetail, StringComparison.Ordinal);

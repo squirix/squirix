@@ -1,19 +1,19 @@
 using System.Threading;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Core;
 
-/// <summary>
-/// Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.
-/// </summary>
+/// <summary>Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.</summary>
+[Immutable]
 public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
     [Fact]
-    public void IsCallerInitiatedGrpcCanceledStatusCallerToken()
+    public void CallerTokenWithCanceledStatusIsCaller()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -26,11 +26,11 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 
     /// <summary>Operation effective token helper mirrors not canceled for retry gating.</summary>
     [Fact]
-    public void OperationEffectiveTokenAllowsReflectsTokenState()
+    public void AllowsRetryReflectsEffectiveTokenState()
     {
         using var cts = new CancellationTokenSource();
-        Assert.True(ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(cts.Token));
+        Assert.True(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token));
         cts.Cancel();
-        Assert.False(ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(cts.Token));
+        Assert.False(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token));
     }
 }

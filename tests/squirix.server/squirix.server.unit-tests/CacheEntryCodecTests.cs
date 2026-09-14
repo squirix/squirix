@@ -1,15 +1,17 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Codecs;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
 
 /// <summary>Unit tests for <see cref="CacheEntryCodec" />.</summary>
+[Immutable]
 public sealed class CacheEntryCodecTests : ServerUnitTestBase
 {
     /// <summary>Primitive values round-trip through the codec.</summary>
@@ -39,6 +41,66 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             });
     }
 
+    /// <summary>Length computation matches the documented golden size for a minimal integer entry.</summary>
+    [Fact]
+    public void ComputeEncodedLengthMatchesGolden()
+    {
+        var entry = new NodeCacheEntry<object?>(42, 4);
+
+        // Expires flag (1) + expiration flag (1) + version (8) + empty tags (2) + int64 value (1 + 8).
+        Assert.Equal(21, CacheEntryCodec.ComputeEncodedLength(entry));
+    }
+
+    /// <summary>Write emits the documented golden wire bytes for a minimal integer entry.</summary>
+    [Fact]
+    public void WriteMatchesGoldenWireBytes()
+    {
+        var entry = new NodeCacheEntry<object?>(42, 4);
+        Span<byte> buffer = stackalloc byte[CacheEntryCodec.ComputeEncodedLength(entry)];
+
+        CacheEntryCodec.Write(entry, buffer);
+
+        // No-expiry flag, no-expiration flag, version 4, zero tags,
+        // Int64 value-kind tag (4) with 42 little-endian.
+        byte[] golden =
+        [
+            0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+            0x04, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        Assert.True(golden.AsSpan().SequenceEqual(buffer));
+    }
+
+    /// <summary>Read decodes the golden wire bytes into the minimal integer entry.</summary>
+    [Fact]
+    public void ReadReadsGoldenWireBytes()
+    {
+        byte[] golden =
+        [
+            0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+            0x04, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        Assert.True(CacheEntryCodec.TryRead<object?>(golden, out var entry, out var bytesRead));
+        Assert.Equal(21, bytesRead);
+        Assert.Equal(42L, entry!.Value);
+        Assert.Equal(4, entry.Version);
+        Assert.Null(entry.ExpiresUtc);
+        Assert.Null(entry.Expiration);
+    }
+
+    /// <summary>Decimal and byte[] values round-trip through the codec.</summary>
+    [Fact]
+    public void RoundTripsDecimalAndByteArrayValues()
+    {
+        RoundTripValue(12.5m);
+        byte[] payload = [9, 8, 7];
+        RoundTripValue(payload);
+    }
+
     /// <summary>Complex JSON values round-trip through the codec as JsonElement trees.</summary>
     [Fact]
     public void RoundTripsJsonElementValue()
@@ -63,12 +125,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     [Fact]
     public void RoundTripsMetadataAndTags()
     {
-        var entry = new NodeCacheEntry<object?>(
-            "payload",
-            3,
-            new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
-            TimeSpan.FromMinutes(5),
-            new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal));
+        var entry = new NodeCacheEntry<object?>("payload", 3, new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(5), EntryTagsKit.RegionWest);
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
         BufferKit.WithBuffer(
             length,
@@ -82,6 +139,81 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
                 Assert.Equal(e.Expiration, roundTrip.Expiration);
                 Assert.Equal(e.Version, roundTrip.Version);
                 Assert.Equal("west", roundTrip.Tags?["region"]);
+            });
+    }
+
+    /// <summary>Numeric and JsonElement coercions used by typed journal reads succeed.</summary>
+    [Fact]
+    public void MapEntryCoercesNumericAndJsonValues()
+    {
+        Assert.True(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(42L), out var asInt));
+        Assert.Equal(42, asInt!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(99L), out var asLong));
+        Assert.Equal(99L, asLong!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<float>(new NodeCacheEntry<object?>(1.5d), out var asFloat));
+        Assert.Equal(1.5f, asFloat!.Value);
+
+        Assert.True(CacheEntryCodec.TryMapEntry<double>(new NodeCacheEntry<object?>(2.5d), out var asDouble));
+        Assert.Equal(2.5d, asDouble!.Value);
+
+        using var document = JsonDocument.Parse("""{"k":1}""");
+        Assert.True(CacheEntryCodec.TryMapEntry<JsonElement>(new NodeCacheEntry<object?>(document.RootElement.Clone()), out var asJson));
+        Assert.Equal(1, asJson!.Value.GetProperty("k").GetInt32());
+
+        Assert.False(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>("nope"), out _));
+        Assert.True(CacheEntryCodec.TryMapEntry<string>(new NodeCacheEntry<object?>(null), out var asNull));
+        Assert.Null(asNull!.Value);
+    }
+
+    /// <summary>TryRead fails on truncated envelopes.</summary>
+    [Fact]
+    public void ReadReturnsFalseForTruncatedEnvelope()
+    {
+        Assert.False(CacheEntryCodec.TryRead<object?>([], out _, out var bytesRead));
+        Assert.Equal(0, bytesRead);
+    }
+
+    /// <summary>Write rejects destinations that are too small for the encoded entry.</summary>
+    [Fact]
+    public void WriteThrowsWhenDestinationIsTooSmall()
+    {
+        var entry = new NodeCacheEntry<object?> { Value = "abc", Version = 1 };
+        var length = CacheEntryCodec.ComputeEncodedLength(entry);
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+            entry,
+            length - 1,
+            static (e, tooSmall) =>
+            {
+                Span<byte> destination = stackalloc byte[tooSmall];
+                CacheEntryCodec.Write(e, destination);
+            });
+    }
+
+    /// <summary>ComputeEncodedLength rejects tag dictionaries exceeding ushort.MaxValue entries.</summary>
+    [Fact]
+    public void EncodedLengthRejectsExcessiveTagCount()
+    {
+        var tags = EntryTagsKit.CreateCount(65_536);
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(new NodeCacheEntry<object?>(null, tags: tags), static value => CacheEntryCodec.ComputeEncodedLength(value));
+    }
+
+    private static void RoundTripValue(object? value)
+    {
+        var entry = new NodeCacheEntry<object?> { Value = value, Version = 4 };
+        var length = CacheEntryCodec.ComputeEncodedLength(entry);
+        BufferKit.WithBuffer(
+            length,
+            (entry, value),
+            static (ctx, buffer) =>
+            {
+                CacheEntryCodec.Write(ctx.entry, buffer);
+                Assert.True(CacheEntryCodec.TryRead<object?>(buffer, out var roundTrip, out _));
+                if (ctx.value is byte[] expectedBytes)
+                    Assert.Equal(expectedBytes, Assert.IsType<byte[]>(roundTrip!.Value));
+                else
+                    Assert.Equal(ctx.value, roundTrip!.Value);
             });
     }
 

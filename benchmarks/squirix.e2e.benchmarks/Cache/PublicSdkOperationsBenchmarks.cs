@@ -35,16 +35,14 @@ public class PublicSdkOperationsBenchmarks
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
-        if (_client is not null)
+        if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node is not null)
+        if (_node != null)
             await _node.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.
-    /// </summary>
+    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task GetOrAddExistingValueBatchedAsync()
     {
@@ -56,9 +54,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on new unique keys, so the factory and insert path are measured.
-    /// </summary>
+    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on new unique keys, so the factory and insert path are measured.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task GetOrAddMissingValueBatchedAsync()
     {
@@ -67,7 +63,7 @@ public class PublicSdkOperationsBenchmarks
         for (var i = 0; i < WriteBatch; i++)
         {
             var result = await cache.GetOrAddAsync(
-                InvariantIndexStrings.FormatPrefixedPadded("get-or-add", offset + i, "D10", 10),
+                NodeInvariantIndexStrings.FormatPrefixedPadded("get-or-add", offset + i, "D10", 10),
                 CreateValueAsync,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result.Value ?? string.Empty);
@@ -83,11 +79,11 @@ public class PublicSdkOperationsBenchmarks
         var writes = 0;
         for (var i = 0; i < MixedBatch; i++)
         {
-            if (i % 10 is 0)
+            if (i % 10 == 0)
             {
                 await cache.SetAsync(
-                    InvariantIndexStrings.FormatPrefixedPadded("mixed-write", writeOffset + writes, "D10", 10),
-                    InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
+                    NodeInvariantIndexStrings.FormatPrefixedPadded("mixed-write", writeOffset + writes, "D10", 10),
+                    NodeInvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
                     cancellationToken: CancellationToken.None).ConfigureAwait(false);
                 writes++;
                 continue;
@@ -97,21 +93,19 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Overwrites existing keys through the public <c>SetAsync</c> API.
-    /// </summary>
+    /// <summary>Overwrites existing keys through the public <c language="csharp">SetAsync</c> API.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task OverwriteExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync(_existingKeys[i], InvariantIndexStrings.FormatPrefixedPadded("overwrite", i, "D5", 5), cancellationToken: CancellationToken.None)
+        {
+            await cache.SetAsync(_existingKeys[i], NodeInvariantIndexStrings.FormatPrefixedPadded("overwrite", i, "D5", 5), cancellationToken: CancellationToken.None)
                        .ConfigureAwait(false);
+        }
     }
 
-    /// <summary>
-    /// Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.
-    /// </summary>
+    /// <summary>Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadExistingValueBatchedAsync()
     {
@@ -132,9 +126,7 @@ public class PublicSdkOperationsBenchmarks
             _consumer.Consume((await cache.GetValueAsync(_expiringKeys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
     }
 
-    /// <summary>
-    /// Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.
-    /// </summary>
+    /// <summary>Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadMissingValueBatchedAsync()
     {
@@ -159,27 +151,23 @@ public class PublicSdkOperationsBenchmarks
         await SeedBackendsAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Writes new unique keys through the public <c>SetAsync</c> API.
-    /// </summary>
+    /// <summary>Writes new unique keys through the public <c language="csharp">SetAsync</c> API.</summary>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task WriteNewValueBatchedAsync()
     {
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
+        {
             await cache.SetAsync(
-                InvariantIndexStrings.FormatPrefixedPadded("write", offset + i, "D10", 10),
-                InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
+                NodeInvariantIndexStrings.FormatPrefixedPadded("write", offset + i, "D10", 10),
+                NodeInvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
-    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken)
-    {
-        _ = key;
-        _ = cancellationToken;
+    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("Factory must not be called for an existing key.");
-    }
 
     private static Task<string?> CreateValueAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>($"created:{key}");
 
@@ -189,11 +177,11 @@ public class PublicSdkOperationsBenchmarks
 
         for (var i = 0; i < KeyCount; i++)
         {
-            await cache.SetAsync(_existingKeys[i], InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5), cancellationToken: CancellationToken.None)
+            await cache.SetAsync(_existingKeys[i], NodeInvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5), cancellationToken: CancellationToken.None)
                        .ConfigureAwait(false);
             await cache.SetAsync(
                 _expiringKeys[i],
-                InvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5),
+                NodeInvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5),
                 new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) },
                 CancellationToken.None).ConfigureAwait(false);
         }
@@ -203,9 +191,9 @@ public class PublicSdkOperationsBenchmarks
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _existingKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("existing", i, "D5", 5);
-            _missingKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("missing", i, "D5", 5);
-            _expiringKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5);
+            _existingKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("existing", i, "D5", 5);
+            _missingKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("missing", i, "D5", 5);
+            _expiringKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5);
         }
     }
 }

@@ -1,9 +1,11 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Enforces Pipelined segment count and total byte caps.</summary>
+[Immutable]
 internal sealed class JournalSegmentPolicy
 {
     private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";
@@ -26,16 +28,12 @@ internal sealed class JournalSegmentPolicy
 
     private int SegmentCountProbeLimit { get; }
 
-    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes)
+    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes) => (usedBytes >= maxBytes, usedBytes >= highWaterBytes) switch
     {
-        if (usedBytes >= maxBytes)
-            return "critical";
-
-        if (usedBytes >= highWaterBytes)
-            return "high";
-
-        return "normal";
-    }
+        (true, _) => "critical",
+        (false, true) => "high",
+        (false, false) => "normal",
+    };
 
     internal void EnsureAppendCapacityOrThrow(long onDiskTotalBytes, int incomingFrameBytes)
     {
@@ -46,15 +44,15 @@ internal sealed class JournalSegmentPolicy
 
     internal void EnsureRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) => EnsureCapacityOrThrow(onDiskSegmentCount + 1, onDiskTotalBytes);
 
+    /// <summary>Roll capacity check for a pre-created target (crash aftermath): the target file is already counted, so it must not consume another segment slot.</summary>
+    /// <param name="onDiskSegmentCount">Current on-disk journal segment count, including the pre-created target.</param>
+    /// <param name="onDiskTotalBytes">Current on-disk journal total bytes, including the pre-created target header.</param>
+    internal void EnsurePrecreatedRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) =>
+        EnsureCapacityOrThrow(onDiskSegmentCount, onDiskTotalBytes);
+
     internal bool ShouldRollSegment(long activeSegmentWrittenBytes, int incomingFrameBytes) => activeSegmentWrittenBytes + incomingFrameBytes > _maxSegmentBytes;
 
-    private static int Clamp(int value, int defaultValue, int hardMax)
-    {
-        if (value <= 0)
-            return defaultValue;
-
-        return Math.Min(value, hardMax);
-    }
+    private static int Clamp(int value, int defaultValue, int hardMax) => value <= 0 ? defaultValue : Math.Min(value, hardMax);
 
     private static long ClampMb(int valueMb, int defaultMb, int hardMaxMb)
     {

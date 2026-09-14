@@ -1,11 +1,12 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
 using System.Diagnostics;
 using System.Globalization;
 
 var runs = new[]
 {
-    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.CallPolicyTests", "CallPolicy unit tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.NodeCallPolicyTests", "CallPolicy unit tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.TimeoutBehaviorIntegrationTests", "Timeout behavior integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.DrainAndShutdownIntegrationTests", "Drain and shutdown integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Metrics.CallPolicyContentionMetricsIntegrationTests", "Call-policy metrics integration tests"),
@@ -14,7 +15,7 @@ var runs = new[]
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -66,7 +67,7 @@ while (argIndex < argv.Length)
 
 var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
     return await FailAsync("dotnet executable path is unavailable.").ConfigureAwait(false);
 
 for (var iteration = 1; iteration <= iterations; iteration++)
@@ -90,7 +91,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
             list.Add("--no-build");
 
         var code = await RunDotnetAsync(dotnetPath, repoRoot, list, CancellationToken.None).ConfigureAwait(false);
-        if (code is not 0)
+        if (code != 0)
         {
             return await FailAsync(
                 $"Failed: {run.Label} on iteration {iteration.ToString(CultureInfo.InvariantCulture)}.",
@@ -108,10 +109,10 @@ static string ResolveRepoRoot()
     var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
     var current = new DirectoryInfo(startDir);
 
-    while (current is not null)
+    while (current != null)
     {
-        var hasSolution = File.Exists(Path.Combine(current.FullName, "squirix.slnx"));
-        var hasCoreProject = File.Exists(Path.Combine(current.FullName, "src", "squirix", "Squirix.csproj"));
+        var hasSolution = File.Exists(Path.Join(current.FullName, "squirix.slnx"));
+        var hasCoreProject = File.Exists(Path.Join(current.FullName, "src", "squirix", "Squirix.csproj"));
         if (hasSolution || hasCoreProject)
             return current.FullName;
 
@@ -126,7 +127,7 @@ static string? ResolveDotnetPath()
     var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
     if (!string.IsNullOrWhiteSpace(dotnetRoot))
     {
-        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         if (File.Exists(dotnetRootCandidate))
             return Path.GetFullPath(dotnetRootCandidate);
     }
@@ -137,9 +138,7 @@ static string? ResolveDotnetPath()
         var processFileName = Path.GetFileName(processPath);
         if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-        {
             return Path.GetFullPath(processPath);
-        }
     }
 
     var pathValue = Environment.GetEnvironmentVariable("PATH");
@@ -149,7 +148,7 @@ static string? ResolveDotnetPath()
     var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
     foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     {
-        var pathCandidate = Path.Combine(segment, executableName);
+        var pathCandidate = Path.Join(segment, executableName);
         if (File.Exists(pathCandidate))
             return Path.GetFullPath(pathCandidate);
     }
@@ -169,7 +168,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadO
         processStartInfo.ArgumentList.Add(arg);
 
     using var proc = Process.Start(processStartInfo);
-    if (proc is not null)
+    if (proc != null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;

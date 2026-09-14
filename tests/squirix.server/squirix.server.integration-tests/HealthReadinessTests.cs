@@ -1,5 +1,4 @@
 using System;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -10,14 +9,14 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// Integration tests for the <c>/health/ready/details</c> endpoint.
+/// Integration tests for the <c language="csharp">/health/ready/details</c> endpoint.
 /// Verifies that readiness reporting includes journal backlog, snapshot status,
 /// compaction state, and client pool configuration.
 /// </summary>
 public sealed class HealthReadinessTests : NodeIntegrationTestBase
 {
     /// <summary>
-    /// Ensures the <c>/health/ready/details</c> endpoint reports all core signals:
+    /// Ensures the <c language="csharp">/health/ready/details</c> endpoint reports all core signals:
     /// <list type="bullet">
     ///     <item>
     ///         <description>journal backlog size is non-zero after writes.</description>
@@ -37,7 +36,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     /// </list>
     /// </summary>
     [Fact]
-    public async Task ReadyDetailsEndpointReportsReadinessSignals()
+    public async Task ReadyDetailsReportsReadinessSignals()
     {
         var uri = GetNextHttpUri();
 
@@ -63,7 +62,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.True(json.TryGetProperty("clientPool", out var pool));
         Assert.Equal(JsonValueKind.Object, pool.ValueKind);
         Assert.True(pool.TryGetProperty("configured", out var configured));
-        Assert.True(configured.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(configured.ValueKind == JsonValueKind.True || configured.ValueKind == JsonValueKind.False);
         Assert.True(pool.TryGetProperty("peers", out var peersCount));
         Assert.True(peersCount.GetInt32() >= 1);
     }
@@ -75,7 +74,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.True(compaction.TryGetProperty("state", out var stateProp));
         Assert.Equal(JsonValueKind.String, stateProp.ValueKind);
         Assert.True(compaction.TryGetProperty("inFlight", out var compInFlight));
-        Assert.True(compInFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(compInFlight.ValueKind == JsonValueKind.True || compInFlight.ValueKind == JsonValueKind.False);
     }
 
     private static void AssertCoordinationReadiness(JsonElement json)
@@ -109,7 +108,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.Equal(JsonValueKind.Number, highWater.ValueKind);
         Assert.Equal(maxBytes.GetInt64() * JournalSegmentLimits.HighWaterPercent / 100L, highWater.GetInt64());
         Assert.True(journalDisk.TryGetProperty("writeRejectionActive", out var rejection));
-        Assert.True(rejection.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(rejection.ValueKind == JsonValueKind.True || rejection.ValueKind == JsonValueKind.False);
     }
 
     private static void AssertJournalReadiness(JsonElement json)
@@ -143,7 +142,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.True(json.TryGetProperty("retentionCleanup", out var retentionCleanup));
         Assert.Equal(JsonValueKind.Object, retentionCleanup.ValueKind);
         Assert.True(retentionCleanup.TryGetProperty("degraded", out var degraded));
-        Assert.True(degraded.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(degraded.ValueKind == JsonValueKind.True || degraded.ValueKind == JsonValueKind.False);
         Assert.True(retentionCleanup.TryGetProperty("consecutiveWriteFailures", out var consecutive));
         Assert.Equal(JsonValueKind.Number, consecutive.ValueKind);
         Assert.True(retentionCleanup.TryGetProperty("recentFailureCount", out var recent));
@@ -153,16 +152,18 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     private static void AssertSnapshotReadiness(JsonElement json)
     {
         Assert.True(json.TryGetProperty("snapshotInFlight", out var snpFlight));
-        Assert.True(snpFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(snpFlight.ValueKind == JsonValueKind.True || snpFlight.ValueKind == JsonValueKind.False);
 
         Assert.True(json.TryGetProperty("snapshotAgeSeconds", out var snpAge));
-        Assert.True(snpAge.ValueKind is JsonValueKind.Null or JsonValueKind.Number);
+        Assert.True(snpAge.ValueKind == JsonValueKind.Null || snpAge.ValueKind == JsonValueKind.Number);
     }
 
     private async Task<JsonElement> FetchReadyDetailsAsync(Uri uri)
     {
         var resp = await HttpClient.GetAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
+        var text = await resp.Content.ReadAsStringAsync(DefaultCancellationToken);
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
     }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -17,7 +17,8 @@ internal static class JournalSegmentWriterFactory
         // there once it is proven safe. For now every backend uses the memory-safe RandomAccess writer.
         return backend switch
         {
-            _ => new RandomAccessJournalSegmentWriter(),
+            JournalPlatformBackend.Auto or JournalPlatformBackend.RandomAccess => new RandomAccessJournalSegmentWriter(),
+            _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, "Unsupported journal platform backend."),
         };
     }
 
@@ -32,21 +33,20 @@ internal static class JournalSegmentWriterFactory
         {
             get
             {
-                var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+                var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
                 return RandomAccess.GetLength(handle);
             }
         }
 
-        public ValueTask DisposeAsync()
+        public void Dispose()
         {
             _handle?.Dispose();
             _handle = null;
-            return ValueTask.CompletedTask;
         }
 
         public void Fsync()
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             if (OperatingSystem.IsWindows())
 
                 // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
@@ -70,13 +70,13 @@ internal static class JournalSegmentWriterFactory
 
         public void Truncate(long length)
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             RandomAccess.SetLength(handle, length);
         }
 
         public void Write(ReadOnlySpan<byte> buffer, long fileOffset)
         {
-            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
+            var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
             RandomAccess.Write(handle, buffer, fileOffset);
         }
     }

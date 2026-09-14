@@ -16,7 +16,7 @@ public static class AspNetCoreExtensions
     /// <param name="builder">The ASP.NET Core application builder.</param>
     /// <param name="configure">Optional node configuration callback applied after any loaded settings baseline.</param>
     /// <param name="settingsPath">Optional explicit settings file path.</param>
-    /// <param name="loadDiscoveredSettings">When <see langword="true" />, loads a discovered <c>Squirix.settings.json</c> file before <paramref name="configure" />.</param>
+    /// <param name="loadDiscoveredSettings">When <see langword="true" />, loads a discovered <c language="csharp">Squirix.settings.json</c> file before <paramref name="configure" />.</param>
     /// <param name="configureExtensions">Optional package extension configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application builder.</returns>
@@ -52,13 +52,14 @@ public static class AspNetCoreExtensions
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
         var extensions = new ExtensionOptions();
         configureExtensions?.Invoke(extensions);
+        var persistenceOptions = ResolvePersistenceOptions(options);
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
             Configurator.ToClusterConfig(options),
             args =>
             {
                 args.WaitForRecovery = options.WaitForRecovery;
-                args.PersistenceOptions = ResolvePersistenceOptions(options);
+                args.PersistenceOptions = persistenceOptions;
                 args.Extensions = extensions;
             },
             cancellationToken).ConfigureAwait(false);
@@ -70,17 +71,7 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var persistenceOptions = new PersistenceOptions
-        {
-            JournalMaxSegmentMb = 64,
-            FlushIntervalMs = 10,
-        };
-        if (string.IsNullOrWhiteSpace(options.DataDirectory))
-            return persistenceOptions;
-
-        return persistenceOptions with
-        {
-            DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory),
-        };
+        var opt = new PersistenceOptions();
+        return string.IsNullOrWhiteSpace(options.DataDirectory) ? opt : opt with { DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory) };
     }
 }

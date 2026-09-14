@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -10,6 +11,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Size-checks local-owner put payloads before in-memory mutation when journaling is disabled.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -18,9 +20,12 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
 
     internal OwnerPutPayloadGuardDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        ArgumentNullException.ThrowIfNull(inner);
+        _self = self;
+        _ring = ring;
+        _inner = inner;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -60,7 +65,7 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
             return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return false;
 
         var entry = new NodeCacheEntry<T>

@@ -26,9 +26,7 @@ internal interface IMemoryUsageAccounting
     /// <param name="estimatedBytes">Non-negative estimated footprint.</param>
     void RemoveEntry(long estimatedBytes);
 
-    /// <summary>
-    /// Replaces one live entry: adjusts bytes by <paramref name="newEstimatedBytes" /> − <paramref name="oldEstimatedBytes" />.
-    /// </summary>
+    /// <summary>Replaces one live entry: adjusts bytes by <paramref name="newEstimatedBytes" /> − <paramref name="oldEstimatedBytes" />.</summary>
     /// <param name="oldEstimatedBytes">Estimated footprint of the previous live entry.</param>
     /// <param name="newEstimatedBytes">Estimated footprint of the replacement live entry.</param>
     void ReplaceEntry(long oldEstimatedBytes, long newEstimatedBytes);

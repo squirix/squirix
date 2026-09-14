@@ -5,9 +5,7 @@ namespace Squirix.Server.Core;
 /// <summary>Central validation for user cache entry keys.</summary>
 internal static class CacheKeyValidator
 {
-    /// <summary>
-    /// Maximum allowed length for a cache key (Unicode scalar values; .NET string length).
-    /// </summary>
+    /// <summary>Maximum allowed length for a cache key (Unicode scalar values; .NET string length).</summary>
     private const int MaxLength = 1024;
 
     private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
@@ -54,9 +52,7 @@ internal static class CacheKeyValidator
         return true;
     }
 
-    /// <summary>
-    /// Validates a key and returns it, or throws <see cref="ArgumentException" />.
-    /// </summary>
+    /// <summary>Validates a key and returns it, or throws <see cref="ArgumentException" />.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="parameterName">The caller parameter name for the exception.</param>
     /// <returns>The original key when valid.</returns>
@@ -66,8 +62,10 @@ internal static class CacheKeyValidator
     private static bool IsWhiteSpaceOnly(string key)
     {
         for (var i = 0; i < key.Length; i++)
+        {
             if (!char.IsWhiteSpace(key[i]))
                 return false;
+        }
 
         return true;
     }

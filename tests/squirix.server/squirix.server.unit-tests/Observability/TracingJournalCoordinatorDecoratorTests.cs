@@ -1,36 +1,35 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
-/// </summary>
-public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
+/// <summary>Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.</summary>
+[Immutable]
+public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     [Fact]
     public async Task AppendPutAsyncCreatesJournalPutSpan()
     {
-        using var dir = new TempDirectory("squirix-tracing-journal-decorator");
-        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
-        using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        using var manifestStore = new Ledger(options);
+        await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
@@ -48,23 +47,21 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
     [Theory]
     [InlineData(5)]
     [InlineData(0)]
-    public async Task AppendPutAsyncPutContextReflectsDurabilitySettings(int groupCommitMaxWaitMilliseconds)
+    public async Task PutAsyncContextReflectsDurability(int groupCommitMaxWaitMilliseconds)
     {
-        using var dir = new TempDirectory("squirix-tracing-journal-durability");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
         };
-        using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
@@ -77,26 +74,27 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
         Assert.Equal(groupCommitMaxWaitMilliseconds > 0, context.GroupCommitEnabled);
     }
 
-    /// <summary>
-    /// Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.
-    /// </summary>
+    /// <summary>Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.</summary>
+    [Immutable]
     private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
     {
+        private static readonly IJournalOperationTraceScope SharedScope = CreateNullScope();
+
         internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
 
         IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
         {
-            if (context is null)
+            if (context == null)
                 return null;
             BeginCalls.Add((kind, context));
-            return new RecordingScope();
+            return SharedScope;
         }
 
-        private sealed class RecordingScope : IJournalOperationTraceScope
+        private static IJournalOperationTraceScope CreateNullScope()
         {
-            public void Dispose()
-            {
-            }
+            var expectations = new IJournalOperationTraceScopeCreateExpectations();
+            _ = expectations.Setups.Dispose();
+            return expectations.Instance();
         }
     }
 }

@@ -1,21 +1,19 @@
 using System.Collections.Frozen;
 using System.Text;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
 /// <summary>Bounded deterministic entry-size approximation for memory accounting (v0.7.x). Not an exact CLR heap measurement.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>
-    /// Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).
-    /// </summary>
+    /// <summary>Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).</summary>
     private const int FixedPerEntryOverheadBytes = 96;
 
-    /// <summary>
-    /// Conservative fallback when no cheap payload size is derived for typed values.
-    /// </summary>
+    /// <summary>Conservative fallback when no cheap payload size is derived for typed values.</summary>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />
@@ -25,23 +23,18 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
         n += sizeof(long);
-        n += entry.ExpiresUtc is not null ? 16 : 0;
+        n += entry.ExpiresUtc != null ? 16 : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter)
-    {
-        if (payloadIsCounter)
-            return false;
-        return MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
-    }
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {
-        if (tags is null || tags.Count is 0)
+        if (tags == null || tags.Count == 0)
             return 0;
 
         long sum = 0;
@@ -56,18 +49,27 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTypedPayloadBytes(T? value)
     {
-        return value is null ? 0 : value switch
+        // A dedicated null arm detects actual null presence for unconstrained T; comparing against
+        // default(T) would also zero-size valid payloads such as 0 or default-valued structs.
+        // Numeric arms live in EstimateNumericOrFallbackBytes so this dispatch stays small.
+        return value switch
         {
+            null => 0,
             string s => Encoding.UTF8.GetByteCount(s),
             byte[] bytes => bytes.LongLength,
             bool => 1,
             char => 2,
-            sbyte or byte => 1,
-            short or ushort => 2,
-            int or uint or float => 4,
-            long or ulong or double => 8,
             decimal => 16,
-            _ => UnknownTypedPayloadFallbackBytes,
+            _ => EstimateNumericOrFallbackBytes(value),
         };
     }
+
+    private static long EstimateNumericOrFallbackBytes(T? value) => value switch
+    {
+        sbyte or byte => 1,
+        short or ushort => 2,
+        int or uint or float => 4,
+        long or ulong or double => 8,
+        _ => UnknownTypedPayloadFallbackBytes,
+    };
 }

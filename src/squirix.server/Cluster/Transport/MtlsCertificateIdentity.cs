@@ -18,9 +18,7 @@ internal static class MtlsCertificateIdentity
         return TryGetNodeId(certificate, out var nodeId) && string.Equals(nodeId, expectedNodeId, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Reads the cluster <see cref="ServerPeer.NodeId" /> from the certificate common name.
-    /// </summary>
+    /// <summary>Reads the cluster <see cref="ServerPeer.NodeId" /> from the certificate common name.</summary>
     /// <param name="certificate">ServerPeer or node certificate.</param>
     /// <param name="nodeId">Parsed node identifier when present.</param>
     /// <returns><see langword="true" /> when the certificate exposes a non-empty common name.</returns>

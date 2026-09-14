@@ -4,34 +4,42 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>
-/// Low-cardinality memory pressure metrics on the shared <see cref="ServerMeterRegistry.Meter" />.
+/// Low-cardinality memory pressure metrics on the host-scoped <see cref="Meter" />.
 /// Observable gauges aggregate active node registrations so multiple hosts in one process do not duplicate instruments.
 /// </summary>
-internal static class MemoryPressureMetrics
+[ThreadSafe]
+internal sealed class MemoryPressureMetrics
 {
-    private static readonly RegistrationCatalog Catalog = new();
-    private static readonly Lock InitLock = new();
+    private readonly RegistrationCatalog _catalog = new();
+    private readonly Lock _initLock = new();
+    private readonly Meter _meter;
 
-    internal static void Register(MetricRegistration registration)
+    internal MemoryPressureMetrics(Meter meter)
+    {
+        _meter = meter;
+    }
+
+    internal void Register(MetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
+        lock (_initLock)
         {
-            Catalog.Add(registration);
+            _catalog.Add(registration);
             EnsureInstrumentsLocked();
         }
     }
 
-    internal static void Unregister(MetricRegistration registration)
+    internal void Unregister(MetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
-            Catalog.Remove(registration);
+        lock (_initLock)
+            _catalog.Remove(registration);
     }
 
     private static (int Value, string Name) DescribePressureState(PressureLevel state)
@@ -45,29 +53,6 @@ internal static class MemoryPressureMetrics
         };
     }
 
-    private static void EnsureInstrumentsLocked()
-    {
-        if (!Catalog.TryCreateInstruments())
-            return;
-
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_cache_estimated_bytes",
-            ObserveEstimatedBytes,
-            "By",
-            "Approximate total estimated bytes for accounted live cache entries");
-
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_cache_entries",
-            ObserveEntryCount,
-            "{entry}",
-            "Approximate total entry count for accounted live cache entries");
-
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_memory_pressure_state",
-            ObservePressureState,
-            description: "Memory pressure state as 0=normal, 1=high, 2=critical (tags: node, state)");
-    }
-
     private static Measurement<long> MeasureNode(long value, string nodeId)
     {
         var tags = new TagList
@@ -77,9 +62,24 @@ internal static class MemoryPressureMetrics
         return new Measurement<long>(value, in tags);
     }
 
-    private static IEnumerable<Measurement<long>> ObserveEntryCount()
+    private void EnsureInstrumentsLocked()
     {
-        var snapshot = Catalog.SnapshotItems();
+        if (!_catalog.TryCreateInstruments())
+            return;
+
+        _ = _meter.CreateObservableGauge("squirix_cache_estimated_bytes", ObserveEstimatedBytes, "By", "Approximate total estimated bytes for accounted live cache entries");
+
+        _ = _meter.CreateObservableGauge("squirix_cache_entries", ObserveEntryCount, "{entry}", "Approximate total entry count for accounted live cache entries");
+
+        _ = _meter.CreateObservableGauge(
+            "squirix_memory_pressure_state",
+            ObservePressureState,
+            description: "Memory pressure state as 0=normal, 1=high, 2=critical (tags: node, state)");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveEntryCount()
+    {
+        var snapshot = _catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
@@ -87,9 +87,9 @@ internal static class MemoryPressureMetrics
         }
     }
 
-    private static IEnumerable<Measurement<long>> ObserveEstimatedBytes()
+    private IEnumerable<Measurement<long>> ObserveEstimatedBytes()
     {
-        var snapshot = Catalog.SnapshotItems();
+        var snapshot = _catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
@@ -97,9 +97,9 @@ internal static class MemoryPressureMetrics
         }
     }
 
-    private static IEnumerable<Measurement<int>> ObservePressureState()
+    private IEnumerable<Measurement<int>> ObservePressureState()
     {
-        var snapshot = Catalog.SnapshotItems();
+        var snapshot = _catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
@@ -129,11 +129,11 @@ internal static class MemoryPressureMetrics
             if (index < 0)
                 return;
 
-            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
+            _items = previous.Length == 1 ? [] : previous.RemoveAt(index);
         }
 
         internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;
 
-        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is 0;
+        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) == 0;
     }
 }

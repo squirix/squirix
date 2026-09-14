@@ -1,24 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Squirix.Client;
 
-/// <summary>
-/// Provides client-side configuration for remote <see cref="SquirixClient" /> sessions.
-/// </summary>
+/// <summary>Provides client-side configuration for remote <see cref="SquirixClient" /> sessions.</summary>
 public sealed class SquirixClientOptions
 {
     /// <summary>
     /// Gets or sets a delegate that provides a bearer token for each gRPC call.
     /// Called before every RPC; implementations should cache tokens when appropriate.
     /// </summary>
-    /// <remarks>
-    /// This property uses a <c>set</c> accessor (not <c>init</c>) because
-    /// <see cref="SquirixClient.ConnectAsync(Action{SquirixClientOptions}, CancellationToken)" /> constructs options first,
-    /// then invokes a configure delegate that assigns members after construction.
-    /// </remarks>
     public Func<CancellationToken, ValueTask<string>>? BearerTokenProvider { get; set; }
 
     /// <summary>Gets bootstrap Squirix server endpoints used by remote clients.</summary>
@@ -30,15 +24,35 @@ public sealed class SquirixClientOptions
     ///     <para>
     ///     Connect succeeds when at least one endpoint is reachable (in list order).
     ///     After connect, single-RPC operations fail over to the next bootstrap endpoint on transport-level errors
-    ///     (for example gRPC <c>Unavailable</c>).
+    ///     (for example gRPC <c language="csharp">Unavailable</c>).
     ///     </para>
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
     public IList<Uri> Endpoints { get; } = [];
 
     /// <summary>
+    /// Gets application-provided source-generation contexts consulted by the default serializer
+    /// when resolving cache value metadata.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     Contexts are registered when the session connects. Registration is additive and process-wide
+    ///     (duplicates are ignored); the built-in default context is always consulted first, so this
+    ///     collection only needs contexts covering application-specific cache value types.
+    ///     </para>
+    ///     <para>
+    ///     Only the default serializer uses this chain. A custom <see cref="Serializer" /> implementation
+    ///     is responsible for its own metadata. Source-generated contexts keep NativeAOT trimming safe:
+    ///     types without registered metadata throw <see cref="InvalidOperationException" /> instead of
+    ///     falling back to reflection.
+    ///     </para>
+    /// </remarks>
+    public IList<JsonSerializerContext> JsonSerializerContexts { get; } = [];
+
+    /// <summary>
     /// Gets or sets the serializer implementation used by the client session created from these options.
-    /// Leave null to use the default <see cref="SystemTextJsonSerializer" /> for this client.
+    /// Leave null to use the default <see cref="SystemTextJsonSerializer" /> for this client,
+    /// extended with <see cref="JsonSerializerContexts" />.
     /// </summary>
     /// <remarks>
     ///     <para>
@@ -46,7 +60,7 @@ public sealed class SquirixClientOptions
     ///     process-wide serializer state.
     ///     </para>
     ///     <para>
-    ///     This property uses a <c>set</c> accessor (not <c>init</c>) because
+    ///     This property uses a <c language="csharp">set</c> accessor (not <c language="csharp">init</c>) because
     ///     <see cref="SquirixClient.ConnectAsync(Action{SquirixClientOptions}, CancellationToken)" /> constructs options first,
     ///     then invokes a configure delegate that assigns members after construction.
     ///     </para>

@@ -3,26 +3,27 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
-/// </summary>
-public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
+/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.</summary>
+[Immutable]
+public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
-    /// <summary>Ensures canceling pending group-commit waiters propagates journal pipeline failures.</summary>
+    /// <summary>Ensures canceling pending group-commit acks propagates journal pipeline failures.</summary>
     [Fact]
-    public async Task CancelPendingFailsPendingGroupCommitWaiters()
+    public async Task CancelPendingFailsPendingGroupCommitAcks()
     {
         var options = new PersistenceOptions
         {
@@ -32,20 +33,35 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var failure = new IOException("journal pipeline failed");
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
 
-        var waiter = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        await groupCommit.CancelPendingAsync(failure);
-        await WaitUntilCompletedAsync(waiter);
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        groupCommit.CancelPending(failure);
+        await ack.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
-        Assert.True(waiter.IsFaulted);
-        Assert.Same(failure, waiter.Exception?.InnerException);
+        Assert.True(ack.IsFaulted);
+        Assert.Same(failure, ack.Exception?.InnerException);
+    }
+
+    /// <summary>Ensures waits admitted after CancelPending fail fast instead of parking on a dead batch.</summary>
+    [Fact]
+    public async Task AwaitCommitAfterCancelPendingThrows()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
+        groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
     }
 
     /// <summary>
-    /// Ensures canceling a waiter after its batch was taken but before flush completion does not
-    /// return the pooled waiter early and poison later durability waits.
+    /// Ensures canceling an ack after its batch was taken but before flush completion does not
+    /// break the in-flight batch or later durability waits.
     /// </summary>
     [Fact]
-    public async Task GroupCommitCancelInFlightBatchDoesNotPoisonPool()
+    public async Task CancelInFlightBatchKeepsCommitsUsable()
     {
         var options = new PersistenceOptions
         {
@@ -80,24 +96,27 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         await firstCts.CancelAsync();
         flushGate.ReleaseFlush();
 
-        await WaitUntilCompletedAsync(first);
-        await WaitUntilCompletedAsync(second);
-        await WaitUntilCompletedAsync(third);
-        await WaitUntilCompletedAsync(fourth);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await third.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await fourth.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(first.IsCanceled);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.True(third.IsCompletedSuccessfully);
+        Assert.True(fourth.IsCompletedSuccessfully);
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(followUp);
+        await followUp.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(followUp.IsCompletedSuccessfully);
     }
 
-    /// <summary>Ensures canceling the only pending waiter leaves the next group commit batch usable.</summary>
+    /// <summary>Ensures canceling the only pending ack leaves the next group commit batch usable.</summary>
     [Fact]
-    public async Task GroupCommitCanceledWaiterDoesNotPoisonFutureBatch()
+    public async Task CanceledAckDoesNotPoisonFutureBatch()
     {
         var options = new PersistenceOptions
         {
@@ -114,20 +133,20 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var canceled = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(canceledCts.Token));
         await canceledCts.CancelAsync();
 
-        await WaitUntilCompletedAsync(canceled);
+        await canceled.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(canceled.IsCanceled);
 
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(second);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
         Assert.Equal(1, flushCounter.Value);
     }
 
-    /// <summary>Ensures a delayed flush failure fails pending waiters instead of leaving them pending.</summary>
+    /// <summary>Ensures a delayed flush failure fails pending acks instead of leaving them pending.</summary>
     [Fact]
-    public async Task GroupCommitDelayFlushFailureFailsPendingWaiters()
+    public async Task DelayFlushFailureFailsWaiters()
     {
         var options = new PersistenceOptions
         {
@@ -145,8 +164,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
 
-        await WaitUntilCompletedAsync(first);
-        await WaitUntilCompletedAsync(second);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         var firstFailure = Assert.IsType<InvalidOperationException>(first.Exception?.InnerException);
         var secondFailure = Assert.IsType<InvalidOperationException>(second.Exception?.InnerException);
 
@@ -154,9 +173,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         Assert.Same(flushFailure, secondFailure);
     }
 
-    /// <summary>Ensures cancellation of the first waiter does not cancel the shared delayed flush for other waiters.</summary>
+    /// <summary>Ensures cancellation of the first ack does not cancel the shared delayed flush for other acks.</summary>
     [Fact]
-    public async Task GroupCommitFirstWaiterCancelOtherWaiters()
+    public async Task GroupCommitFirstAckCancelOtherAcks()
     {
         var options = new PersistenceOptions
         {
@@ -175,37 +194,35 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         await firstCts.CancelAsync();
 
-        await WaitUntilCompletedAsync(first);
+        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(first.IsCanceled);
 
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(second);
+        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
 
         Assert.Equal(1, flushCounter.Value);
     }
 
     /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
     [Fact]
-    public async Task GroupCommitFsyncCompletesBeforeMemoryApply()
+    public async Task FsyncCompletesBeforeMemoryApply()
     {
-        using var dir = new TempDirectory("squirix-journal-group-commit-fsync");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
-        using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var executor = new DurableMutationExecutor(journal);
         var key = CacheKey.Default("k");
         var payload = JournalEntryPayloadKit.EncodePut("v");
@@ -229,9 +246,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask();
     }
 
-    /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
+    /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
     [Fact]
-    public async Task GroupCommitImmediateBatchFlushRacesDelayTimer()
+    public async Task ImmediateFlushRacesDelayTimer()
     {
         var options = new PersistenceOptions
         {
@@ -243,43 +260,41 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var time = new FakeTimeProvider();
         var groupCommit = CreateGroupCommit(flushCounter.IncrementAction, options, time);
 
-        var waiters = new Task[8];
-        for (var i = 0; i < waiters.Length; i++)
-            waiters[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var acks = new Task[8];
+        for (var i = 0; i < acks.Length; i++)
+            acks[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
         groupCommit.DrainDueBatchesOnJournalThread();
         groupCommit.DrainDueBatchesOnJournalThread();
 
-        await Task.WhenAll(waiters);
+        await Task.WhenAll(acks);
 
-        foreach (var waiter in waiters)
-            Assert.True(waiter.IsCompletedSuccessfully);
+        foreach (var ack in acks)
+            Assert.True(ack.IsCompletedSuccessfully);
 
         Assert.True(flushCounter.Value >= 1);
     }
 
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
-    public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
+    public async Task OneFlushSharedByConcurrentAcks()
     {
-        using var dir = new TempDirectory("squirix-journal-group-commit-batch");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(50),
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
 
         await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), DefaultCancellationToken);
         await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
@@ -294,33 +309,31 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
     /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>
     [Fact]
-    public async Task JournalPipelineFailureFailsCommitDurabilityWait()
+    public async Task PipelineFailureFailsDurabilityWait()
     {
-        using var dir = new TempDirectory("squirix-journal-gc-pipeline-fail");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
             JournalGroupCommitMaxBatch = 32,
         };
 
-        using var manifestStore = new ManifestStore(options);
-        var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
 
         try
         {
             await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
             await journal.DisposeAsync();
-            await WaitUntilCompletedAsync(durability);
+            await durability.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
             Assert.True(durability.IsFaulted);
         }
         finally
@@ -332,15 +345,6 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
 
     private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, options, time);
-
-    private static async Task WaitUntilCompletedAsync(Task task)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
-
-        Assert.True(task.IsCompleted);
-    }
 
     private sealed class AtomicCounter
     {
@@ -358,6 +362,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         internal void Increment() => _ = Interlocked.Increment(ref _value);
     }
 
+    [Immutable]
     private sealed class FailingFlush
     {
         private readonly Exception _exception;
@@ -373,6 +378,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         private void Throw() => throw _exception;
     }
 
+    [Immutable]
     private sealed class InFlightFlushGate : IDisposable
     {
         private readonly CancellationToken _cancellationToken;

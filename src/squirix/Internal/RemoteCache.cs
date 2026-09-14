@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Core;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport.Grpc;
@@ -12,6 +13,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
 
+[Immutable]
 internal sealed class RemoteCache<T> : ICache<T>
 {
     private readonly string _cacheName;
@@ -22,7 +24,8 @@ internal sealed class RemoteCache<T> : ICache<T>
     internal RemoteCache(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
     {
         _cacheName = CacheName.ParsePublic(cacheName).Canonical;
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        ArgumentNullException.ThrowIfNull(serializer);
+        _serializer = serializer;
         _rpc = new RemoteCacheRpc(_cacheName, failover, clients, serializer);
     }
 
@@ -36,7 +39,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = await GetEntryOrDefaultAsync(key, cancellationToken).ConfigureAwait(false);
-        return entry is null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
+        return entry == null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
     }
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
@@ -127,7 +130,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
         var request = _rpc.ToSetEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -144,7 +146,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(expiration));
+        expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
@@ -167,7 +169,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     public Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default)
     {
         var expiration = absoluteExpiration.UtcDateTime - DateTime.UtcNow;
-        ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(absoluteExpiration));
+        expiration.ThrowIfNegativeOrZero(nameof(absoluteExpiration), "expiration must be greater than zero.");
         return TouchAsync(key, expiration, cancellationToken);
     }
 
@@ -175,7 +177,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
         var request = _rpc.ToTryAddEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
@@ -218,7 +219,6 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
         var entry = RemoteCacheRpc.ToEntry(created, state.Options);
-        OperationInputValidator.ValidateEntry(entry);
 
         var request = state.Cache._rpc.ToGetOrAddAsyncRequest(state.Key, entry);
         request.OperationId = RpcOperationIdentity.New();
@@ -231,7 +231,8 @@ internal sealed class RemoteCache<T> : ICache<T>
             request,
             cancellationToken).ConfigureAwait(false);
 
-        return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false));
+        return response.Found ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false))
+            : new CacheValueResult<T>(false, default);
     }
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
@@ -248,32 +249,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
     }
 
+    [Immutable]
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
-    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
-    private static class ExpirationInputValidator
-    {
-        /// <summary>
-        /// Ensures <paramref name="expiration" /> is greater than zero.
-        /// </summary>
-        /// <param name="expiration">The expiration to validate.</param>
-        /// <param name="parameterName">The caller parameter name for exceptions.</param>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
-        internal static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
-        {
-            if (expiration <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(parameterName, expiration, "expiration must be greater than zero.");
-        }
-    }
-
-    /// <summary>Validates single-operation payloads such as cache entries and non-null factory delegates.</summary>
-    private static class OperationInputValidator
-    {
-        /// <summary>Validates a cache entry reference.</summary>
-        /// <param name="entry">The entry to validate.</param>
-        internal static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
-    }
-
+    [Immutable]
     private sealed class RemoteCacheRpc
     {
         private readonly string _cacheName;
@@ -284,22 +263,24 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal RemoteCacheRpc(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
         {
             _cacheName = cacheName;
-            _failover = failover ?? throw new ArgumentNullException(nameof(failover));
-            _clients = clients ?? throw new ArgumentNullException(nameof(clients));
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            ArgumentNullException.ThrowIfNull(failover);
+            ArgumentNullException.ThrowIfNull(clients);
+            ArgumentNullException.ThrowIfNull(serializer);
+            _failover = failover;
+            _clients = clients;
+            _serializer = serializer;
         }
 
         internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
         {
-            if (options?.Expiration is not null && options.ExpiresAt is not null)
-                throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
-
-            return new CacheEntry<T>
+            const string message = "Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.";
+            var entry = new CacheEntry<T>
             {
                 Value = value,
                 Expiration = options?.Expiration,
                 ExpiresUtc = options?.ExpiresAt?.UtcDateTime,
             };
+            return options is { Expiration: not null, ExpiresAt: not null } ? throw new ArgumentException(message, nameof(options)) : entry;
         }
 
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
@@ -358,30 +339,25 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         private static class CacheOperationContract
         {
-            private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
+            private const string InsertVersionMustExceedCurrentPrefix = "Version must be greater than current (current=";
 
             /// <summary>
             /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
-            /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
+            /// distinct from CAS <c language="csharp">Version mismatch</c> and routing <c language="csharp">StaleOwner</c> texts.
             /// </summary>
             /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter increment type mismatch.</returns>
+            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter-increment type mismatch.</returns>
             internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
                                                                                             detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
                                                                                                 "expected",
                                                                                                 StringComparison.OrdinalIgnoreCase);
 
-            /// <summary>
-            /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
-            /// </summary>
+            /// <summary>Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.</summary>
             /// <param name="message">An exception or RPC status detail string.</param>
             /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
             internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                             message.StartsWith(
-                                                                                                 InsertVersionMustExceedCurrentMessagePrefix,
-                                                                                                 StringComparison.Ordinal) && message.Contains(
-                                                                                                 ", provided=",
-                                                                                                 StringComparison.Ordinal);
+                                                                                             message.StartsWith(InsertVersionMustExceedCurrentPrefix, StringComparison.Ordinal) &&
+                                                                                             message.Contains(", provided=", StringComparison.Ordinal);
 
             internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
 
@@ -394,14 +370,14 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             /// <summary>
             /// Stable contract classification for cache-operation transport faults that must stay aligned across
-            /// REST projections, gRPC adapters, remote cluster helpers, and <c>DomainTransportErrorMapper</c>.
+            /// gRPC adapters, remote cluster helpers, and <c language="csharp">DomainTransportErrorMapper</c>.
             /// </summary>
             private enum CacheOperationFailedPreconditionKind
             {
                 /// <summary>No recognized stable contract for the given detail string.</summary>
                 None = 0,
 
-                /// <summary>Counter increment type mismatch (FailedPrecondition detail).</summary>
+                /// <summary>Counter-increment type mismatch (FailedPrecondition detail).</summary>
                 CounterIncrementTypeMismatch = 1,
 
                 /// <summary>Explicit insert version is not greater than the stored version (FailedPrecondition detail).</summary>
@@ -422,20 +398,20 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
             /// <remarks>
             /// Classification order matches the domain transport error mapper historical behavior:
-            /// counter increment type mismatch is evaluated before insert-version precondition text.
+            /// counter-increment type mismatch is evaluated before insert-version precondition text.
             /// </remarks>
             private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
             {
-                if (CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail))
-                    return CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch;
-
-                if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
-                    return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
-
-                if (CacheOperationContract.IsOperationIdReuseMismatchMessage(detail))
-                    return CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
-
-                return CacheOperationFailedPreconditionKind.None;
+                var counterMismatch = CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail);
+                var versionDowngrade = CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail);
+                var idReuse = CacheOperationContract.IsOperationIdReuseMismatchMessage(detail);
+                return (counterMismatch, versionDowngrade, idReuse) switch
+                {
+                    (true, _, _) => CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch,
+                    (false, true, _) => CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent,
+                    (false, false, true) => CacheOperationFailedPreconditionKind.OperationIdReuseMismatch,
+                    (false, false, false) => CacheOperationFailedPreconditionKind.None,
+                };
             }
         }
 
@@ -445,6 +421,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
             /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
             /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
+            /// <exception cref="CommitOutcomeUnknownException">When the server reports an ambiguous durable commit outcome.</exception>
             /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
             [DoesNotReturn]
             internal static void Map(RpcException ex)
@@ -456,6 +433,10 @@ internal sealed class RemoteCache<T> : ICache<T>
 
                 if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
                     throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
+
+                var commitUnknown = CommitOutcomeUnknownClassifier.Map(ex);
+                if (commitUnknown != null)
+                    throw commitUnknown;
 
                 ExceptionDispatchInfo.Capture(ex).Throw();
             }

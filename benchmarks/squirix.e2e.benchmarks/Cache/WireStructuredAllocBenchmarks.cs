@@ -13,12 +13,12 @@ public class WireStructuredAllocBenchmarks : WireAllocBenchmarkBase<BenchmarkUse
 {
     /// <summary>Re-seeds expiring entries outside the measured remove-expiration benchmark body.</summary>
     [IterationSetup(Target = nameof(RemoveExpirationAsync))]
-    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "BenchmarkDotNet IterationSetup must return void on concrete benchmark types.")]
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
     public void SeedRemoveExpirationIteration() => SeedRemoveExpirationIterationCoreAsync().GetAwaiter().GetResult();
 
     /// <summary>Re-seeds hit keys outside the measured remove benchmark body.</summary>
     [IterationSetup(Target = nameof(RemoveAsync))]
-    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "BenchmarkDotNet IterationSetup must return void on concrete benchmark types.")]
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
     public void SeedRemoveIteration() => SeedRemoveIterationCoreAsync().GetAwaiter().GetResult();
 
     /// <inheritdoc />

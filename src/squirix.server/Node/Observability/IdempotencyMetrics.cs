@@ -4,72 +4,75 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Low-cardinality idempotency store metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
-internal static class IdempotencyMetrics
+/// <summary>Low-cardinality idempotency store metrics on the host-scoped <see cref="Meter" />.</summary>
+[ThreadSafe]
+internal sealed class IdempotencyMetrics
 {
-    private static readonly RegistrationCatalog Catalog = new();
+    private readonly RegistrationCatalog _catalog = new();
+    private readonly Counter<long> _evictionsTotal;
+    private readonly Lock _initLock = new();
+    private readonly Meter _meter;
+    private readonly Counter<long> _rejectionsTotal;
 
-    private static readonly Counter<long> EvictionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_idempotency_evictions_total",
-        "{eviction}",
-        "Idempotency store evictions when enforcing the in-flight record cap");
-
-    private static readonly Lock InitLock = new();
-
-    private static readonly Counter<long> RejectionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_idempotency_rejections_total",
-        "{rejection}",
-        "Idempotency store rejections when the in-flight record cap cannot be satisfied");
-
-    internal static void RecordEviction(string nodeId)
+    internal IdempotencyMetrics(Meter meter)
     {
-        var tags = NodeTags(nodeId);
-        EvictionsTotal.Add(1, in tags);
+        _meter = meter;
+        _evictionsTotal = meter.CreateCounter<long>("squirix_idempotency_evictions_total", "{eviction}", "Idempotency store evictions when enforcing the in-flight record cap");
+        _rejectionsTotal = meter.CreateCounter<long>(
+            "squirix_idempotency_rejections_total",
+            "{rejection}",
+            "Idempotency store rejections when the in-flight record cap cannot be satisfied");
     }
 
-    internal static void RecordRejection(string nodeId)
+    internal void RecordEviction(string nodeId)
     {
         var tags = NodeTags(nodeId);
-        RejectionsTotal.Add(1, in tags);
+        _evictionsTotal.Add(1, in tags);
     }
 
-    internal static void Register(IdempotencyMetricRegistration registration)
+    internal void RecordRejection(string nodeId)
+    {
+        var tags = NodeTags(nodeId);
+        _rejectionsTotal.Add(1, in tags);
+    }
+
+    internal void Register(IdempotencyMetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
+        lock (_initLock)
         {
-            Catalog.Add(registration);
+            _catalog.Add(registration);
             EnsureInstrumentsLocked();
         }
     }
 
-    internal static void Unregister(IdempotencyMetricRegistration registration)
+    internal void Unregister(IdempotencyMetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        lock (InitLock)
-            Catalog.Remove(registration);
+        lock (_initLock)
+            _catalog.Remove(registration);
     }
 
-    private static void EnsureInstrumentsLocked()
+    private static TagList NodeTags(string nodeId) => new()
     {
-        if (!Catalog.TryCreateInstruments())
+        { "node", nodeId },
+    };
+
+    private void EnsureInstrumentsLocked()
+    {
+        if (!_catalog.TryCreateInstruments())
             return;
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
+        _ = _meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
     }
 
-    private static TagList NodeTags(string nodeId) =>
-        new()
-        {
-            { "node", nodeId },
-        };
-
-    private static IEnumerable<Measurement<long>> ObserveRecordCount()
+    private IEnumerable<Measurement<long>> ObserveRecordCount()
     {
-        var snapshot = Catalog.SnapshotItems();
+        var snapshot = _catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
@@ -93,11 +96,11 @@ internal static class IdempotencyMetrics
             if (index < 0)
                 return;
 
-            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
+            _items = previous.Length == 1 ? [] : previous.RemoveAt(index);
         }
 
         internal ImmutableArray<IdempotencyMetricRegistration> SnapshotItems() => _items;
 
-        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is 0;
+        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) == 0;
     }
 }

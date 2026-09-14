@@ -9,6 +9,7 @@ routing configuration.
 - Durability is per node. There is no replication or automatic failover.
 - Multi-key operations are not transactions across owners.
 - Memory pressure may reject growing writes before they are persisted.
+- Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted.
 
 ## Non-goals (v0.1 preview)
 

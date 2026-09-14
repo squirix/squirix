@@ -11,7 +11,7 @@ using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;
 
-internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
+internal sealed class SnapshotBenchmarkHost : IDisposable
 {
     private readonly TempDirectory _dataDir;
     private readonly IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
@@ -28,11 +28,7 @@ internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
 
     internal ISnapshotReader Reader { get; }
 
-    public ValueTask DisposeAsync()
-    {
-        _dataDir.Dispose();
-        return ValueTask.CompletedTask;
-    }
+    public void Dispose() => _dataDir.Dispose();
 
     internal static Task<SnapshotBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options, int entryCount)
     {
@@ -46,17 +42,17 @@ internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
         {
             object? value = (i % 3) switch
             {
-                0 => $"value-{InvariantIndexStrings.Format(i)}",
+                0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
                 1 => i,
                 _ => i * 1.5d,
             };
-            items.Add((CacheKey.Default($"key-{InvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+            items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
         }
 
         return Task.FromResult(new SnapshotBenchmarkHost(dataDir, persistence, items));
     }
 
-    internal Task<string> WriteNextSnapshotAsync()
+    internal ValueTask<string> WriteNextSnapshotAsync()
     {
         _nextIndex++;
         return _writer.WriteAsync(_nextIndex, _items, [], CancellationToken.None);

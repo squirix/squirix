@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
@@ -22,6 +23,7 @@ internal static class RecoveryReplayTestRegistration
 
     /// <summary>Delays durable recovery replay until a test signal is released.</summary>
     /// <typeparam name="T">The stored value type.</typeparam>
+    [Immutable]
     private sealed class DelayedLocalCacheRecoveryDecorator<T> : ILocalCacheRecovery<T>
     {
         private readonly ILocalCacheRecovery<T> _inner;
@@ -29,35 +31,38 @@ internal static class RecoveryReplayTestRegistration
 
         internal DelayedLocalCacheRecoveryDecorator(ILocalCacheRecovery<T> inner, RecoveryReplayDelaySignal signal)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-            _signal = signal ?? throw new ArgumentNullException(nameof(signal));
+            ArgumentNullException.ThrowIfNull(inner);
+            ArgumentNullException.ThrowIfNull(signal);
+            _inner = inner;
+            _signal = signal;
         }
 
-        public async ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _inner.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> RemoveExpirationForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
+        public async ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
+        public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<bool> TouchExpirationForDurableRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
+        public async ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
+            return await _inner.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
         }
     }
 
+    [Immutable]
     private sealed class DelayedReplayConfigure
     {
         private readonly RecoveryReplayDelaySignal _signal;
@@ -83,8 +88,10 @@ internal static class RecoveryReplayTestRegistration
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)
+            {
                 if (services[i].ServiceType == typeof(TService))
                     services.RemoveAt(i);
+            }
 
             _ = services.AddSingleton(factory);
         }
@@ -93,8 +100,10 @@ internal static class RecoveryReplayTestRegistration
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)
+            {
                 if (services[i].ServiceType == typeof(TService))
                     services.RemoveAt(i);
+            }
 
             _ = services.AddSingleton(instance);
         }

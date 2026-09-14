@@ -1,20 +1,21 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests for <see cref="OptionsResolver" />.
-/// </summary>
+/// <summary>Tests for <see cref="OptionsResolver" />.</summary>
+[Immutable]
 public sealed class PressureOptionsResolverTests
 {
     /// <summary>Verifies unset max bytes defaults to 80% of available memory.</summary>
     [Fact]
     public void ResolveDefaultsMaxBytesToRamCap()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(1_000_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(1_000_000));
 
         Assert.Equal(800_000L, resolved.MaxEstimatedCacheBytes);
     }
@@ -23,7 +24,7 @@ public sealed class PressureOptionsResolverTests
     [Fact]
     public void ResolvePreservesConfiguredMaxBelowCap()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000 }, new FixedMemoryBudgetProvider(1_000_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000 }, RocksDoubles.CreateMemoryBudget(1_000_000));
 
         Assert.Equal(500_000L, resolved.MaxEstimatedCacheBytes);
     }
@@ -34,9 +35,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             900_000L,
-            static value => _ = OptionsResolver.Resolve(
-                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
-                new FixedMemoryBudgetProvider(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, RocksDoubles.CreateMemoryBudget(1_000_000)));
 
         Assert.Contains("exceeds the 80% RAM cap", ex.Message, StringComparison.Ordinal);
     }
@@ -47,9 +46,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             0L,
-            static value => _ = OptionsResolver.Resolve(
-                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
-                new FixedMemoryBudgetProvider(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, RocksDoubles.CreateMemoryBudget(1_000_000)));
 
         Assert.Contains("must be positive", ex.Message, StringComparison.Ordinal);
     }
@@ -60,20 +57,8 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             0L,
-            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(value)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(value)));
 
         Assert.Contains("available process memory is zero", ex.Message, StringComparison.Ordinal);
-    }
-
-    private sealed class FixedMemoryBudgetProvider : IMemoryBudgetProvider
-    {
-        private readonly long _availableBytes;
-
-        internal FixedMemoryBudgetProvider(long availableBytes)
-        {
-            _availableBytes = availableBytes;
-        }
-
-        long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
     }
 }

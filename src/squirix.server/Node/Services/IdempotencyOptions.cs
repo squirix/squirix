@@ -1,15 +1,17 @@
 using System;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Resolved runtime idempotency store limits for in-memory mutation replay records.</summary>
+[Immutable]
 internal sealed record IdempotencyOptions
 {
     /// <summary>Initializes a new instance of the <see cref="IdempotencyOptions" /> class.</summary>
     internal IdempotencyOptions()
     {
         Retention = TimeSpan.FromMinutes(15);
-        MaxInFlightRecords = 65_536;
+        MaxInFlightRecords = ushort.MaxValue + 1;
         BackgroundSweepInterval = TimeSpan.FromMinutes(1);
     }
 

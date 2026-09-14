@@ -6,14 +6,10 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// <summary>Resolves loaded memory pressure settings against the process RAM budget.</summary>
 internal static class OptionsResolver
 {
-    /// <summary>
-    /// Hard-coded fraction of available process memory used as the default cache limit and maximum configurable limit.
-    /// </summary>
+    /// <summary>Hard-coded fraction of available process memory used as the default cache limit and maximum configurable limit.</summary>
     internal const int RamBudgetPercent = 80;
 
-    /// <summary>
-    /// Resolves <paramref name="raw" /> into runtime <see cref="PressureOptions" />.
-    /// </summary>
+    /// <summary>Resolves <paramref name="raw" /> into runtime <see cref="PressureOptions" />.</summary>
     /// <param name="raw">Loaded settings before RAM resolution.</param>
     /// <param name="budgetProvider">Process memory budget source.</param>
     /// <returns>Validated runtime options with a positive byte limit.</returns>
@@ -48,11 +44,5 @@ internal static class OptionsResolver
         return options;
     }
 
-    private static long ComputeRamCapBytes(long availableBytes)
-    {
-        if (availableBytes <= 0)
-            return 0;
-
-        return availableBytes / 100 * RamBudgetPercent;
-    }
+    private static long ComputeRamCapBytes(long availableBytes) => availableBytes <= 0 ? 0 : availableBytes / 100 * RamBudgetPercent;
 }

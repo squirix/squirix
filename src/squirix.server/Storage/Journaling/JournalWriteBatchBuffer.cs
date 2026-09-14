@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -26,9 +27,9 @@ internal sealed class JournalWriteBatchBuffer
         _capacityBytes = capacityBytes;
     }
 
-    internal ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
+    internal ReadOnlySpan<byte> ActiveSpan => _buffer == null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
 
-    internal bool IsEmpty => StagedByteLength is 0;
+    internal bool IsEmpty => StagedByteLength == 0;
 
     internal IReadOnlyList<JournalWorkItem> PendingAppends => _pending;
 
@@ -46,7 +47,7 @@ internal sealed class JournalWriteBatchBuffer
         if (frameLength <= 0 || StagedByteLength + frameLength > _capacityBytes)
             return false;
 
-        var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
+        var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
         var buffer = _buffer ??= new byte[_capacityBytes];
         frameBytes.AsSpan(0, frameLength).CopyTo(buffer.AsSpan(StagedByteLength));
         _pending.Add(item);

@@ -101,7 +101,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
-    public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
+    public async Task TransportFoundOnlyBatchedAsync()
     {
         var cache = _rawGrpc!;
         for (var i = 0; i < ReadBatch; i++)
@@ -138,25 +138,22 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_rawGrpc is not null)
-        {
-            await _rawGrpc.DisposeAsync().ConfigureAwait(false);
-            _rawGrpc = null;
-        }
+        _rawGrpc?.Dispose();
+        _rawGrpc = null;
 
-        if (_publicClient is not null)
+        if (_publicClient != null)
         {
             await _publicClient.DisposeAsync().ConfigureAwait(false);
             _publicClient = null;
         }
 
-        if (_clientPool is not null)
+        if (_clientPool != null)
         {
             await _clientPool.DisposeAsync().ConfigureAwait(false);
             _clientPool = null;
         }
 
-        if (_node is not null)
+        if (_node != null)
         {
             await _node.DisposeAsync().ConfigureAwait(false);
             _node = null;
@@ -167,9 +164,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static string FormatKey(int index) => InvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
+    private static string FormatKey(int index) => NodeInvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
 
-    private static string FormatValue(int index) => InvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
+    private static string FormatValue(int index) => NodeInvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
 
     private void SeedKeys()
     {
@@ -179,7 +176,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     private async Task SeedNodeAsync()
     {
-        if (_node is not null)
+        if (_node != null)
         {
             var client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
             await using (client.ConfigureAwait(false))

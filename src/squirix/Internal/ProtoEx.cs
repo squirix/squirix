@@ -1,65 +1,24 @@
 using System;
 using System.Buffers;
-using System.Runtime.CompilerServices;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
 
-/// <summary>
-/// Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.
-/// </summary>
+/// <summary>Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.</summary>
 internal static class ProtoEx
 {
     internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
-
-        if (typeof(T) == typeof(object))
-            return new ValueTask<T?>(Coerce<T>(FromCacheValueAsObject(value, serializer)));
-
-        switch (value.KindCase)
-        {
-            case CacheValue.KindOneofCase.StringValue:
-                if (typeof(T) == typeof(string))
-                    return new ValueTask<T?>(ReinterpretReference<T, string>(value.StringValue));
-                break;
-
-            case CacheValue.KindOneofCase.BoolValue:
-                if (typeof(T) == typeof(bool))
-                    return new ValueTask<T?>(ReinterpretScalar<T, bool>(value.BoolValue));
-                break;
-
-            case CacheValue.KindOneofCase.Int32Value:
-                if (typeof(T) == typeof(int))
-                    return new ValueTask<T?>(ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value)));
-                break;
-
-            case CacheValue.KindOneofCase.Int64Value:
-                if (typeof(T) == typeof(long))
-                    return new ValueTask<T?>(ReinterpretScalar<T, long>(value.Int64Value));
-                break;
-
-            case CacheValue.KindOneofCase.DoubleValue:
-                if (typeof(T) == typeof(double))
-                    return new ValueTask<T?>(ReinterpretScalar<T, double>(value.DoubleValue));
-                break;
-
-            case CacheValue.KindOneofCase.NullValue:
-            case CacheValue.KindOneofCase.None:
-                return new ValueTask<T?>(default(T?));
-
-            case CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue:
-                return new ValueTask<T?>(FromStruct<T>(structValue, serializer));
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
-        }
-
-        return new ValueTask<T?>(FromStruct<T>(ToStructValueWrapper(value), serializer));
+        return typeof(T) == typeof(object) ? new ValueTask<T?>(ProtoScalarMapping.Coerce<T>(FromCacheValueAsObject(value, serializer)))
+            : FromTypedCacheValueAsync<T>(value, serializer);
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -70,8 +29,8 @@ internal static class ProtoEx
         return new CacheEntryWire
         {
             Value = ToStruct(entry.Value, serializer),
-            ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-            Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+            ExpiresUtc = entry.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
+            Expiration = entry.Expiration == null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
         };
     }
 
@@ -81,28 +40,10 @@ internal static class ProtoEx
         return new ValueTask<CacheEntry<T>>(
             new CacheEntry<T>
             {
-                Value = FromStruct<T>(entry.Value, serializer),
+                Value = ProtoStructCodec.FromStruct<T>(entry.Value, serializer),
                 ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
                 Expiration = entry.Expiration?.ToTimeSpan(),
             });
-    }
-
-    private static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    private static T? Deserialize<T>(Value value, ISquirixSerializer serializer)
-    {
-        var buffer = new ArrayBufferWriter<byte>(256);
-
-        // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decode.
-#pragma warning disable MA0045
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            WriteValue(writer, value);
-            writer.Flush();
-        }
-#pragma warning restore MA0045
-
-        return serializer.Deserialize<T>(buffer.WrittenSpan);
     }
 
     private static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
@@ -113,198 +54,188 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.Int64Value => value.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue, serializer),
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => ProtoStructCodec.FromStruct<object?>(structValue, serializer),
         _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
-    private static T? FromStruct<T>(Struct value, ISquirixSerializer serializer)
+    private static ValueTask<T?> FromCacheValueByKindAsync<T>(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
     {
-        ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(serializer);
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(structValue, serializer)),
+        CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
+            or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(ProtoStructCodec.FromStruct<T>(ProtoStructCodec.ToStructValueWrapper(value), serializer)),
+        CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(value), "Struct cache value is missing."),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+    };
 
-        if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
-            return FromValue<T>(wrapped, serializer);
-
-        return Deserialize<T>(Value.ForStruct(value), serializer);
-    }
-
-    private static T? FromValue<T>(Value value, ISquirixSerializer serializer)
-    {
-        if (typeof(T) == typeof(object))
-            return Coerce<T>(ToUntypedValue(value, serializer));
-
-        return Deserialize<T>(value, serializer);
-    }
-
-    private static ListValue ListFromJson(JsonElement el)
-    {
-        var list = new ListValue();
-        var values = list.Values;
-        var length = el.GetArrayLength();
-        for (var index = 0; index < length; index++)
-            values.Add(ValueFromJson(el[index]));
-
-        return list;
-    }
-
-    private static double NormalizeNumber(double value) => value;
-
-    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
-        where TValue : class?
-    {
-        var reference = value;
-        return Unsafe.As<TValue, TTarget>(ref reference);
-    }
-
-    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
-        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
-
-    private static Struct StructFromJson(JsonElement el)
-    {
-        var s = new Struct();
-        foreach (var p in el.EnumerateObject())
-            s.Fields[p.Name] = ValueFromJson(p.Value);
-
-        return s;
-    }
+    private static ValueTask<T?> FromTypedCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer) =>
+        ProtoScalarMapping.TryMapTypedPrimitive<T>(value, out var primitive) ? new ValueTask<T?>(primitive) : FromCacheValueByKindAsync<T>(value, serializer);
 
     private static Struct ToStruct<T>(T? value, ISquirixSerializer serializer)
     {
         switch (value)
         {
             case null:
-                return WrapAsStruct("value", Value.ForNull());
+                return WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull());
 
             case JsonElement je:
-                return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));
-
-            case string text:
-                return WrapAsStruct("value", Value.ForString(text));
-
-            case int number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case long number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case double number:
-                return WrapAsStruct("value", Value.ForNumber(number));
-
-            case bool boolean:
-                return WrapAsStruct("value", Value.ForBool(boolean));
+                return je.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(je) : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(je));
 
             default:
+                if (ProtoStructCodec.EncodeScalarAsStruct(value) is { } scalar)
+                    return scalar;
+
                 var root = serializer.SerializeToElement(value);
-                return root.ValueKind is JsonValueKind.Object ? StructFromJson(root) : WrapAsStruct("value", ValueFromJson(root));
+                return root.ValueKind is JsonValueKind.Object ? ProtoJsonCodec.StructFromJson(root)
+                    : WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, ProtoJsonCodec.ValueFromJson(root));
         }
     }
 
-    private static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
-        CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
-        CacheValue.KindOneofCase.Int32Value => WrapAsStruct("value", Value.ForNumber(value.Int32Value)),
-        CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
-        CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
-        CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
-    };
+    private static Struct WrapAsStruct(string name, Value value) => new() { Fields = { [name] = value } };
 
-    private static object? ToUntypedValue(Value value, ISquirixSerializer serializer) => value.KindCase switch
+    /// <summary>Encodes CLR values into protobuf <see cref="Struct" /> payloads and decodes them back.</summary>
+    private static class ProtoStructCodec
     {
-        Value.KindOneofCase.StringValue => value.StringValue,
-        Value.KindOneofCase.BoolValue => value.BoolValue,
-        Value.KindOneofCase.NumberValue => NormalizeNumber(value.NumberValue),
-        Value.KindOneofCase.NullValue or Value.KindOneofCase.None => null,
-        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => Deserialize<JsonElement>(value, serializer),
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported value kind."),
-    };
-
-    /// <summary>
-    /// Maps a <see cref="JsonElement" /> subtree into protobuf well-known <see cref="Value" /> form.
-    /// </summary>
-    /// <remarks>
-    /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
-    /// </remarks>
-    /// <param name="el">JSON subtree to convert.</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
-    private static Value ValueFromJson(JsonElement el)
-    {
-        return el.ValueKind switch
+        internal static Struct? EncodeScalarAsStruct<T>(T? value)
         {
-            JsonValueKind.Object => Value.ForStruct(StructFromJson(el)),
-            JsonValueKind.Array => new Value { ListValue = ListFromJson(el) },
-            JsonValueKind.String => Value.ForString(el.GetString()),
-            JsonValueKind.Number => el.TryGetInt64(out var value) ? Value.ForNumber(value) : Value.ForNumber(el.GetDouble()),
-            JsonValueKind.True => Value.ForBool(true),
-            JsonValueKind.False => Value.ForBool(false),
-            JsonValueKind.Null => Value.ForNull(),
-            JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
-        };
-    }
-
-    private static Struct WrapAsStruct(string fieldName, Value v)
-    {
-        return new Struct
-        {
-            Fields =
+            return value switch
             {
-                [fieldName] = v,
-            },
-        };
-    }
+                string text => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(text)),
+                int number => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                long number => WrapAsStruct(
+                    ValueEnvelope.ScalarEnvelopeKey,
+                    ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, number.ToString(CultureInfo.InvariantCulture))),
+                double number => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(number)),
+                bool boolean => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(boolean)),
+                decimal dec => WrapAsStruct(
+                    ValueEnvelope.ScalarEnvelopeKey,
+                    ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture))),
+                _ => null,
+            };
+        }
 
-    private static void WriteValue(Utf8JsonWriter writer, Value value)
-    {
-        // Emit protobuf Value trees as JSON so ISquirixSerializer can deserialize complex cache payloads.
-        switch (value.KindCase)
+        internal static T? FromStruct<T>(Struct value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null)
         {
-            case Value.KindOneofCase.NullValue:
-            case Value.KindOneofCase.None:
-                writer.WriteNullValue();
+            ArgumentNullException.ThrowIfNull(value);
+            ArgumentNullException.ThrowIfNull(serializer);
+
+            return value.Fields.Count == 1 && value.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var wrapped)
+                ? FromValue(wrapped, serializer, typeInfo)
+                : FromMultiFieldStruct(value, serializer, typeInfo);
+        }
+
+        internal static Struct ToStructValueWrapper(CacheValue value) => value.KindCase switch
+        {
+            CacheValue.KindOneofCase.StringValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value.StringValue)),
+            CacheValue.KindOneofCase.BoolValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForBool(value.BoolValue)),
+            CacheValue.KindOneofCase.Int32Value => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.Int32Value)),
+            CacheValue.KindOneofCase.Int64Value => WrapAsStruct(
+                ValueEnvelope.ScalarEnvelopeKey,
+                ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeInt64Key, value.Int64Value.ToString(CultureInfo.InvariantCulture))),
+            CacheValue.KindOneofCase.DoubleValue => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNumber(value.DoubleValue)),
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct(ValueEnvelope.ScalarEnvelopeKey, Value.ForNull()),
+            CacheValue.KindOneofCase.StructValue => value.StructValue,
+            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+        };
+
+        private static T? Deserialize<T>(Value value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
+            serializer.Deserialize(WriteToBuffer(value).WrittenSpan, typeInfo);
+
+        private static T? FromMultiFieldStruct<T>(Struct value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
+            typeof(T) == typeof(object)
+                ? ProtoScalarMapping.Coerce<T>(ToUntypedValue(Value.ForStruct(value)))
+                : Deserialize(Value.ForStruct(value), serializer, typeInfo);
+
+        private static T? FromValue<T>(Value value, ISquirixSerializer serializer, JsonTypeInfo<T>? typeInfo = null) =>
+            typeof(T) == typeof(object) ? ProtoScalarMapping.Coerce<T>(ToUntypedValue(value)) : Deserialize(value, serializer, typeInfo);
+
+        private static JsonElement ParseToElement(Value value)
+        {
+            using var document = JsonDocument.Parse(WriteToBuffer(value).WrittenMemory);
+            return document.RootElement.Clone();
+        }
+
+        private static object? ToUntypedValue(Value value) => value.KindCase switch
+        {
+            Value.KindOneofCase.StringValue => value.StringValue,
+            Value.KindOneofCase.BoolValue => value.BoolValue,
+            Value.KindOneofCase.NumberValue => ProtoJsonCodec.NormalizeNumber(value.NumberValue),
+            Value.KindOneofCase.NullValue or Value.KindOneofCase.None => null,
+            Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => ParseToElement(value),
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported value kind."),
+        };
+
+        private static void WriteListValue(Utf8JsonWriter writer, ListValue listValue)
+        {
+            writer.WriteStartArray();
+            var values = listValue.Values;
+
+            for (var index = 0; index < values.Count; index++)
+                WriteValue(writer, values[index]);
+
+            writer.WriteEndArray();
+        }
+
+        private static void WriteStructValue(Utf8JsonWriter writer, Struct structValue)
+        {
+            if (ValueEnvelope.TryWriteNumberEnvelope(writer, structValue))
                 return;
-            case Value.KindOneofCase.NumberValue:
-                writer.WriteNumberValue(value.NumberValue);
-                return;
-            case Value.KindOneofCase.StringValue:
-                writer.WriteStringValue(value.StringValue);
-                return;
-            case Value.KindOneofCase.BoolValue:
-                writer.WriteBooleanValue(value.BoolValue);
-                return;
-            case Value.KindOneofCase.StructValue:
+
+            writer.WriteStartObject();
+            var fields = structValue.Fields;
+
+            using var fieldEnumerator = fields.GetEnumerator();
+            for (var index = 0; index < fields.Count; index++)
             {
-                writer.WriteStartObject();
-                var fields = value.StructValue.Fields;
-
-                // Index-based loop avoids foreach enumerator allocations while writing nested structs.
-                using var fieldEnumerator = fields.GetEnumerator();
-                for (var index = 0; index < fields.Count; index++)
-                {
-                    _ = fieldEnumerator.MoveNext();
-                    var field = fieldEnumerator.Current;
-                    writer.WritePropertyName(field.Key);
-                    WriteValue(writer, field.Value);
-                }
-
-                writer.WriteEndObject();
-                return;
+                _ = fieldEnumerator.MoveNext();
+                var field = fieldEnumerator.Current;
+                writer.WritePropertyName(field.Key);
+                WriteValue(writer, field.Value);
             }
 
-            case Value.KindOneofCase.ListValue:
-                writer.WriteStartArray();
-                var values = value.ListValue.Values;
+            writer.WriteEndObject();
+        }
 
-                // Lists recurse through WriteValue so mixed scalar and structured elements round-trip.
-                for (var index = 0; index < values.Count; index++)
-                    WriteValue(writer, values[index]);
+        private static ArrayBufferWriter<byte> WriteToBuffer(Value value)
+        {
+            var buffer = new ArrayBufferWriter<byte>(256);
 
-                writer.WriteEndArray();
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported protobuf value kind.");
+            // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decoding.
+#pragma warning disable MA0045
+            using var writer = new Utf8JsonWriter(buffer);
+            WriteValue(writer, value);
+            writer.Flush();
+#pragma warning restore MA0045
+
+            return buffer;
+        }
+
+        private static void WriteValue(Utf8JsonWriter writer, Value value)
+        {
+            switch (value.KindCase)
+            {
+                case Value.KindOneofCase.NullValue:
+                case Value.KindOneofCase.None:
+                    writer.WriteNullValue();
+                    return;
+                case Value.KindOneofCase.NumberValue:
+                    writer.WriteNumberValue(value.NumberValue);
+                    return;
+                case Value.KindOneofCase.StringValue:
+                    writer.WriteStringValue(value.StringValue);
+                    return;
+                case Value.KindOneofCase.BoolValue:
+                    writer.WriteBooleanValue(value.BoolValue);
+                    return;
+                case Value.KindOneofCase.StructValue:
+                    WriteStructValue(writer, value.StructValue);
+                    return;
+                case Value.KindOneofCase.ListValue:
+                    WriteListValue(writer, value.ListValue);
+                    return;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(value), "Unsupported protobuf value kind.");
+            }
         }
     }
 }

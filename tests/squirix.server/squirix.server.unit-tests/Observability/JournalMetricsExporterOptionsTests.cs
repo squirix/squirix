@@ -1,19 +1,19 @@
 using System;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for <see cref="JournalMetricsExporterOptions" /> scalar validation.
-/// </summary>
+/// <summary>Unit tests for <see cref="JournalMetricsExporterOptions" /> scalar validation.</summary>
+[Immutable]
 public sealed class JournalMetricsExporterOptionsTests
 {
     /// <summary>Verifies the minimum positive interval remains accepted.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsBoundaryInterval()
+    public void FieldValidationAcceptsBoundaryInterval()
     {
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
 
@@ -22,7 +22,7 @@ public sealed class JournalMetricsExporterOptionsTests
 
     /// <summary>Verifies non-positive intervals fail at assignment time.</summary>
     [Fact]
-    public void FieldBackedValidationRejectsNonPositiveInterval()
+    public void FieldValidationRejectsBadInterval()
     {
         var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(TimeSpan.Zero, static value => _ = new JournalMetricsExporterOptions { Interval = value });
 

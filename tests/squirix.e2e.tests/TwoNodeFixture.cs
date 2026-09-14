@@ -15,19 +15,13 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     private ISquirixClient? _clientA;
     private ISquirixClient? _clientB;
     private HostedCluster? _cluster;
-    private TwoNodeNamedCaches<object?>? _namedCaches;
 
     /// <summary>Gets the shared object-typed named caches for both nodes.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
     public TwoNodeNamedCaches<object?> NamedCaches
     {
-        get
-        {
-            if (_namedCaches is null)
-                throw new InvalidOperationException("Fixture is not initialized.");
-
-            return _namedCaches;
-        }
+        get => field ?? ThrowFixtureNotInitialized();
+        private set;
     }
 
     /// <summary>Creates typed named-cache facades backed by the shared cluster clients.</summary>
@@ -37,16 +31,15 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
     public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
     {
-        if (_cluster is null || _clientA is null || _clientB is null)
-            throw new InvalidOperationException("Fixture is not initialized.");
-
-        return TwoNodeNamedCaches<T>.CreateAsync(_cluster, _clientA, _clientB, cancellationToken, false);
+        var initialized = _cluster != null && _clientA != null && _clientB != null;
+        return initialized ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false)
+            : throw new InvalidOperationException("Fixture is not initialized.");
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_cluster is not null)
+        if (_cluster != null)
             await _cluster.DisposeAsync();
     }
 
@@ -56,6 +49,8 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
         _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: DefaultCancellationToken);
         _clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
         _clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        _namedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, DefaultCancellationToken, false);
+        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, DefaultCancellationToken, false);
     }
+
+    private static TwoNodeNamedCaches<object?> ThrowFixtureNotInitialized() => throw new InvalidOperationException("Fixture is not initialized.");
 }

@@ -22,15 +22,15 @@ internal static class IdempotencyBootstrap
         var result = options;
 
         var maxRecords = EnvVariables.ReadInt("SQUIRIX_IDEMPOTENCY_MAX_IN_FLIGHT_RECORDS");
-        if (maxRecords is not null)
+        if (maxRecords != null)
             result = result with { MaxInFlightRecords = maxRecords.Value };
 
         var retentionMinutes = EnvVariables.ReadInt("SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES");
-        if (retentionMinutes is not null)
+        if (retentionMinutes != null)
             result = result with { Retention = TimeSpan.FromMinutes(retentionMinutes.Value) };
 
         var sweepSeconds = EnvVariables.ReadInt("SQUIRIX_IDEMPOTENCY_SWEEP_INTERVAL_SECONDS");
-        if (sweepSeconds is not null)
+        if (sweepSeconds != null)
             result = result with { BackgroundSweepInterval = TimeSpan.FromSeconds(sweepSeconds.Value) };
 
         return result;

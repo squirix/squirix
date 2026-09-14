@@ -1,9 +1,12 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -15,13 +18,15 @@ using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for snapshot cut recovery metadata consistency (plan step 1).</summary>
-public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
+[Immutable]
+public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
 {
     private const int FillChunkChars = 8_192;
     private const int RollOverflowChars = 16_000;
@@ -31,29 +36,30 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
     private static readonly CacheKey OverflowKey = CacheKey.Default("overflow");
     private static readonly CacheKey TailKey = CacheKey.Default("tail");
 
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>
     /// When a segment roll happens during the slow snapshot build phase, recovery must still replay journal tail
     /// records from the closed segment. Replay-from segment and next sequence are frozen at flush time under the mutation gate.
     /// </summary>
     [Fact]
-    public async Task SegmentRollSnapshotBuildLosesJournalTailOnRecovery()
+    public async Task RollDuringCutKeepsJournalTailIntact()
     {
         using var dir = new TempDirectory("squirix-snap-cut-roll-recovery");
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(persistence);
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
         var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
@@ -70,32 +76,12 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
     }
 
-    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, ManifestStore manifestStore, CancellationToken cancellationToken)
-    {
-        var cache = new PhysicalCache<object?>();
-        await using (cache.ConfigureAwait(false))
-        {
-            await new RecoveryService<object?>(
-                new RecoveryOptions { BlockOnStart = true },
-                NullLogger<RecoveryService<object?>>.Instance,
-                new RecoveryDependencies<object?>(
-                    persistence,
-                    manifestStore,
-                    cache,
-                    new JournalStartupGate(false),
-                    new RpcMutationIdempotencyStore(),
-                    StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
-
-            Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
-            var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
-            Assert.True(tailEntry.Found);
-            Assert.Equal("tail", tailEntry.Value);
-        }
-    }
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static async Task<SnapshotRef> CutSnapshotDuringSegmentRollAsync(
         JournalCoordinator journal,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ISnapshotWriter writer,
         byte[] overflowPayload,
         CancellationToken cancellationToken)
@@ -148,7 +134,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         var fillFrameLen = PutFrameLength(fillPayload, FillKey);
         const long maxSegmentBytes = 1024L * 1024L;
 
-        while (journal.CurrentSegmentIndex is 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
+        while (journal.CurrentSegmentIndex == 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
                journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxSegmentBytes)
         {
             await journal.AppendPutAsync(FillKey, fillPayload, cancellationToken);
@@ -159,14 +145,35 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes);
     }
 
-    private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key) => JournalFraming.FrameTotalLength(
-        BinaryJournalCodec.ComputeFrameBodyLength(
-            new JournalRecord
-            {
-                Sequence = 1,
-                UnixMs = 1,
-                Operation = JournalOperationKind.Put,
-                Key = key,
-                PutEntryBytes = payload,
-            }));
+    private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
+    {
+        var journalRecord = new JournalRecord
+        {
+            Sequence = 1,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Put,
+            Key = key,
+            PutEntryBytes = payload,
+        };
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(journalRecord));
+    }
+
+    private async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<object?>();
+        var recoveryDependencies = new RecoveryDependencies<object?>(
+            persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
+            StoreFactory.CreateReader(persistence));
+        var options = new RecoveryOptions { BlockOnStart = true };
+        await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
+
+        Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
+        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+        Assert.True(tailEntry.Found);
+        Assert.Equal("tail", tailEntry.Value);
+    }
 }

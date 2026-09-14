@@ -1,8 +1,10 @@
 using System;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 
-/// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
+/// <summary>Configures node-level admission control for inbound gRPC cache requests.</summary>
+[Immutable]
 internal sealed record AdmissionOptions
 {
     internal bool Enabled { get; init; } = true;
@@ -33,6 +35,37 @@ internal sealed record AdmissionOptions
 
     internal void Validate()
     {
+        ValidateCapacityBounds();
+        ValidateThresholds();
+        ValidateNodeRateLimit();
+        ValidatePerClientRateLimit();
+    }
+
+    private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)
+    {
+        if (rate != null)
+        {
+            if (rate.Value <= 0)
+                throw new InvalidOperationException(rateRequiredMessage);
+
+            if (burst == null)
+                throw new InvalidOperationException(burstRequiredMessage);
+
+            var configuredBurst = burst.Value;
+            if (configuredBurst <= 0)
+                throw new InvalidOperationException(burstRequiredMessage);
+
+            if (configuredBurst < rate.Value)
+                throw new InvalidOperationException(burstGteRateMessage);
+        }
+        else if (burst != null)
+        {
+            throw new InvalidOperationException(rateRequiredMessage);
+        }
+    }
+
+    private void ValidateCapacityBounds()
+    {
         if (MaxInFlight <= 0)
             throw new InvalidOperationException("Backpressure MaxInFlight must be greater than zero.");
 
@@ -47,24 +80,6 @@ internal sealed record AdmissionOptions
 
         if (PerClientMaxQueue < 0)
             throw new InvalidOperationException("Backpressure PerClientMaxQueue cannot be negative.");
-
-        if (SlowdownThreshold <= 0 || SlowdownThreshold > MaxInFlight)
-            throw new InvalidOperationException("Backpressure SlowdownThreshold must be in the range [1, MaxInFlight].");
-
-        if (RejectThreshold <= 0 || RejectThreshold > MaxInFlight)
-            throw new InvalidOperationException("Backpressure RejectThreshold must be in the range [1, MaxInFlight].");
-
-        if (RejectThreshold < SlowdownThreshold)
-            throw new InvalidOperationException("Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.");
-
-        if (MaxSlowdownDelay < TimeSpan.Zero)
-            throw new InvalidOperationException("Backpressure MaxSlowdownDelay cannot be negative.");
-
-        if (MaxQueueWait <= TimeSpan.Zero)
-            throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
-
-        ValidateNodeRateLimit();
-        ValidatePerClientRateLimit();
     }
 
     private void ValidateNodeRateLimit()
@@ -87,26 +102,23 @@ internal sealed record AdmissionOptions
             "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.");
     }
 
-    private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)
+    private void ValidateThresholdRange(int threshold, string name)
     {
-        if (rate is not null)
-        {
-            if (rate.Value <= 0)
-                throw new InvalidOperationException(rateRequiredMessage);
+        if (threshold <= 0 || threshold > MaxInFlight)
+            throw new InvalidOperationException("Backpressure " + name + " must be in the range [1, MaxInFlight].");
+    }
 
-            if (burst is null)
-                throw new InvalidOperationException(burstRequiredMessage);
+    private void ValidateThresholds()
+    {
+        ValidateThresholdRange(SlowdownThreshold, "SlowdownThreshold");
+        ValidateThresholdRange(RejectThreshold, "RejectThreshold");
+        if (RejectThreshold < SlowdownThreshold)
+            throw new InvalidOperationException("Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.");
 
-            var configuredBurst = burst.Value;
-            if (configuredBurst <= 0)
-                throw new InvalidOperationException(burstRequiredMessage);
+        if (MaxSlowdownDelay < TimeSpan.Zero)
+            throw new InvalidOperationException("Backpressure MaxSlowdownDelay cannot be negative.");
 
-            if (configuredBurst < rate.Value)
-                throw new InvalidOperationException(burstGteRateMessage);
-        }
-        else if (burst is not null)
-        {
-            throw new InvalidOperationException(rateRequiredMessage);
-        }
+        if (MaxQueueWait <= TimeSpan.Zero)
+            throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
     }
 }

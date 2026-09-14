@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -10,54 +13,60 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
 /// <summary>Regression tests for idempotency export timing during snapshot cut (plan step 2).</summary>
-public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
+[Immutable]
+public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBase
 {
     private const string AfterFlushOperationId = "after-flush";
     private const string AtFlushOperationId = "at-flush";
     private static readonly byte[] IdempotencyResponseBytes = [1];
 
+    private readonly Meter _testMeter = new("test");
+
     /// <summary>Snapshot idempotency must match the flush watermark, not outcomes recorded after the mutation gate opens.</summary>
     [Fact]
-    public async Task SnapshotCutMustNotExportPostFlushIdempotency()
+    public async Task CutMustNotExportPostFlushRecords()
     {
         using var dir = new TempDirectory("squirix-snap-cut-idempotency");
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
             JournalMaxSegmentMb = 16,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(persistence);
+        await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
-        var idempotency = new RpcMutationIdempotencyStore();
+            new AsyncManualResetEvent(true));
+        var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);
 
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        var snapshotPath = await CutSnapshotDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
+        var snapshotPath = await CutDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
 
         var loaded = await StoreFactory.CreateReader(persistence).LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
         var record = Assert.Single(loaded.IdempotencyRecords);
         Assert.Equal(AtFlushOperationId, record.OperationId);
     }
 
-    private static async Task<string> CutSnapshotDuringPostFlushIdempotencyAsync(
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static async Task<string> CutDuringPostFlushIdempotencyAsync(
         IJournalCoordinator journal,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ISnapshotWriter writer,
         RpcMutationIdempotencyStore idempotency,
         CancellationToken cancellationToken)

@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -6,9 +7,8 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests for <see cref="PressureBootstrap" /> environment variable overrides.
-/// </summary>
+/// <summary>Tests for <see cref="PressureBootstrap" /> environment variable overrides.</summary>
+[Immutable]
 public sealed class PressureBootstrapTests : ServerUnitTestBase
 {
     /// <summary>Verifies environment variables override defaults for memory pressure bootstrap.</summary>

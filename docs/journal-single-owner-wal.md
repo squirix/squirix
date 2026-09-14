@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — implemented in `JournalCoordinator` (`JournalBackend.Pipelined`).
+Accepted — implemented in `JournalCoordinator` (pipelined binary journal).
 
 ## Context
 
@@ -28,8 +28,9 @@ Complete durability waiters
 ```
 
 Manifest roll notifications are handed off to a dedicated manifest publisher thread. The journal thread
-starts the publish asynchronously and opens the next segment only after manifest success, without
-blocking on manifest disk I/O.
+creates the next segment durably (header staged under a temp name and published atomically) before
+starting the manifest publish, without blocking on manifest disk I/O. The new segment becomes the
+active segment only after manifest success.
 
 ## Invariants (must hold for all journal changes)
 
@@ -47,6 +48,19 @@ blocking on manifest disk I/O.
 5. **Producer hot path** — Mutator threads must not acquire locks on the segment file or call
    `WriteAsync` on a shared `FileStream`. Producers may: allocate sequence (lock-free), serialize,
    enqueue to `BoundedJournalRing`, and await completion.
+
+6. **Completion ownership and abandonment** — Every admitted append is tracked in
+   `PendingAppendRegistry` before it enters the ring. Exactly one side owns release: whoever removes
+   the entry first (journal-thread completion via `Untrack`, or a failure drain via `TakeAll`). On
+   pipeline failure the drain faults all tracked waiters, decrements their slots, and quarantines
+   their buffers until the journal thread joins; buffers never return to the pool while the thread
+   may be alive. After any drain the journal thread must not stage or write reclaimed items
+   (staging/write gates fail them idempotently instead).
+
+   Accepted ambiguity: a drain landing mid-write can leave an already-faulted frame on the segment
+   (the batch path truncates it on re-check; a single frame written by the direct path cannot be
+   recalled). A failed durable append is therefore outcome-unknown — it may replay on recovery —
+   and the node requires restart after a pipeline failure before serving reads.
 
 ## Allowed cross-thread mechanisms
 
@@ -72,8 +86,8 @@ blocking on manifest disk I/O.
 - Group commit timer and write batching live in the journal event loop (no `Task.Delay` on the flush
   path).
 - Manifest roll is eventually consistent on disk immediately after roll; recovery still scans on-disk
-  segment indices when manifest lags. The journal thread waits for manifest success before opening the
-  next segment, but does not block on manifest disk I/O.
+  segment indices when manifest lags. The journal thread creates the next segment before publishing the
+  manifest and activates it only after manifest success, but does not block on manifest disk I/O.
 - Violating any invariant (e.g. shared `FileStream`, second writer thread) requires an explicit design
   change and doc update.
 

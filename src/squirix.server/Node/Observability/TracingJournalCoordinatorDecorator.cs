@@ -1,13 +1,16 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
+[Immutable]
 internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 {
     private readonly EventHandler _forwardOnAppended;
@@ -16,8 +19,10 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     internal TracingJournalCoordinatorDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(tracer);
+        _inner = inner;
+        _tracer = tracer;
         _forwardOnAppended = ForwardOnAppended;
         _inner.OnAppended += _forwardOnAppended;
     }
@@ -33,6 +38,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
 
     public long HighWaterBytes => _inner.HighWaterBytes;
+
+    public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
 
     public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
@@ -95,10 +102,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
-
-    public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
-
     public ValueTask DisposeAsync()
     {
         _inner.OnAppended -= _forwardOnAppended;
@@ -140,6 +143,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         return await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(null);
+        using var scope = _tracer.Begin(JournalOperationKind.UnderSnapshotBarrier, in traceContext);
+        await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
@@ -147,13 +157,11 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
+    private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
 
     private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
-    /// <summary>
-    /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.
-    /// </summary>
+    /// <summary>Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.</summary>
     private static class JournalCoordinatorTracing
     {
         internal static JournalOperationTraceContext ForKey(CacheKey key) => new()
@@ -162,15 +170,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
         };
 
-        internal static JournalOperationTraceContext? WithDurability(in JournalOperationTraceContext? context, IJournalCoordinator coordinator)
+        internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context) => context switch
         {
-            if (context != null)
-                return context with
-                {
-                    GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
-                };
-
-            return null;
-        }
+            { } ctx => ctx with
+            {
+                GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
+            },
+            _ => null,
+        };
     }
 }

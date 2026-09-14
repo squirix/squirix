@@ -1,36 +1,45 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
+[Immutable]
 internal sealed class RecoveryDependencies<T>
 {
     internal RecoveryDependencies(
         PersistenceOptions persistence,
-        ManifestStore manifestStore,
+        Ledger manifestStore,
         ILocalCacheRecovery<T> localCache,
-        JournalStartupGate journalStartupGate,
+        AsyncManualResetEvent asyncManualResetEvent,
         RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader)
     {
-        Persistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
-        ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-        LocalCache = localCache ?? throw new ArgumentNullException(nameof(localCache));
-        JournalStartupGate = journalStartupGate ?? throw new ArgumentNullException(nameof(journalStartupGate));
-        Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
-        SnapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
+        ArgumentNullException.ThrowIfNull(persistence);
+        ArgumentNullException.ThrowIfNull(manifestStore);
+        ArgumentNullException.ThrowIfNull(localCache);
+        ArgumentNullException.ThrowIfNull(asyncManualResetEvent);
+        ArgumentNullException.ThrowIfNull(idempotency);
+        ArgumentNullException.ThrowIfNull(snapshotReader);
+        Persistence = persistence;
+        Ledger = manifestStore;
+        LocalCache = localCache;
+        AsyncManualResetEvent = asyncManualResetEvent;
+        Idempotency = idempotency;
+        SnapshotReader = snapshotReader;
     }
+
+    internal AsyncManualResetEvent AsyncManualResetEvent { get; }
 
     internal RpcMutationIdempotencyStore Idempotency { get; }
 
-    internal JournalStartupGate JournalStartupGate { get; }
+    internal Ledger Ledger { get; }
 
     internal ILocalCacheRecovery<T> LocalCache { get; }
-
-    internal ManifestStore ManifestStore { get; }
 
     internal PersistenceOptions Persistence { get; }
 

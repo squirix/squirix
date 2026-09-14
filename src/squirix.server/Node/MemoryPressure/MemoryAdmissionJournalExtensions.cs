@@ -28,10 +28,10 @@ internal static class MemoryAdmissionJournalExtensions
     {
         ArgumentNullException.ThrowIfNull(proposed);
         magnitudeUnknown = estimator.HasUnknownPayloadMagnitude(proposed, proposedPayloadIsCounter) ||
-                           (existing is not null && estimator.HasUnknownPayloadMagnitude(existing, existingPayloadIsCounter));
+                           (existing != null && estimator.HasUnknownPayloadMagnitude(existing, existingPayloadIsCounter));
 
         var nextBytes = estimator.EstimateBytes(key, proposed, proposedPayloadIsCounter);
-        if (existing is null)
+        if (existing == null)
             return nextBytes;
 
         var prevBytes = estimator.EstimateBytes(key, existing, existingPayloadIsCounter);

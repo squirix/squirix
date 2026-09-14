@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,8 +17,7 @@ internal static class Program
     {
         var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
-        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
-                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ?? ThrowMissingClusterUri();
         return new Uri(uri, UriKind.Absolute);
     }
 
@@ -64,4 +64,7 @@ internal static class Program
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
             throw new InvalidOperationException("Named cache isolation failed.");
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string ThrowMissingClusterUri() => throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
 }

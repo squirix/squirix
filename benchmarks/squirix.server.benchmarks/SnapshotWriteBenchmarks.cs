@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -16,10 +17,9 @@ public class SnapshotWriteBenchmarks
 
     /// <summary>Disposes the benchmark host and temporary data directory.</summary>
     [GlobalCleanup]
-    public async Task GlobalCleanupAsync()
+    public void GlobalCleanup()
     {
-        if (_host is not null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+        _host?.Dispose();
         _host = null;
     }
 
@@ -43,7 +43,7 @@ public class SnapshotWriteBenchmarks
     [Benchmark]
     public async Task WriteSnapshotAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < _operationsPerInvoke; i++)
             _ = await host.WriteNextSnapshotAsync().ConfigureAwait(false);
     }

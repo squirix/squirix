@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -13,6 +14,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Applies memory admission checks before delegating to the inner pipeline on local-owner write paths.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Mutable]
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ConcurrentDictionary<CacheKey, long> _accountedEntryBytes = new();
@@ -31,12 +33,18 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         INodeLocator ring,
         string self)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
-        _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(estimator);
+        ArgumentNullException.ThrowIfNull(accounting);
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(ring);
+        _inner = inner;
+        _gate = gate;
+        _estimator = estimator;
+        _accounting = accounting;
+        _self = self;
+        _ring = ring;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -51,10 +59,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (result.Removed && existing is not null)
-            AccountRemove(keyValue, existing);
+        if (result.Removed)
+            AccountRemove(keyValue);
 
         return result;
     }
@@ -66,14 +73,14 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing?.ExpiresUtc is null)
+        if (existing?.ExpiresUtc == null)
             return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, false);
         AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
         var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (removed)
-            AccountReplaceOrInsert(keyValue, existing, replacement);
+            AccountReplaceOrInsert(keyValue, replacement);
 
         return removed;
     }
@@ -90,7 +97,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set);
 
-        if (existing is null)
+        if (existing == null)
         {
             if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             {
@@ -99,11 +106,12 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             }
 
             await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            AccountReplaceOrInsert(keyValue, entry);
             return;
         }
 
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        AccountReplaceOrInsert(keyValue, existing, entry);
+        AccountReplaceOrInsert(keyValue, entry);
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -113,14 +121,14 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, true);
         AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
         var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
         if (touched)
-            AccountReplaceOrInsert(keyValue, existing, replacement);
+            AccountReplaceOrInsert(keyValue, replacement);
 
         return touched;
     }
@@ -132,7 +140,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
+        if (existing != null)
             return false;
 
         AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd);
@@ -150,7 +158,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
+        if (existing == null)
             return false;
 
         var replacement = new NodeCacheEntry<T>
@@ -165,7 +173,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
             return updated;
 
-        AccountReplaceOrInsert(keyValue, existing, replacement);
+        AccountReplaceOrInsert(keyValue, replacement);
         return updated;
     }
 
@@ -183,31 +191,32 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _accountedEntryBytes[key] = bytes;
     }
 
-    private void AccountRemove(CacheKey key, NodeCacheEntry<T> entry)
+    private void AccountRemove(CacheKey key)
     {
-        _accounting.RemoveEntry(_estimator.EstimateBytes(key, entry, false));
-        _ = _accountedEntryBytes.TryRemove(key, out _);
+        if (_accountedEntryBytes.TryRemove(key, out var accountedBytes))
+            _accounting.RemoveEntry(accountedBytes);
     }
 
-    private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> replacement)
+    private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T> replacement)
     {
-        if (existing is null)
-        {
-            AccountInsert(key, replacement);
-            return;
-        }
-
         var newBytes = _estimator.EstimateBytes(key, replacement, false);
-        var baselineBytes = _estimator.EstimateBytes(key, existing, false);
         while (true)
         {
-            var accountedBytes = _accountedEntryBytes.GetOrAdd(key, baselineBytes);
-            if (accountedBytes == newBytes)
-                return;
+            if (_accountedEntryBytes.TryGetValue(key, out var accountedBytes))
+            {
+                if (accountedBytes == newBytes)
+                    return;
 
-            if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
+                if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
+                    continue;
+
+                _accounting.ReplaceEntry(accountedBytes, newBytes);
+                return;
+            }
+
+            if (!_accountedEntryBytes.TryAdd(key, newBytes))
                 continue;
-            _accounting.ReplaceEntry(accountedBytes, newBytes);
+            _accounting.AddEntry(newBytes);
             return;
         }
     }

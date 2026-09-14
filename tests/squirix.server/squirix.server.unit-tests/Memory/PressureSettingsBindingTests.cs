@@ -1,22 +1,24 @@
-using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Runtime;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Tests JSON merge and configuration binding for memory pressure settings.</summary>
+[Immutable]
 public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Verifies System.Text.Json binds private <c>MemoryPressure</c> section properties
+    /// Verifies System.Text.Json binds private <c language="csharp">MemoryPressure</c> section properties
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
     /// </summary>
     [Fact]
-    public async Task DeserializeAndMergeIntoAppliesJsonOverrides()
+    public async Task MergeAppliesJsonOverrides()
     {
         var baseline = new UnresolvedMemoryPressureOptions
         {
@@ -25,26 +27,21 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
 
-        var path = await WriteSettingsAsync("""{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""")
-           ;
-        try
-        {
-            var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, DefaultCancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync(
+            "squirix-mp-",
+            """{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""",
+            DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
-            Assert.True(found);
-            Assert.Equal(4096, merged.MaxEstimatedCacheBytes);
-            Assert.Equal(70, merged.HighPressureThresholdPercent);
-            Assert.Equal(90, merged.CriticalPressureThresholdPercent);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.Equal(4096, merged.MaxEstimatedCacheBytes);
+        Assert.Equal(70, merged.HighPressureThresholdPercent);
+        Assert.Equal(90, merged.CriticalPressureThresholdPercent);
     }
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     [Fact]
-    public async Task DeserializeAndMergeKeepsBaselineForAbsentFields()
+    public async Task MergeKeepsBaselineForAbsentFields()
     {
         var baseline = new UnresolvedMemoryPressureOptions
         {
@@ -53,20 +50,13 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
 
-        var path = await WriteSettingsAsync("""{"MemoryPressure":{"highPressureThresholdPercent":60}}""");
-        try
-        {
-            var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, DefaultCancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-mp-", """{"MemoryPressure":{"highPressureThresholdPercent":60}}""", DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.MergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
-            Assert.True(found);
-            Assert.Equal(1024, merged.MaxEstimatedCacheBytes);
-            Assert.Equal(60, merged.HighPressureThresholdPercent);
-            Assert.Equal(95, merged.CriticalPressureThresholdPercent);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.Equal(1024, merged.MaxEstimatedCacheBytes);
+        Assert.Equal(60, merged.HighPressureThresholdPercent);
+        Assert.Equal(95, merged.CriticalPressureThresholdPercent);
     }
 
     /// <summary>Verifies System.Text.Json round-trip preserves option values (same shape as JSON configuration files).</summary>
@@ -86,12 +76,5 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
         Assert.NotNull(restored);
         restored.Validate();
         Assert.Equal(original, restored);
-    }
-
-    private static async Task<string> WriteSettingsAsync(string json)
-    {
-        var path = Path.Join(Path.GetTempPath(), "squirix-mp-" + Path.GetRandomFileName() + ".json");
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        return path;
     }
 }

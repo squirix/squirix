@@ -1,24 +1,23 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.
-/// </summary>
+/// <summary>Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.</summary>
+[Immutable]
 public sealed class CorrelationServerInterceptorTests
 {
     /// <summary>Verifies the server interceptor creates an activity when no incoming correlation headers exist.</summary>
     [Fact]
-    public async Task ServerInterceptorCreatesActivityHeadersAreMissing()
+    public async Task ServerInterceptorCreatesActivityAsync()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         var interceptor = CreateInterceptor();
         var observedTraceId = await interceptor.UnaryServerHandler(
             "request",
@@ -34,9 +33,9 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.</summary>
     [Fact]
-    public async Task ServerInterceptorIgnoresEmptyCorrelationHeaders()
+    public async Task ServerIgnoresEmptyHeadersAsync()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         var interceptor = CreateInterceptor();
         var headers = new Metadata
         {
@@ -58,9 +57,9 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies an incoming valid traceparent propagates the trace id onto the server activity.</summary>
     [Fact]
-    public async Task ServerInterceptorPropagatesIncomingTraceParent()
+    public async Task ServerPropagatesTraceParentAsync()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         using var clientActivity = ActivitySourceHolder.StartClient("/Test.Test/Unary");
         Assert.NotNull(clientActivity);
         clientActivity.TraceStateString = "vendor=value";
@@ -87,9 +86,9 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies interceptor scope disposal restores the previous ambient activity after the call completes.</summary>
     [Fact]
-    public async Task ServerInterceptorRestoresPreviousActivityAfterCall()
+    public async Task ServerRestoresPreviousActivityAsync()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener(true);
         using var outer = ActivitySourceHolder.StartInternal("outer");
         Assert.NotNull(outer);
         var interceptor = CreateInterceptor();
@@ -104,18 +103,7 @@ public sealed class CorrelationServerInterceptorTests
 
     private static ServerInterceptor CreateInterceptor() => new(NullLogger<ServerInterceptor>.Instance, "n1");
 
-    private static ActivityListener CreateSquirixActivityListener()
-    {
-        var listener = new ActivityListener
-        {
-            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
-            Sample = static (ref _) => ActivitySamplingResult.AllData,
-            SampleUsingParentId = static (ref _) => ActivitySamplingResult.AllData,
-        };
-        ActivitySource.AddActivityListener(listener);
-        return listener;
-    }
-
+    [Immutable]
     private sealed record CorrelationObservation(string TraceId, string? TraceStateString);
 
     private sealed class ActivityCapture
@@ -129,37 +117,5 @@ public sealed class CorrelationServerInterceptorTests
             Inside = Activity.Current;
             return Task.FromResult("ok");
         }
-    }
-
-    private sealed class TestServerCallContext : ServerCallContext
-    {
-        internal TestServerCallContext(Metadata? headers = null)
-        {
-            RequestHeadersCore = headers ?? [];
-        }
-
-        protected override AuthContext AuthContextCore => new(null, []);
-
-        protected override CancellationToken CancellationTokenCore => CancellationToken.None;
-
-        protected override DateTime DeadlineCore => DateTime.MaxValue;
-
-        protected override string HostCore => "localhost";
-
-        protected override string MethodCore => "/Test.Test/Unary";
-
-        protected override string PeerCore => "ipv4:127.0.0.1:5001";
-
-        protected override Metadata RequestHeadersCore { get; }
-
-        protected override Metadata ResponseTrailersCore => [];
-
-        protected override Status StatusCore { get; set; } = Status.DefaultSuccess;
-
-        protected override WriteOptions? WriteOptionsCore { get; set; }
-
-        protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotSupportedException();
-
-        protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => Task.CompletedTask;
     }
 }

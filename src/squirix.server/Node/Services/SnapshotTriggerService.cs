@@ -5,9 +5,9 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -17,6 +17,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
+
+    private readonly EventHandler _onJournalAppended;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
@@ -28,20 +30,21 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly TimeProvider _timeProvider;
 
-    private readonly EventHandler _onJournalAppended;
-
     private int _fatalFailure;
 
     public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
     {
-        _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _log = log ?? throw new ArgumentNullException(nameof(log));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        ArgumentNullException.ThrowIfNull(coordinator);
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(journal);
+        _coordinator = coordinator;
+        _log = log;
+        _journal = journal;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _onJournalAppended = OnJournalAppended;
     }
 
-    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) is not 0;
+    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) != 0;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -105,7 +108,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             if (_log.IsEnabled(LogLevel.Trace))
                 LogManager.SnapshotTriggerTick(_log);
 
-            await _coordinator.TrySnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
+            await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
         }
     }
 }

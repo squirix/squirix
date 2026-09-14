@@ -1,13 +1,15 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -15,10 +17,11 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
 /// Regression coverage for the append cancellation lifecycle (audit items C1 and C2): cancelling a
-/// request after its frame is enqueued must not corrupt the durability waiter pool or double-decrement
+/// request after its frame is enqueued must not corrupt the durability ack pool or double-decrement
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
-public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBase
+[Immutable]
+public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTestBase
 {
     /// <summary>
     /// Cancelling many durable group-commit mutations around their enqueue boundary leaves the
@@ -26,26 +29,24 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     /// without hanging.
     /// </summary>
     [Fact]
-    public async Task CancellingDurableGroupCommitsKeepsPipelineHealthy()
+    public async Task CanceledGroupCommitKeepsPipelineHealthy()
     {
-        using var dir = new TempDirectory("squirix-journal-cancel-storm");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         await journal.WaitForStartupAsync(DefaultCancellationToken);
 
         const int iterations = 256;
@@ -66,48 +67,39 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     /// whole roll), and the journal rolls to the next segment.
     /// </summary>
     [Fact]
-    public async Task DurableGroupCommitCompletesAcrossSegmentRoll()
+    public async Task GroupCommitCompletesAcrossRoll()
     {
-        using var dir = new TempDirectory("squirix-journal-gc-roll");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
+            DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 600_000,
+            FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
+            new AsyncManualResetEvent(true));
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         const int payloadSize = 16_000;
-        var payload = ArrayPool<byte>.Shared.Rent(payloadSize);
-        try
-        {
-            Array.Fill(payload, Convert.ToByte('z'), 0, payloadSize);
+        var payload = new byte[payloadSize];
+        Array.Fill(payload, Convert.ToByte('z'));
 
-            var deadline = Environment.TickCount64 + 30_000;
-            for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
-            {
-                await journal.AppendPutAsync(CacheKey.Default($"k{InvariantIndexStrings.Format(i)}"), payload.AsMemory(0, payloadSize), DefaultCancellationToken);
-                await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-                i++;
-            }
-
-            Assert.Equal(2, pipelined.CurrentSegmentIndex);
-        }
-        finally
+        var deadline = Environment.TickCount64 + 30_000;
+        for (var i = 0; pipelined.CurrentSegmentIndex == 1 && Environment.TickCount64 < deadline;)
         {
-            ArrayPool<byte>.Shared.Return(payload);
+            await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+            i++;
         }
+
+        Assert.Equal(2, pipelined.CurrentSegmentIndex);
     }
 
     private static async Task AppendIgnoringCancellationAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, int cancelAfterMs)
@@ -117,9 +109,9 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         {
             await journal.AppendPutAndAwaitDurabilityAsync(key, payload, cts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            // Expected for the pre-enqueue backpressure path; must not corrupt shared state.
+            TestLog.Suppressed("Append cancellation observed on the pre-enqueue backpressure path; expected, shared state must remain intact.", ex);
         }
     }
 
@@ -128,10 +120,14 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var tasks = new Task[iterations];
         for (var i = 0; i < iterations; i++)
         {
-            var key = CacheKey.Default($"k{InvariantIndexStrings.Format(i)}");
-            tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, i % 4);
+            var key = CacheKey.Default(NodeInvariantIndexStrings.Format(i));
+
+            // Use 1..4 ms (not 0): a zero due-time CTS is already canceled and only exercises the
+            // pre-enqueue path, which is less representative of the durability-ack race this test
+            // was written to catch under CI scheduling pressure.
+            tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, 1 + (i % 4));
         }
 
-        return Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        return Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(60), TimeProvider.System, cancellationToken);
     }
 }

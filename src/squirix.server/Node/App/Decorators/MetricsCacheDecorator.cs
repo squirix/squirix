@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
@@ -12,13 +13,18 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Records generic logical cache operation metrics for the surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner)
+    private readonly CacheMetrics _metrics;
+
+    internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner, CacheMetrics metrics)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
+        _metrics = metrics;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
@@ -57,7 +63,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.Set,
         static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         cancellationToken);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ObserveAsync(
@@ -72,7 +78,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.TryAdd,
         static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
@@ -80,15 +86,9 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         cacheName,
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
-        new UpdateArgs(operationId, cacheName, key, value),
+        new UpdateArgs<T>(operationId, cacheName, key, value),
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
-
-    private static void Record(string cacheName, string operation, string result, long startTimestamp) => CacheMetrics.RecordOperation(
-        ServerCacheName.NormalizeUnvalidated(cacheName),
-        operation,
-        result,
-        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
 
     private async ValueTask ObserveAsync<TState>(
         string cacheName,
@@ -186,13 +186,9 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
-
-    private readonly record struct ReadKeyArgs(string CacheName, string Key);
-
-    private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry);
-
-    private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
-
-    private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
+    private void Record(string cacheName, string operation, string result, long startTimestamp) => _metrics.RecordOperation(
+        ServerCacheName.NormalizeUnvalidated(cacheName),
+        operation,
+        result,
+        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
 }

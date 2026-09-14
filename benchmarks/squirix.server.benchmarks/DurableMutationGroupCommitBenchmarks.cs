@@ -9,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -34,7 +35,7 @@ public class DurableMutationGroupCommitBenchmarks
     public async Task CleanupAsync()
     {
         _executor = null;
-        if (_host is not null)
+        if (_host != null)
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
     }
@@ -45,8 +46,8 @@ public class DurableMutationGroupCommitBenchmarks
     [Benchmark]
     public Task ExecutePutMutationAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
-        var executor = _executor ?? throw new InvalidOperationException("Benchmark executor was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
+        var executor = ThrowHelper.Required(_executor, "Benchmark executor was not initialized.");
         var payload = _putPayload;
         var operationsPerWriter = GetOperationsPerWriter();
         var parallelWriters = GetParallelWriters();
@@ -56,7 +57,7 @@ public class DurableMutationGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"m{InvariantIndexStrings.Format(writerId)}");
+                var key = new CacheKey("bench", $"m{NodeInvariantIndexStrings.Format(writerId)}");
                 var coordinator = host.Coordinator;
                 for (var i = 0; i < operationsPerWriter; i++)
                 {

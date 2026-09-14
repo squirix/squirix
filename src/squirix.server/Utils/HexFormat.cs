@@ -15,12 +15,12 @@ internal static class HexFormat
     /// <exception cref="InvalidOperationException">Thrown when hexadecimal formatting fails.</exception>
     internal static void WriteSha256HexUpper(Span<char> destination, ReadOnlySpan<byte> digest)
     {
-        if (digest.Length is not 32)
+        if (digest.Length != 32)
             throw new ArgumentException("SHA-256 digest must be exactly 32 bytes.", nameof(digest));
         if (destination.Length < 64)
             throw new ArgumentException("Destination must be at least 64 characters.", nameof(destination));
 
-        if (!Convert.TryToHexString(digest, destination, out var written) || written is not 64)
+        if (!Convert.TryToHexString(digest, destination, out var written) || written != 64)
             throw new InvalidOperationException("Failed to format SHA-256 digest as uppercase hexadecimal.");
     }
 }

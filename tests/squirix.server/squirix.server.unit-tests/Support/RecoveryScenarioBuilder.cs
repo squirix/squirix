@@ -1,23 +1,24 @@
 using System;
-using System.Threading.Tasks;
+using System.Threading;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Owns common recovery test infrastructure for focused journal and manifest scenarios.</summary>
-internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
+internal sealed class RecoveryScenarioBuilder : IDisposable
 {
     private readonly TempDirectory _dataDirectory;
-    private bool _disposed;
+    private int _disposed;
 
     private RecoveryScenarioBuilder(TempDirectory dataDirectory)
     {
         _dataDirectory = dataDirectory;
         DataDir = dataDirectory.Path;
-        Persistence = new PersistenceOptions { DataDir = dataDirectory.Path, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-        ManifestStore = new ManifestStore(Persistence);
+        Persistence = new PersistenceOptions { DataDir = dataDirectory.Path, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        Ledger = new Ledger(Persistence);
         Cache = new PhysicalCache<object?>();
     }
 
@@ -28,20 +29,18 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
     internal string DataDir { get; }
 
     /// <summary>Gets the scenario manifest store.</summary>
-    internal ManifestStore ManifestStore { get; }
+    internal Ledger Ledger { get; }
 
     /// <summary>Gets the scenario persistence options.</summary>
     private PersistenceOptions Persistence { get; }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
-        ManifestStore.Dispose();
-        await Cache.DisposeAsync().ConfigureAwait(false);
+        Ledger.Dispose();
         _dataDirectory.Dispose();
     }
 

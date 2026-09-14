@@ -12,18 +12,14 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Unit tests covering automatic retention cleanup of snapshots and journal segments.</summary>
-public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 {
-    private TempDirectory? _dir;
-
-    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
-
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
     [Fact]
-    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
+    public async Task WritesPruneSegmentsBeforeReplayPoint()
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         CreateJournalSegment(1);
         CreateJournalSegment(2);
@@ -46,10 +42,12 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
-        await StoreTestSupport.WaitUntilAsync(
-            staleJournalPaths,
+
+        // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
+        // tests use under parallel CI load.
+        await staleJournalPaths.WaitUntilAsync(
             static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
-            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30),
             DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
@@ -59,14 +57,14 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies only the newest configured snapshot files are kept after manifest persistence.</summary>
     [Fact]
-    public async Task WriteCleansUpSnapshotsBeyondRetentionCount()
+    public async Task WritesPruneSnapshotsPastRetention()
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             SnapshotRetentionCount = 2,
         };
-        using var store = new ManifestStore(options);
+        using var store = new Ledger(options);
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -87,41 +85,21 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await StoreTestSupport.WaitUntilAsync(staleSnapshotPath, static path => !FileKit.Exists(path), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+
+        // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
+        // tests use under parallel CI load.
+        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));
         Assert.True(FileKit.Exists(SnapshotPath(3)));
     }
 
-    /// <summary>Cleans up the temporary storage directory after each test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
+    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{NodeInvariantIndexStrings.Format(index)}");
 
-    /// <summary>Creates a fresh temporary storage directory before each test.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("squirix");
-        return ValueTask.CompletedTask;
-    }
+    private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{NodeInvariantIndexStrings.Format(index)}");
 
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
+    private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
-        base.Dispose(disposing);
-    }
-
-    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{InvariantIndexStrings.Format(index)}");
-
-    private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{InvariantIndexStrings.Format(index)}");
-
-    private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-
-    private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+    private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 }

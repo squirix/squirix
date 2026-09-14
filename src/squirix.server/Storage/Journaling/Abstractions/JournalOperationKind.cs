@@ -32,4 +32,7 @@ internal enum JournalOperationKind
 
     /// <summary>Idempotency outcome record (durable replay state for mutating RPCs).</summary>
     IdempotencyOutcome = 9,
+
+    /// <summary>Write-ahead idempotency intent whose mutation may have committed but whose outcome is unknown.</summary>
+    IdempotencyStarted = 10,
 }

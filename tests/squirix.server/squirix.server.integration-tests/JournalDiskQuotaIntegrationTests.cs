@@ -1,6 +1,4 @@
 using System;
-using System.Buffers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,10 +17,10 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 {
     /// <summary>
     /// Fills a 1 MiB journal cap until durable appends are rejected without crashing the node,
-    /// and verifies readiness plus <c>journalDisk</c> pressure details remain available.
+    /// and verifies readiness plus <c language="csharp">journalDisk</c> pressure details remain available.
     /// </summary>
     [Fact]
-    public async Task DurableWriteAtCapFailsAndReadyStaysHealthy()
+    public async Task WriteAtCapFailsReadyStaysHealthy()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(
@@ -57,37 +55,33 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
 
     private static async Task<Exception> FillUntilJournalQuotaAsync(IJournalCoordinator journal)
     {
-        var payload = ArrayPool<byte>.Shared.Rent(200 * 1024);
-        try
+        var bytes = new byte[200 * 1024];
+        for (var i = 0; i < 32; i++)
         {
-            var bytes = payload.AsMemory(0, 200 * 1024);
-            for (var i = 0; i < 32; i++)
-                try
-                {
-                    await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
-                                 .ConfigureAwait(false);
-                }
-                catch (JournalCapacityExceededException ex)
-                {
-                    return ex;
-                }
-                catch (InvalidOperationException ex) when (ex.InnerException is JournalCapacityExceededException capacity)
-                {
-                    return capacity;
-                }
+            try
+            {
+                await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
+                             .ConfigureAwait(false);
+            }
+            catch (JournalCapacityExceededException ex)
+            {
+                return ex;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is JournalCapacityExceededException capacity)
+            {
+                return capacity;
+            }
+        }
 
-            Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
-            throw new InvalidOperationException("unreachable");
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(payload);
-        }
+        Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
+        throw new InvalidOperationException("unreachable");
     }
 
     private async Task AssertJournalDiskPressureAsync(Uri uri)
     {
-        var details = await HttpClient.GetFromJsonAsync<JsonElement>(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
+        var text = await HttpClient.GetStringAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(text);
+        var details = document.RootElement.Clone();
         Assert.True(details.TryGetProperty("journalDisk", out var journalDisk));
         var state = journalDisk.GetProperty("state").GetString();
         Assert.True(string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal));

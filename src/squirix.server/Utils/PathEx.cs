@@ -61,14 +61,9 @@ internal static class PathEx
     /// <exception cref="ArgumentException">Thrown when paths are empty, rooted, or escape <paramref name="rootDirectory" />.</exception>
     internal static string Combine(string rootDirectory, string relativePath)
     {
-        ArgumentNullException.ThrowIfNull(rootDirectory);
-        ArgumentNullException.ThrowIfNull(relativePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
 
-        if (string.IsNullOrWhiteSpace(rootDirectory))
-            throw new ArgumentException("Root directory must not be empty.", nameof(rootDirectory));
-
-        if (string.IsNullOrWhiteSpace(relativePath))
-            throw new ArgumentException("Relative path must not be empty.", nameof(relativePath));
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
 
         if (Path.IsPathRooted(relativePath))
             throw new ArgumentException("Path must be relative.", nameof(relativePath));
@@ -79,6 +74,34 @@ internal static class PathEx
         var fullPath = Path.GetFullPath(Path.Join(root, relativePath));
 
         return IsPathUnderRoot(fullPath, root) ? fullPath : throw new ArgumentException("Path escapes the configured root directory.", nameof(relativePath));
+    }
+
+    /// <summary>Reads the next non-empty path segment from <paramref name="path" />.</summary>
+    /// <param name="path">Remaining path span; advanced past the consumed segment.</param>
+    /// <param name="segment">Consumed segment when this method returns <see langword="true" />.</param>
+    /// <returns><see langword="true" /> when a segment was read.</returns>
+    internal static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
+    {
+        while (path.Length > 0 && IsDirectorySeparator(path[0]))
+            path = path[1..];
+
+        if (path.IsEmpty)
+        {
+            segment = default;
+            return false;
+        }
+
+        var end = path.IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (end < 0)
+        {
+            segment = path;
+            path = default;
+            return !segment.IsEmpty;
+        }
+
+        segment = path[..end];
+        path = path[(end + 1)..];
+        return !segment.IsEmpty;
     }
 
     private static int GetNormalizedRootPrefixLength(ReadOnlySpan<char> path)
@@ -92,13 +115,8 @@ internal static class PathEx
 
     private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
-    private static bool IsFilesystemRoot(ReadOnlySpan<char> root)
-    {
-        if (root.Length is 1 && IsDirectorySeparator(root[0]))
-            return true;
-
-        return OperatingSystem.IsWindows() && root.Length is 2 && root[1] is ':';
-    }
+    private static bool IsFilesystemRoot(ReadOnlySpan<char> root) =>
+        (root.Length == 1 && IsDirectorySeparator(root[0])) || (OperatingSystem.IsWindows() && root.Length == 2 && root[1] == ':');
 
     private static bool IsPathUnderRoot(string fullPath, string rootFullPath)
     {
@@ -106,25 +124,19 @@ internal static class PathEx
         var root = rootFullPath.AsSpan(0, rootLength);
         var path = fullPath.AsSpan();
 
-        if (path.Length == root.Length)
-            return path.Equals(root, PathComparison);
-
-        if (path.Length < root.Length)
-            return false;
-
-        if (!path.StartsWith(root, PathComparison))
-            return false;
-
-        if (IsFilesystemRoot(root))
-            return true;
-
-        return IsDirectorySeparator(path[root.Length]);
+        return true switch
+        {
+            _ when path.Length == root.Length => path.Equals(root, PathComparison),
+            _ when path.Length < root.Length => false,
+            _ when !path.StartsWith(root, PathComparison) => false,
+            _ when IsFilesystemRoot(root) => true,
+            _ => IsDirectorySeparator(path[root.Length]),
+        };
     }
 
     private static void ValidateSegment(string segment)
     {
-        if (string.IsNullOrWhiteSpace(segment))
-            throw new ArgumentException("Path segments must not be empty.", nameof(segment));
+        ArgumentException.ThrowIfNullOrWhiteSpace(segment);
 
         if (Path.IsPathRooted(segment))
             throw new ArgumentException("Path segments must be relative.", nameof(segment));
@@ -133,8 +145,10 @@ internal static class PathEx
             throw new ArgumentException("Path segments must not be '.' or '..'.", nameof(segment));
 
         var span = segment.AsSpan();
-        while (DirectoryPathValidator.TryReadNextSegment(ref span, out var part))
+        while (TryReadNextSegment(ref span, out var part))
+        {
             if (PathValidation.IsDotOrDotDot(part))
                 throw new ArgumentException("Path segments must not contain '.' or '..'.", nameof(segment));
+        }
     }
 }

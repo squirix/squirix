@@ -24,13 +24,14 @@ internal static class Pointer
 
         var index = BinaryPrimitives.ReadInt32LittleEndian(source[Magic.Length..]);
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(source[(Magic.Length + 4)..]);
-        if (Crc32C.Compute(source[..(Magic.Length + 4)]) != expectedCrc)
-            throw new InvalidDataException("Manifest current pointer failed CRC validation.");
-
-        if (index <= 0)
-            throw new InvalidDataException("Manifest current pointer index is invalid.");
-
-        return index;
+        var isChecksumMismatch = Crc32C.Compute(source[..(Magic.Length + 4)]) != expectedCrc;
+        var hasInvalidIndex = index <= 0;
+        return (isChecksumMismatch, hasInvalidIndex) switch
+        {
+            (true, _) => throw new InvalidDataException("Manifest current pointer failed CRC validation."),
+            (false, true) => throw new InvalidDataException("Manifest current pointer index is invalid."),
+            (false, false) => index,
+        };
     }
 
     internal static void Write(Span<byte> destination, int manifestIndex)

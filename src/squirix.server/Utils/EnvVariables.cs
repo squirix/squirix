@@ -6,15 +6,13 @@ namespace Squirix.Server.Utils;
 /// <summary>Reads process environment variables with consistent parsing for Squirix configuration.</summary>
 internal static class EnvVariables
 {
-    /// <summary>
-    /// Interprets common truthy environment values ( <see langword="true" /> or <c>1</c>, case-insensitive) as <see langword="true" />.
-    /// </summary>
+    /// <summary>Interprets common truthy environment values ( <see langword="true" /> or <c language="csharp">1</c>, case-insensitive) as <see langword="true" />.</summary>
     /// <param name="variableName">The environment variable name.</param>
     /// <returns>Whether the variable is set to a truthy value.</returns>
     internal static bool ReadBool(string variableName)
     {
         var rawValue = ReadString(variableName);
-        return rawValue is not null && (rawValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValue.Equals("1", StringComparison.OrdinalIgnoreCase));
+        return rawValue != null && (rawValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValue.Equals("1", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Reads a signed 32-bit integer from the environment.</summary>
@@ -47,9 +45,7 @@ internal static class EnvVariables
             : throw new InvalidOperationException("Invalid environment variable value. Expected a valid integer.");
     }
 
-    /// <summary>
-    /// Returns the raw environment variable value, or <see langword="null" /> when unset.
-    /// </summary>
+    /// <summary>Returns the raw environment variable value, or <see langword="null" /> when unset.</summary>
     /// <param name="variableName">The environment variable name.</param>
     /// <returns>The raw value, or <see langword="null" /> if the variable is not defined.</returns>
     internal static string? ReadString(string variableName) => Environment.GetEnvironmentVariable(variableName);

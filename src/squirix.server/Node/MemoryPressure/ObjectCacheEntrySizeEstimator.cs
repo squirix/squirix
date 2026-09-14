@@ -1,10 +1,12 @@
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>Entry-size estimator for <c>object?</c> cache values that uses journal-encoded entry size for complex payloads.</summary>
+/// <summary>Entry-size estimator for <c language="csharp">object?</c> cache values that uses journal-encoded entry size for complex payloads.</summary>
+[Immutable]
 internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<object?>
 {
     private static readonly NodeCacheEntry<object?> NullPayloadShell = new() { Value = null };
@@ -13,7 +15,7 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
     /// <inheritdoc />
     public long EstimateBytes(CacheKey key, NodeCacheEntry<object?> entry, bool payloadIsCounter)
     {
-        if (payloadIsCounter || entry.Value is null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value))
+        if (payloadIsCounter || entry.Value == null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value))
             return _typed.EstimateBytes(key, entry, payloadIsCounter);
 
         var dictionaryOverhead = _typed.EstimateBytes(key, NullPayloadShell, false);
@@ -21,5 +23,5 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool payloadIsCounter) => false;
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool isCounter) => false;
 }

@@ -1,122 +1,133 @@
 using System;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Text.Json;
-using Squirix.Server.Runtime;
+using System.Text.Json.Serialization.Metadata;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+[Immutable]
 internal sealed class ServerMetricsSerializer : IServerSerializer
 {
+    private const string OpDeserialize = "deserialize";
+
+    private const string OpSerialize = "serialize";
+
     private readonly string _impl;
     private readonly IServerSerializer _inner;
+    private readonly ServerSerializerMetrics _serializerMetrics;
 
-    internal ServerMetricsSerializer(IServerSerializer inner)
+    internal ServerMetricsSerializer(IServerSerializer inner, Meter meter)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
         _impl = _inner.GetType().Name;
+        _serializerMetrics = new ServerSerializerMetrics(meter);
     }
 
-    public T? Deserialize<T>(string payload)
+    public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
-            Record(ServerSerializerMetrics.OpDeserialize, true, start);
+            var result = _inner.Deserialize(payload, typeInfo);
+            Record(OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
         {
             throw;
         }
     }
 
-    public T? Deserialize<T>(JsonElement payload)
+    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
-            Record(ServerSerializerMetrics.OpDeserialize, true, start);
+            var result = _inner.Deserialize(payload, typeInfo);
+            Record(OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
         {
             throw;
         }
     }
 
-    public T? Deserialize<T>(ReadOnlySpan<byte> payload)
+    public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
-            Record(ServerSerializerMetrics.OpDeserialize, true, start);
+            var result = _inner.Deserialize(payload, typeInfo);
+            Record(OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
         {
             throw;
         }
     }
 
-    public T? Deserialize<T>(Stream payload)
+    public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.Deserialize<T>(payload);
-            Record(ServerSerializerMetrics.OpDeserialize, true, start);
+            var result = _inner.Deserialize(payload, typeInfo);
+            Record(OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpDeserialize, ex, start))
         {
             throw;
         }
     }
 
-    public void Serialize<T>(Stream destination, T? value)
+    public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            _inner.Serialize(destination, value);
-            Record(ServerSerializerMetrics.OpSerialize, true, start);
+            _inner.Serialize(destination, value, typeInfo);
+            Record(OpSerialize, true, start);
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
         {
             throw;
         }
     }
 
-    public JsonElement SerializeToElement<T>(T? value)
+    public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.SerializeToElement(value);
-            Record(ServerSerializerMetrics.OpSerialize, true, start);
+            var result = _inner.SerializeToElement(value, typeInfo);
+            Record(OpSerialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
         {
             throw;
         }
     }
 
-    public byte[] SerializeToUtf8Bytes<T>(T? value)
+    public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = _inner.SerializeToUtf8Bytes(value);
-            Record(ServerSerializerMetrics.OpSerialize, true, start);
+            var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
+            Record(OpSerialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(OpSerialize, ex, start))
         {
             throw;
         }
@@ -125,17 +136,17 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
     private void Record(string op, bool success, long startTimestamp)
     {
         var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-        ServerSerializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
-        ServerSerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+        _serializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
+        _serializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
     }
 
     private void RecordFailure(string op, Exception ex, long startTimestamp)
     {
         var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-        ServerSerializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
-        ServerSerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+        _serializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
+        _serializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
         var exType = ex.GetType().Name;
-        ServerSerializerMetrics.FailuresTotal.WithLabels(op, exType, _impl).Inc(1);
+        _serializerMetrics.FailuresTotal.WithLabels(op, exType, _impl).Inc(1);
     }
 
     private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
@@ -154,23 +165,20 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
     }
 
     /// <summary>Metrics for serialization operations.</summary>
-    private static class ServerSerializerMetrics
+    [Immutable]
+    private sealed class ServerSerializerMetrics
     {
-        internal const string OpDeserialize = "deserialize";
+        internal ServerSerializerMetrics(Meter meter)
+        {
+            FailuresTotal = new ServerCounter3Labels(meter.CreateCounter<long>("squirix_serializer_failures_total"), "op", "exception_type", "impl");
+            OpDurationSeconds = new ServerHistogram2Labels(meter.CreateHistogram<double>("squirix_serializer_op_duration_seconds"), "op", "impl");
+            OpsTotal = new ServerCounter3Labels(meter.CreateCounter<long>("squirix_serializer_ops_total"), "op", "result", "impl");
+        }
 
-        internal const string OpSerialize = "serialize";
+        internal ServerCounter3Labels FailuresTotal { get; }
 
-        internal static readonly ServerCounter3Labels FailuresTotal = new(
-            ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_failures_total"),
-            "op",
-            "exception_type",
-            "impl");
+        internal ServerHistogram2Labels OpDurationSeconds { get; }
 
-        internal static readonly ServerHistogram2Labels OpDurationSeconds = new(
-            ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_serializer_op_duration_seconds"),
-            "op",
-            "impl");
-
-        internal static readonly ServerCounter3Labels OpsTotal = new(ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_ops_total"), "op", "result", "impl");
+        internal ServerCounter3Labels OpsTotal { get; }
     }
 }

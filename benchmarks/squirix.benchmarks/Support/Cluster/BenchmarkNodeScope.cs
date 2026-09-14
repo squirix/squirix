@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -10,6 +11,7 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.Benchmarks.Support.Cluster;
 
 /// <summary>Owns one in-process Squirix node used as the remote server for client SDK benchmarks.</summary>
+[Immutable]
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
     private readonly TempDirectory? _dataDir;
@@ -28,7 +30,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await Host.DisposeAsync().ConfigureAwait(false);
@@ -74,13 +76,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
             return new BenchmarkNodeScope(host, host.Uri, dataDir);
         }
-        catch (InvalidOperationException)
-        {
-            await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
-            throw;
-        }
-        catch (IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
             dataDir?.Dispose();

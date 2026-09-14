@@ -1,63 +1,57 @@
-﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
+<?xml version="1.0" encoding="utf-8"?><NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
   <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
-  <IDEFiles>
-    <IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU">
-      <RootDirResolvingInfo Enabled="False" Hints="Debug|bin|.bin|b|AnyCPU|x64|x86|v*.*|net*" TimeOut="10">
-        <RootDir>.</RootDir>
-      </RootDirResolvingInfo>
-    </IDEFile>
-  </IDEFiles>
-  <RuntimeProfileDesc>.NET 10.0</RuntimeProfileDesc>
-  <Assemblies />
-  <Dirs />
+
+  <IDEFiles><IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU"><RootDirResolvingInfo Enabled="False" Hints="Debug|bin|.bin|b|AnyCPU|x64|x86|v*.*|net*" TimeOut="10"><RootDir>.</RootDir></RootDirResolvingInfo></IDEFile></IDEFiles><RuntimeProfileDesc>.NET 10.0</RuntimeProfileDesc>
+  <Assemblies/>
+  <Dirs/>
   <MergeCodeGeneratedByCompiler>True</MergeCodeGeneratedByCompiler>
   <CompressNDar>True</CompressNDar>
   <ZipSourceFiles>True</ZipSourceFiles>
   <ForceReturnZeroExitCode>False</ForceReturnZeroExitCode>
-  <Report Kind="0" SectionsEnabled="110591" XslPath="" DefaultTheme="dark" Flags="4455424" NbItemsToUnfold="3" NbItemsPerRule="20" MaxNbSourceFiles="2000" />
-  <BuildComparisonSetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30" />
-  <BaselineInUISetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30" />
-  <CoverageFiles CoverageDir="" CoverageDirFilter="" UncoverableAttribute="" CoverageExclusionFile="" />
+  <Report Kind="0" SectionsEnabled="110591" XslPath="" DefaultTheme="dark" Flags="4455424" NbItemsToUnfold="3" NbItemsPerRule="20" MaxNbSourceFiles="2000"/>
+  <BuildComparisonSetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
+  <BaselineInUISetting ProjectMode="CurrentProject" BuildMode="NDaysAgoAnalysisResult" ProjectFileToCompareWith="" BuildFileToCompareWith="" NDaysAgo="30"/>
+  <CoverageFiles CoverageDir="" CoverageDirFilter="" UncoverableAttribute="" CoverageExclusionFile=""/>
   <TrendMetrics UseCustomLog="False" LogRecurrence="3" LogLabel="2" UseCustomDir="False" CustomDir="">
     <Chart Name="Size" ShowInReport="True">
-      <Serie MetricName="# Lines of Code" MetricUnit="Loc" Color="#FF00BFFF" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Lines of Code Covered" MetricUnit="Loc" Color="#FF32CD32" ChartType="Area" ScaleExp="0" />
-      <Serie MetricName="# Lines of Code (NotMyCode)" MetricUnit="Loc" Color="#FFA9A9A9" ChartType="Area" ScaleExp="0" />
-      <Serie MetricName="# Lines of Comments" MetricUnit="Lines" Color="#FF008000" ChartType="Line" ScaleExp="0" />
+      <Serie MetricName="# Lines of Code" MetricUnit="Loc" Color="#FF00BFFF" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Code Covered" MetricUnit="Loc" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Code (NotMyCode)" MetricUnit="Loc" Color="#FFA9A9A9" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Lines of Comments" MetricUnit="Lines" Color="#FF008000" ChartType="Line" ScaleExp="0"/>
     </Chart>
     <Chart Name="% Coverage and % Debt" ShowInReport="True">
-      <Serie MetricName="Percentage Code Coverage" MetricUnit="%" Color="#FF32CD32" ChartType="Area" ScaleExp="0" />
-      <Serie MetricName="Percentage Debt (Metric)" MetricUnit="%" Color="#FFFF0000" ChartType="Line" ScaleExp="0" />
+      <Serie MetricName="Percentage Code Coverage" MetricUnit="%" Color="#FF32CD32" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="Percentage Debt (Metric)" MetricUnit="%" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
     </Chart>
     <Chart Name="Issues" ShowInReport="True">
-      <Serie MetricName="# New Issues since Baseline" MetricUnit="issues" Color="#FFFF0000" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Issues Fixed since Baseline" MetricUnit="issues" Color="#FF32CD32" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Blocker/Critical/High Issues" MetricUnit="issues" Color="#FFFF8C00" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Issues" MetricUnit="issues" Color="#FFFFD700" ChartType="Line" ScaleExp="-2" />
+      <Serie MetricName="# New Issues since Baseline" MetricUnit="issues" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Issues Fixed since Baseline" MetricUnit="issues" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Blocker/Critical/High Issues" MetricUnit="issues" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Issues" MetricUnit="issues" Color="#FFFFD700" ChartType="Line" ScaleExp="-2"/>
     </Chart>
     <Chart Name="Rules" ShowInReport="True">
-      <Serie MetricName="# Rules" MetricUnit="Rules" Color="#FF66CDAA" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Rules Violated" MetricUnit="Rules" Color="#FFFF8C00" ChartType="Area" ScaleExp="0" />
-      <Serie MetricName="# Critical Rules Violated" MetricUnit="Rules" Color="#FFFF0000" ChartType="Area" ScaleExp="0" />
+      <Serie MetricName="# Rules" MetricUnit="Rules" Color="#FF66CDAA" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Rules Violated" MetricUnit="Rules" Color="#FFFF8C00" ChartType="Area" ScaleExp="0"/>
+      <Serie MetricName="# Critical Rules Violated" MetricUnit="Rules" Color="#FFFF0000" ChartType="Area" ScaleExp="0"/>
     </Chart>
     <Chart Name="Quality Gates" ShowInReport="True">
-      <Serie MetricName="# Quality Gates Fail" MetricUnit="quality gates" Color="#FFFF0000" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Quality Gates Warn" MetricUnit="quality gates" Color="#FFFF8C00" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="# Quality Gates" MetricUnit="quality gates" Color="#FF32CD32" ChartType="Line" ScaleExp="0" />
+      <Serie MetricName="# Quality Gates Fail" MetricUnit="quality gates" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Quality Gates Warn" MetricUnit="quality gates" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="# Quality Gates" MetricUnit="quality gates" Color="#FF32CD32" ChartType="Line" ScaleExp="0"/>
     </Chart>
     <Chart Name="Debt" ShowInReport="True">
-      <Serie MetricName="Debt (Metric)" MetricUnit="man-days" Color="#FFFF0000" ChartType="Line" ScaleExp="0" />
-      <Serie MetricName="Annual Interest (Metric)" MetricUnit="man-days" Color="#FFFF8C00" ChartType="Line" ScaleExp="0" />
+      <Serie MetricName="Debt (Metric)" MetricUnit="man-days" Color="#FFFF0000" ChartType="Line" ScaleExp="0"/>
+      <Serie MetricName="Annual Interest (Metric)" MetricUnit="man-days" Color="#FFFF8C00" ChartType="Line" ScaleExp="0"/>
     </Chart>
   </TrendMetrics>
-  <GitHub Account="" Repo="" />
-  <IssueImport ResolveSarifInSolutionDirectories="True" />
-  <HistoricAnalysisResult PersistRecurrence="3" UseCustomDir="False" CustomDir="" RetentionNDays="60" />
-  <SourceFileRebasing FromPath="" ToPath="" />
-  <PathVariables />
-  <GraphFiles />
-  <ProjectRules AreActive="True" QueryPersistenceKind="PersistOnlyQueryIdForUntouchedQueries" />
+  <GitHub Account="" Repo=""/>
+  <IssueImport ResolveSarifInSolutionDirectories="True"/>
+  <HistoricAnalysisResult PersistRecurrence="3" UseCustomDir="False" CustomDir="" RetentionNDays="60"/>
+  <SourceFileRebasing FromPath="" ToPath=""/>
+  <PathVariables/>
+
+  <GraphFiles/>
+  <ProjectRules AreActive="True" QueryPersistenceKind="PersistOnlyQueryIdForUntouchedQueries"/>
   <ProjectDebtSettings DebtSettingsStorage="0" SettingsFilePath="">
     <DebtSettings>
       <DebtFactor>1</DebtFactor>
@@ -80,432 +74,1100 @@
       <High2Critical_SeverityThreshold>72000000000</High2Critical_SeverityThreshold>
       <Critical2Blocker_SeverityThreshold>360000000000</Critical2Blocker_SeverityThreshold>
     </DebtSettings>
-  </ProjectDebtSettings>
-  <Queries>
-    <Group Name="Quality Gates" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Quality Gates Evolution$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage on New Code$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage on Refactored Code$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Blocker Issues$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Critical Issues$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Blocker / Critical / High Issues$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Critical Rules Violated$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Treat Compiler Warnings as Error$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Debt$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt since Baseline$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt Rating per Namespace$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Annual Interest$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Annual Interest since Baseline$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Unnecessary NDepend SuppressMessageAttribute Usage$]]></Query>
-    </Group>
-    <Group Name="Hot Spots" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types Hot Spots$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types to Fix Priority$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Issues to Fix Priority$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt and Issues per Rule$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt and Issues per Rule$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt and Issues per Code Element$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt and Issues per Code Element$]]></Query>
-    </Group>
-    <Group Name="Code Smells" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1000$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1001$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1002$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1003$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1004$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1005$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1006$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1007$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1008$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1009$]]></Query>
-    </Group>
-    <Group Name="Code Smells Regression" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1100$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1101$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1102$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1103$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1104$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1105$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1106$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1107$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1108$]]></Query>
-    </Group>
-    <Group Name="Object Oriented Design" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1200$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1201$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1202$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1203$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1204$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1205$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>A stateless class or structure might be turned into a static type</Name>
-// <Id>ND1206:AStatelessClassOrStructureMightBeTurnedIntoAStaticType</Id>
-// ND1206 squirix override: exclude *Tests types. xUnit does not put a Test attribute
-// on the test class itself, so the stock attribute filter still flags them.
+  </ProjectDebtSettings><Queries>
+
+
+
+
+<Group Name="Quality Gates" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Quality Gates Evolution$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage on New Code$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Coverage on Refactored Code$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Blocker Issues$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Critical Issues$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Blocker / Critical / High Issues$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Critical Rules Violated$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Treat Compiler Warnings as Error$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Debt$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt since Baseline$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt Rating per Namespace$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Annual Interest$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Annual Interest since Baseline$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Unnecessary NDepend SuppressMessageAttribute Usage$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Hot Spots" Active="True" ShownInReport="True">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types Hot Spots$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types to Fix Priority$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Issues to Fix Priority$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt and Issues per Rule$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt and Issues per Rule$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt and Issues per Code Element$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt and Issues per Code Element$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Code Smells" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1000$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1001$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1002$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1003$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1004$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1005$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1006$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1007$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1008$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1009$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Code Smells Regression" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1100$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1101$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1102$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1103$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1104$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1105$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1106$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1107$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid transforming an immutable type into a mutable one</Name>
+// <Id>ND1108:AvoidTransformingAnImmutableTypeIntoAMutableOne</Id>
+// ND1108 squirix override: scope to JustMyCode and drop any type that hosts an
+// xUnit [Fact]/[Theory] test method. Test fixtures (excluded from JustMyCode by
+// "Discard unit-test assemblies from cohesion / SCA gates") and test classes that
+// live inside product assemblies are not held to product-layer immutability
+// standards: they may carry mutable instance state (fixtures, collected values)
+// without signalling a product immutability regression. An explicitly [ThreadSafe]
+// type is also dropped: like ND1910/ND1914, [ThreadSafe] signals that the type is
+// intentionally stateful and synchronized rather than immutable, so gaining the
+// synchronized mutable state it needs to fulfill its contract is not an
+// immutability regression. Product types remain fully covered by JustMyCode.
 warnif count > 0
-
-let testAttributes = ThirdParty.Types
-                  .Where(t => t.IsAttributeClass && t.SimpleName.Contains("Test")).ToArray()
-
 from t in JustMyCode.Types where
-  !t.IsStatic &&
-  !t.IsGeneric &&
-  !t.IsAbstract &&
-   t.InstanceFields.Count() == 0 &&
-   t.SimpleName != "Program" &&
-   !t.SimpleName.EndsWith("Tests") &&
+   t.CodeWasChanged() &&
+   t.OlderVersion().IsImmutable &&
+  !t.IsImmutable &&
+   !t.IsStatic &&
+   !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+   !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+  !t.Methods.Any(m => m.HasAttribute("Xunit.FactAttribute".AllowNoMatch()) ||
+                       m.HasAttribute("Xunit.TheoryAttribute".AllowNoMatch()))
+let culpritFields = t.InstanceFields.Where(f => !f.IsImmutable)
+select new { t, culpritFields, Debt = (10 + 10 * culpritFields.Count()).ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
 
-   // Don't match:
-   // --> types that implement some interfaces.
-   t.NbInterfacesImplemented == 0 &&
 
-   // --> or classes that have sub-classes children.
-   t.NbChildren == 0 &&
 
-   // --> or classes that have a base class
-   ((t.IsClass && t.DepthOfDeriveFrom("System.Object".AllowNoMatch()) == 1) ||
-     t.IsStructure) &&
 
-   // Don't match test classes
-   !testAttributes.Any(tAttr => t.HasAttribute(tAttr)) &&
+</Group>
 
-   // Don't warn about classes instantiated by Dependency Injection frameworks
-   !t.TypesUsingMe.Any(t1 => t1.TypesUsed.ParentNamespaces().Any(n => n.Name.StartsWithAny(
-       "Microsoft.Extensions.DependencyInjection",
-       "Autofac", "Microsoft.Practices.Unity", "Ninject",
-       "StructureMap", "SimpleInjector", "Castle.Windsor",
-       "LightInject", "Spring", "Lamar", "AutoMapper"
-   ))) &&
-   !t.BaseClasses.Any(bc => bc.FullName.StartsWith("AutoMapper")) &&
 
-   // Don't match marker classes
-  !(t.IsSealed && t.Members.Count() == 1 &&
-    t.Members.Single().IsMethod &&
-    t.Members.Single().AsMethod.IsConstructor &&
-    t.Members.Single().AsMethod.NbParameters == 0)
 
-let methodsUsingMe = t.TypesUsingMe.ChildMethods().Where(m => m.IsUsing(t))
 
-select new {
-   t,
-   methodsUsingMe,
-   Debt = (1 + methodsUsingMe.Count()).ToMinutes().ToDebt(),
-   Severity = Severity.Low
-}]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Non-static classes should be instantiated or turned to static</Name>
-// <Id>ND1207:NonStaticClassesShouldBeInstantiatedOrTurnedToStatic</Id>
-// ND1207 squirix override: exclude *Tests and *Benchmarks types.
-// xUnit does not put a Test attribute on the test class itself, so the stock
-// attribute filter still flags them. BenchmarkDotNet instantiates *Benchmarks
-// hosts via reflection, so constructors look unused to static analysis.
-warnif count > 0
+<Group Name="Object Oriented Design" Active="True" ShownInReport="True">
 
-let testAttributes = Types
-                  .Where(t => t.IsAttributeClass && t.SimpleName.Contains("Test")).ToArray()
 
-from t in JustMyCode.Types
-where  t.IsClass &&
-      //!t.IsPublic &&   // if you are developing a framework,
-                        // you might not want to match public classes
-      !t.IsStatic &&
-      !t.IsAbstract &&
-      !t.IsDelegate &&
-      !t.IsAttributeClass && // Attributes class are never seen as instantiated
-      !t.SimpleName.EndsWith("Tests") &&
-      !t.SimpleName.EndsWith("Benchmarks") &&
 
-      // Don't suggest to turn to static, classes that implement interfaces
-      t.InterfacesImplemented.Count() == 0 &&
 
-      // Find the first constructor of t called
-      // match t if none of its constructors is called.
-      t.Constructors.FirstOrDefault(ctor => ctor.NbMethodsCallingMe > 0) == null &&
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1200$]]></Query>
 
-      // Don't warn on Program classes generated by designers
-      t.SimpleName != "Program" &&
 
-      // Types instantiated through remoting infrastructure
-      !t.DeriveFrom("System.MarshalByRefObject".AllowNoMatch()) &&
 
-      // JSON, XML and binary serialized types might not be seen as instantiated.
-      !t.IsUsing("Newtonsoft.Json".MatchNamespace().AllowNoMatch()) &&
-      !t.IsUsing("System.Text.Json".MatchNamespace().AllowNoMatch()) &&
-      !t.HasAttribute("System.Xml.Serialization.XmlRootAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Xml.Serialization.XmlElementAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Xml.Serialization.XmlAttributeAttribute".AllowNoMatch()) &&
-      !t.HasAttribute ("System.SerializableAttribute".AllowNoMatch()) &&
 
-      // Serialized type might never be seen as instantiated.
-      !t.HasAttribute("System.Runtime.Serialization.DataContractAttribute".AllowNoMatch()) &&
-      !t.IsUsing("System.Runtime.Serialization.DataMemberAttribute".AllowNoMatch()) &&
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1201$]]></Query>
 
-      // ASP.NET Core ViewModel and Repository
-      !t.SimpleName.EndsWithAny("Model","Repository") &&
-      !t.IsUsing("System.ComponentModel.DataAnnotations".AllowNoMatch().MatchNamespace()) &&
 
-      // ASP.NET Classes that are instantiated by the ASP.NET infrastructure.
-      !t.BaseClasses.Any(bc => bc.ParentNamespace.Name.StartsWithAny("System.Web", "Microsoft.AspNetCore"))  &&
-      !(t.Constructors.Count() == 1 && t.Constructors.Single().Name.Contains("(IHostingEnvironment)")) &&
 
-      // Entity Framework ModelSnapshot and DbContext and Migration
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.Infrastructure.ModelSnapshot".AllowNoMatch()) &&
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.DbContext".AllowNoMatch()) &&
-      !t.DeriveFrom("Microsoft.EntityFrameworkCore.Migrations.Migration".AllowNoMatch()) &&
 
-      // ASP.NET Core Tag Helpers
-      !t.HasAttribute("Microsoft.AspNetCore.Razor.TagHelpers.HtmlTargetElementAttribute".AllowNoMatch()) &&
-      !t.DeriveFrom("HtmlTags.HtmlTagTagHelper".AllowNoMatch()) &&
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1202$]]></Query>
 
-      // UWP Pages
-      !t.InstanceMethods.WithName("GetBindingConnector(Int32,Object)").Any() &&
 
-      // Don't match test classes
-      !testAttributes.Any(tAttr => t.HasAttribute(tAttr)) &&
 
-      // Validtor classes might not be instantiated
-      !t.SimpleName.EndsWith("Validator") &&
 
-      // Don't warn about classes instantiated by Dependency Injection frameworks
-      !t.TypesUsingMe.Any(t1 => t1.TypesUsed.ParentNamespaces().Any(n => n.Name.StartsWithAny(
-            "Microsoft.Extensions.DependencyInjection",
-            "Autofac", "Microsoft.Practices.Unity", "Ninject",
-            "StructureMap", "SimpleInjector", "Castle.Windsor",
-            "LightInject", "Spring", "Lamar", "AutoMapper"
-      ))) &&
-      !t.BaseClasses.Any(bc => bc.FullName.StartsWith("AutoMapper")) &&
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1203$]]></Query>
 
-      // Don't warn if the type is used by some types using some third-party Json related types.
-      // The type is potentially instantiated by a Json serializer like the GetFromJsonAsync() extension methods.
-      !t.TypesUsingMe.SelectMany(t1 => t1.TypesUsed)
-                     .Where(t1 => t1.IsThirdParty && t1.SimpleName.Contains("Json")).Any() &&
 
-      // Classes that derive from Unity classes are instantiated implicitly by the Unity engine
-      !t.BaseClasses.Any(bc => bc.ParentNamespace.Name.StartsWithAny("UnityEngine","UnityEditor")) &&
 
-      // Don't match marker classes
-      !(t.IsSealed && t.Members.Count() == 1 &&
-        t.Members.Single().IsMethod &&
-        t.Members.Single().AsMethod.IsConstructor &&
-        t.Members.Single().AsMethod.NbParameters == 0)
 
-select new {
-   t,
-   t.Visibility,
-   Debt = 2.ToMinutes().ToDebt(),
-   Severity = Severity.Medium
-}]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1208$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1209$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1210$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1211$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1212$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1213$]]></Query>
-    </Group>
-    <Group Name="Design" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1300$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1301$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1302$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1303$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1304$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid namespaces with few types</Name>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1204$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1205$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1206$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1207$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1208$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1209$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1210$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1211$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1212$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1213$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Design" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1300$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1301$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1302$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1303$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1304$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid namespaces with few types</Name>
 // <Id>ND1305:AvoidNamespacesWithFewTypes</Id>
-// ND1305 squirix override: stock infra list plus "Client" for the intentional
-// exported Squirix.Client entry surface (ISquirixClient / SquirixClient / Options).
-// Merging that namespace would break the public API golden contract.
-// Also skip *Benchmarks* namespaces — BDN folders intentionally stay small.
+// ND1305 squirix override: count only non-generated (real) types per namespace.
+// Autogenerated namespaces (gRPC/protobuf/tools *.g.cs) are excluded from the
+// decomposition heuristic. Squirix.Client is the exported v0.1 client surface
+// (intentionally small public API) and is also excluded.
 warnif count > 0
+from n in Application.Namespaces
+where n.Name != "Squirix.Client" && !n.Name.Contains(".Grpc.")
+let realTypeCount = JustMyCode.Types.Count(t => t.ParentNamespace != null && t.ParentNamespace.FullName == n.FullName)
+where realTypeCount > 0 && realTypeCount <= 3
+select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
 
-let infraNamespaceNames = new HashSet<string>() {
-      "Services", "Exceptions", "Logging",  "Domain",
-      "Identity",  "Migrations",  "Controllers",
-      "Specifications",  "Interfaces",  "Components",
-      "Bus",  "Models",  "EventHandlers",  "Mappings",
-      "ViewModels",  "ViewComponents",  "Notifications",
-      "Configurations",  "Extensions",  "Events",
-      "Context",  "Data",  "EventSourcing",  "Repository",
-      "IoC",  "Manage",  "Commands",  "CommandHandlers",
-      "Validations",  "EventStoreSQL",  "Authorization",
-      "Formatters",  "Xml",  "Json",  "Enums",
-      "Abstractions",  "BaseClasses",  "Settings",
-      "Helpers",  "Validators",  "Entities",  "Pages",
-      "Client"
-}
 
-from a in JustMyCode.Assemblies
-where a.NbTypes >= 15
 
-from n in a.ChildNamespaces
-where n.Name.Length > 0
- && !n.Name.Contains("Benchmarks")
- && !infraNamespaceNames.Contains(n.SimpleName)
- && !n.ParentNamespaces.Any(pn => infraNamespaceNames.Contains(pn.SimpleName))
- &&  n.Name != n.ParentAssembly.Name
-let types = n.ChildTypes.Where(t => !t.IsGeneratedByCompiler).ToArray()
-where
-   types.Length > 0 &&
-   types.Length < 5 &&
-   types.All(t => JustMyCode.Contains(t))
-   orderby types.Length ascending
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1306$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1307$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1309$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1311$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1312$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1313$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1314$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Architecture" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1400$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1401$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1402$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1403$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1404$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1405$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1406$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1407$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1410$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1408$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid mutually-dependent types</Name>
+// <Id>ND1409:AvoidMutuallyDependentTypes</Id>
+// ND1409 squirix override: scope to JustMyCode. Stock rule matches on
+// Application.* and ignores notmycode, so Roslyn source-generator outputs
+// (Rocks *_Rock_Create.g.cs mocks in obj/, protobuf/gRPC *.g.cs) and test
+// assemblies surface as architecture debt. Method-level mutual usage in both
+// directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
+// Two legitimate idioms are excluded: nested types (implementation details reviewed
+// with their declarer; NDepend counts a nested access to an outer static member as
+// usage, e.g. a private Scope.Dispose touching the outer AsyncLocal field) and RAII
+// lease/scope tokens whose entire usage of the owner is construction, disposal, or
+// private helpers (LogLease, AdmissionGate.Lease, ReplicaMutationLease,
+// ReplicaIndexReservation). Genuine peer cycles through public protocol still match.
+warnif count > 0
+let justMyCodeTypes = JustMyCode.Types.ToHashSetEx()
+let IsSubordinateUse = new Func<IMethod, bool>(m =>
+    m.IsConstructor ||
+    m.SimpleName == "Dispose" ||
+    m.SimpleName == "DisposeAsync" ||
+    m.IsPrivate)
+from t1 in justMyCodeTypes
+from t2 in t1.TypesUsed
+where justMyCodeTypes.Contains(t2) &&
+      t1.FullName.CompareTo(t2.FullName) < 0 &&
+      !t1.IsNested && !t2.IsNested
+let t1MethodsUsingT2 = t1.Methods.Using(t2).ToArray()
+let t2MethodsUsingT1 = t2.Methods.Using(t1).ToArray()
+where t1MethodsUsingT2.Any() && t2MethodsUsingT1.Any() &&
+      !t1MethodsUsingT2.All(IsSubordinateUse) &&
+      !t2MethodsUsingT1.All(IsSubordinateUse)
+select new { t1, t2, t1MethodsUsingT2, t2MethodsUsingT1, Debt = 20.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9900$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="API Breaking Changes" Active="True" ShownInReport="True">
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1500$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1501$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1502$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1503$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1504$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1505$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible types$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible methods$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible fields$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Code Coverage" Active="True" ShownInReport="True">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1600$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1601$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1602$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1603$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1604$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1605$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1606$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1607$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1608$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1609$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1610$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Test Methods$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly called by test Methods$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly and indirectly called by test Methods$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Dead Code" Active="True" ShownInReport="True">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1700$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1701$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1702$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1703$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Security" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND3120$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND3121$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3100$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3101$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3102$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3103$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3104$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3105$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3106$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3107$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3108$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Visibility" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1800$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1801$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1802$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1803$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1804$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1805$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1806$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1807$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1808$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1809$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1810$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods that should be declared as 'public' in C#, 'Public' in VB.NET$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Immutability" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1900$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1901$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Immutable types should be tagged with [Immutable]</Name>
+// <Id>ND1910:ImmutableTypesShouldBeTaggedWithImmutable</Id>
+// ND1910 squirix override: report immutable types unless they are explicitly marked mutable.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsImmutable &&
+      !t.HasAttribute("Squirix.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ImmutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.MutableAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select new { t, t.NbLinesOfCode, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1903$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Immutable struct should be declared as readonly</Name>
+// <Id>ND1914:ImmutableStructShouldBeDeclaredAsReadonly</Id>
+// ND1914 squirix override: skip structures explicitly marked thread-safe. A
+// [ThreadSafe] struct changes internal state under its own synchronization (for
+// example AsyncLockHolder flips a release flag via Interlocked) and cannot be
+// declared readonly, so the read-only suggestion is a false positive for it.
+warnif count > 0
+from t in JustMyCode.Types
+where t.IsStructure &&
+      t.IsImmutable &&
+      !t.IsReadOnly &&
+      !t.IsGeneratedByCompiler &&
+      !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !t.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch())
+select new { t, Debt = 2.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1904$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1905$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1906$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1907$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1908$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1909$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1911$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1912$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1913$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Naming Conventions" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2000$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Static fields naming convention</Name>
+// <Id>ND2001:StaticFieldsNamingConvention</Id>
+// ND2001 squirix override: scope to JustMyCode and additionally accept the house
+// _camelCase convention for static fields. StyleCop SA1306 requires a lower-case
+// start, SA1308 bans the s_ prefix and Rider agrees with StyleCop, so _camelCase is
+// the only name satisfying all analyzers for a mutable static field (readonly
+// statics stay PascalCase per the stock conventions below). Generated code excluded.
+warnif count > 0 from f in JustMyCode.Fields where
+   f.IsStatic &&
+   !f.IsEnumValue &&
+   !f.IsLiteral &&
+   !f.IsGeneratedByCompiler &&
+   !f.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+   !f.SimpleNameLike(@"^[A-Z]") &&
+   !f.SimpleNameLike(@"^_[A-Z]") &&
+   !f.SimpleNameLike(@"^s_[A-Z]") &&
+   !f.SimpleNameLike(@"^_[a-z]")
+select new { f, Debt = 3.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2002$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2003$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2004$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[// <Name>Attribute class name should be suffixed with 'Attribute'</Name>
+// <Id>ND2005:AttributeClassNameShouldBeSuffixedWithAttribute</Id>
+// ND2005 squirix override: scope to JustMyCode and drop xUnit generated code.
+// Stock rule matches on Application.Types and flags Xunit.AutoGenerated.* wrappers
+// (InlineDataAttribute0..., MemberDataAttribute0..., TestClass0..., Register*)
+// synthesized by xUnit v3 into test assemblies. JustMyCode already excludes test
+// assemblies; the explicit Xunit.AutoGenerated / compiler-generated /
+// GeneratedCodeAttribute guards cover generators emitting into any assembly.
+warnif count > 0 from t in JustMyCode.Types where
+   t.IsAttributeClass &&
+   !t.IsGeneratedByCompiler &&
+   !t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch()) &&
+   !t.FullNameLike("Xunit.AutoGenerated*") &&
+   // We use SimpleName, because in case of generic Attribute type
+   // SimpleName suppresses the generic suffix (like <T>).
+  !t.SimpleNameLike(@"Attribute$") &&
+  !t.SimpleNameLike(@"AttributeBase$") // Allow the second suffix Base
+                                       // for base attribute classes.!t.SimpleName.EndsWith(@"Attribute")
 select new {
-   n,
-   types,
+   t,
    Debt = 5.ToMinutes().ToDebt(),
-   Severity = Severity.Low
+   Severity = Severity.High
 }]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1306$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1307$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1309$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1311$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1312$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1313$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1314$]]></Query>
-    </Group>
-    <Group Name="Architecture" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1400$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1401$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1402$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1412$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1403$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1404$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1405$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1406$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1407$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1410$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1408$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1409$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9900$]]></Query>
-    </Group>
-    <Group Name="API Breaking Changes" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1500$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1501$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1502$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1503$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1504$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1505$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible types$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible methods$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible fields$]]></Query>
-    </Group>
-    <Group Name="Code Coverage" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1600$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1601$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1602$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1603$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1604$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1605$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1606$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1607$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1608$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1609$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1610$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Test Methods$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly called by test Methods$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly and indirectly called by test Methods$]]></Query>
-    </Group>
-    <Group Name="Dead Code" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1700$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1701$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1702$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1703$]]></Query>
-    </Group>
-    <Group Name="Security" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND3120$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND3121$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3100$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3101$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3102$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3103$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3104$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3105$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3106$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3107$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3108$]]></Query>
-    </Group>
-    <Group Name="Visibility" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1800$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1801$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1802$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1803$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1804$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1805$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1806$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1807$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1808$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1809$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1810$]]></Query>
-      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods that should be declared as 'public' in C#, 'Public' in VB.NET$]]></Query>
-    </Group>
-    <Group Name="Immutability" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1900$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1901$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid static fields with a mutable field type</Name>
-// <Id>ND1902:AvoidStaticFieldsWithAMutableFieldType</Id>
-// ND1902 squirix override: stock rule uses Application.Fields and ignores notmycode.
-// Explicit FullName exclusions for intentional process-wide static cells (notmycode alone is unreliable for Fields).
-warnif count > 0
-from f in JustMyCode.Fields
-where f.IsStatic &&
-     !f.IsEnumValue &&
-     !f.IsGeneratedByCompiler &&
-     !f.IsLiteral
-let fieldType = f.FieldType
-let isExcludedStaticHolder =
-     f.FullNameLike("(.*\\.)?IdempotencyMetrics\\.Catalog$") ||
-     f.FullNameLike("(.*\\.)?MemoryPressureMetrics\\.Catalog$") ||
-     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.Observers" ||
-     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.ObserversState" ||
-     f.FullName == "Squirix.Server.Node.MemoryPressure.ObjectCacheEntrySizeEstimator.NullPayloadShell" ||
-     f.FullName == "Squirix.Server.TestKit.MockOidcAuthority.PortPool" ||
-     f.FullName == "Squirix.Server.TestKit.Mtls.ClusterTls+InternalPortPool.Allocator"
-where fieldType != null &&
-     !fieldType.IsThirdParty &&
-     !fieldType.IsInterface &&
-     !fieldType.IsDelegate &&
-     !fieldType.IsImmutable &&
-     !isExcludedStaticHolder
-select new {
-   f,
-   mutableFieldType = fieldType,
-   isFieldImmutable = f.IsImmutable ? "Immutable" : "Mutable",
-   isFieldReadOnly = f.IsInitOnly ? "ReadOnly" : "Not ReadOnly",
-   Debt = 10.ToMinutes().ToDebt(),
-   Severity = Severity.Medium
-}]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1903$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1914$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1904$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1905$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1906$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1907$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1908$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1909$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1910$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1911$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1912$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1913$]]></Query>
-    </Group>
-    <Group Name="Naming Conventions" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2000$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2001$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2002$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2003$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2004$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2005$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2006$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2007$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2008$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2009$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2010$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2011$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2012$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2013$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2014$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2015$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Methods prefixed with 'Try' should return a boolean</Name>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2006$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2007$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2008$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2009$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2010$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2011$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2012$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2013$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2014$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2015$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Methods prefixed with 'Try' should return a boolean</Name>
 // <Id>ND2016:MethodsPrefixedWithTryShouldReturnABoolean</Id>
 // ND2016 squirix override: stock rule uses Application.Methods and ignores notmycode.
 // JustMyCode excludes protobuf/gRPC generated Try* RPC stubs via notmycode queries above.
@@ -515,117 +1177,583 @@ where m.SimpleNameLike("^Try") &&
       m.ReturnType != null &&
       m.ReturnType.FullName != "System.Boolean" &&
       !m.ReturnType.Name.Contains("Task")
-select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2017$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2018$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2019$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2020$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2021$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2022$]]></Query>
-    </Group>
-    <Group Name="Source Files Organization" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2100$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2101$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2102$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2103$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2104$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2105$]]></Query>
-    </Group>
-    <Group Name=".NET Framework Usage" Active="True" ShownInReport="False">
-      <Group Name="System" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2200$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2201$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2202$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2203$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2204$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2205$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2206$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2207$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2208$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2209$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2210$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2211$]]></Query>
-      </Group>
-      <Group Name="System.Collections" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2300$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2301$]]></Query>
-        <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2302$]]></Query>
-        <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2303$]]></Query>
-      </Group>
-      <Group Name="System.Runtime.InteropServices" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2400$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2401$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2402$]]></Query>
-      </Group>
-      <Group Name="System.Threading" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2500$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2501$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2502$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2503$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2504$]]></Query>
-        <Query Active="False" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2505$]]></Query>
-      </Group>
-      <Group Name="System.Xml" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2600$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2601$]]></Query>
-      </Group>
-      <Group Name="System.Globalization" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2700$]]></Query>
-      </Group>
-      <Group Name="System.Reflection" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2800$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2801$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2802$]]></Query>
-      </Group>
-      <Group Name="Microsoft.Contracts" Active="True" ShownInReport="False">
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2900$]]></Query>
-      </Group>
-    </Group>
-    <Group Name="API Usage" Active="True" ShownInReport="False">
-      <Group Name="Unity" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3200$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3201$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3202$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3203$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3204$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3205$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3206$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3207$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3208$]]></Query>
-      </Group>
-    </Group>
-    <Group Name="Defining JustMyCode" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3000$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3001$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3002$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3003$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3004$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$JustMyCode code elements$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$NotMyCode code elements$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
+      select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2017$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2018$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2019$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2020$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2021$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2022$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Source Files Organization" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2100$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2101$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2102$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2103$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2104$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2105$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name=".NET Framework Usage" Active="True" ShownInReport="False">
+
+
+
+
+<Group Name="System" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2200$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2201$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2202$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2203$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2204$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2205$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2206$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2207$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2208$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2209$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2210$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2211$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Collections" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2300$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2301$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2302$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2303$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Runtime.InteropServices" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2400$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2401$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2402$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Threading" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Don't create threads explicitly</Name>
+// <Id>ND2500:DontCreateThreadsExplicitly</Id>
+// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design
+// (excluded via notmycode "Exclude durability dedicated threads from ND2500").
+warnif count > 0
+from m in JustMyCode.Methods
+where m.CreateA("TYPE:System.Threading.Thread".AllowNoMatch())
+select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2501$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2502$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2503$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2504$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Methods that read mutable state without synchronization</Name>
+// <Id>ND2505:MethodNonSynchronizedThatReadMutableStates</Id>
+// ND2505 squirix override: ignore explicitly thread-safe holder types, enum backing
+// values, literals, compiler-generated fields, and analyzer details. Test and benchmark
+// assemblies are already excluded from JustMyCode by the queries above.
+warnif count > 0
+from m in JustMyCode.Methods
+where (m.ReadsMutableObjectState || m.ReadsMutableTypeState) &&
+      m.ParentType != null &&
+      !m.ParentType.HasAttribute("Squirix.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.HasAttribute("Squirix.Server.Attributes.ThreadSafeAttribute".AllowNoMatch()) &&
+      !m.ParentType.IsGeneratedByCompiler &&
+      !m.IsUsing("System.Threading.Monitor".AllowNoMatch()) &&
+      !m.IsUsing("System.Threading.ReaderWriterLock".AllowNoMatch())
+let mutableFieldsUsed = m.FieldsUsed.Where(f =>
+      !f.IsImmutable &&
+      !f.IsEnumValue &&
+      !f.IsGeneratedByCompiler &&
+      !f.IsLiteral)
+where mutableFieldsUsed.Any()
+select new { m, mutableFieldsUsed, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Xml" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2600$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2601$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Globalization" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2700$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="System.Reflection" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2800$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2801$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid mixing different versions of the same assembly (ND2802)</Name>
+// <Id>ND2802:AssembliesReferencedInMultipleVersions</Id>
+// ND2802 squirix override (disabled): .NET SDK emits multi-version facade references for Roslyn/xUnit
+// during analyzers-only restore (benign, not loaded at runtime). Rule disabled as false-positive.
+warnif count > 0
+from assembly in Application.Assemblies
+from @using in assembly.AssembliesUsed
+where assembly.Name == @using.Name && @using.Version != assembly.Version
+select new { assembly, @using }]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Microsoft.Contracts" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2900$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="API Usage" Active="True" ShownInReport="False">
+
+
+
+
+<Group Name="Unity" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3200$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3201$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3202$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3203$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3204$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3205$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3206$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3207$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3208$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Defining JustMyCode" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3000$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3001$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3002$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3003$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND3004$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$JustMyCode code elements$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$NotMyCode code elements$]]></Query>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
 // Share-sourced wire types and protobuf-generated service contracts are not product-layer code.
 // Removes Squirix.Transport.Grpc* from JustMyCode for all rules (including ND2016 Try* methods).
 notmycode
 from t in Types
 where t.FullNameLike("Squirix.Transport.Grpc*")
-select t]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
 // Explicit method discard so rules that enumerate Methods (for example ND2016) never see
 // protobuf client stubs such as SquirixCacheService+SquirixCacheServiceClient.TryAddEntry.
 notmycode
 from m in Methods
 where m.ParentType != null &&
       m.ParentType.FullNameLike("Squirix.Transport.Grpc*")
-select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport fields from JustMyCode</Name>
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport fields from JustMyCode</Name>
 notmycode
 from f in Fields
 where f.ParentType != null &&
       f.ParentType.FullNameLike("Squirix.Transport.Grpc*")
-select f]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
+select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
-// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
+// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**,
+// obj/**/Rocks.Analysis/**/*_Rock_*.g.cs (Rocks mocks).
 // Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
@@ -634,12 +1762,13 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from t in Types
 where t.SourceFileDeclAvailable &&
       t.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
-select t]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source methods from JustMyCode</Name>
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source methods from JustMyCode</Name>
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
@@ -647,12 +1776,13 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from m in Methods
 where m.SourceFileDeclAvailable &&
       m.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
-select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source fields from JustMyCode</Name>
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source fields from JustMyCode</Name>
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
@@ -660,209 +1790,932 @@ let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
     filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
+    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
 from f in Fields
 where f.SourceFileDeclAvailable &&
       f.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
-select f]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute types from JustMyCode</Name>
+select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute types from JustMyCode</Name>
 notmycode
 from t in Types
 where t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
-select t]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute methods from JustMyCode</Name>
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute methods from JustMyCode</Name>
 // Grpc.Tools tags generated RPC stubs on the method (grpc_csharp_plugin), not always on the declaring type.
 notmycode
 from m in Methods
 where m.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
-select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard MutableInt holder fields from JustMyCode</Name>
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard MutableInt holder fields from JustMyCode</Name>
 // MutableInt32/MutableInt64._value is mutated via Interlocked through ref; marking it readonly is invalid C#.
 notmycode
 from f in Fields
 where f.ParentType != null &&
       (f.ParentType.FullName == "Squirix.Server.Utils.MutableInt32" ||
        f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
-select f]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
-// JournalCoordinator and ManifestRollPublisher own long-lived WAL/manifest I/O threads by design.
-// Task.Run is banned on infrastructure paths; do not refactor these to the thread pool.
+select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
+// JournalCoordinator owns a long-lived WAL I/O thread by design.
+// Task.Run is banned on infrastructure paths; do not refactor it to the thread pool.
+// Manifest roll publishing now uses a Task (TaskCreationOptions.LongRunning) and no longer
+// creates a raw Thread, so it is not excluded here.
 notmycode
 from m in Methods
 where m.IsConstructor &&
       m.ParentType != null &&
-      (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
-       m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher")
-select m]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard sample assemblies from JustMyCode</Name>
+      m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator"
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection helpers</Name>
+// Collection expressions synthesize <>z__ReadOnly* types that throw reserved exception types.
+notmycode
+from t in Types
+where t.IsGeneratedByCompiler || t.Name.StartsWith("<>z__")
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection methods</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      (m.ParentType.IsGeneratedByCompiler || m.ParentType.Name.StartsWith("<>z__"))
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude JournalSegmentPolicy from class-to-struct suggestion</Name>
+// Sealed reference type keeps Policy property semantics simple; struct conversion fights MA0008/RCS1085.
+notmycode
+from t in Types
+where t.FullName == "Squirix.Server.Storage.Journaling.JournalSegmentPolicy"
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CreateHashLocator offline tool entry</Name>
+// Used by tools/sqr-ring-distribution.cs (file-based app outside analyzed assemblies).
+notmycode
+from m in Methods
+where m.FullName == "Squirix.Server.Cluster.RuntimeServiceRegistration.CreateHashLocator(ReadOnlySpan<String>,Int32)"
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard sample assemblies from JustMyCode</Name>
 // Smoke/sample apps under samples/ are not product-layer code. Folder layout need not match
 // RootNamespace (ND2103) and other naming rules should not gate sample harnesses.
 notmycode
 from a in Application.Assemblies.WithNameIn(
       "ExternalPackageSmoke")
-select a]]></Query>
-    </Group>
-    <Group Name="Trend Metrics" Active="True" ShownInReport="False">
-      <Group Name="Issues" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# New Issues since Baseline$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues Fixed since Baseline$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues Worsened since Baseline$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Blocker$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Critical$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity High$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Medium$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Low$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Blocker/Critical/High Issues$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Suppressed Issues$]]></Query>
-      </Group>
-      <Group Name="Rules" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Rules$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Rules Violated$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Critical Rules Violated$]]></Query>
-      </Group>
-      <Group Name="Quality Gates" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates Warn$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates Fail$]]></Query>
-      </Group>
-      <Group Name="Debt" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Debt (Metric)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt (Metric)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt since Baseline (Metric)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Annual Interest (Metric)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Annual Interest since Baseline (Metric)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Breaking Point$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Breaking Point of Blocker / Critical / High Issues$]]></Query>
-      </Group>
-      <Group Name="Code Size" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code (JustMyCode)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code (NotMyCode)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Added since the Baseline$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Source Files$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Line Feed$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# IL Instructions$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# IL Instructions (NotMyCode)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Comments$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage of Comments$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Assemblies$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Namespaces$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Types$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Public Types$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Classes$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Abstract Classes$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Interfaces$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Structures$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Abstract Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Concrete Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Fields$]]></Query>
-      </Group>
-      <Group Name="Maximum and Average" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # Lines of Code for Methods (JustMyCode)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Methods with at least 3 Lines of Code$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # Lines of Code for Types (JustMyCode)$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Types$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max Cyclomatic Complexity for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average Cyclomatic Complexity for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max IL Cyclomatic Complexity for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average IL Cyclomatic Complexity for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max IL Nesting Depth for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average IL Nesting Depth for Methods$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # of Methods for Types$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Methods for Types$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # of Methods for Interfaces$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Methods for Interfaces$]]></Query>
-      </Group>
-      <Group Name="Coverage" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Code Coverage$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Covered$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Not Covered$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Uncoverable$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code in Types 100% Covered$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code in Methods 100% Covered$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max C.R.A.P Score$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average C.R.A.P Score$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage JustMyCode Coverage$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of JustMyCode Covered$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of JustMyCode Not Covered$]]></Query>
-      </Group>
-      <Group Name="Third-Party Usage" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Assemblies Used$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Namespaces Used$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Types Used$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Methods Used$]]></Query>
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Fields Used$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Code Elements Used$]]></Query>
-      </Group>
-    </Group>
-    <Group Name="Code Diff Summary" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New assemblies$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Assemblies removed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Assemblies where code was changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New namespaces$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces removed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces where code was changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New types$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types removed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types where code was changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Heuristic to find types moved from one namespace or assembly to another$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types directly using one or several types changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types indirectly using one or several types changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New methods$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods removed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods where code was changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly calling one or several methods changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods indirectly calling one or several methods changed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New fields$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Fields removed$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party types that were not used and that are now used$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party types that were used and that are not used anymore$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party methods that were not used and that are now used$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party methods that were used and that are not used anymore$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party fields that were not used and that are now used$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party fields that were used and that are not used anymore$]]></Query>
-    </Group>
-    <Group Name="Statistics" Active="True" ShownInReport="False">
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used types (Rank)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used methods (Rank)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used assemblies (#AssembliesUsingMe)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used namespaces (#NamespacesUsingMe )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used types (#TypesUsingMe )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used methods (#MethodsCallingMe )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces that use many other namespaces (#NamespacesUsed )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types that use many other types (#TypesUsed )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods that use many other methods (#MethodsCalled )$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level assemblies (Level)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level namespaces (Level)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level types (Level)$]]></Query>
-      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level methods (Level)$]]></Query>
-    </Group>
-    <Group Name="Samples of Custom rules" Active="True" ShownInReport="False">
-      <Group Name="Check Architecture" Active="False" ShownInReport="False">
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9901$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9902$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9903$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9904$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9905$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9906$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9907$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9908$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9909$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9910$]]></Query>
-      </Group>
-      <Group Name="Check Coverage on particular Code Elements" Active="False" ShownInReport="False">
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9911$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9912$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9913$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9914$]]></Query>
-      </Group>
-      <Group Name="Custom Naming Conventions" Active="False" ShownInReport="False">
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9915$]]></Query>
-        <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9916$]]></Query>
-      </Group>
-    </Group>
-  </Queries>
-</NDepend>
+select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
+// Test harness cohesion and transitive SCA hits are not product-layer debt.
+notmycode
+from a in Application.Assemblies.WithNameIn(
+      "Squirix.UnitTests",
+      "Squirix.Server.UnitTests",
+      "Squirix.Server.TestKit",
+      "Squirix.TestKit",
+      "Squirix.IntegrationTests",
+      "Squirix.Server.IntegrationTests",
+      "Squirix.Server.SmokeTests",
+      "Squirix.E2ETests",
+      "Squirix.ProtocolModel.Tests",
+      "Squirix.Benchmarks",
+      "Squirix.Server.Benchmarks",
+      "Squirix.E2EBenchmarks")
+select a]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source namespaces from JustMyCode</Name>
+notmycode
+from n in Namespaces
+where n.FullNameLike("System.Text.Json.SourceGeneration*")
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard UnitTestJsonContext support namespace from JustMyCode (STJ generated handlers cause ND1400 false positive)</Name>
+notmycode
+from n in Namespaces
+where n.FullName == "Squirix.Server.UnitTests.Support"
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard test DTOs from ND2300 (collection init is required for STJ, not a design flaw)</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Squirix.Server.UnitTests.SamplePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.ValuePayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Core.IdPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Persistence.Journaling.Codec.DerivedValue") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.AdmissionDataPayload") ||
+      t.FullNameLike("Squirix.Server.UnitTests.Memory.ObjectCacheDataPayload")
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated namespaces from JustMyCode</Name>
+// xUnit v3 synthesizes Xunit.AutoGenerated.* wrappers (InlineDataAttribute..., MemberDataAttribute...,
+// TestClass..., Register*) that stock Application.* rules (e.g. ND2005) flag as debt.
+// Test assemblies are already notmycode; this covers generators emitting into any assembly.
+notmycode
+from n in Namespaces
+where n.FullNameLike("Xunit.AutoGenerated*")
+select n]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated types from JustMyCode</Name>
+notmycode
+from t in Types
+where t.FullNameLike("Xunit.AutoGenerated*")
+select t]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated methods from JustMyCode</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      m.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select m]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard xUnit generated fields from JustMyCode</Name>
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      f.ParentType.FullNameLike("Xunit.AutoGenerated*")
+select f]]></Query></Group>
+
+
+
+
+<Group Name="Trend Metrics" Active="True" ShownInReport="False">
+
+
+
+
+<Group Name="Issues" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# New Issues since Baseline$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues Fixed since Baseline$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues Worsened since Baseline$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Blocker$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Critical$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity High$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Medium$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues with severity Low$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Blocker/Critical/High Issues$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Issues$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Suppressed Issues$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Rules" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Rules$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Rules Violated$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Critical Rules Violated$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Quality Gates" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates Warn$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Quality Gates Fail$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Debt" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Debt (Metric)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Debt (Metric)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Debt since Baseline (Metric)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Annual Interest (Metric)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New Annual Interest since Baseline (Metric)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Breaking Point$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Breaking Point of Blocker / Critical / High Issues$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Code Size" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code (JustMyCode)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code (NotMyCode)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Added since the Baseline$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Source Files$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Line Feed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# IL Instructions$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# IL Instructions (NotMyCode)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Comments$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage of Comments$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Assemblies$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Namespaces$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Public Types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Classes$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Abstract Classes$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Interfaces$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Structures$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Abstract Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Concrete Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Fields$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Maximum and Average" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # Lines of Code for Methods (JustMyCode)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Methods with at least 3 Lines of Code$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # Lines of Code for Types (JustMyCode)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Lines of Code for Types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max Cyclomatic Complexity for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average Cyclomatic Complexity for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max IL Cyclomatic Complexity for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average IL Cyclomatic Complexity for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max IL Nesting Depth for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average IL Nesting Depth for Methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # of Methods for Types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Methods for Types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max # of Methods for Interfaces$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average # Methods for Interfaces$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Coverage" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage Code Coverage$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Covered$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Not Covered$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code Uncoverable$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code in Types 100% Covered$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of Code in Methods 100% Covered$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Max C.R.A.P Score$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Average C.R.A.P Score$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Percentage JustMyCode Coverage$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of JustMyCode Covered$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Lines of JustMyCode Not Covered$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Third-Party Usage" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Assemblies Used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Namespaces Used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Types Used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Methods Used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Fields Used$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$# Third-Party Code Elements Used$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Code Diff Summary" Active="True" ShownInReport="True">
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New assemblies$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Assemblies removed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Assemblies where code was changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New namespaces$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces removed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces where code was changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New types$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types removed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types where code was changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Heuristic to find types moved from one namespace or assembly to another$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types directly using one or several types changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types indirectly using one or several types changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New methods$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods removed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods where code was changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods directly calling one or several methods changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods indirectly calling one or several methods changed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$New fields$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Fields removed$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party types that were not used and that are now used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party types that were used and that are not used anymore$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party methods that were not used and that are now used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party methods that were used and that are not used anymore$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party fields that were not used and that are now used$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Third party fields that were used and that are not used anymore$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Statistics" Active="True" ShownInReport="False">
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used types (Rank)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used methods (Rank)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used assemblies (#AssembliesUsingMe)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used namespaces (#NamespacesUsingMe )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used types (#TypesUsingMe )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Most used methods (#MethodsCallingMe )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Namespaces that use many other namespaces (#NamespacesUsed )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Types that use many other types (#TypesUsed )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$Methods that use many other methods (#MethodsCalled )$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level assemblies (Level)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level namespaces (Level)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level types (Level)$]]></Query>
+
+
+
+
+<Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$High-level to low-level methods (Level)$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Samples of Custom rules" Active="True" ShownInReport="False">
+
+
+
+
+<Group Name="Check Architecture" Active="False" ShownInReport="False">
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9901$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9902$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9903$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9904$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9905$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9906$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9907$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9908$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9909$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9910$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Check Coverage on particular Code Elements" Active="False" ShownInReport="False">
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9911$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9912$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9913$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9914$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+<Group Name="Custom Naming Conventions" Active="False" ShownInReport="False">
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9915$]]></Query>
+
+
+
+
+<Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9916$]]></Query>
+
+
+
+
+</Group>
+
+
+
+
+</Group>
+
+
+
+
+</Queries></NDepend>

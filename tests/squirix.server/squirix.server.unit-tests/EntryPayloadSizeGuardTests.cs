@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling;
@@ -9,16 +10,31 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>
-/// Unit tests for <see cref="EntryPayloadSizeGuard" />.
-/// </summary>
+/// <summary>Unit tests for <see cref="EntryPayloadSizeGuard" />.</summary>
+[Immutable]
 public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
 {
+    /// <summary>Direct length and span overloads reject oversized payloads.</summary>
+    [Fact]
+    public void EnsureOverloadsRejectOversizedPayloads()
+    {
+        const int overLength = EntryLimits.MaxEntrySizeBytes + 1;
+        var lengthEx = NodeExceptionAssert.For<SquirixException>().Throws(overLength, static value => EntryPayloadSizeGuard.EnsureLengthWithinLimit(value));
+        Assert.Equal(SquirixErrorCode.PayloadTooLarge, lengthEx.Code);
+
+        var bytes = new byte[overLength];
+        var bytesEx = NodeExceptionAssert.For<SquirixException>().Throws(bytes, static value => EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(value.AsSpan()));
+        Assert.Equal(SquirixErrorCode.PayloadTooLarge, bytesEx.Code);
+
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(EntryLimits.MaxEntrySizeBytes);
+        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit([]);
+    }
+
     /// <summary>Checks if an entry above the limit throws.</summary>
     [Fact]
     public async Task EntryJustAboveLimitThrowsPayloadTooLarge()
     {
-        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
+        var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         var ex = NodeExceptionAssert.For<SquirixException>().Throws(entry, static value => JournalEntryPayload.EnsureEncodedLengthWithinLimit(value));
@@ -32,39 +48,10 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Fact]
     public async Task EntryJustBelowLimitDoesNotThrow()
     {
-        var value = await EntryLimitKit.CreateStringValueAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
+        var value = await EntryLimitKit.CreateStringAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
         Assert.True(JournalEntryPayload.MeasureSerializedBytes(entry) <= EntryLimits.MaxEntrySizeBytes);
-    }
-
-    /// <summary>Direct length and span overloads reject oversized payloads.</summary>
-    [Fact]
-    public void EnsureOverloadsRejectOversizedPayloads()
-    {
-        const int overLength = EntryLimits.MaxEntrySizeBytes + 1;
-        var lengthEx = NodeExceptionAssert.For<SquirixException>().Throws(
-            overLength,
-            static value => EntryPayloadSizeGuard.EnsureLengthWithinLimit(value));
-        Assert.Equal(SquirixErrorCode.PayloadTooLarge, lengthEx.Code);
-
-        var rented = System.Buffers.ArrayPool<byte>.Shared.Rent(overLength);
-        try
-        {
-            EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(rented.AsSpan(0, overLength));
-            Assert.Fail("Expected PayloadTooLarge.");
-        }
-        catch (SquirixException bytesEx)
-        {
-            Assert.Equal(SquirixErrorCode.PayloadTooLarge, bytesEx.Code);
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<byte>.Shared.Return(rented);
-        }
-
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(EntryLimits.MaxEntrySizeBytes);
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit([]);
     }
 }

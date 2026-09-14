@@ -1,5 +1,6 @@
 using System;
-using Squirix.Server.Runtime;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Xunit;
@@ -8,15 +9,16 @@ namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>
 /// Unit tests for <see cref="PersistenceOptions" /> verifying default values,
-/// record equality semantics, and behavior of <c>with</c>-expressions.
+/// record equality semantics, and behavior of <c language="csharp">with</c>-expressions.
 /// </summary>
+[Immutable]
 public sealed class OptionsTests
 {
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
     [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
-    [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
+    [InlineData(nameof(PersistenceOptions.FlushInterval))]
     [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
     public static void ValidateRejectsNonPositiveScalars(string propertyName)
@@ -41,7 +43,7 @@ public sealed class OptionsTests
         Assert.Equal(32, o.JournalMaxSegmentCount);
         Assert.Equal(2048, o.JournalMaxTotalBytesMb);
         Assert.Equal(JournalPlatformBackend.Auto, o.JournalPlatformBackend);
-        Assert.Equal(10, o.FlushIntervalMs);
+        Assert.Equal(10, o.FlushInterval);
         Assert.Equal(3, o.ManifestRetentionCount);
         Assert.Equal(TimeSpan.Zero, o.JournalGroupCommitMaxWait);
         Assert.Equal(32, o.JournalGroupCommitMaxBatch);
@@ -64,18 +66,18 @@ public sealed class OptionsTests
 
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
-    public void FieldBackedValidationAcceptsBoundaryScalars()
+    public void FieldValidationAcceptsValidScalars()
     {
         var options = new PersistenceOptions
         {
             JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 1,
+            FlushInterval = 1,
             ManifestRetentionCount = 1,
             SnapshotRetentionCount = 1,
         };
 
         Assert.Equal(1, options.JournalMaxSegmentMb);
-        Assert.Equal(1, options.FlushIntervalMs);
+        Assert.Equal(1, options.FlushInterval);
         Assert.Equal(1, options.ManifestRetentionCount);
         Assert.Equal(1, options.SnapshotRetentionCount);
     }
@@ -84,22 +86,22 @@ public sealed class OptionsTests
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushInterval":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
         Assert.Equal(64, options.JournalMaxSegmentMb);
-        Assert.Equal(20, options.FlushIntervalMs);
+        Assert.Equal(20, options.FlushInterval);
         Assert.Equal(2, options.ManifestRetentionCount);
         Assert.Equal(4, options.SnapshotRetentionCount);
     }
 
     /// <summary>
-    /// Checks that using a <c>with</c>-expression overrides only the specified properties
+    /// Checks that using a <c language="csharp">with</c>-expression overrides only the specified properties
     /// while leaving all other properties unchanged from the source instance.
     /// </summary>
     [Fact]
-    public void WithExpressionOverridesSelectedPropertiesOnly()
+    public void WithOverridesSelectedPropertiesOnly()
     {
         var defaults = new PersistenceOptions();
 
@@ -115,13 +117,13 @@ public sealed class OptionsTests
 
         // Unchanged defaults
         Assert.Equal(defaults.JournalMaxSegmentMb, overridden.JournalMaxSegmentMb);
-        Assert.Equal(defaults.FlushIntervalMs, overridden.FlushIntervalMs);
+        Assert.Equal(defaults.FlushInterval, overridden.FlushInterval);
     }
 
     private static PersistenceOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
         nameof(PersistenceOptions.JournalMaxSegmentMb) => new PersistenceOptions { JournalMaxSegmentMb = 0 },
-        nameof(PersistenceOptions.FlushIntervalMs) => new PersistenceOptions { FlushIntervalMs = 0 },
+        nameof(PersistenceOptions.FlushInterval) => new PersistenceOptions { FlushInterval = 0 },
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),

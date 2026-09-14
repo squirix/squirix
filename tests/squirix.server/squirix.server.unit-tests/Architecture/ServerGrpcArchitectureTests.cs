@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using ArchUnitNET.xUnitV3;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -11,12 +11,13 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Architecture rules for shared gRPC compile includes, mappers, storage isolation, and Prometheus ownership.</summary>
+/// <summary>Architecture rules for shared gRPC compile includes, mappers, and Prometheus ownership.</summary>
+[Immutable]
 public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
     [Fact]
-    public void ClientServerProjectsCompileMappersSameSources()
+    public void ProjectsCompileMappersFromSameSources()
     {
         string[] expectedIncludes =
         [
@@ -24,6 +25,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         ];
 
         var serverIncludes = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("Compile");
+        Assert.NotNull(serverIncludes);
 
         foreach (var include in expectedIncludes)
             Assert.Contains(include, serverIncludes, StringComparer.Ordinal);
@@ -31,7 +33,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.</summary>
     [Fact]
-    public void ServerAssemblyGenerateGrpcSharedTransportNamespace()
+    public void ServerGeneratesGrpcIntoSharedNamespace()
     {
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
@@ -40,22 +42,22 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
     [Fact]
-    public void ServerProjectGenerateNarrowContractSharedSource()
+    public void ProjectGeneratesNarrowContractSources()
     {
         var protobuf = ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
-        Assert.Equal("Server;Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
+        Assert.Equal("Server;Client", protobuf.GetAttribute("GrpcServices", string.Empty));
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot", string.Empty));
+        Assert.Equal("Internal", protobuf.GetAttribute("Access", string.Empty));
     }
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
     [Fact]
-    public void ServerShouldOwnPrometheusMetricsEndpointMapping() => Assert.False(typeof(EndpointExtensions).IsPublic);
+    public void ServerOwnsMetricsEndpointMapping() => Assert.False(typeof(EndpointExtensions).IsPublic);
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
     [Fact]
-    public void SharedGrpcStaleOwnerConstantsPresentServerBuild()
+    public void StaleOwnerConstantsPresentInServerBuild()
     {
         var found = false;
         var entries = GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers();
@@ -73,7 +75,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.</summary>
     [Fact]
-    public async Task SharedGrpcTransportMapperCoreInternalRuntimeTypes()
+    public async Task TransportMapperRuntimeTypesStayInternal()
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory));
@@ -85,9 +87,9 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         {
             var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            for (var markerIndex = 0; markerIndex < ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers.Length; markerIndex++)
+            for (var markerIndex = 0; markerIndex < ServerArchitectureFixtures.ForbiddenGrpcTransportMapperMarkers.Length; markerIndex++)
             {
-                var marker = ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers[markerIndex];
+                var marker = ServerArchitectureFixtures.ForbiddenGrpcTransportMapperMarkers[markerIndex];
                 Assert.False(text.Contains(marker, StringComparison.Ordinal));
             }
         }
@@ -95,7 +97,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures share-sourced gRPC transport mappers use the shared mapper namespace.</summary>
     [Fact]
-    public async Task SharedGrpcTransportMappersUseGrpcMappersNamespace()
+    public async Task TransportMappersUseMappersNamespace()
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
@@ -107,25 +109,5 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             Assert.Contains("namespace Squirix.Transport.Grpc.Mappers;", text, StringComparison.Ordinal);
         }
-    }
-
-    /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
-    [Fact]
-    public void StorageShouldNotDependOnAdapters()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
-    [Fact]
-    public void StorageShouldNotDependOnNodeHosting()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
-                                          .HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
-
-        rule.Check(ServerArchitecture.Instance);
     }
 }

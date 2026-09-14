@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.TestKit;
 
@@ -20,24 +21,21 @@ namespace Squirix.Server.TestKit;
 ///     </para>
 /// </remarks>
 /// <example>
-///     <code>
+///     <code language="csharp">
 /// using var _ = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", "squirix-test");
 /// // Run code that relies on SQUIRIX_JWT_AUDIENCE=squirix-test
 /// </code>
 /// </example>
+[Immutable]
 public sealed class TempEnvironmentVariable : IDisposable
 {
     private readonly string _key;
     private readonly string? _prev;
     private readonly string? _value;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="TempEnvironmentVariable" /> class.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="TempEnvironmentVariable" /> class.</summary>
     /// <param name="key">Environment variable name (case-insensitive on Windows, case-sensitive on Unix).</param>
-    /// <param name="value">
-    /// Value to set for the duration of this instance. Use <see langword="null" /> to temporarily unset the variable.
-    /// </param>
+    /// <param name="value">Value to set for the duration of this instance. Use <see langword="null" /> to temporarily unset the variable.</param>
     public TempEnvironmentVariable(string key, string? value)
     {
         _key = key;

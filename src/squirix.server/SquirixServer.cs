@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server;
 
@@ -10,6 +11,7 @@ namespace Squirix.Server;
 /// Convenience entry point for starting and owning a Squirix server host in tests and samples.
 /// Production deployments typically use <see cref="AspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
 /// </summary>
+[Immutable]
 public sealed class SquirixServer : IAsyncDisposable
 {
     private const string ApplicationAssemblyName = "Squirix.Server";
@@ -17,7 +19,8 @@ public sealed class SquirixServer : IAsyncDisposable
 
     private SquirixServer(ApplicationHandle handle)
     {
-        _handle = handle ?? throw new ArgumentNullException(nameof(handle));
+        ArgumentNullException.ThrowIfNull(handle);
+        _handle = handle;
     }
 
     /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
@@ -38,15 +41,14 @@ public sealed class SquirixServer : IAsyncDisposable
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
         Configurator.ApplyRuntimeDefaults(options);
-        SquirixServerOptionsValidator.Validate(options);
+        options.Validate();
 
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                Args = [],
-                ApplicationName = ApplicationAssemblyName,
-            });
-
+        var applicationOptions = new WebApplicationOptions
+        {
+            Args = [],
+            ApplicationName = ApplicationAssemblyName,
+        };
+        var builder = WebApplication.CreateBuilder(applicationOptions);
         _ = builder.Logging.ClearProviders();
         _ = builder.Logging.AddConsole();
         _ = builder.Logging.AddDebug();
@@ -73,13 +75,15 @@ public sealed class SquirixServer : IAsyncDisposable
         return new SquirixServer(handle);
     }
 
+    [Immutable]
     private sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;
 
         internal ApplicationHandle(WebApplication app)
         {
-            _app = app ?? throw new ArgumentNullException(nameof(app));
+            ArgumentNullException.ThrowIfNull(app);
+            _app = app;
         }
 
         /// <summary>Ends the server application and releases the owned ASP.NET Core host.</summary>

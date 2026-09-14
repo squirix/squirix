@@ -5,8 +5,8 @@ For a persistence overview, see [persistence.md](persistence.md). This document 
 
 ## Background journal compaction
 
-The node runs background journal compaction while online. Tune thresholds in `Squirix.settings.json` (journal compaction
-section). See [configuration](configuration.md).
+The node runs background journal compaction while online. Compaction thresholds are host defaults in v0.1 public hosting
+(not loaded from `Squirix.settings.json`). See [configuration](configuration.md).
 
 Readiness reports compaction state on `/health/ready/details` (`compaction.*`).
 

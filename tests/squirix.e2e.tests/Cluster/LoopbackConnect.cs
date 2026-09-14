@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit.Networking;
 
@@ -38,6 +39,7 @@ internal static class LoopbackConnect
         return SquirixClient.ConnectAsync(options, SharedHandler, cancellationToken);
     }
 
+    [Immutable]
     private sealed class AuthenticatedEndpointConfigurator
     {
         private readonly Func<CancellationToken, ValueTask<string>> _bearerTokenProvider;
@@ -59,6 +61,7 @@ internal static class LoopbackConnect
         }
     }
 
+    [Immutable]
     private sealed class DualEndpointConfigurator
     {
         private readonly Uri _primary;
@@ -80,6 +83,7 @@ internal static class LoopbackConnect
         }
     }
 
+    [Immutable]
     private sealed class EndpointConfigurator
     {
         private readonly Uri _uri;

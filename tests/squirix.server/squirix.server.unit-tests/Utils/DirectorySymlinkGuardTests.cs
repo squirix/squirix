@@ -1,7 +1,7 @@
 using System;
 using System.IO;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Xunit;
@@ -9,16 +9,16 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers symlink/junction guards used by directory creation.</summary>
-public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
+[Immutable]
+public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 {
     /// <summary>EnsureNoSymlinksInChain rejects an intermediate symlink under the base.</summary>
     [Fact]
-    public void EnsureNoSymlinksInChainRejectsIntermediateSymlink()
+    public void GuardRejectsIntermediateSymlink()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-chain-reject");
-        var basePath = root.Path;
+        var basePath = Dir.Path;
         var real = Path.Join(basePath, "real");
-        Directory.CreateDirectory(real);
+        _ = Directory.CreateDirectory(real);
         var link = Path.Join(basePath, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
@@ -29,31 +29,29 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
 
     /// <summary>EnsureNoSymlinksInChain is a no-op when relative remainder is empty.</summary>
     [Fact]
-    public void EnsureNoSymlinksInChainReturnsWhenRelativeIsEmpty()
+    public void GuardPassesWhenRelativeIsEmpty()
     {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
-        DirectorySymlinkGuard.EnsureNoSymlinksInChain(root, root);
-        Assert.True(Path.IsPathRooted(root));
+        var dir = Path.GetPathRoot(Path.GetTempPath())!;
+        DirectorySymlinkGuard.EnsureNoSymlinksInChain(dir, dir);
+        Assert.True(Path.IsPathRooted(dir));
     }
 
     /// <summary>Ordinary directories pass the regular-directory check.</summary>
     [Fact]
-    public void EnsureRegularDirectoryAcceptsOrdinaryDirectory()
+    public void EnsureRegularAcceptsOrdinaryDir()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-ok");
-        var path = root.Path;
+        var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, false, true);
         Assert.True(Directory.Exists(path));
     }
 
     /// <summary>Created and existing symlink targets are rejected when forbidSymlinks is true.</summary>
     [Fact]
-    public void EnsureRegularDirectoryRejectsSymlinkTarget()
+    public void EnsureRegularRejectsSymlinkTarget()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-reject");
-        var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
-        var link = Path.Join(root.Path, "link");
+        var real = Path.Join(Dir.Path, "real");
+        _ = Directory.CreateDirectory(real);
+        var link = Path.Join(Dir.Path, "link");
         if (!TryCreateDirectoryLink(link, real))
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
 
@@ -67,20 +65,18 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
 
     /// <summary>When forbidSymlinks is false, regular-directory checks are skipped.</summary>
     [Fact]
-    public void EnsureRegularDirectorySkipsWhenNotForbidden()
+    public void EnsureRegularSkipsWhenAllowed()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-skip");
-        var path = root.Path;
+        var path = Dir.Path;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, true, false);
         Assert.True(Directory.Exists(path));
     }
 
     /// <summary>EnsureNoSymlinksInChain accepts paths with no existing intermediate links.</summary>
     [Fact]
-    public void EnsureSymlinksChainMissingIntermediateSegments()
+    public void GuardFlagsMissingChainSegments()
     {
-        using var root = new TempDirectory("squirix-symlink-guard-chain");
-        var basePath = root.Path;
+        var basePath = Dir.Path;
         var target = Path.Join(basePath, "missing", "child");
         DirectorySymlinkGuard.EnsureNoSymlinksInChain(target, basePath);
         Assert.False(Directory.Exists(target));
@@ -88,11 +84,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
 
     /// <summary>IsSymlink returns false for ordinary directories.</summary>
     [Fact]
-    public void IsSymlinkReturnsFalseForOrdinaryDirectory()
-    {
-        using var root = new TempDirectory("squirix-symlink-guard-is");
-        Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(root.Path)));
-    }
+    public void IsSymlinkFalseForOrdinaryDir() => Assert.False(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir.Path)));
 
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {
@@ -101,18 +93,9 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
             _ = Directory.CreateSymbolicLink(linkPath, targetPath);
             return Directory.Exists(linkPath);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
             // Symlink privilege may be missing; treat as unavailable.
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Symlink privilege may be missing; treat as unavailable.
-            return false;
-        }
-        catch (PlatformNotSupportedException)
-        {
             return false;
         }
     }

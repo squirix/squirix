@@ -1,40 +1,32 @@
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Observability;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>Cluster-owned DI registrations for static topology transport and inter-node client pooling.</summary>
+/// <summary>Cluster-owned DI registrations for static topology location (no child-namespace types).</summary>
 internal static class RuntimeServiceRegistration
 {
-    /// <summary>
-    /// Extension methods that register cluster runtime services on <see cref="IServiceCollection" />.
-    /// </summary>
+    /// <summary>Extension methods that register cluster locator services on <see cref="IServiceCollection" />.</summary>
+    /// <param name="services">The service collection to register locators on.</param>
     extension(IServiceCollection services)
     {
-        /// <summary>Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.</summary>
+        /// <summary>Registers static topology node location and ownership resolution.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
-        /// <param name="callPolicyFactory">Optional per-endpoint call policy factory; defaults to a conservative remote policy.</param>
-        /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory for pooled gRPC channels.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        internal IServiceCollection AddSquirixClusterServices(
-            TopologyOptions cluster,
-            Func<string, ServerCallPolicy>? callPolicyFactory,
-            Func<string, HttpMessageHandler>? peerHandlerFactory)
+        internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {
-            RegisterLocatorAndOwnership(services, cluster);
-            RegisterInterceptors(services, cluster);
-            RegisterClientPool(services, cluster, callPolicyFactory, peerHandlerFactory);
+            _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
+            _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
+            _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<TopologyOptions>()));
             return services;
         }
     }
@@ -45,17 +37,6 @@ internal static class RuntimeServiceRegistration
     /// <returns>A locator using the same ring algorithm as cluster hosting.</returns>
     [PublicAPI]
     internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) => new ConsistentHashNodeLocator(nodes, virtualNodes);
-
-    private static ServerPeer[] CopyPeers(TopologyOptions cluster)
-    {
-        var peers = cluster.Peers;
-        var copy = new ServerPeer[peers.Length];
-
-        for (var i = 0; i < peers.Length; i++)
-            copy[i] = peers[i];
-
-        return copy;
-    }
 
     private static string[] GetPeerNodeIds(TopologyOptions cluster)
     {
@@ -68,53 +49,8 @@ internal static class RuntimeServiceRegistration
         return nodeIds;
     }
 
-    private static void RegisterClientPool(
-        IServiceCollection services,
-        TopologyOptions cluster,
-        Func<string, ServerCallPolicy>? callPolicyFactory,
-        Func<string, HttpMessageHandler>? peerHandlerFactory)
-    {
-        _ = services.AddSingleton<IServerClientPool>(sp =>
-        {
-            var material = sp.GetRequiredService<MtlsCertificateMaterial>();
-            var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
-            var interNodeMtlsEnabled = material.Enabled;
-            return new ServerClientPool(
-                CopyPeers(cluster),
-                new ServerClientPoolArgs
-                {
-                    PolicyFactory = callPolicyFactory ?? (static _ => new ServerCallPolicy(
-                        TimeSpan.FromSeconds(3),
-                        3,
-                        TimeSpan.FromMilliseconds(60),
-                        TimeSpan.FromMilliseconds(600))),
-                    PeerHandlerFactory = peerHandlerFactory,
-                    Interceptor = sp.GetRequiredService<ClientInterceptor>(),
-                    MtlsOptions = mtlsOptions,
-                    MtlsMaterial = material,
-                    InterNodeMtlsEnabled = interNodeMtlsEnabled,
-                    InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
-                });
-        });
-    }
-
-    private static void RegisterInterceptors(IServiceCollection services, TopologyOptions cluster)
-    {
-        _ = services.AddSingleton(sp => new ClientInterceptor(sp.GetRequiredService<ILogger<ClientInterceptor>>(), cluster.NodeId));
-        _ = services.AddSingleton(sp => new ServerInterceptor(sp.GetRequiredService<ILogger<ServerInterceptor>>(), cluster.NodeId));
-        _ = services.AddSingleton<ClusterInternalOwnerClientInterceptor>();
-    }
-
-    private static void RegisterLocatorAndOwnership(IServiceCollection services, TopologyOptions cluster)
-    {
-        _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
-        _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
-        _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(sp.GetRequiredService<INodeLocator>(), sp.GetRequiredService<TopologyOptions>()));
-    }
-
-    /// <summary>
-    /// Node locator backed by a <see cref="ConsistentHashRing" /> built from the cluster peer list at startup.
-    /// </summary>
+    /// <summary>Node locator backed by a <see cref="ConsistentHashRing" /> built from the cluster peer list at startup.</summary>
+    [Immutable]
     private sealed class ConsistentHashNodeLocator : INodeLocator
     {
         private readonly ConsistentHashRing _ring;
@@ -129,6 +65,7 @@ internal static class RuntimeServiceRegistration
         public string GetOwner(string cacheName, string key) => _ring.GetOwner(cacheName, key);
 
         /// <summary>Immutable consistent hashing ring with virtual nodes (vnodes).</summary>
+        [Immutable]
         private sealed class ConsistentHashRing : INodeLocator
         {
             private readonly IHash _hash;
@@ -141,7 +78,7 @@ internal static class RuntimeServiceRegistration
                 _hash = hash ?? new Sha256Hasher();
 
                 var distinct = CollectDistinctNodes(nodes);
-                if (distinct.Length is 0)
+                if (distinct.Length == 0)
                     throw new ArgumentException("At least one node must be provided.", nameof(nodes));
 
                 var ringSize = checked(distinct.Length * virtualNodes);
@@ -168,36 +105,7 @@ internal static class RuntimeServiceRegistration
                 return _items[idx].Node;
             }
 
-            private static string[] CollectDistinctNodes(ReadOnlySpan<string> nodes)
-            {
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                var buffer = new string[nodes.Length];
-                var writeIndex = 0;
-
-                for (var i = 0; i < nodes.Length; i++)
-                {
-                    var value = nodes[i];
-                    if (string.IsNullOrWhiteSpace(value) || !seen.Add(value))
-                        continue;
-
-                    buffer[writeIndex++] = value;
-                }
-
-                return TrimDistinctBuffer(buffer, writeIndex);
-            }
-
-            private static string[] TrimDistinctBuffer(string[] buffer, int writeIndex)
-            {
-                if (writeIndex is 0)
-                    return [];
-
-                if (writeIndex == buffer.Length)
-                    return buffer;
-
-                var result = new string[writeIndex];
-                buffer.AsSpan(0, writeIndex).CopyTo(result);
-                return result;
-            }
+            private static string[] CollectDistinctNodes(ReadOnlySpan<string> nodes) => DistinctNodeIds.InInsertionOrder(nodes);
 
             private int FindFirstGreaterOrEqual(ulong hash)
             {
@@ -219,18 +127,15 @@ internal static class RuntimeServiceRegistration
             /// SHA-256 with 64-bit truncation (first 8 bytes as little-endian).
             /// Very even distribution for CH rings; slower than FNV, but OK for ring build/lookups.
             /// </summary>
+            [Immutable]
             private sealed class Sha256Hasher : IHash
             {
-                /// <summary>
-                /// ASCII &#39;:&#39;.
-                /// </summary>
+                /// <summary>ASCII &#39;:&#39;.</summary>
                 private const byte RouteKeySeparator = 58;
 
                 private const int StackHashBufferThreshold = 512;
 
-                /// <summary>
-                /// ASCII &#39;#&#39;.
-                /// </summary>
+                /// <summary>ASCII &#39;#&#39;.</summary>
                 private const byte VNodeSeparator = 35;
 
                 private static ReadOnlySpan<byte> DecimalDigitUtf8 => "0123456789"u8;
@@ -334,14 +239,18 @@ internal static class RuntimeServiceRegistration
     }
 
     /// <summary>Cluster-backed node ownership resolver for inbound endpoint routing checks.</summary>
+    [Immutable]
     private sealed class NodeOwnershipResolver : INodeOwnershipResolver
     {
         private readonly INodeLocator _locator;
 
-        internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions topologyOptions)
+        internal NodeOwnershipResolver(INodeLocator locator, TopologyOptions options)
         {
-            _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-            SelfNodeId = topologyOptions.NodeId ?? throw new ArgumentNullException(nameof(topologyOptions));
+            // No options guard: the only caller feeds GetRequiredService (never null, throws first),
+            // and an untestable guard would sink new-code coverage below the Sonar gate.
+            ArgumentNullException.ThrowIfNull(locator);
+            _locator = locator;
+            SelfNodeId = options.NodeId;
         }
 
         /// <inheritdoc />

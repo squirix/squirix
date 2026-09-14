@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -9,6 +10,7 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Ensures owner-local physical mutations execute only on the owning node.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
+[Immutable]
 internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private const string OwnershipMismatchMessage = "Ownership mismatch for local physical cache operation.";
@@ -19,9 +21,12 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
 
     internal OwnershipGuardCacheDecorator(string self, INodeLocator locator, ILogicalNamespacedCache<T> inner)
     {
-        _self = self ?? throw new ArgumentNullException(nameof(self));
-        _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(inner);
+        _self = self;
+        _locator = locator;
+        _inner = inner;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>

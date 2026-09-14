@@ -1,15 +1,34 @@
 using System;
+using Squirix.Server.Attributes;
 using Xunit.Sdk;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Closure-free assertion for a synchronous node exception.</summary>
 /// <typeparam name="TException">Expected exception type.</typeparam>
+[Immutable]
 public readonly record struct NodeExceptionExpectation<TException>
     where TException : Exception
 {
-    private static readonly string MissingMessage =
-        $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
+    /// <summary>Invokes a capture-free operation and asserts it throws exactly <typeparamref name="TException" />.</summary>
+    /// <param name="operation">Operation expected to throw.</param>
+    /// <returns>The observed exception.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
+    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    public TException Throws(Action operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        try
+        {
+            operation();
+        }
+        catch (TException thrown) when (thrown.GetType() == typeof(TException))
+        {
+            return thrown;
+        }
+
+        throw Missing();
+    }
 
     /// <summary>Invokes an operation with one state value and asserts it throws exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TState">Operation state type.</typeparam>
@@ -57,6 +76,32 @@ public readonly record struct NodeExceptionExpectation<TException>
         throw Missing();
     }
 
+    /// <summary>Invokes an operation with three state values and asserts it throws exactly <typeparamref name="TException" />.</summary>
+    /// <typeparam name="TState1">First operation state type.</typeparam>
+    /// <typeparam name="TState2">Second operation state type.</typeparam>
+    /// <typeparam name="TState3">Third operation state type.</typeparam>
+    /// <param name="state1">First state value.</param>
+    /// <param name="state2">Second state value.</param>
+    /// <param name="state3">Third state value.</param>
+    /// <param name="operation">Operation expected to throw.</param>
+    /// <returns>The observed exception.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
+    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    public TException Throws<TState1, TState2, TState3>(TState1 state1, TState2 state2, TState3 state3, Action<TState1, TState2, TState3> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        try
+        {
+            operation(state1, state2, state3);
+        }
+        catch (TException thrown) when (thrown.GetType() == typeof(TException))
+        {
+            return thrown;
+        }
+
+        throw Missing();
+    }
+
     /// <summary>Invokes an operation with one state value and asserts it throws <typeparamref name="TException" /> or a derived type.</summary>
     /// <typeparam name="TState">Operation state type.</typeparam>
     /// <param name="state">State passed to <paramref name="operation" />.</param>
@@ -79,5 +124,5 @@ public readonly record struct NodeExceptionExpectation<TException>
         throw Missing();
     }
 
-    private static XunitException Missing() => new(MissingMessage);
+    private static XunitException Missing() => new(NodeMissingExceptionMessage.For<TException>());
 }

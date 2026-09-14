@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -11,11 +12,36 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Covers structured correlation scope state enumeration.</summary>
+[Immutable]
 public sealed class CorrelationScopeTests : ServerUnitTestBase
 {
+    /// <summary>Scope with a method includes the rpc.method field.</summary>
+    [Fact]
+    public void ScopeWithMethodExposesFourFields()
+    {
+        var logger = new CapturingLogger();
+        using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
+        var state = Assert.IsType<IReadOnlyList<KeyValuePair<string, object?>>>(logger.LastState, false);
+        Assert.Equal(4, state.Count);
+        Assert.Equal(string.Empty, state[0].Value);
+        Assert.Equal(string.Empty, state[1].Value);
+        Assert.Equal("node-b", state[2].Value);
+        Assert.Equal("rpc.method", state[3].Key);
+        Assert.Equal("GetEntry", state[3].Value);
+
+        using var enumerator = state.GetEnumerator();
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.False(enumerator.MoveNext());
+        enumerator.Reset();
+        Assert.True(enumerator.MoveNext());
+    }
+
     /// <summary>Scope without a method exposes trace, span, and node fields.</summary>
     [Fact]
-    public void BeginStandardScopeWithoutMethodExposesThreeFields()
+    public void ScopeWithoutMethodExposesThreeFields()
     {
         using var activity = new Activity("corr-test");
         _ = activity.Start();
@@ -39,30 +65,6 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         IEnumerable enumerable = state;
         using var nonGeneric = enumerable.GetEnumerator() as IDisposable;
         Assert.NotNull(nonGeneric);
-    }
-
-    /// <summary>Scope with a method includes the rpc.method field.</summary>
-    [Fact]
-    public void BeginStandardScopeWithMethodExposesFourFields()
-    {
-        var logger = new CapturingLogger();
-        using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
-        var state = Assert.IsType<IReadOnlyList<KeyValuePair<string, object?>>>(logger.LastState, false);
-        Assert.Equal(4, state.Count);
-        Assert.Equal(string.Empty, state[0].Value);
-        Assert.Equal(string.Empty, state[1].Value);
-        Assert.Equal("node-b", state[2].Value);
-        Assert.Equal("rpc.method", state[3].Key);
-        Assert.Equal("GetEntry", state[3].Value);
-
-        using var enumerator = state.GetEnumerator();
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.False(enumerator.MoveNext());
-        enumerator.Reset();
-        Assert.True(enumerator.MoveNext());
     }
 
     /// <summary>Indexer rejects out-of-range access.</summary>
@@ -92,6 +94,7 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         {
         }
 
+        [Immutable]
         private sealed class Noop : IDisposable
         {
             internal static readonly Noop Instance = new();

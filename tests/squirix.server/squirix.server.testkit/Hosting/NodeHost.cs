@@ -2,7 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
 
@@ -16,11 +19,7 @@ internal static class NodeHost
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurer(options);
 
-        await ServerHostingComposition.ConfigureBuilderAsync(
-            builder,
-            cluster,
-            configureArgs.Configure,
-            cancellationToken).ConfigureAwait(false);
+        await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
         _ = ServerHostingComposition.MapServer(app);
@@ -52,17 +51,21 @@ internal static class NodeHost
         return builder;
     }
 
+    [Immutable]
     private sealed class CompositionArgsConfigurer
     {
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurer(NodeHostStartOptions options) => _options = options;
+        internal CompositionArgsConfigurer(NodeHostStartOptions options)
+        {
+            _options = options;
+        }
 
         internal void Configure(ICompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = _options.ServicesConfigure;
+            args.ServicesConfigure = ComposeServices(_options);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
@@ -70,6 +73,26 @@ internal static class NodeHost
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
             args.MtlsMaterial = _options.MtlsMaterial;
+            args.FoundationOnly = _options.FoundationOnly;
+        }
+
+        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options)
+        {
+            if (options.TimeProvider == null)
+                return options.ServicesConfigure;
+
+            var timeProvider = options.TimeProvider;
+            var userConfigure = options.ServicesConfigure;
+
+            return services =>
+            {
+                // Register as the base TimeProvider type so the server's PhysicalCache
+                // (which resolves TimeProvider via DI) picks up the controllable fake instead of
+                // the real-time TimeProvider.System default. RemoveAll guarantees the fake wins
+                // over the TryAddSingleton(TimeProvider.System) registered by AddSquirixRuntimeServices.
+                services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+                userConfigure?.Invoke(services);
+            };
         }
     }
 }

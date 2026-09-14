@@ -14,11 +14,19 @@
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=Arbitraries/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=authz/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=Castagnoli/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=CLOEXEC/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=EINTR/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=internode/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=mtls/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=nsdepcop/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=OR_0027d/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=Protos/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=RDONLY/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=slnx/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=SQRS/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=squirix/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=Snapshotted/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/UserDictionary/Words/=TOCTOU/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=traceparent/@EntryIndexedValue">True</s:Boolean>
 	<s:Boolean x:Key="/Default/UserDictionary/Words/=uring/@EntryIndexedValue">True</s:Boolean>
 	<s:String x:Key="/Default/CodeInspection/Highlighting/InspectionSeverities/=HeapView_002EObjectAllocation_002EEvident/@EntryIndexedValue">DO_NOT_SHOW</s:String>
@@ -682,7 +690,10 @@
         &lt;/Entry&gt;
 
         &lt;!-- SA1201: plain structs + records (incl. record struct) before nested classes.
-             Rider does not treat record struct as Kind=Struct; it is Kind=Record. --&gt;
+             StyleCop orders record struct as struct and record as class, but
+             Rider reports both as Kind=Record, so Kind.Order cannot separate them.
+             Record classes are never readonly while this repo uses readonly record
+             structs only, hence Readonly sorts record structs before records. --&gt;
         &lt;Entry DisplayName="Nested Structs And Records"&gt;
             &lt;Entry.Match&gt;
                 &lt;Or&gt;
@@ -699,6 +710,7 @@
                 &lt;/Kind&gt;
                 &lt;Static /&gt;
                 &lt;Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" /&gt;
+                &lt;Readonly /&gt;
                 &lt;Name /&gt;
             &lt;/Entry.SortBy&gt;
         &lt;/Entry&gt;

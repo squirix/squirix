@@ -16,6 +16,9 @@
         <ProjectReference Include="..\..\tests\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\..\src\squirix.attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
+        <Compile Include="..\..\src\squirix.attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
+    </ItemGroup>
 </Project>
-
 

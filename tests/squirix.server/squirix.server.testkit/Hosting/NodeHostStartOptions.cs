@@ -3,6 +3,8 @@ using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
@@ -11,6 +13,7 @@ using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.Hosting;
 
+[Immutable]
 internal sealed class NodeHostStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
@@ -18,6 +21,9 @@ internal sealed class NodeHostStartOptions
     internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
     internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
+
+    /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
+    internal bool FoundationOnly { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
@@ -32,6 +38,9 @@ internal sealed class NodeHostStartOptions
     internal SecurityOptions? SecurityOptions { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
+    internal TimeProvider? TimeProvider { get; init; }
 
     internal bool WaitForRecovery { get; init; } = true;
 }

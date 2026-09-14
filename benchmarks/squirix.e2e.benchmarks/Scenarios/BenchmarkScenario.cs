@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Squirix.Attributes;
 
 namespace Squirix.E2EBenchmarks.Scenarios;
 
@@ -7,6 +8,7 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 /// <param name="Topology">The end-to-end topology.</param>
 /// <param name="ValueShape">The cache value shape.</param>
 /// <param name="DurabilityMode">The durability mode.</param>
+[Immutable]
 public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValueShape ValueShape, E2EBenchmarkDurabilityMode DurabilityMode)
 {
     private static readonly BenchmarkValueShape[] DefaultShapes =

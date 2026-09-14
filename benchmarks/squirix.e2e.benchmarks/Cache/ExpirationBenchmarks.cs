@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -17,7 +18,7 @@ public class ExpirationBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
-    public async Task GetExpirationShouldReturnExpiringEntryAsync()
+    public async Task GetExpiryReturnsExpiringEntryAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetExpirationAsync(NextExpiringHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -27,7 +28,7 @@ public class ExpirationBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
-    public async Task GetExpirationShouldReturnNonExpiringEntryAsync()
+    public async Task GetExpiryReturnsNonExpiringEntryAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetExpirationAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -37,20 +38,20 @@ public class ExpirationBenchmarks : BenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = DestructiveExpirationBatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
-    public async Task RemoveExpirationShouldClearExpirationAsync()
+    public async Task RemoveExpiryClearsExpirationAsync()
     {
         for (var i = 0; i < DestructiveExpirationBatchSize; i++)
             Consumer.Consume(await Adapter.RemoveExpirationAsync(Keyspace.ExpiringHitKey(i), CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.</summary>
-    /// <returns>A task that completes when the batch has finished.</returns>
-    [IterationSetup(Target = nameof(RemoveExpirationShouldClearExpirationAsync))]
-    public async Task SeedRemoveExpirationIterationAsync()
+    [IterationSetup(Target = nameof(RemoveExpiryClearsExpirationAsync))]
+    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
+    public void SeedRemoveExpirationIteration()
     {
         var offset = Interlocked.Add(ref _removeExpirationOffset, DestructiveExpirationBatchSize);
         for (var i = 0; i < DestructiveExpirationBatchSize; i++)
-            await Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).ConfigureAwait(false);
+            Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     /// <summary>Measures TouchAsync absolute expiration path.</summary>

@@ -1,9 +1,12 @@
 using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -18,10 +21,9 @@ public class ManifestPublishBenchmarks
 
     /// <summary>Disposes the manifest store and temporary data directory.</summary>
     [GlobalCleanup]
-    public async Task GlobalCleanupAsync()
+    public void GlobalCleanup()
     {
-        if (_host is not null)
-            await _host.DisposeAsync().ConfigureAwait(false);
+        _host?.Dispose();
         _host = null;
     }
 
@@ -40,37 +42,57 @@ public class ManifestPublishBenchmarks
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.
-        _host.Store.PublishRollBlocking(1, _nextSequence++);
+        // Await the durable publication so the warmup reflects finished work.
+        var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _host.Ledger.EnqueueRoll(1, _nextSequence++, () => warmup.TrySetResult(), ex => warmup.TrySetException(ex));
+        await warmup.Task.ConfigureAwait(false);
     }
 
     /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark]
-    public void PublishManifest()
+    public Task PublishManifestAsync()
     {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         for (var journal = 1; journal <= _operationsPerInvoke; journal++)
-            host.Store.PublishRollBlocking(journal, _nextSequence++);
+        {
+            var isFinal = journal == _operationsPerInvoke;
+            host.Ledger.EnqueueRoll(journal, _nextSequence++, isFinal ? OnSuccess : static () => { }, OnFailure);
+        }
+
+        return completion.Task;
+
+        void OnFailure(Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+
+        void OnSuccess()
+        {
+            completion.TrySetResult();
+        }
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>
-    private sealed class Host : IAsyncDisposable
+    [Immutable]
+    private sealed class Host : IDisposable
     {
         private readonly TempDirectory _dataDir;
 
-        private Host(TempDirectory dataDir, ManifestStore manifestStore)
+        private Host(TempDirectory dataDir, Ledger manifestStore)
         {
             _dataDir = dataDir;
-            Store = manifestStore;
+            Ledger = manifestStore;
         }
 
-        internal ManifestStore Store { get; }
+        internal Ledger Ledger { get; }
 
-        public ValueTask DisposeAsync()
+        public void Dispose()
         {
-            Store.Dispose();
+            Ledger.Dispose();
             _dataDir.Dispose();
-            return ValueTask.CompletedTask;
         }
 
         internal static Task<Host> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)
@@ -80,7 +102,7 @@ public class ManifestPublishBenchmarks
 
             var dataDir = new TempDirectory(tempDirectoryPrefix);
             var persistence = options with { DataDir = dataDir.Path };
-            var manifestStore = new ManifestStore(persistence);
+            var manifestStore = new Ledger(persistence);
             return Task.FromResult(new Host(dataDir, manifestStore));
         }
     }

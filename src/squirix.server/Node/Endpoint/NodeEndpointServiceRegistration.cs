@@ -2,11 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage;
+using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
@@ -20,7 +21,7 @@ internal static class NodeEndpointServiceRegistration
 {
     extension(IServiceCollection services)
     {
-        /// <summary>Registers inbound endpoint cache routing used by REST and gRPC adapters.</summary>
+        /// <summary>Registers inbound endpoint cache routing used by gRPC adapters.</summary>
         /// <param name="persistenceEnabled">When true, registers durable health-ready detail providers.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
@@ -28,7 +29,7 @@ internal static class NodeEndpointServiceRegistration
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = persistenceEnabled ? services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
                 new HealthReadyDependencies(
-                    sp.GetRequiredService<ManifestStore>(),
+                    sp.GetRequiredService<Ledger>(),
                     sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
                     sp.GetRequiredService<IJournalCoordinator>(),
                     sp.GetRequiredService<Coordinator>(),
@@ -47,6 +48,7 @@ internal static class NodeEndpointServiceRegistration
     }
 
     /// <summary>Builds health-ready diagnostics when persistence is disabled.</summary>
+    [Immutable]
     private sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;
@@ -60,10 +62,14 @@ internal static class NodeEndpointServiceRegistration
             IMemoryPressureStateEvaluator memoryEvaluator,
             PressureOptions memoryPressureOptions)
         {
-            _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            _memoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
-            _memoryEvaluator = memoryEvaluator ?? throw new ArgumentNullException(nameof(memoryEvaluator));
-            _memoryPressureOptions = memoryPressureOptions ?? throw new ArgumentNullException(nameof(memoryPressureOptions));
+            ArgumentNullException.ThrowIfNull(cluster);
+            ArgumentNullException.ThrowIfNull(memoryAccounting);
+            ArgumentNullException.ThrowIfNull(memoryEvaluator);
+            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            _cluster = cluster;
+            _memoryAccounting = memoryAccounting;
+            _memoryEvaluator = memoryEvaluator;
+            _memoryPressureOptions = memoryPressureOptions;
         }
 
         /// <inheritdoc />
@@ -107,10 +113,11 @@ internal static class NodeEndpointServiceRegistration
         }
     }
 
+    [Immutable]
     private sealed class HealthReadyDependencies
     {
         internal HealthReadyDependencies(
-            ManifestStore manifestStore,
+            Ledger manifestStore,
             IRetentionCleanupReadinessStatus retentionCleanup,
             IJournalCoordinator journal,
             Coordinator snapshot,
@@ -118,13 +125,20 @@ internal static class NodeEndpointServiceRegistration
             TopologyOptions cluster,
             IMemoryUsageAccounting memoryAccounting)
         {
-            ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-            RetentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
-            Journal = journal ?? throw new ArgumentNullException(nameof(journal));
-            Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-            Compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-            Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            MemoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
+            ArgumentNullException.ThrowIfNull(manifestStore);
+            ArgumentNullException.ThrowIfNull(retentionCleanup);
+            ArgumentNullException.ThrowIfNull(journal);
+            ArgumentNullException.ThrowIfNull(snapshot);
+            ArgumentNullException.ThrowIfNull(compaction);
+            ArgumentNullException.ThrowIfNull(cluster);
+            ArgumentNullException.ThrowIfNull(memoryAccounting);
+            Ledger = manifestStore;
+            RetentionCleanup = retentionCleanup;
+            Journal = journal;
+            Snapshot = snapshot;
+            Compaction = compaction;
+            Cluster = cluster;
+            MemoryAccounting = memoryAccounting;
         }
 
         internal TopologyOptions Cluster { get; }
@@ -133,7 +147,7 @@ internal static class NodeEndpointServiceRegistration
 
         internal IJournalCoordinator Journal { get; }
 
-        internal ManifestStore ManifestStore { get; }
+        internal Ledger Ledger { get; }
 
         internal IMemoryUsageAccounting MemoryAccounting { get; }
 
@@ -142,13 +156,14 @@ internal static class NodeEndpointServiceRegistration
         internal Coordinator Snapshot { get; }
     }
 
-    /// <summary>Builds health-ready diagnostics for REST endpoints.</summary>
+    /// <summary>Builds health-ready diagnostics for `/health/ready/details`.</summary>
+    [Immutable]
     private sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;
         private readonly IJournalCompactionStatus _compaction;
         private readonly IJournalCoordinator _journal;
-        private readonly ManifestStore _manifestStore;
+        private readonly Ledger _manifestStore;
         private readonly IMemoryUsageAccounting _memoryAccounting;
         private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
         private readonly PressureOptions _memoryPressureOptions;
@@ -158,15 +173,17 @@ internal static class NodeEndpointServiceRegistration
         internal HealthReadyDetailsProvider(HealthReadyDependencies deps, IMemoryPressureStateEvaluator memoryEvaluator, PressureOptions memoryPressureOptions)
         {
             ArgumentNullException.ThrowIfNull(deps);
-            _manifestStore = deps.ManifestStore;
+            _manifestStore = deps.Ledger;
             _retentionCleanup = deps.RetentionCleanup;
             _journal = deps.Journal;
             _snapshot = deps.Snapshot;
             _compaction = deps.Compaction;
             _cluster = deps.Cluster;
             _memoryAccounting = deps.MemoryAccounting;
-            _memoryEvaluator = memoryEvaluator ?? throw new ArgumentNullException(nameof(memoryEvaluator));
-            _memoryPressureOptions = memoryPressureOptions ?? throw new ArgumentNullException(nameof(memoryPressureOptions));
+            ArgumentNullException.ThrowIfNull(memoryEvaluator);
+            ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            _memoryEvaluator = memoryEvaluator;
+            _memoryPressureOptions = memoryPressureOptions;
         }
 
         /// <inheritdoc />
@@ -181,7 +198,7 @@ internal static class NodeEndpointServiceRegistration
                 journalBacklogOps = nextSeq - lastApplied;
 
             double? snapshotAgeSeconds = null;
-            if (manifest.LastSnapshot?.Path is not null)
+            if (manifest.LastSnapshot?.Path != null)
                 snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
 
             var compactionState = _compaction.State switch

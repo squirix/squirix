@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -9,20 +10,21 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers directory path resolution and segment parsing.</summary>
+[Immutable]
 public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 {
     /// <summary>IsDirectorySeparator recognizes both separators.</summary>
     [Fact]
     public void IsDirectorySeparatorRecognizesBoth()
     {
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.DirectorySeparatorChar));
-        Assert.True(DirectoryPathValidator.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
-        Assert.False(DirectoryPathValidator.IsDirectorySeparator('x'));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.DirectorySeparatorChar));
+        Assert.True(DirectoryPathHelpers.IsDirectorySeparator(Path.AltDirectorySeparatorChar));
+        Assert.False(DirectoryPathHelpers.IsDirectorySeparator('x'));
     }
 
     /// <summary>Resolves a relative path under a base directory.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathAcceptsRelativeBase()
+    public void ResolveDirAcceptsRelativeBase()
     {
         using var root = new TempDirectory("squirix-dirpath-rel");
         var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", root.Path, true);
@@ -32,7 +34,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Creates a missing base directory when provided.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathCreatesMissingBase()
+    public void ResolveDirCreatesMissingBase()
     {
         using var root = new TempDirectory("squirix-dirpath-base-create");
         var baseDir = Path.Join(root.Path, "missing-base");
@@ -43,12 +45,12 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects targets that escape the base directory.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsBaseEscape()
+    public void ResolveDirRejectsBaseEscape()
     {
         using var root = new TempDirectory("squirix-dirpath-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, "squirix-dirpath-outside-" + Guid.NewGuid().ToString("N"));
+        var outside = Path.Join(parent.FullName, NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(
             outside,
             root.Path,
@@ -57,12 +59,13 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects empty paths.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsEmpty() =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws("  ", static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
+    public void ResolveDirRejectsEmpty() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+        "  ",
+        static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
 
     /// <summary>Rejects when a regular file already exists at the target.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsExistingFile()
+    public void ResolveDirRejectsExistingFile()
     {
         using var root = new TempDirectory("squirix-dirpath-file");
         var target = Path.Join(root.Path, "blocked");
@@ -72,13 +75,13 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>TryReadNextSegment skips separators and returns segments.</summary>
     [Fact]
-    public void TryReadNextSegmentReadsSegments()
+    public void ReadNextSegmentReadsSegments()
     {
         var path = "/a//b/".AsSpan();
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var first));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var first));
         Assert.True(first.SequenceEqual("a".AsSpan()));
-        Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var second));
+        Assert.True(PathEx.TryReadNextSegment(ref path, out var second));
         Assert.True(second.SequenceEqual("b".AsSpan()));
-        Assert.False(DirectoryPathValidator.TryReadNextSegment(ref path, out _));
+        Assert.False(PathEx.TryReadNextSegment(ref path, out _));
     }
 }

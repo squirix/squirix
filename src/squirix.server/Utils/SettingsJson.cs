@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Shared helpers for reading optional sections from <c>Squirix.settings.json</c>.</summary>
+/// <summary>Shared helpers for reading optional sections from <c language="csharp">Squirix.settings.json</c>.</summary>
 internal static class SettingsJson
 {
     private static readonly JsonDocumentOptions DocumentOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };

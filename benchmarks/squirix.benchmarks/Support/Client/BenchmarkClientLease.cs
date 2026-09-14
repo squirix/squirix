@@ -5,9 +5,7 @@ using Squirix.Client;
 
 namespace Squirix.Benchmarks.Support.Client;
 
-/// <summary>
-/// Owns one connected <see cref="ISquirixClient" /> and disposes it exactly once.
-/// </summary>
+/// <summary>Owns one connected <see cref="ISquirixClient" /> and disposes it exactly once.</summary>
 internal sealed class BenchmarkClientLease : IAsyncDisposable
 {
     private ISquirixClient? _client;
@@ -18,16 +16,16 @@ internal sealed class BenchmarkClientLease : IAsyncDisposable
         _client = client;
     }
 
-    internal ISquirixClient Client => _client ?? throw new ObjectDisposedException(nameof(BenchmarkClientLease));
+    internal ISquirixClient Client => BenchmarkThrowHelper.Disposed(_client, nameof(BenchmarkClientLease));
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         var client = _client;
         _client = null;
-        if (client is not null)
+        if (client != null)
             await client.DisposeAsync().ConfigureAwait(false);
     }
 

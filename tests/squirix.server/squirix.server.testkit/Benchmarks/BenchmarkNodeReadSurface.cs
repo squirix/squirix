@@ -3,24 +3,25 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Attributes;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
 /// <summary>Reads cache values through the server-side gRPC adapter pipeline without HTTP/2 or the public client SDK.</summary>
+[Immutable]
 public sealed class BenchmarkNodeReadSurface
 {
     private readonly ICacheApi<object?> _cacheApi;
 
     private BenchmarkNodeReadSurface(ICacheApi<object?> cacheApi)
     {
-        _cacheApi = cacheApi ?? throw new ArgumentNullException(nameof(cacheApi));
+        ArgumentNullException.ThrowIfNull(cacheApi);
+        _cacheApi = cacheApi;
     }
 
-    /// <summary>
-    /// Resolves the same cache surface used by <see cref="SquirixServiceAdapter{T}" /> for inbound reads.
-    /// </summary>
+    /// <summary>Resolves the same cache surface used by <see cref="SquirixServiceAdapter{T}" /> for inbound reads.</summary>
     /// <param name="host">A started in-process test node.</param>
     /// <param name="cacheName">Logical cache namespace.</param>
     /// <returns>A read surface for benchmark breakdown measurements.</returns>

@@ -108,13 +108,13 @@ After each optimization step, add a row here. Primary e2e guardrail: **`ReadExis
 | `RemoteCache<T>.GetValueAsync` → `GetValueAsync` RPC (not `GetEntryAsync` / entry)        | Done     |
 | `ClusteredCache.GetValueAsync` routes via `OwnerFor`                                      | Done     |
 | `ClusteredCache.GetValueAsync` value-only path (avoid entry fetch)                        | Done     |
-| `ClientCache.GetValueAsync` → `GetValueAsync` / `_read.GetValueAsync`                     | Done     |
 
 Short e2e result after this step: `ReadExistingValueBatchedAsync` ≈ **126.7 µs**, **15.53 KB** allocated per operation.
 
 ### Step 2 — Compact `CacheValue` wire format
 
-Done for the value-only `GetValueAsync` RPC. Public `SetAsync` / `TryAddAsync` use matching `SetAsync` / `TryAddAsync` gRPC RPCs with compact `CacheValue` payloads. `GetEntryAsync` and remove previous-value payloads
+Done for the value-only `GetValueAsync` RPC. Public writes use wire RPCs `SetEntry` / `TryAddEntry` with
+`CacheEntryWire` (not flat `Set` / `TryAdd` value-only mutation RPCs). `GetEntryAsync` and remove previous-value payloads
 still use the entry/struct path.
 
 Short e2e result after this step:
@@ -155,7 +155,7 @@ Additional decode isolation check:
 | Benchmark                                | Result           |
 | :--------------------------------------- | :--------------- |
 | `SquirixGrpcTransportReadBatchedAsync`        | **132.946 µs**   |
-| `SquirixGrpcTransportFoundOnlyBatchedAsync`   | **129.470 µs**   |
+| `TransportFoundOnlyBatchedAsync`   | **129.470 µs**   |
 | `SquirixServerPipelineReadBatchedAsync`       | **2.781 µs**     |
 
 `FoundOnly` avoids client-side value decoding but allocates and runs almost the same as the normal raw gRPC read. This rules out `CacheValue` decode as the next meaningful target.
@@ -165,7 +165,7 @@ Additional request allocation isolation check:
 
 | Benchmark                                             | Result                                                      |
 | :---------------------------------------------------- | :---------------------------------------------------------- |
-| `SquirixGrpcTransportFoundOnlyBatchedAsync`                | **134.823 µs**, about **11.58 KB/op** from GC diagnostics   |
+| `TransportFoundOnlyBatchedAsync`                | **134.823 µs**, about **11.58 KB/op** from GC diagnostics   |
 | `SquirixGrpcFoundOnlyReusedBatchedAsync`   | **133.077 µs**, about **11.54 KB/op** from GC diagnostics   |
 
 Reusing the protobuf request instance saves only about **40 B/op** in this sequential benchmark. Product request pooling is not worth the complexity or concurrency risk at this
@@ -185,7 +185,7 @@ Client policy isolation check:
 
 | Benchmark                                           | Result                                                   |
 | :-------------------------------------------------- | :------------------------------------------------------- |
-| `BootstrapFailoverCompletedValueTaskBatchedAsync`        | **15.223 ns**, **0 B/op**                                |
+| `FailoverCompletedBatchedValueTasksAsync`        | **15.223 ns**, **0 B/op**                                |
 | `CallPolicyCompletedValueTaskBatched`               | **260.545 ns**, about **144 B/op** from GC diagnostics   |
 | `BootstrapCallPolicyDoneVtBatchedAsync`   | **278.299 ns**, about **144 B/op** from GC diagnostics   |
 
@@ -279,11 +279,11 @@ Short same-process read result after this change:
 Treat latency as noise because raw gRPC moved in the same run. The allocation signal is useful: this removes about **0.19 KB/op** from the public facade layer. The remaining raw
 gRPC -> public SDK allocation delta is now about **+1.08 KB/op**, still mostly below the public facade.
 
-Latest value-only write check:
+Latest mutation write wire check:
 
 | Change                                                                                                       | Result |
 | :----------------------------------------------------------------------------------------------------------- | :----- |
-| Added `SetAsync` / `TryAddAsync` RPCs; public writes use `CacheValue` instead of `CacheEntryWire` + `Struct` | Done   |
+| Mutation writes remain `SetEntry` / `TryAddEntry` with `CacheEntryWire` (no compact value-only write RPCs shipped) | Current |
 
 Short e2e result after this change:
 
@@ -312,10 +312,11 @@ metric tags, or benchmark handler configuration.
 
 Next useful move here is allocation profiling, not another blind micro-change.
 
-### 3. `GetOrAdd` miss path has two unary calls
+### 3. `GetOrAdd` miss path (single unary RPC)
 
-Historical baseline was **445.8 µs / 59.36 KB**. After read-path fixes and value-only write RPCs, the miss path is closer to **296-312 µs / ~32.5 KB**. That shape is consistent
-with one miss read RPC plus one write RPC. Without changing the current API/protocol shape, there is little left to remove.
+Historical baseline was **445.8 µs / 59.36 KB**. After read-path fixes the miss path is closer to **296-312 µs / ~32.5 KB**.
+v0.1 ships a dedicated `GetOrAdd` unary RPC (client factory runs locally; server get-or-insert is one round trip). Treat
+older “two unary calls” notes as historical investigation only.
 
 ### 4. Unary gRPC transport dominates
 
@@ -360,12 +361,12 @@ Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a l
 
 4. **Optimize `GetOrAdd` miss path**
     - Historical baseline: **445.8 µs**, **59.36 KB**.
-    - Target flow on single node: `GetValueAsync miss -> factory -> TryAddAsync/SetAsync -> return`.
+    - Current product shape: one `GetOrAdd` unary RPC (not a client-stitched miss-read + write pair).
     - Look for extra miss exceptions, duplicate reads, and unnecessary entry/struct serialization.
-    - Re-measured after read-path fixes: **296.3 µs**, **32.96 KB**. That is close to one miss read plus one write RPC.
-    - Added compact value-only write RPCs. Result: **311.9 µs**, **32.54 KB** in a short run; allocation barely moved and latency was noisy.
-    - Conclusion: a meaningful `GetOrAdd` miss optimization needs to reduce round trips or introduce a different protocol shape. More protobuf payload trimming is unlikely to pay
-      off.
+    - Re-measured after read-path fixes: **296.3 µs**, **32.96 KB**.
+    - Compact value-only write RPCs were investigated and **not** shipped; mutation writes stay on `SetEntry` /
+      `TryAddEntry` + `CacheEntryWire`.
+    - Conclusion: further `GetOrAdd` wins are unlikely from protobuf payload trimming alone; profile the single-RPC path.
 
 5. **Quantify public SDK vs raw gRPC**
     - Re-run e2e + breakdown after each step.
@@ -377,7 +378,7 @@ Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a l
     - Applied a narrow public-facade `GetValueAsync` fast path (historical `ClientScopedCache<T>`; now the internal cache wrapper on `SquirixClient`) that avoids the generic `Forward<TResult>` delegate wrapper for public reads.
     - Result: allocation moved only from roughly **12.46 KB** to **12.35 KB** on existing reads in a short run. This is too small to justify broad wrapper rewrites as the next main
       optimization.
-    - Added `SquirixGrpcTransportFoundOnlyBatchedAsync` to separate raw unary transport from client-side value decode.
+    - Added `TransportFoundOnlyBatchedAsync` to separate raw unary transport from client-side value decode.
     - Result: normal raw gRPC read **132.946 µs**, found-only raw gRPC read **129.470 µs**. Decode is not the bottleneck.
     - Added `SquirixGrpcFoundOnlyReusedBatchedAsync` to isolate per-call `GetValueAsyncRequest` allocation.
     - Result: request reuse saved only about **40 B/op**. Do not add product request pooling based on this signal.

@@ -1,8 +1,10 @@
 using System;
+using Squirix.Attributes;
 
 namespace Squirix.Core;
 
 /// <summary>Canonical logical cache name for routing, journal namespaces, scan, watch, and tag invalidation after public validation.</summary>
+[Immutable]
 internal sealed record CacheName
 {
     private CacheName(string canonical)
@@ -13,9 +15,7 @@ internal sealed record CacheName
     /// <summary>Gets the canonical string used consistently across routing, persistence keys, and observability.</summary>
     internal string Canonical { get; }
 
-    /// <summary>
-    /// Validates <paramref name="name" /> using public cache name rules and returns the canonical runtime value.
-    /// </summary>
+    /// <summary>Validates <paramref name="name" /> using public cache name rules and returns the canonical runtime value.</summary>
     /// <param name="name">Logical cache name from a public or wire boundary.</param>
     /// <param name="parameterName">Caller parameter name for exceptions.</param>
     /// <returns>A <see cref="CacheName" /> whose <see cref="Canonical" /> is safe for the internal pipeline.</returns>
@@ -25,9 +25,7 @@ internal sealed record CacheName
         return new CacheName(NormalizeUnvalidated(validated));
     }
 
-    /// <summary>
-    /// Maps null, empty, or whitespace-only names to <see cref="CacheNames.DefaultNamespace" /> without applying public validation.
-    /// </summary>
+    /// <summary>Maps null, empty, or whitespace-only names to <see cref="CacheNames.DefaultNamespace" /> without applying public validation.</summary>
     /// <param name="cacheName">Logical name from an already-validated pipeline segment or trusted persistence.</param>
     /// <returns>The canonical cache name string for routing.</returns>
     private static string NormalizeUnvalidated(string? cacheName) => string.IsNullOrWhiteSpace(cacheName) ? CacheNames.DefaultNamespace : cacheName;
@@ -49,13 +47,15 @@ internal sealed record CacheName
             _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
         };
 
-        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-');
+        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
 
         private static bool IsWhiteSpaceOnly(string cacheName)
         {
             for (var i = 0; i < cacheName.Length; i++)
+            {
                 if (!char.IsWhiteSpace(cacheName[i]))
                     return false;
+            }
 
             return true;
         }

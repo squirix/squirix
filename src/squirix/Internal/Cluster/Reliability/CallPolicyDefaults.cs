@@ -10,24 +10,16 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// </remarks>
 internal static class CallPolicyDefaults
 {
-    /// <summary>
-    /// Maximum number of transport-level retry attempts per RPC.
-    /// </summary>
+    /// <summary>Maximum number of transport-level retry attempts per RPC.</summary>
     private const int MaxAttempts = 3;
 
-    /// <summary>
-    /// Initial retry backoff before jitter is applied.
-    /// </summary>
+    /// <summary>Initial retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan BaseBackoff = TimeSpan.FromMilliseconds(60);
 
-    /// <summary>
-    /// Upper bound for retry backoff before jitter is applied.
-    /// </summary>
+    /// <summary>Upper bound for retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMilliseconds(600);
 
-    /// <summary>
-    /// Per-attempt timeout for remote cache RPCs issued by <see cref="Client.SquirixClient" />.
-    /// </summary>
+    /// <summary>Per-attempt timeout for remote cache RPCs issued by the public <c language="csharp">SquirixClient</c>.</summary>
     private static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(3);
 
     internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);

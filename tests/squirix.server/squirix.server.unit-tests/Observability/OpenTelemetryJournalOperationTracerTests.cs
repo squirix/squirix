@@ -1,22 +1,22 @@
-using System;
 using System.Diagnostics;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for <see cref="OpenTelemetryJournalOperationTracer" /> context tag mapping.
-/// </summary>
+/// <summary>Unit tests for <see cref="OpenTelemetryJournalOperationTracer" /> context tag mapping.</summary>
+[Immutable]
 public sealed class OpenTelemetryJournalOperationTracerTests
 {
     /// <summary>Ensures payload byte tags are applied when context carries payload size.</summary>
     [Fact]
     public void BeginAppliesPayloadAndFrameTotalTags()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
@@ -34,9 +34,9 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
     /// <summary>Ensures durability settings on <see cref="JournalOperationTraceContext" /> are exported as span tags.</summary>
     [Fact]
-    public void BeginAppliesStrictFsyncAndGroupCommitTags()
+    public void BeginTagsStrictFsyncAndGroupCommit()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
@@ -54,9 +54,9 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
     /// <summary>Ensures unset durability settings do not emit durability span tags.</summary>
     [Fact]
-    public void BeginOmitsDurabilityTagsWhenContextValuesAreNull()
+    public void BeginOmitsTagsForNullContextValues()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         using var scope = journalTracer.Begin(JournalOperationKind.Put, null);
@@ -64,6 +64,27 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
         Assert.Null(activity.GetTagItem("journal.group_commit"));
+    }
+
+    /// <summary>Ensures every journal operation kind maps to a span name, including write-ahead intents.</summary>
+    [Fact]
+    public void BeginMapsAllOperationKinds()
+    {
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
+
+        IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
+
+        AssertSpanName(journalTracer, JournalOperationKind.Put, "journal.put");
+        AssertSpanName(journalTracer, JournalOperationKind.Remove, "journal.remove");
+        AssertSpanName(journalTracer, JournalOperationKind.RemoveExpiration, "journal.remove_expiration");
+        AssertSpanName(journalTracer, JournalOperationKind.TouchExpiration, "journal.touch_expiration");
+        AssertSpanName(journalTracer, JournalOperationKind.IdempotencyOutcome, "journal.idempotency_outcome");
+        AssertSpanName(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
+        AssertSpanName(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");
+        AssertSpanName(journalTracer, JournalOperationKind.WaitForStartup, "journal.wait_startup");
+        AssertSpanName(journalTracer, JournalOperationKind.MaintenanceExclusive, "journal.maintenance");
+        AssertSpanName(journalTracer, JournalOperationKind.SnapshotCut, "journal.snapshot_cut");
+        AssertSpanName(journalTracer, JournalOperationKind.UnderSnapshotBarrier, "journal.snapshot_barrier");
     }
 
     private static Activity AssertActivity(string expectedDisplayName)
@@ -74,15 +95,11 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         return activity;
     }
 
-    /// <summary>Enables sampling so the Squirix activity source returns a non-null activity.</summary>
-    private static ActivityListener CreateSquirixSamplingListener()
+    private static void AssertSpanName(IJournalOperationTracer journalTracer, JournalOperationKind kind, string expectedDisplayName)
     {
-        var listener = new ActivityListener
-        {
-            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
-            Sample = static (ref _) => ActivitySamplingResult.AllData,
-        };
-        ActivitySource.AddActivityListener(listener);
-        return listener;
+        using var scope = journalTracer.Begin(kind, null);
+
+        Assert.NotNull(scope);
+        _ = AssertActivity(expectedDisplayName);
     }
 }

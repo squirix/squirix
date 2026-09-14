@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Host;
 
@@ -14,7 +15,7 @@ internal static class Program
 
     private static class SquirixServerProcess
     {
-        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+        private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--enable-replication] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
                                         "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
                                         "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
 
@@ -65,11 +66,12 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  Cluster ID: {options.ClusterId}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count is 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
+            await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
                          .ConfigureAwait(false);
             await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
                          .ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+            await WriteReplicaStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             return 0;
         }
@@ -95,13 +97,13 @@ internal static class Program
         private static async Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command, CancellationToken cancellationToken = default)
         {
             var settingsPath = ResolveSettingsPath(command);
-            var options = settingsPath is null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
-            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist);
+            var options = settingsPath == null ? new SquirixServerOptions() : await LoadSettingsAsync(settingsPath, cancellationToken).ConfigureAwait(false);
+            Configurator.ApplyCommandLineOverrides(options, command.Uri, command.DataDirectory, command.Persist, command.EnableReplication);
             return options;
         }
 
         private static Task<SquirixServerOptions> LoadSettingsAsync(string path, CancellationToken cancellationToken = default) =>
-            Configurator.LoadFromFileAsync(path, cancellationToken);
+            Configurator.LoadAsync(path, cancellationToken);
 
         private static string? ResolveSettingsPath(SquirixServerCommand command) => Configurator.ResolveSettingsPath(command.SettingsPath);
 
@@ -124,10 +126,10 @@ internal static class Program
 
         private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)
         {
-            if (command.SettingsPath is null)
+            if (command.SettingsPath == null)
                 throw new InvalidOperationException("validate-config requires --settings PATH.");
 
-            var (success, error) = await Configurator.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
+            var (success, error) = await Configurator.ValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
             if (!success)
                 throw new InvalidOperationException(error);
 
@@ -150,10 +152,14 @@ internal static class Program
                 return;
             }
 
-            var dataDirectory = options.DataDirectory ?? "<default>";
-            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Persistence: enabled (data dir: unavailable)").ConfigureAwait(false);
                 return;
+            }
+
+            var dataDirectory = options.DataDirectory;
+            await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
 
             var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
             try
@@ -174,6 +180,25 @@ internal static class Program
             }
         }
 
+        private static async Task WriteReplicaStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
+        {
+            if (!options.PersistenceEnabled)
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (persistence disabled)").ConfigureAwait(false);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            {
+                await Console.Out.WriteLineAsync("  Replication: not activated (data directory unavailable)").ConfigureAwait(false);
+                return;
+            }
+
+            var report = await ReplicaDoctor.BuildReportAsync(options, options.DataDirectory, cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < report.Lines.Count; i++)
+                await Console.Out.WriteLineAsync("  " + report.Lines[i]).ConfigureAwait(false);
+        }
+
         private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)
         {
             await Console.Out.WriteLineAsync("[Squirix.Server] Server is ready.").ConfigureAwait(false);
@@ -191,13 +216,15 @@ internal static class Program
         }
 
         /// <summary>Parsed CLI command and option flags for the standalone server host.</summary>
-        /// <param name="Name">Command name such as <c>run</c>, <c>init</c>, or <c>help</c>.</param>
+        /// <param name="Name">Command name such as <c language="csharp">run</c>, <c language="csharp">init</c>, or <c language="csharp">help</c>.</param>
         /// <param name="Strict">Whether strict configuration validation is requested.</param>
-        /// <param name="Uri">Optional listen URL override from <c>--urls</c>.</param>
-        /// <param name="DataDirectory">Optional data directory override from <c>--data-dir</c>.</param>
-        /// <param name="Persist">Whether persistence was requested via <c>--persist</c>.</param>
-        /// <param name="SettingsPath">Optional settings file path from <c>--settings</c>.</param>
-        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, string? SettingsPath)
+        /// <param name="Uri">Optional listen URI override from <c language="csharp">--urls</c>.</param>
+        /// <param name="DataDirectory">Optional data directory override from <c language="csharp">--data-dir</c>.</param>
+        /// <param name="Persist">Whether persistence was requested via <c language="csharp">--persist</c>.</param>
+        /// <param name="EnableReplication">Whether replication was requested via <c language="csharp">--enable-replication</c>.</param>
+        /// <param name="SettingsPath">Optional settings file path from <c language="csharp">--settings</c>.</param>
+        [Immutable]
+        private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, bool EnableReplication, string? SettingsPath)
         {
             internal static SquirixServerCommand Parse(string[] args)
             {
@@ -210,35 +237,40 @@ internal static class Program
                 var state = new FlagState();
                 for (var i = start; i < args.Length; i++)
                 {
-                    if (!TryApplyFlag(args, ref i, state))
+                    if (!TryApplyFlag(args, state, ref i))
                         return HelpCommand();
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.SettingsPath);
+                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.EnableReplication, state.SettingsPath);
             }
 
-            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, null);
+            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, false, null);
 
-            private static string ReadValue(string[] args, ref int index)
+            private static bool IsHelpFlag(string flag) => string.Equals(flag, "--help", StringComparison.Ordinal) || string.Equals(flag, "-h", StringComparison.Ordinal);
+
+            private static string ReadFlagValue(string[] args, ref int index)
             {
                 index++;
-                if (index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal))
-                    throw new InvalidOperationException($"Argument '{args[index - 1]}' requires a value.");
-
-                return args[index];
+                return index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal)
+                    ? throw new InvalidOperationException($"Argument '{args[index - 1]}' requires a value.")
+                    : args[index];
             }
 
             private static int ResolveFlagStart(string[] args, string name)
             {
-                var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal));
+                var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal));
                 return isImplicitRun ? 0 : 1;
             }
 
-            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
+            private static string ResolveName(string[] args) => args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
-            private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
+            /// <summary>Applies no-value switches: <c language="csharp">--strict</c>, <c language="csharp">--persist</c>, <c language="csharp">--enable-replication</c>.</summary>
+            /// <param name="flag">The raw command-line argument.</param>
+            /// <param name="state">The accumulated flag state.</param>
+            /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
+            private static bool TryApplySwitchFlag(string flag, FlagState state)
             {
-                switch (args[index])
+                switch (flag)
                 {
                     case "--strict":
                         state.SetStrict();
@@ -246,26 +278,55 @@ internal static class Program
                     case "--persist":
                         state.SetPersist();
                         return true;
+                    case "--enable-replication":
+                        state.SetEnableReplication();
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            private static bool TryApplyFlag(string[] args, FlagState state, ref int index)
+            {
+                var flag = args[index];
+                return IsHelpFlag(flag) switch
+                {
+                    true => false,
+                    false when TryApplySwitchFlag(flag, state) => true,
+                    false when TryApplyValueFlag(args, flag, state, ref index) => true,
+                    _ => throw new InvalidOperationException($"Unknown argument '{flag}'."),
+                };
+            }
+
+            /// <summary>Applies value flags: <c language="csharp">--urls</c>, <c language="csharp">--data-dir</c>, <c language="csharp">--settings</c>.</summary>
+            /// <param name="args">The raw command-line arguments.</param>
+            /// <param name="flag">The flag whose value follows.</param>
+            /// <param name="state">The accumulated flag state.</param>
+            /// <param name="index">The current argument index, advanced past the consumed value.</param>
+            /// <returns><see langword="true" /> when the flag was consumed; otherwise <see langword="false" />.</returns>
+            private static bool TryApplyValueFlag(string[] args, string flag, FlagState state, ref int index)
+            {
+                switch (flag)
+                {
                     case "--urls":
-                        state.SetUri(new Uri(ReadValue(args, ref index), UriKind.Absolute));
+                        state.SetUri(new Uri(ReadFlagValue(args, ref index), UriKind.Absolute));
                         return true;
                     case "--data-dir":
-                        state.SetDataDirectory(ReadValue(args, ref index));
+                        state.SetDataDirectory(ReadFlagValue(args, ref index));
                         return true;
                     case "--settings":
-                        state.SetSettingsPath(ReadValue(args, ref index));
+                        state.SetSettingsPath(ReadFlagValue(args, ref index));
                         return true;
-                    case "--help":
-                    case "-h":
-                        return false;
                     default:
-                        throw new InvalidOperationException($"Unknown argument '{args[index]}'.");
+                        return false;
                 }
             }
 
             private sealed class FlagState
             {
                 internal string? DataDirectory { get; private set; }
+
+                internal bool EnableReplication { get; private set; }
 
                 internal bool Persist { get; private set; }
 
@@ -276,6 +337,8 @@ internal static class Program
                 internal Uri? Uri { get; private set; }
 
                 internal void SetDataDirectory(string value) => DataDirectory = value;
+
+                internal void SetEnableReplication() => EnableReplication = true;
 
                 internal void SetPersist() => Persist = true;
 

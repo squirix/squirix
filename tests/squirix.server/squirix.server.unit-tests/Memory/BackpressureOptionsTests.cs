@@ -1,13 +1,13 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.
-/// </summary>
+/// <summary>Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.</summary>
+[Immutable]
 public sealed class BackpressureOptionsTests
 {
     /// <summary>Ensures the default configuration passes validation and exposes conservative defaults.</summary>
@@ -40,7 +40,7 @@ public sealed class BackpressureOptionsTests
 
     /// <summary>Ensures per-client concurrency cannot be configured above the global node cap.</summary>
     [Fact]
-    public void ValidateThrowsForInvalidPerClientConcurrency()
+    public void ThrowsForInvalidPerClientConcurrency()
     {
         var options = new AdmissionOptions
         {
@@ -55,7 +55,7 @@ public sealed class BackpressureOptionsTests
 
     /// <summary>Ensures invalid threshold ordering is rejected during validation.</summary>
     [Fact]
-    public void ValidateThrowsForInvalidThresholdOrdering()
+    public void ThrowsForInvalidThresholdOrdering()
     {
         var options = new AdmissionOptions
         {

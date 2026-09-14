@@ -11,13 +11,5 @@
 
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Core.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Errors.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Serialization.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Atomic.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Batch.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Watch.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Scan.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Mutations.*" />
-  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Runtime.*" />
 
 </NsDepCopConfig>

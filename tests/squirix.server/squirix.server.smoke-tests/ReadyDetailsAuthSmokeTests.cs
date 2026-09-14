@@ -9,20 +9,16 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
-/// <summary>
-/// Smoke tests verifying JWT auth rules on the <c>/health/ready/details</c> endpoint.
-/// </summary>
+/// <summary>Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.</summary>
 public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-    private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
     private static readonly HttpClient RemoteClient = new(RemoteHandler, false);
 
-    /// <summary>
-    /// Ensures <c>/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
-    /// </summary>
+    /// <summary>Ensures <c language="csharp">/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.</summary>
     [Fact]
-    public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
+    public async Task ReadyDetailsValidatesJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp));
@@ -30,7 +26,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
         var port = new Uri(bindUrl).Port;
-        var remoteDetailsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
+        var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
         var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
 
         await using var node = await StartNodeAsync(

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using JetBrains.Annotations;
+using Squirix.Attributes;
 using Xunit;
 
 namespace Squirix.IntegrationTests;
@@ -10,6 +11,7 @@ namespace Squirix.IntegrationTests;
 /// Provides helpers for starting nodes, building entries,
 /// and creating test-scoped persistence directories.
 /// </summary>
+[Immutable]
 public abstract class IntegrationTestBase : IDisposable
 {
     /// <summary>

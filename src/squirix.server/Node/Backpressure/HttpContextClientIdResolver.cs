@@ -1,14 +1,16 @@
 using System;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Backpressure;
 
 /// <summary>
 /// Derives backpressure client ids from the JWT subject when authenticated, otherwise from the
 /// ASP.NET Core connection id. In-process calls without an <see cref="HttpContext" /> share the
-/// <c>runtime</c> bucket.
+/// <c language="csharp">runtime</c> bucket.
 /// </summary>
+[Immutable]
 internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolver
 {
     internal const string MissingHttpContextClientId = "runtime";
@@ -21,14 +23,15 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
 
     internal HttpContextClientIdResolver(IHttpContextAccessor httpContextAccessor)
     {
-        _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+        ArgumentNullException.ThrowIfNull(httpContextAccessor);
+        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <inheritdoc />
     public string Resolve()
     {
         var context = _httpContextAccessor.HttpContext;
-        if (context is null)
+        if (context == null)
             return MissingHttpContextClientId;
 
         if (context.Items.TryGetValue(CachedClientIdItemKey, out var cached) && cached is string clientId)
@@ -48,22 +51,9 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
             state.value.AsSpan().CopyTo(span[state.prefix.Length..]);
         });
 
-    private static string ResolveCore(HttpContext context)
+    private static string? GetAuthenticatedPrincipalId(ClaimsPrincipal? user)
     {
-        var principalId = TryGetAuthenticatedPrincipalId(context.User);
-        if (principalId is not null)
-            return CreatePrefixed(JwtPrefix, principalId);
-
-        var connectionId = context.Connection.Id;
-        if (!string.IsNullOrWhiteSpace(connectionId))
-            return CreatePrefixed(ConnPrefix, connectionId);
-
-        return MissingHttpContextClientId;
-    }
-
-    private static string? TryGetAuthenticatedPrincipalId(ClaimsPrincipal? user)
-    {
-        if (user?.Identity?.IsAuthenticated is not true)
+        if (user?.Identity?.IsAuthenticated != true)
             return null;
 
         // JwtBearer maps inbound "sub" to NameIdentifier when MapInboundClaims is enabled (default).
@@ -72,5 +62,17 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
             subject = user.FindFirstValue("sub");
 
         return string.IsNullOrWhiteSpace(subject) ? null : subject;
+    }
+
+    private static string ResolveCore(HttpContext context)
+    {
+        var principalId = GetAuthenticatedPrincipalId(context.User);
+        var connectionId = context.Connection.Id;
+        return (principalId, connectionId) switch
+        {
+            ({ } pid, _) => CreatePrefixed(JwtPrefix, pid),
+            (_, { } cid) when !string.IsNullOrWhiteSpace(cid) => CreatePrefixed(ConnPrefix, cid),
+            _ => MissingHttpContextClientId,
+        };
     }
 }

@@ -13,8 +13,8 @@ public static class LoopbackHttp
     /// <summary>
     /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
     /// On developer machines this expects a trusted ASP.NET Core HTTPS development certificate
-    /// (<c>dotnet dev-certs https --trust</c>). On Windows/macOS CI, interactive trust is unavailable;
-    /// set <c>SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1</c> (see <c>tools/ci/ensure-dev-https-cert.sh</c>).
+    /// (<c language="csharp">dotnet dev-certs https --trust</c>). On Windows/macOS CI, interactive trust is unavailable;
+    /// set <c language="csharp">SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS=1</c> (see <c language="csharp">tools/ci/ensure-dev-https-cert.sh</c>).
     /// </summary>
     /// <returns>A handler suitable for loopback HTTPS gRPC clients.</returns>
     public static SocketsHttpHandler CreateHandler()
@@ -26,23 +26,21 @@ public static class LoopbackHttp
         };
 
         if (AllowUntrustedDevHttps)
-            handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, false);
+            handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreDevCertificate(certificate, errors, false);
 
         return handler;
     }
 
-    /// <summary>
-    /// Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c>localhost</c>.
-    /// </summary>
+    /// <summary>Creates a handler for HTTPS requests to a host IP when the dev certificate is issued for <c language="csharp">localhost</c>.</summary>
     /// <returns>A loopback handler that tolerates certificate name mismatch.</returns>
-    public static SocketsHttpHandler CreateHandlerAllowingCertificateNameMismatch()
+    public static SocketsHttpHandler CreateHandlerAllowingCertNameMismatch()
     {
         var handler = CreateHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, true);
+        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) => AcceptsAspNetCoreDevCertificate(certificate, errors, true);
         return handler;
     }
 
-    private static bool AcceptsAspNetCoreHttpsDevelopmentCertificate(X509Certificate? certificate, SslPolicyErrors errors, bool allowNameMismatch)
+    private static bool AcceptsAspNetCoreDevCertificate(X509Certificate? certificate, SslPolicyErrors errors, bool allowNameMismatch)
     {
         if (errors is SslPolicyErrors.None)
             return true;
@@ -50,7 +48,7 @@ public static class LoopbackHttp
         if (allowNameMismatch && errors is SslPolicyErrors.RemoteCertificateNameMismatch)
             return true;
 
-        if (!AllowUntrustedDevHttps || certificate is null)
+        if (!AllowUntrustedDevHttps || certificate == null)
             return false;
 
         // CI cannot interactively trust the ASP.NET Core HTTPS development certificate on Windows/macOS.
@@ -60,10 +58,7 @@ public static class LoopbackHttp
         if (allowNameMismatch)
             tolerated |= SslPolicyErrors.RemoteCertificateNameMismatch;
 
-        if ((errors & ~tolerated) is not SslPolicyErrors.None)
-            return false;
-
-        return IsAspNetCoreHttpsDevelopmentCertificate(certificate);
+        return (errors & ~tolerated) == SslPolicyErrors.None && IsAspNetCoreHttpsDevelopmentCertificate(certificate);
     }
 
     private static bool IsAspNetCoreHttpsDevelopmentCertificate(X509Certificate certificate) => certificate.Subject.Equals("CN=localhost", StringComparison.OrdinalIgnoreCase);

@@ -1,13 +1,15 @@
 #:property PublishAot=false
+#:property IsAotCompatible=true
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -26,15 +28,15 @@ if (argv.Length > 0)
 
 var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
-if (dotnetPath is null)
+if (dotnetPath == null)
 {
     await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
     return 1;
 }
 
-var packageDir = Path.Combine(repoRoot, "artifacts", "packages");
-var packageCacheRoot = Path.Combine(repoRoot, "artifacts", "package-smoke-nuget");
-var packageCacheDir = Path.Combine(packageCacheRoot, Guid.NewGuid().ToString("N"));
+var packageDir = Path.Join(repoRoot, "artifacts", "packages");
+var packageCacheRoot = Path.Join(repoRoot, "artifacts", "package-smoke-nuget");
+var packageCacheDir = Path.Join(packageCacheRoot, Guid.NewGuid().ToString("N"));
 _ = Directory.CreateDirectory(packageDir);
 _ = Directory.CreateDirectory(packageCacheRoot);
 _ = Directory.CreateDirectory(packageCacheDir);
@@ -45,14 +47,14 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.nupk
 foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snupkg", SearchOption.TopDirectoryOnly))
     File.Delete(packagePath);
 
-var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
-var serverProject = Path.Combine(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
+var coreProject = Path.Join(repoRoot, "src", "squirix", "Squirix.csproj");
+var serverProject = Path.Join(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
 var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (corePackCode is not 0)
+if (corePackCode != 0)
     return corePackCode;
 
 var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
-if (serverPackCode is not 0)
+if (serverPackCode != 0)
     return serverPackCode;
 
 if (!HasClientPackage(packageDir))
@@ -67,8 +69,8 @@ if (!HasServerPackage(packageDir))
     return 1;
 }
 
-var sampleDir = Path.Combine(repoRoot, "samples", "external-package-smoke");
-var settingsPath = Path.Combine(sampleDir, "Squirix.settings.json");
+var sampleDir = Path.Join(repoRoot, "samples", "external-package-smoke");
+var settingsPath = Path.Join(sampleDir, "Squirix.settings.json");
 var hadSettings = File.Exists(settingsPath);
 var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath, CancellationToken.None).ConfigureAwait(false) : null;
 
@@ -83,7 +85,7 @@ try
         await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
 
         var exitCode = await RunDotnetAsync(dotnetPath, sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
-        if (exitCode is 0 || attempt == maxAttempts)
+        if (exitCode == 0 || attempt == maxAttempts)
             return exitCode;
     }
 
@@ -91,7 +93,7 @@ try
 }
 finally
 {
-    if (settingsBackup is not null)
+    if (settingsBackup != null)
         await File.WriteAllBytesAsync(settingsPath, settingsBackup, CancellationToken.None).ConfigureAwait(false);
     else if (File.Exists(settingsPath))
         File.Delete(settingsPath);
@@ -99,40 +101,44 @@ finally
 
 static string BuildSettingsJson(string uri)
 {
-    var settings = new
+    var peer = new JsonObject
     {
-        Squirix = new
+        ["NodeId"] = "external-smoke",
+        ["Uri"] = uri,
+    };
+    var cluster = new JsonObject
+    {
+        ["NodeId"] = "external-smoke",
+        ["Uri"] = uri,
+        ["VirtualNodes"] = 128,
+        ["Peers"] = new JsonArray(peer),
+    };
+    var settings = new JsonObject
+    {
+        ["Squirix"] = new JsonObject
         {
-            Cluster = new
-            {
-                NodeId = "external-smoke",
-                Uri = uri,
-                VirtualNodes = 128,
-                Peers = new[]
-                {
-                    new
-                    {
-                        NodeId = "external-smoke",
-                        Uri = uri,
-                    },
-                },
-            },
+            ["Cluster"] = cluster,
         },
     };
 
-#pragma warning disable ZA1001 // Ad-hoc smoke settings DTO; source generation is not worth the ceremony here.
-    return JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-#pragma warning restore ZA1001
+    return settings.ToJsonString(
+        new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            RespectNullableAnnotations = false,
+            RespectRequiredConstructorParameters = false,
+        });
 }
 
 static int GetFreeTcpPort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    if (listener.LocalEndpoint is not IPEndPoint endpoint)
-        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
-
-    return endpoint.Port;
+    return listener.LocalEndpoint switch
+    {
+        IPEndPoint endpoint => endpoint.Port,
+        _ => throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint."),
+    };
 }
 
 static string ResolveRepoRoot()
@@ -141,10 +147,10 @@ static string ResolveRepoRoot()
     var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
     var current = new DirectoryInfo(startDir);
 
-    while (current is not null)
+    while (current != null)
     {
-        var hasSolution = File.Exists(Path.Combine(current.FullName, "squirix.slnx"));
-        var hasCoreProject = File.Exists(Path.Combine(current.FullName, "src", "squirix", "Squirix.csproj"));
+        var hasSolution = File.Exists(Path.Join(current.FullName, "squirix.slnx"));
+        var hasCoreProject = File.Exists(Path.Join(current.FullName, "src", "squirix", "Squirix.csproj"));
         if (hasSolution || hasCoreProject)
             return current.FullName;
 
@@ -161,9 +167,7 @@ static bool HasClientPackage(string directory)
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
             && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
-        {
             return true;
-        }
     }
 
     return false;
@@ -180,7 +184,7 @@ static string? ResolveDotnetPath()
     var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
     if (!string.IsNullOrWhiteSpace(dotnetRoot))
     {
-        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         if (File.Exists(dotnetRootCandidate))
             return Path.GetFullPath(dotnetRootCandidate);
     }
@@ -191,9 +195,7 @@ static string? ResolveDotnetPath()
         var processFileName = Path.GetFileName(processPath);
         if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-        {
             return Path.GetFullPath(processPath);
-        }
     }
 
     var pathValue = Environment.GetEnvironmentVariable("PATH");
@@ -203,7 +205,7 @@ static string? ResolveDotnetPath()
     var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
     foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     {
-        var pathCandidate = Path.Combine(segment, executableName);
+        var pathCandidate = Path.Join(segment, executableName);
         if (File.Exists(pathCandidate))
             return Path.GetFullPath(pathCandidate);
     }
@@ -224,7 +226,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory
         startInfo.ArgumentList.Add(arg);
 
     using var proc = Process.Start(startInfo);
-    if (proc is null)
+    if (proc == null)
     {
         await Console.Error.WriteLineAsync($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}").ConfigureAwait(false);
         await Console.Error.WriteLineAsync($"Working directory: {startInfo.WorkingDirectory}").ConfigureAwait(false);

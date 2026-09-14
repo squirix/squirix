@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
 
@@ -7,8 +8,9 @@ namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
 /// Integration tests verifying <see cref="PrometheusMetricsEndpointOptions" /> properties
-/// remain mutable through the DI <c>Configure</c>/<c>PostConfigure</c> pipeline.
+/// remain mutable through the DI <c language="csharp">Configure</c>/<c language="csharp">PostConfigure</c> pipeline.
 /// </summary>
+[Immutable]
 public sealed class PrometheusMetricsEndpointOptionsTests
 {
     /// <summary>
@@ -16,7 +18,7 @@ public sealed class PrometheusMetricsEndpointOptionsTests
     /// and options validation all compose correctly with mutable setters.
     /// </summary>
     [Fact]
-    public void FullPipelineComposesConfigureAndPostConfigure()
+    public void FullPipelineComposesBothConfigurers()
     {
         var services = new ServiceCollection();
         _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o =>
@@ -35,8 +37,8 @@ public sealed class PrometheusMetricsEndpointOptionsTests
     }
 
     /// <summary>
-    /// Verifies that <c>PostConfigure</c> can flip <see cref="PrometheusMetricsEndpointOptions.Enabled" /> to false
-    /// after initial registration. This proves <c>Enabled</c> cannot be <c>init</c>-only.
+    /// Verifies that <c language="csharp">PostConfigure</c> can flip <see cref="PrometheusMetricsEndpointOptions.Enabled" /> to false
+    /// after initial registration. This proves <c language="csharp">Enabled</c> cannot be <c language="csharp">init</c>-only.
     /// </summary>
     [Fact]
     public void PostConfigureDisablesEndpoint()
@@ -56,8 +58,8 @@ public sealed class PrometheusMetricsEndpointOptionsTests
     }
 
     /// <summary>
-    /// Verifies that <c>PostConfigure</c> can override <see cref="PrometheusMetricsEndpointOptions.Path" />
-    /// after the initial <c>Configure</c> callback has set it. This proves <c>Path</c> cannot be <c>init</c>-only.
+    /// Verifies that <c language="csharp">PostConfigure</c> can override <see cref="PrometheusMetricsEndpointOptions.Path" />
+    /// after the initial <c language="csharp">Configure</c> callback has set it. This proves <c language="csharp">Path</c> cannot be <c language="csharp">init</c>-only.
     /// </summary>
     [Fact]
     public void PostConfigureOverridesPath()

@@ -6,9 +6,11 @@ using System.IO;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -28,20 +30,18 @@ internal static class RemoteClientSessionFactory
 
         var peers = new Peer[normalizedEndpoints.Length];
         for (var i = 0; i < normalizedEndpoints.Length; i++)
+        {
             peers[i] = new Peer
             {
                 NodeId = FormatEndpointNodeId(i),
                 Uri = normalizedEndpoints[i],
             };
-
-        var credentials = BuildCallCredentials(bearerTokenProvider);
+        }
 
         ClientPool? pool = null;
         try
         {
-#pragma warning disable CA2000
-            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
-#pragma warning restore CA2000
+            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: BuildCallCredentials(bearerTokenProvider));
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
             var connected = pool;
@@ -50,7 +50,7 @@ internal static class RemoteClientSessionFactory
         }
         finally
         {
-            if (pool is not null)
+            if (pool != null)
                 await pool.DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -62,13 +62,8 @@ internal static class RemoteClientSessionFactory
     internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
         SerializationProvider.Create(serializer, enableMetrics);
 
-    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
-    {
-        if (bearerTokenProvider is null)
-            return null;
-
-        return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
-    }
+    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? provider) =>
+        provider == null ? null : new BearerTokenCallCredentials(provider).Credentials;
 
     private static string FormatEndpointNodeId(int index)
     {
@@ -95,20 +90,25 @@ internal static class RemoteClientSessionFactory
         var count = 0;
 
         for (var index = 0; index < endpoints.Count; index++)
+            _ = TryAddUniqueEndpoint(endpoints[index], seen, buffer, nameof(endpoints), ref count);
+
+        return TrimEndpoints(buffer, count);
+    }
+
+    private static Uri RequireAbsoluteEndpoint(Uri? e, string paramName)
+    {
+        const string message = "Endpoint must be an absolute Squirix server URI.";
+        return e switch
         {
-            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
-            if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-                throw new ArgumentException("Endpoint must be an absolute Squirix server URL.", nameof(endpoints));
+            null => throw new ArgumentException("Endpoint must be a non-null absolute URI.", paramName),
+            not null when !e.IsAbsoluteUri || string.IsNullOrWhiteSpace(e.Scheme) || string.IsNullOrWhiteSpace(e.Host) => throw new ArgumentException(message, paramName),
+            _ => e,
+        };
+    }
 
-            GrpcTransportEndpoints.RequireHttps(endpoint);
-            var authority = endpoint.GetLeftPart(UriPartial.Authority);
-            if (!seen.Add(authority))
-                continue;
-
-            buffer[count++] = endpoint;
-        }
-
-        if (count is 0)
+    private static Uri[] TrimEndpoints(Uri[] buffer, int count)
+    {
+        if (count == 0)
             throw new InvalidOperationException("At least one Squirix server endpoint must be configured.");
 
         if (count == buffer.Length)
@@ -117,6 +117,17 @@ internal static class RemoteClientSessionFactory
         var trimmed = new Uri[count];
         buffer.AsSpan(0, count).CopyTo(trimmed);
         return trimmed;
+    }
+
+    private static bool TryAddUniqueEndpoint(Uri? endpoint, HashSet<string> seen, Uri[] buffer, string paramName, ref int count)
+    {
+        var validated = RequireAbsoluteEndpoint(endpoint, paramName);
+        GrpcTransportEndpoints.RequireHttps(validated);
+        if (!seen.Add(validated.GetLeftPart(UriPartial.Authority)))
+            return false;
+
+        buffer[count++] = validated;
+        return true;
     }
 
     private static class SerializationProvider
@@ -135,6 +146,7 @@ internal static class RemoteClientSessionFactory
         }
 
         /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+        [Immutable]
         private sealed class MetricsDecoratedSerializer : ISquirixSerializer
         {
             private readonly string _impl;
@@ -143,16 +155,17 @@ internal static class RemoteClientSessionFactory
 
             internal MetricsDecoratedSerializer(ISquirixSerializer inner)
             {
-                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                ArgumentNullException.ThrowIfNull(inner);
+                _inner = inner;
                 _impl = _inner.GetType().Name;
             }
 
-            public T? Deserialize<T>(string payload)
+            public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -162,12 +175,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(JsonElement payload)
+            public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -177,12 +190,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(ReadOnlySpan<byte> payload)
+            public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -192,12 +205,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public T? Deserialize<T>(Stream payload)
+            public T? Deserialize<T>(Stream payload, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.Deserialize<T>(payload);
+                    var result = _inner.Deserialize(payload, typeInfo);
                     Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
@@ -207,12 +220,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public void Serialize<T>(Stream destination, T? value)
+            public void Serialize<T>(Stream destination, T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    _inner.Serialize(destination, value);
+                    _inner.Serialize(destination, value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                 }
                 catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
@@ -221,12 +234,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public JsonElement SerializeToElement<T>(T? value)
+            public JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.SerializeToElement(value);
+                    var result = _inner.SerializeToElement(value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
@@ -236,12 +249,12 @@ internal static class RemoteClientSessionFactory
                 }
             }
 
-            public byte[] SerializeToUtf8Bytes<T>(T? value)
+            public byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null)
             {
                 var start = Stopwatch.GetTimestamp();
                 try
                 {
-                    var result = _inner.SerializeToUtf8Bytes(value);
+                    var result = _inner.SerializeToUtf8Bytes(value, typeInfo);
                     Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
@@ -314,7 +327,7 @@ internal static class RemoteClientSessionFactory
         {
             var cachedToken = _cachedToken;
             var cachedHeader = _cachedAuthorizationHeader;
-            if (cachedToken is not null && cachedHeader is not null && string.Equals(cachedToken, token, StringComparison.Ordinal))
+            if (cachedToken != null && cachedHeader != null && string.Equals(cachedToken, token, StringComparison.Ordinal))
                 return cachedHeader;
 
             var header = string.Create(
@@ -332,6 +345,7 @@ internal static class RemoteClientSessionFactory
         }
     }
 
+    [Immutable]
     private sealed class RemoteClientSession : IRemoteClientSession
     {
         private readonly EndpointFailover _bootstrapFailover;
@@ -340,9 +354,12 @@ internal static class RemoteClientSessionFactory
 
         internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
         {
-            _remoteClients = remoteClients ?? throw new ArgumentNullException(nameof(remoteClients));
-            _bootstrapFailover = bootstrapFailover ?? throw new ArgumentNullException(nameof(bootstrapFailover));
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            ArgumentNullException.ThrowIfNull(remoteClients);
+            ArgumentNullException.ThrowIfNull(bootstrapFailover);
+            ArgumentNullException.ThrowIfNull(serializer);
+            _remoteClients = remoteClients;
+            _bootstrapFailover = bootstrapFailover;
+            _serializer = serializer;
         }
 
         public ValueTask DisposeAsync()

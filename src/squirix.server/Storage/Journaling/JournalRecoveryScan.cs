@@ -2,7 +2,8 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
@@ -21,9 +22,9 @@ internal static class JournalRecoveryScan
         var next = ResolveBaselineNextSequence(manifest);
         var (firstAvailableSegment, lastAvailableSegment) = ProbeAvailableSegments(options.DataDir);
         var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
-        ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+        ThrowIfJournalOnlyTopologyDisjoint(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
-        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
+        var scanStartSegment = firstAvailableSegment == 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
         using var records = JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None);
         while (records.MoveNext())
         {
@@ -35,52 +36,76 @@ internal static class JournalRecoveryScan
         return next;
     }
 
-    internal static async Task PrepareActiveSegmentForSequenceScanAsync(State manifest, PersistenceOptions options, CancellationToken cancellationToken)
+    internal static void PrepareActiveSegmentForSequenceScan(State manifest, PersistenceOptions options)
     {
-        var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        var currentJournal = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        PrepareSegmentForSequenceScan(options, currentJournal);
+
+        // The roll target may have been pre-created before its manifest publish (issue #439); a torn
+        // leftover there must not fail the sequence scan, so repair it the same way.
+        PrepareSegmentForSequenceScan(options, currentJournal + 1);
+    }
+
+    /// <summary>
+    /// Deletes orphaned roll-target temp files left by a crash between header staging and atomic publication.
+    /// Best-effort: temp files are invisible to segment enumeration and are truncated on reuse, so a cleanup
+    /// failure must not fail startup.
+    /// </summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    internal static void DeleteOrphanedRollTempFiles(string dataDir)
+    {
+        string[] files;
+        try
+        {
+            if (!Directory.Exists(dataDir))
+                return;
+
+            files = Directory.GetFiles(dataDir, $"{FilePrefixes.Journal}*.tmp", SearchOption.TopDirectoryOnly);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        foreach (var file in files)
+            _ = FileEx.TryDeleteFile(file);
+    }
+
+    private static void PrepareSegmentForSequenceScan(PersistenceOptions options, int segmentIndex)
+    {
         var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
         if (!File.Exists(path))
             return;
 
-        var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
-        await using (writer.ConfigureAwait(false))
-        {
-            writer.OpenSegment(path, true);
-            if (writer.Length == 0)
-                return;
+        using var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        writer.OpenSegment(path, true);
+        if (writer.Length == 0)
+            return;
 
-            await RepairTornTailIfNeededAsync(writer, path, cancellationToken).ConfigureAwait(false);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
+        RepairTornTailIfNeeded(writer, path);
     }
 
-    private static long ComputeValidLength(FileStream stream)
+    private static long ComputeValidLength(SafeFileHandle handle)
     {
-        if (stream.Length == 0)
+        var length = RandomAccess.GetLength(handle);
+        if (length == 0)
             return 0;
 
-        stream.Position = 0;
-        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-        if (!StreamEx.TryReadExact(stream, header))
-            throw new InvalidDataException("journal segment has a truncated file header.");
-
-        JournalFraming.EnsureSegmentHeaderSupported(header);
-
+        JournalFraming.ReadAndValidateSegmentHeader(handle, 0);
         long validLength = JournalFraming.FileHeaderSize;
         while (true)
         {
-            var read = JournalFrameReader.ReadNext(stream, validLength, out var rentedBuffer, out _);
-            if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
+            var read = JournalFrameReader.ReadNext(handle, validLength, out var rentedBuffer, out _);
+            if (read.Status == JournalFrameReadStatus.EndOfFile || read.Status != JournalFrameReadStatus.Success)
                 return validLength;
 
             validLength = read.NextFrameOffset;
-            if (rentedBuffer is not null)
-                ArrayPool<byte>.Shared.Return(rentedBuffer);
+            if (rentedBuffer != null)
+                ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
         }
     }
 
-    private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit() => new("journal recovery cannot determine a valid replay start.");
+    private static InvalidDataException CreateTopologyDisjointException() => new("journal recovery cannot determine a valid replay start.");
 
     private static (int FirstAvailableSegment, int LastAvailableSegment) ProbeAvailableSegments(string dataDir)
     {
@@ -88,7 +113,7 @@ internal static class JournalRecoveryScan
         var lastAvailableSegment = 0;
         foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
         {
-            if (firstAvailableSegment is 0)
+            if (firstAvailableSegment == 0)
                 firstAvailableSegment = segment.Index;
 
             lastAvailableSegment = segment.Index;
@@ -97,25 +122,17 @@ internal static class JournalRecoveryScan
         return (firstAvailableSegment, lastAvailableSegment);
     }
 
-    private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
+    private static long ReadValidSegmentLength(string path)
     {
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ComputeValidLength(stream);
-        }
-        finally
-        {
-            await stream.DisposeAsync().ConfigureAwait(false);
-        }
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
+        return ComputeValidLength(handle);
     }
 
-    private static async Task RepairTornTailIfNeededAsync(IJournalSegmentWriter writer, string path, CancellationToken cancellationToken)
+    private static void RepairTornTailIfNeeded(IJournalSegmentWriter writer, string path)
     {
         try
         {
-            var length = await ReadValidSegmentLengthAsync(path, cancellationToken).ConfigureAwait(false);
+            var length = ReadValidSegmentLength(path);
             if (length == writer.Length)
                 return;
 
@@ -135,25 +152,25 @@ internal static class JournalRecoveryScan
 
     private static ulong ResolveBaselineNextSequence(State manifest)
     {
-        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
+        var next = manifest.NextSequence == 0UL ? 1UL : manifest.NextSequence;
         if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
             next = lastApplied + 1UL;
 
         return next;
     }
 
-    private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
+    private static void ThrowIfJournalOnlyTopologyDisjoint(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
     {
-        if (firstAvailableSegment is 0)
+        if (firstAvailableSegment == 0)
         {
-            if (manifestCurrentJournal is not 1)
-                throw CreateJournalTopologyDisjointForSequenceInit();
+            if (manifestCurrentJournal != 1)
+                throw CreateTopologyDisjointException();
 
             return;
         }
 
         if (lastAvailableSegment < manifestCurrentJournal)
-            throw CreateJournalTopologyDisjointForSequenceInit();
+            throw CreateTopologyDisjointException();
     }
 
     private static void WriteFreshFileHeader(IJournalSegmentWriter writer)
