@@ -158,7 +158,8 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "insert"), ("reason", "hard_threshold")));
 
         await secondCts.CancelAsync();
-        await WaitUntilCanceledAsync(secondAcquire);
+        await secondAcquire.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        Assert.True(secondAcquire.IsCanceled);
         first.Dispose();
     }
 
@@ -243,7 +244,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         Assert.False(queuedTask.IsCompleted);
         await cts.CancelAsync();
 
-        await WaitUntilCanceledAsync(queuedTask);
+        await queuedTask.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
         Assert.True(queuedTask.IsCanceled);
         Assert.True(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove")));
     }
@@ -284,14 +285,5 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             if (Interlocked.CompareExchange(ref target, candidate, current) == current)
                 return;
         }
-    }
-
-    private static async Task WaitUntilCanceledAsync(Task task)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
-
-        Assert.True(task.IsCanceled);
     }
 }

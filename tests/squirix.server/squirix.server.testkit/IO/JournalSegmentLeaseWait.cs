@@ -73,17 +73,18 @@ public static class JournalSegmentLeaseWait
 
     private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
+        var state = (DataDir: dataDir, CancellationToken: cancellationToken);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (CanAcquireRepairLease(dataDir, cancellationToken))
-                return;
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+            await state.WaitUntilAsync(
+                static s => CanAcquireRepairLease(s.DataDir, s.CancellationToken),
+                TimeSpan.FromSeconds(10),
+                cancellationToken).ConfigureAwait(false);
         }
-
-        throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
+        catch (TimeoutException ex)
+        {
+            throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.", ex);
+        }
     }
 
     private static bool TryOpenRepairLease(string path, CancellationToken cancellationToken)

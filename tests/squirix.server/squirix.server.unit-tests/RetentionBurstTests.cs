@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;

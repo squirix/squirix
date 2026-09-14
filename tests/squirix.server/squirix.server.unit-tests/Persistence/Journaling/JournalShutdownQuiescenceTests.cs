@@ -220,9 +220,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         // Negative control, kept as documentation: with the gate check neutered, the strict
         // variant fails via disk-miss in ~50ms and the group-commit variant trips the 30s hang
         // guard, so this test does exercise the overlap it asserts.
-        var spinDeadline = Environment.TickCount64 + 10_000;
-        while (journal.AppendedOps == 0 && Environment.TickCount64 < spinDeadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, cancellationToken).ConfigureAwait(false);
+        await journal.WaitUntilAsync(static j => j.AppendedOps > 0, TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
 
         Assert.True(journal.AppendedOps > 0);
 

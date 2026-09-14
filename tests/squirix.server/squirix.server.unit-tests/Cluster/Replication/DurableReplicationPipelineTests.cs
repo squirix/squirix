@@ -282,7 +282,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             // acknowledgement, before the coordinator records it through TryRecord on the
             // background observe path. Wait until replica 3's match index actually advances
             // to 1, so the buffered index 2 acknowledgement cannot overtake it.
-            await WaitForMatchIndexAsync(coordinator, 3, 1, DefaultCancellationToken);
+            var match = (Coordinator: coordinator, ReplicaIndex: 3, MatchIndex: 1UL);
+            await match.WaitUntilAsync(static s => s.Coordinator.MatchIndexFor(s.ReplicaIndex) >= s.MatchIndex, DefaultCancellationToken);
             pipeline.ReleaseSecondReplicaThree();
 
             _ = await second;
@@ -435,12 +436,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         new byte[] { 8 },
         1UL,
         7U);
-
-    private static async Task WaitForMatchIndexAsync(ReplicaCommitCoordinator coordinator, int replicaIndex, ulong matchIndex, CancellationToken cancellationToken)
-    {
-        while (coordinator.MatchIndexFor(replicaIndex) < matchIndex)
-            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
-    }
 
     [Mutable]
     private sealed class DeferredFollowersPipeline : IReplicaCommitPipeline
