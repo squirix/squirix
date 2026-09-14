@@ -7,19 +7,19 @@ var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-examples-verify — compile and smoke-run file-based examples.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-examples-verify.cs --").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed example execution").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-examples-verify — compile and smoke-run file-based examples.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-examples-verify.cs --", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed example execution", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
 var dotnetPath = ResolveDotnetPath();
 if (dotnetPath == null)
 {
-    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -27,7 +27,7 @@ var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
 var repoRoot = !string.IsNullOrWhiteSpace(entryDir) ? Directory.GetParent(entryDir)?.Parent?.FullName : Environment.CurrentDirectory;
 if (string.IsNullOrWhiteSpace(repoRoot) || !Directory.Exists(repoRoot))
 {
-    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -36,7 +36,7 @@ repoRoot = Path.GetFullPath(repoRoot);
 var examplesDir = Path.Join(repoRoot, "examples");
 if (!Directory.Exists(examplesDir))
 {
-    await Console.Error.WriteLineAsync("ERROR: examples directory not found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: examples directory not found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -48,7 +48,7 @@ files.Sort(StringComparer.OrdinalIgnoreCase);
 
 if (files.Count == 0)
 {
-    await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -57,20 +57,20 @@ foreach (var file in files)
     var name = Path.GetFileName(file);
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
-    await output.WriteLineAsync($"---- {relativePath} --help ----").ConfigureAwait(false);
+    await output.WriteLineAsync($"---- {relativePath} --help ----", CancellationToken.None).ConfigureAwait(false);
     if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", "--help"], CancellationToken.None).ConfigureAwait(false) != 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
         var smokeCommand = FormatSmokeCommand(smokeArgs);
-        await output.WriteLineAsync($"---- {relativePath} {smokeCommand} ----").ConfigureAwait(false);
+        await output.WriteLineAsync($"---- {relativePath} {smokeCommand} ----", CancellationToken.None).ConfigureAwait(false);
         if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) != 0)
             return 1;
     }
 }
 
-await output.WriteLineAsync("OK: all file-based examples compiled and smoke-run successfully.").ConfigureAwait(false);
+await output.WriteLineAsync("OK: all file-based examples compiled and smoke-run successfully.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 static IEnumerable<string[]> GetSmokeArgs(string fileName)

@@ -13,16 +13,16 @@ if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-package-smoke — build and run external package smoke sample.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-package-smoke.cs --").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-package-smoke — build and run external package smoke sample.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-package-smoke.cs --", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
 if (argv.Length > 0)
 {
-    await Console.Error.WriteLineAsync($"ERROR: unknown argument '{argv[0]}'").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync($"ERROR: unknown argument '{argv[0]}'", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -30,7 +30,7 @@ var repoRoot = ResolveRepoRoot();
 var dotnetPath = ResolveDotnetPath();
 if (dotnetPath == null)
 {
-    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -59,13 +59,13 @@ if (serverPackCode != 0)
 
 if (!HasClientPackage(packageDir))
 {
-    await Console.Error.WriteLineAsync("ERROR: squirix client package was not produced.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: squirix client package was not produced.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
 if (!HasServerPackage(packageDir))
 {
-    await Console.Error.WriteLineAsync("ERROR: squirix.server package was not produced.").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: squirix.server package was not produced.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -228,8 +228,8 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory
     using var proc = Process.Start(startInfo);
     if (proc == null)
     {
-        await Console.Error.WriteLineAsync($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}").ConfigureAwait(false);
-        await Console.Error.WriteLineAsync($"Working directory: {startInfo.WorkingDirectory}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}", CancellationToken.None).ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"Working directory: {startInfo.WorkingDirectory}", CancellationToken.None).ConfigureAwait(false);
         return 1;
     }
 

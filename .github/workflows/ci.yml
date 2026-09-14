@@ -150,6 +150,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -378,6 +379,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -506,6 +508,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -728,6 +731,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Download Build Outputs
@@ -825,6 +829,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -1136,6 +1141,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -1499,6 +1505,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
@@ -1707,6 +1714,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
                 with:
+                    dotnet-quality: preview
                     global-json-file: global.json
 
             -   name: Restore
