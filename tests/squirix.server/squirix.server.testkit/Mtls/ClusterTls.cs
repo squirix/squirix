@@ -18,7 +18,7 @@ namespace Squirix.Server.TestKit.Mtls;
 [Mutable]
 public sealed class ClusterTls : IDisposable
 {
-    private readonly Dictionary<string, int> _internalPortsByNodeId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _internalPortsByNodeId = [with(StringComparer.Ordinal)];
     private readonly List<X509Certificate2> _ownedCertificates = [];
     private TestBundle? _bundle;
     private X509Certificate2? _untrustedCertificateAuthority;

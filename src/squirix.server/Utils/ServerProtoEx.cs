@@ -96,7 +96,7 @@ internal static class ServerProtoEx
         {
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
             CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct(structValue, typeInfo)),
-            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
+            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Struct cache value is missing."),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
                 or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(FromStruct(WrapWireScalarAsStruct(wire), typeInfo)),
             _ => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),

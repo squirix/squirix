@@ -199,7 +199,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     /// <summary>In-memory logical cache for prepare/apply round-trips.</summary>
     private sealed class MemoryCache : ILogicalNamespacedCache<object?>
     {
-        private readonly Dictionary<string, NodeCacheEntry<object?>> _entries = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, NodeCacheEntry<object?>> _entries = [with(StringComparer.Ordinal)];
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(Key(cacheName, key), out var entry) ? entry : null);

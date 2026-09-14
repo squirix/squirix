@@ -47,6 +47,8 @@ internal sealed class TriggerOptionsJsonConverter : JsonConverter<TriggerOptions
         {
             JsonValueKind.Number when e.TryGetDouble(out var number) => number,
             JsonValueKind.String when double.TryParse(e.GetString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null or JsonValueKind.Undefined => throw new JsonException(
+                $"Cannot convert {e.ValueKind} to Double for TriggerOptions."),
             _ => throw new JsonException($"Cannot convert {e.ValueKind} to Double for TriggerOptions."),
         };
     }
@@ -57,6 +59,8 @@ internal sealed class TriggerOptionsJsonConverter : JsonConverter<TriggerOptions
         {
             JsonValueKind.Number when element.TryGetInt64(out var number) => number,
             JsonValueKind.String when long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null or JsonValueKind.Undefined => throw new JsonException(
+                $"Cannot convert {element.ValueKind} to Int64 for TriggerOptions."),
             _ => throw new JsonException($"Cannot convert {element.ValueKind} to Int64 for TriggerOptions."),
         };
     }

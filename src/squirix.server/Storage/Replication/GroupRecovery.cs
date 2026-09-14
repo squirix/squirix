@@ -162,7 +162,7 @@ internal sealed class GroupRecovery : IAsyncDisposable
         {
             var previous = Volatile.Read(ref _logs);
             Volatile.Write(ref _logs, new Dictionary<string, IFollowerLog>(StringComparer.Ordinal));
-            toDispose = new List<IFollowerLog>(previous.Count);
+            toDispose = [with(previous.Count)];
             foreach (var pair in previous)
             {
                 if (_leaseCounts.TryGetValue(pair.Value, out var count) && count > 0)

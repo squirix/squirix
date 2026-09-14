@@ -15,10 +15,10 @@ namespace Squirix.Server.Node.Observability.Metrics;
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
     internal static readonly PrometheusMetricsScraper Instance = new(false);
-    private readonly Dictionary<string, Dictionary<string, double>> _last = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, double>> _last = [with(StringComparer.Ordinal)];
     private readonly MeterListener _listener;
     private readonly Lock _lock = new();
-    private readonly Dictionary<string, Dictionary<string, double>> _sums = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, double>> _sums = [with(StringComparer.Ordinal)];
 
     private PrometheusMetricsScraper(bool isolated)
     {
@@ -129,11 +129,11 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         lock (_lock)
         {
             if (!_sums.TryGetValue(metric, out var byLabels))
-                _sums[metric] = byLabels = new Dictionary<string, double>(StringComparer.Ordinal);
+                _sums[metric] = byLabels = [with(StringComparer.Ordinal)];
             byLabels[exportLabels] = isObservable ? value : byLabels.GetValueOrDefault(exportLabels) + value;
 
             if (!_last.TryGetValue(metric, out var lastByLabels))
-                _last[metric] = lastByLabels = new Dictionary<string, double>(StringComparer.Ordinal);
+                _last[metric] = lastByLabels = [with(StringComparer.Ordinal)];
             lastByLabels[exportLabels] = value;
         }
     }

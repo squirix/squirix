@@ -10,7 +10,7 @@
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <DebugType>portable</DebugType>
-        <LangVersion>14.0</LangVersion>
+        <LangVersion>preview</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
         <IsAotCompatible>true</IsAotCompatible>

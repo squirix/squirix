@@ -1111,10 +1111,10 @@ internal static class ExploreRunner
             {
                 Profile = profile;
                 Broken = broken;
-                Seen = new HashSet<string>(StringComparer.Ordinal);
-                Parents = new Dictionary<string, string?>(StringComparer.Ordinal);
+                Seen = [with(StringComparer.Ordinal)];
+                Parents = [with(StringComparer.Ordinal)];
                 Queue = new Queue<ClusterState>();
-                Successors = new List<ClusterState>(64);
+                Successors = [with(64)];
             }
 
             internal BrokenMode Broken { get; }
@@ -1161,9 +1161,9 @@ internal static class ExploreRunner
         {
             TracePoints = tracePoints;
             MaxStates = maxStates;
-            Seen = new HashSet<string>(StringComparer.Ordinal);
+            Seen = [with(StringComparer.Ordinal)];
             Queue = new Queue<TraceSearchState>();
-            Successors = new List<ClusterState>(64);
+            Successors = [with(64)];
         }
 
         internal int MaxStates { get; }

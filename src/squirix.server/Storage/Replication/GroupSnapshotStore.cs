@@ -618,7 +618,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (outcomeCount > (buffer.Length - offset) / GroupSnapshotCodec.MinOutcomeEncodedByteCount)
                 return false;
 
-            outcomes = new List<GroupIdempotencyRecord>(outcomeCount);
+            outcomes = [with(outcomeCount)];
             for (var i = 0; i < outcomeCount; i++)
             {
                 if (!TryReadOutcome(buffer, ref offset, lastIncludedIndex, out var record))

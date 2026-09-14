@@ -35,8 +35,8 @@ internal sealed class JournalDurabilityGroupCommit
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);
-        _acks = new List<TaskCompletionSource>(capacity);
-        _acksSpare = new List<TaskCompletionSource>(capacity);
+        _acks = [with(capacity)];
+        _acksSpare = [with(capacity)];
     }
 
     /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>

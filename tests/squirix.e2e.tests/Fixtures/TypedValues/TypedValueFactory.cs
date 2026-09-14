@@ -37,7 +37,7 @@ internal static class TypedValueFactory
     internal static TypedCustomerProfile CreateProfileWithEmptyCollections(string id) => CreateProfile(id) with
     {
         Roles = [],
-        Metadata = new Dictionary<string, string>(StringComparer.Ordinal),
+        Metadata = [with(StringComparer.Ordinal)],
     };
 
     internal static TypedCustomerProfile CreateProfileWithNullEmail(string id) => CreateProfile(id) with

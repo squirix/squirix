@@ -10,11 +10,10 @@ namespace Squirix.E2ETests;
 [UsedImplicitly]
 public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
-    private ISquirixClient? _client;
     private HostedCluster? _cluster;
 
     /// <summary>Gets the connected SDK client for the shared cluster node.</summary>
-    public ISquirixClient Client => _client!;
+    public ISquirixClient Client { get; private set; }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -27,6 +26,6 @@ public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         _cluster = await HostedCluster.StartSingleNodeAsync(nameof(SingleNodeFixture), cancellationToken: DefaultCancellationToken);
-        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
+        Client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
     }
 }

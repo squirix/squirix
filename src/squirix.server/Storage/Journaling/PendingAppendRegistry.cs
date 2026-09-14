@@ -19,7 +19,9 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class PendingAppendRegistry
 {
     private readonly HashSet<TaskCompletionSource> _abortAcks = [];
+#pragma warning disable IDE0028 // Identity-keyed registry: JournalWorkItem is a record with value equality, so the suggested collection expression would drop ReferenceEqualityComparer and break the drain/ring ownership race.
     private readonly Dictionary<JournalWorkItem, PendingAppendEntry> _appends = new(ReferenceEqualityComparer.Instance);
+#pragma warning restore IDE0028
     private readonly HashSet<TaskCompletionSource> _maintenanceAcks = [];
     private readonly Lock _sync = new();
     private Exception? _failure;
@@ -238,14 +240,11 @@ internal sealed class PendingAppendRegistry
     {
         lock (_sync)
         {
-            if (!_appends.Remove(item, out entry))
-            {
-                entry = null;
-                return false;
-            }
+            if (_appends.Remove(item, out entry))
+                return true;
+            entry = null;
+            return false;
         }
-
-        return true;
     }
 
     /// <summary>
