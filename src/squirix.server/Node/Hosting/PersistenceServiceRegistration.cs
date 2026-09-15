@@ -126,7 +126,7 @@ internal static class PersistenceServiceRegistration
             var options = sp.GetRequiredService<PersistenceOptions>();
             return StoreFactory.CreateWriter(options);
         });
-        _ = services.AddSingleton(static sp => StoreFactory.CreateReader(sp.GetRequiredService<PersistenceOptions>()));
+        _ = services.AddSingleton(static _ => StoreFactory.CreateReader());
 
         _ = services.AddSingleton(static sp => new Coordinator(
             sp.GetRequiredService<TriggerOptions>(),

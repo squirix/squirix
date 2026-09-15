@@ -107,7 +107,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
     private static RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, RpcMutationIdempotencyStore store)
     {
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
-        var reader = StoreFactory.CreateReader(persistence);
+        var reader = StoreFactory.CreateReader();
         var recoveryDependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, new AsyncManualResetEvent(true), store, reader);
         return new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies);
     }

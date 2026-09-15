@@ -32,7 +32,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
-        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
+        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
 
@@ -44,7 +44,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var manifestStore = new Ledger(opt);
         await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
-        var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
+        var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerAsync(cancellationToken));
@@ -67,7 +67,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
+        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(), journal, NullLogger<JournalCompactionController>.Instance);
 
         var firstTrigger = controller.TryTriggerAsync(cancellationToken);
         var secondTrigger = controller.TryTriggerAsync(cancellationToken);

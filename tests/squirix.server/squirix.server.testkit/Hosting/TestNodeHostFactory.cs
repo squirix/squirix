@@ -131,10 +131,9 @@ public static class TestNodeHostFactory
             ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
         };
 
-        var primaryUri = clusterConfig.Uri;
         var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls == null ? (null, null, null)
-            : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
+            : await sharedMtls.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var nodeHostStartOptions = new NodeHostStartOptions
         {

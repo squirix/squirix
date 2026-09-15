@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
@@ -89,7 +88,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 
     private static async Task<List<string>> ReadSnapshotKeysAsync(string path)
     {
-        var reader = StoreFactory.CreateReader(new PersistenceOptions { DataDir = Path.GetDirectoryName(path)! });
+        var reader = StoreFactory.CreateReader();
         var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
         var keys = new List<string>(loaded.Entries.Count);
         foreach (var (key, _) in loaded.Entries)
