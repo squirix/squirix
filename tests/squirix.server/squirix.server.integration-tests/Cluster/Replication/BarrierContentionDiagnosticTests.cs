@@ -24,7 +24,7 @@ public sealed class BarrierContentionDiagnosticTests : NodeIntegrationTestBase
     /// <summary>Records per-node journal spans for one RF=2 write; the dump identifies the barrier holder on failure.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Repeat(100)]
+    [Repeat(300)]
     public async Task RfTwoCommitRecordsBarrierSpans(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
