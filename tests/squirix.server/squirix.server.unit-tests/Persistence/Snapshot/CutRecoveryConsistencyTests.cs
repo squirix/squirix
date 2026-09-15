@@ -170,7 +170,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             cache,
             new AsyncManualResetEvent(true),
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
-            StoreFactory.CreateReader(persistence));
+            StoreFactory.CreateReader());
         var options = new RecoveryOptions { BlockOnStart = true };
         await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
 

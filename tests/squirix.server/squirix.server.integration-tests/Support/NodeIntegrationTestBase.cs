@@ -76,12 +76,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
+        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
     }
 
-    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.</summary>
+    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for internode gRPC.</summary>
     /// <param name="callerNodeId">Configured node identifier for the presenting peer.</param>
     /// <param name="callerPrimaryUrl">Primary listen URL for the presenting peer.</param>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -104,7 +104,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = callerPrimaryUrl,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, callerPrimaryUrl, cancellationToken).ConfigureAwait(false);
+        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
@@ -160,7 +160,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             dir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, config, canonicalUri, cancellationToken);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForBindAsync(_mtls, config, cancellationToken);
 
         var startOptions = new NodeHostStartOptions
         {

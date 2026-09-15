@@ -90,7 +90,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                 scenario.Cache,
                 gate,
                 new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
-                StoreFactory.CreateReader(persistence)));
+                StoreFactory.CreateReader()));
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(cancellationToken));
 

@@ -52,7 +52,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
 
         var restartUri = GetNextHttpUri();
         await using var restarted = await StartNodeAsync(

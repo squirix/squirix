@@ -35,7 +35,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-binary-snapshot-crc");
         var options = new PersistenceOptions { DataDir = dir.Path };
         var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
+        var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
         {
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
@@ -61,7 +61,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-binary-snapshot-near-max");
         var options = new PersistenceOptions { DataDir = dir.Path };
         var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
+        var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
         {
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
@@ -87,7 +87,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-binary-snapshot-oversized");
         var options = new PersistenceOptions { DataDir = dir.Path };
         var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
+        var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
         {
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
@@ -116,7 +116,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-binary-snapshot-past-footer");
         var options = new PersistenceOptions { DataDir = dir.Path };
         var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
+        var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
         {
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
@@ -145,7 +145,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-binary-snapshot");
         var options = new PersistenceOptions { DataDir = dir.Path };
         var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
+        var reader = StoreFactory.CreateReader();
 
         var items = BuildSampleItems();
         var idempotency = BuildIdempotencyRecords();

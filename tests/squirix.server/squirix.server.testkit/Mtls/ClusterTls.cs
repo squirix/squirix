@@ -26,6 +26,9 @@ public sealed class ClusterTls : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        foreach (var port in _internalPortsByNodeId.Values)
+            InternalPortPool.ReleasePort(port);
+
         for (var i = _ownedCertificates.Count - 1; i >= 0; i--)
             _ownedCertificates[i].Dispose();
 
@@ -50,7 +53,7 @@ public sealed class ClusterTls : IDisposable
         return [new ServerPeer { NodeId = nodeId, Uri = uri }];
     }
 
-    /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
+    /// <summary>Builds peer entries for a multi-node topology, including dedicated internode URLs.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="shared">Shared context for the current test case.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
@@ -73,56 +76,53 @@ public sealed class ClusterTls : IDisposable
         return shared.BuildPeers(topology);
     }
 
+    /// <summary>Releases the hold-open reservation for an internal listener port so Kestrel can bind it.</summary>
+    /// <param name="port">The internal listener port to release.</param>
+    internal static void ReleaseInternalPort(int port) => InternalPortPool.ReleasePort(port);
+
+    /// <summary>Resolves startup mTLS material and releases the node's held internal port for immediate bind.</summary>
+    /// <param name="shared">Shared context for the current test case.</param>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options and material for host startup overrides.</returns>
+    internal static async Task<(ClusterTls? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForBindAsync(
+        ClusterTls? shared,
+        TopologyOptions cluster,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ResolveForNodeAsync(shared, cluster, cancellationToken).ConfigureAwait(false);
+        if (result.Options != null)
+            ReleaseInternalPort(result.Options.InternalListenPort);
+        return result;
+    }
+
     internal static async Task<(ClusterTls? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForNodeAsync(
         ClusterTls? shared,
         TopologyOptions cluster,
-        Uri uri,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(uri);
-
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return (shared, null, null);
 
         shared ??= new ClusterTls();
-        var (options, material) = await shared.ResolveAsync(cluster, uri, cancellationToken).ConfigureAwait(false);
+        var (options, material) = await shared.ResolveAsync(cluster, cancellationToken).ConfigureAwait(false);
         return (shared, options, material);
     }
 
-    /// <summary>Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.</summary>
+    /// <summary>Resolves startup overrides for a test node profile and releases its held internal port for immediate bind.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
-    /// <param name="uri">Primary listen URL for the node.</param>
-    /// <param name="profile">Requested inter-node mTLS test profile.</param>
+    /// <param name="profile">Requested internode mTLS test profile.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="uri" /> is null or whitespace.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
-    internal async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveNodeStartupAsync(
+    internal async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveNodeStartupForBindAsync(
         TopologyOptions cluster,
-        Uri uri,
         TestNodeProfile profile,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(cluster);
-        ArgumentNullException.ThrowIfNull(uri);
-
-        if (!MtlsTopology.RequiresInterNodeMtls(cluster))
-            return (null, null, null);
-
-        _bundle ??= new TestBundle();
-        var internalPort = GetOrAllocateInternalPort(cluster.NodeId, cluster);
-        var (options, material) = await _bundle.CreateNodeAsync(cluster.NodeId, internalPort, cancellationToken).ConfigureAwait(false);
-
-        return profile switch
-        {
-            TestNodeProfile.Normal => (options, material, null),
-            TestNodeProfile.NoOutboundClientCertificate => (options, material, new NoClientCertificateHandlerFactory(material.TrustAnchor!).Create),
-            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
-            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
-            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
-            _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
-        };
+        var result = await ResolveNodeStartupAsync(cluster, profile, cancellationToken).ConfigureAwait(false);
+        if (result.Options != null)
+            ReleaseInternalPort(result.Options.InternalListenPort);
+        return result;
     }
 
     private static HashSet<int> CollectExcludedPrimaryPorts(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
@@ -166,7 +166,7 @@ public sealed class ClusterTls : IDisposable
         for (var i = 0; i < topology.Length; i++)
         {
             var (nodeId, primaryUri) = topology[i];
-            var internalPort = GetOrAllocateInternalPort(nodeId, topology);
+            var internalPort = GetOrAllocateInternalPort(nodeId, CollectExcludedPrimaryPorts(topology));
             peers[i] = new ServerPeer
             {
                 NodeId = nodeId,
@@ -213,26 +213,11 @@ public sealed class ClusterTls : IDisposable
         return (options, material, new HandlerFactory(untrustedClientCertificate, material.TrustAnchor!).Create);
     }
 
-    private int GetOrAllocateInternalPort(string nodeId, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    private int GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts)
     {
         if (_internalPortsByNodeId.TryGetValue(nodeId, out var existingPort))
             return existingPort;
 
-        var excludedPorts = CollectExcludedPrimaryPorts(topology);
-        foreach (var allocatedPort in _internalPortsByNodeId.Values)
-            _ = excludedPorts.Add(allocatedPort);
-
-        var internalPort = InternalPortPool.AllocateInternalPort(excludedPorts);
-        _internalPortsByNodeId[nodeId] = internalPort;
-        return internalPort;
-    }
-
-    private int GetOrAllocateInternalPort(string nodeId, TopologyOptions cluster)
-    {
-        if (_internalPortsByNodeId.TryGetValue(nodeId, out var existingPort))
-            return existingPort;
-
-        var excludedPorts = CollectExcludedPrimaryPorts(cluster);
         foreach (var allocatedPort in _internalPortsByNodeId.Values)
             _ = excludedPorts.Add(allocatedPort);
 
@@ -246,13 +231,44 @@ public sealed class ClusterTls : IDisposable
 
     /// <summary>Creates cluster mTLS startup overrides for the node being started.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
-    /// <param name="uri">Primary listen URL for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(TopologyOptions cluster, Uri uri, CancellationToken cancellationToken)
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(TopologyOptions cluster, CancellationToken cancellationToken)
     {
-        var (options, material, _) = await ResolveNodeStartupAsync(cluster, uri, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
+        var (options, material, _) = await ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         return (options, material);
+    }
+
+    /// <summary>Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.</summary>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="profile">Requested internode mTLS test profile.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveNodeStartupAsync(
+        TopologyOptions cluster,
+        TestNodeProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+
+        if (!MtlsTopology.RequiresInterNodeMtls(cluster))
+            return (null, null, null);
+
+        _bundle ??= new TestBundle();
+        var internalPort = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster));
+        var (options, material) = await _bundle.CreateNodeAsync(cluster.NodeId, internalPort, cancellationToken).ConfigureAwait(false);
+
+        return profile switch
+        {
+            TestNodeProfile.Normal => (options, material, null),
+            TestNodeProfile.NoOutboundClientCertificate => (options, material, new NoClientCertificateHandlerFactory(material.TrustAnchor!).Create),
+            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
+            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
+            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
+            _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
+        };
     }
 
     private X509Certificate2 TrackCertificate(X509Certificate2 certificate)
@@ -267,31 +283,33 @@ public sealed class ClusterTls : IDisposable
 
         /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
         /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
-        /// <returns>An internal listener port for cluster mTLS.</returns>
+        /// <returns>An internal listener port for cluster mTLS, held bound until <see cref="ReleasePort" />.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="excludedPorts" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
+        /// <remarks>
+        /// The port stays bound (with exclusive address use) until the caller releases it just before
+        /// Kestrel binds, mirroring the primary-port discipline from #499. A bare probe-and-release
+        /// leaves a TOCTOU window across certificate generation and sequential node startup where a
+        /// parallel test can grab the same internal port (see #612).
+        /// </remarks>
         internal static int AllocateInternalPort(HashSet<int> excludedPorts)
         {
             ArgumentNullException.ThrowIfNull(excludedPorts);
 
             for (var attempt = 0; attempt < 64; attempt++)
             {
-                var port = Pool.AllocatePort();
-                var isExcluded = false;
-                foreach (var excludedPort in excludedPorts)
-                {
-                    if (excludedPort != port)
-                        continue;
-                    isExcluded = true;
-                    break;
-                }
-
-                if (!isExcluded)
+                var port = Pool.AllocateRange(1)[0];
+                if (!excludedPorts.Contains(port))
                     return port;
+                Pool.ReleasePort(port);
             }
 
             throw new InvalidOperationException("Failed to allocate a cluster mTLS internal listener port for tests.");
         }
+
+        /// <summary>Releases a held internal listener port so the actual server can bind to it.</summary>
+        /// <param name="port">The port number to release.</param>
+        internal static void ReleasePort(int port) => Pool.ReleasePort(port);
     }
 
     [Immutable]

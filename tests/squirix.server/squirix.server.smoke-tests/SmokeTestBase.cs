@@ -73,7 +73,7 @@ public abstract class SmokeTestBase : IDisposable
             VirtualNodes = 128,
         };
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForBindAsync(_mtls, clusterConfig, cancellationToken).ConfigureAwait(false);
         var app = await NodeHost.StartAsync(
             clusterConfig,
             new NodeHostStartOptions

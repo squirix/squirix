@@ -23,7 +23,7 @@ internal sealed class SnapshotBenchmarkHost : IDisposable
         _dataDir = dataDir;
         _items = items;
         _writer = StoreFactory.CreateWriter(options);
-        Reader = StoreFactory.CreateReader(options);
+        Reader = StoreFactory.CreateReader();
     }
 
     internal ISnapshotReader Reader { get; }

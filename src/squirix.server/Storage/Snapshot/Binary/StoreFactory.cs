@@ -15,11 +15,7 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 
 internal static class StoreFactory
 {
-    internal static ISnapshotReader CreateReader(PersistenceOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        return new SnapshotReader();
-    }
+    internal static ISnapshotReader CreateReader() => new SnapshotReader();
 
     internal static ISnapshotWriter CreateWriter(PersistenceOptions options, IStorageFileOperations? fileOperations = null)
     {
