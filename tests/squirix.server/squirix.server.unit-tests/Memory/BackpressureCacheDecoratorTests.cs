@@ -11,7 +11,9 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -22,8 +24,9 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Two client ids keep independent PerClientMaxInFlight budgets.</summary>
-    [Fact]
-    public async Task TwoClientIdsGetIndependentLimits()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TwoClientIdsGetIndependentLimits(CancellationToken cancellationToken)
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -39,23 +42,24 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
             },
             new BackpressureMetrics(_testMeter));
 
-        using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", DefaultCancellationToken)).Lease;
+        using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", cancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", DefaultCancellationToken));
-        Assert.Equal(SquirixErrorCode.TooManyRequests, rejected.Code);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", cancellationToken));
+        _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
 
-        var otherClient = await cacheB.GetValueAsync("c", "k", DefaultCancellationToken);
-        Assert.False(otherClient.Found);
-        Assert.Equal(1, inner.GetValueCalls);
+        var otherClient = await cacheB.GetValueAsync("c", "k", cancellationToken);
+        _ = await Assert.That(otherClient.Found).IsFalse();
+        _ = await Assert.That(inner.GetValueCalls).IsEqualTo(1);
     }
 
     /// <summary>The void write path enforces the same per-client budgets independently across client ids.</summary>
-    [Fact]
-    public async Task WritesApplyIndependentPerClientCaps()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WritesApplyIndependentPerClientCaps(CancellationToken cancellationToken)
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -71,19 +75,19 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
             },
             new BackpressureMetrics(_testMeter));
 
-        using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", DefaultCancellationToken)).Lease;
+        using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", cancellationToken)).Lease;
 
         var inner = new CompletingLogicalCache();
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, DefaultCancellationToken));
-        Assert.Equal(SquirixErrorCode.TooManyRequests, rejected.Code);
-        Assert.Equal(0, inner.SetEntryCalls);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, cancellationToken));
+        _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(inner.SetEntryCalls).IsEqualTo(0);
 
-        await cacheB.SetEntryAsync("op-2", "c", "k", entry, DefaultCancellationToken);
-        Assert.Equal(1, inner.SetEntryCalls);
+        await cacheB.SetEntryAsync("op-2", "c", "k", entry, cancellationToken);
+        _ = await Assert.That(inner.SetEntryCalls).IsEqualTo(1);
     }
 
     /// <inheritdoc />

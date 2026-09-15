@@ -1,9 +1,12 @@
 using System.Threading;
+using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Core;
 
@@ -11,26 +14,26 @@ namespace Squirix.Server.UnitTests.Core;
 [Immutable]
 public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
-    /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
-    [Fact]
-    public void CallerTokenWithCanceledStatusIsCaller()
+    /// <summary>Operation effective token helper mirrors not canceled for retry gating.</summary>
+    [Test]
+    public async Task AllowsRetryReflectsEffectiveTokenState()
     {
         using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        var ex = new RpcException(new Status(StatusCode.Cancelled, "x"));
-        Assert.True(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cts.Token));
-        Assert.False(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, CancellationToken.None));
-        var other = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
-        Assert.False(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token));
+        _ = await Assert.That(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token)).IsTrue();
+        await cts.CancelAsync();
+        _ = await Assert.That(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token)).IsFalse();
     }
 
-    /// <summary>Operation effective token helper mirrors not canceled for retry gating.</summary>
-    [Fact]
-    public void AllowsRetryReflectsEffectiveTokenState()
+    /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
+    [Test]
+    public async Task CallerTokenWithCanceledStatusIsCaller()
     {
         using var cts = new CancellationTokenSource();
-        Assert.True(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token));
-        cts.Cancel();
-        Assert.False(ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(cts.Token));
+        await cts.CancelAsync();
+        var ex = new RpcException(new Status(StatusCode.Cancelled, "x"));
+        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cts.Token)).IsTrue();
+        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, CancellationToken.None)).IsFalse();
+        var other = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
+        _ = await Assert.That(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token)).IsFalse();
     }
 }

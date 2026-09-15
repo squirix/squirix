@@ -8,7 +8,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
@@ -16,28 +18,14 @@ namespace Squirix.Server.UnitTests.ApiSnapshots;
 [Immutable]
 public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {
-    /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
-    [Fact]
-    public async Task MatchesServerAssemblyExportsAsync()
-    {
-        var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
-        var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
-        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
-        Assert.True(File.Exists(path));
-
-        var expected = await LoadIdentityLinesAsync(path);
-        if (actual.SetEquals(expected))
-            return;
-
-        Assert.Fail(FormatGoldenMismatch(actual, expected));
-    }
-
     /// <summary>Ensures the server package exposes the canonical lifetime methods.</summary>
-    [Fact]
-    public void ExposesCanonicalLifetimeMethods()
+    [Test]
+    public async Task ExposesCanonicalLifetimeMethods()
     {
-        Assert.NotNull((Func<CancellationToken, ValueTask<SquirixServer>>)StartAsync);
-        Assert.NotNull((Func<SquirixServer, ValueTask>)DisposeAsync);
+        var start = StartAsync;
+        var dispose = DisposeAsync;
+        _ = await Assert.That(start.Method.Name).Contains(nameof(StartAsync), StringComparison.Ordinal);
+        _ = await Assert.That(dispose.Method.Name).Contains(nameof(DisposeAsync), StringComparison.Ordinal);
         return;
 
         static ValueTask DisposeAsync(SquirixServer server)
@@ -49,6 +37,23 @@ public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
         {
             return SquirixServer.StartAsync(cancellationToken);
         }
+    }
+
+    /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MatchesServerAssemblyExportsAsync(CancellationToken cancellationToken)
+    {
+        var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
+        var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
+        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
+        _ = await Assert.That(File.Exists(path)).IsTrue();
+
+        var expected = await LoadIdentityLinesAsync(path, cancellationToken);
+        if (actual.SetEquals(expected))
+            return;
+
+        Assert.Fail(FormatGoldenMismatch(actual, expected));
     }
 
     private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
@@ -79,10 +84,13 @@ public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
         return sb.ToString();
     }
 
-    private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
+    /// <summary>Loads the expected API identity lines from the golden snapshot file.</summary>
+    /// <param name="path">The golden snapshot file path.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path, CancellationToken cancellationToken)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];

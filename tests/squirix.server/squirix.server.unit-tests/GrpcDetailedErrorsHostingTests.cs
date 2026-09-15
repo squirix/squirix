@@ -9,7 +9,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -18,21 +20,23 @@ namespace Squirix.Server.UnitTests;
 public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
 {
     /// <summary>Ensures development hosts keep detailed gRPC diagnostics available intentionally.</summary>
-    [Fact]
-    public async Task DevelopmentHostEnablesDetailedErrors()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DevelopmentHostEnablesDetailedErrors(CancellationToken cancellationToken)
     {
-        await using var app = await BuildHostAsync("Development", DefaultCancellationToken);
+        await using var app = await BuildHostAsync("Development", cancellationToken);
         var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
-        Assert.True(options.EnableDetailedErrors);
+        _ = await Assert.That(options.EnableDetailedErrors).IsTrue();
     }
 
     /// <summary>Ensures production-like hosts do not enable detailed gRPC errors by default.</summary>
-    [Fact]
-    public async Task ProductionHostDisablesDetailedErrors()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProductionHostDisablesDetailedErrors(CancellationToken cancellationToken)
     {
-        await using var app = await BuildHostAsync("Production", DefaultCancellationToken);
+        await using var app = await BuildHostAsync("Production", cancellationToken);
         var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
-        Assert.False(options.EnableDetailedErrors);
+        _ = await Assert.That(options.EnableDetailedErrors).IsFalse();
     }
 
     private static async Task<WebApplication> BuildHostAsync(string environmentName, CancellationToken cancellationToken)

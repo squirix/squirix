@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -21,7 +22,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
@@ -35,47 +38,49 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Recovery after compaction must restore idempotency replay from the compacted journal.</summary>
-    [Fact]
-    public async Task CompactedLogReplaysIdempotentOps()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactedLogReplaysIdempotentOps(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
         var persistence = CreatePersistence(scenario.DataDir);
-        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger, cancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
-        Assert.True(replayed);
-        Assert.NotNull(response);
-        Assert.True(response.Added);
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Added).IsTrue();
     }
 
     /// <summary>Compacted journal segments must retain IdempotencyOutcome frames from the pre-compaction tail.</summary>
-    [Fact]
-    public async Task CompactionKeepsIdempotencyFrames()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionKeepsIdempotencyFrames(CancellationToken cancellationToken)
     {
         var persistence = CreatePersistence(Dir.Path);
         using var manifestStore = new Ledger(persistence);
-        await WritePutAndIdempotencyAsync(persistence, manifestStore);
+        await WritePutAndIdempotencyAsync(persistence, manifestStore, cancellationToken);
 
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), cancellationToken);
 
-        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         var found = false;
-        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken);
+        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, cancellationToken);
         while (records.MoveNext())
         {
             var record = records.Current;
             if (record.Operation != JournalOperationKind.IdempotencyOutcome)
                 continue;
 
-            Assert.Equal(OperationId, record.IdempotencyOperationId);
+            _ = await Assert.That(record.IdempotencyOperationId).IsEqualTo(OperationId);
             found = true;
         }
 
-        Assert.True(found);
+        _ = await Assert.That(found).IsTrue();
     }
 
     /// <summary>
@@ -83,88 +88,88 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     /// started record plus a journal mutation marker compact into an IdempotencyStarted frame that
     /// still rejects operation-id reuse, and the intent survives a second compaction and recovery.
     /// </summary>
-    [Fact]
-    public async Task CompactionKeepsStartedFingerprint()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionKeepsStartedFingerprint(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-started");
         var persistence = CreatePersistence(scenario.DataDir);
 
         await using (var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            scenario.Ledger,
-            new AsyncManualResetEvent(true)))
+                         persistence,
+                         await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
+                         scenario.Ledger,
+                         new AsyncManualResetEvent(true)))
         {
             var ambientScope = new object();
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
             try
             {
-                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
+                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             }
             finally
             {
                 RpcMutationIdempotencyExecutionAmbient.Deactivate(ambientScope);
             }
 
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-            await WriteStartedSnapshotAsync(scenario, persistence, journal.NextSequence);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
+            await WriteStartedSnapshotAsync(scenario, persistence, journal.NextSequence, cancellationToken);
         }
 
         var reader = StoreFactory.CreateReader(persistence);
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DefaultCancellationToken);
-        AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, cancellationToken);
+        await AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, DefaultCancellationToken);
-        AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, cancellationToken);
+        await AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
-        Assert.False(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _));
-        Assert.Equal(IdempotencyReserveResult.AlreadyStarted, idempotencyStore.ReserveIntent(OperationId, Fingerprint));
-        var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
-            idempotencyStore,
-            static value => _ = value.ReserveIntent(OperationId, "other-fingerprint"));
-        Assert.Equal(ServerOpIdMismatchException.StableDetail, mismatch.Message);
+        _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        var mismatch = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(idempotencyStore, static value => _ = value.ReserveIntent(OperationId, "other-fingerprint"));
+        _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
 
     /// <summary>A late started marker must never downgrade a compacted completed outcome back to start.</summary>
-    [Fact]
-    public async Task LateStartedMarkerKeepsCompleted()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LateStartedMarkerKeepsCompleted(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-order");
         var persistence = CreatePersistence(scenario.DataDir);
-        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger);
+        await WritePutAndIdempotencyAsync(persistence, scenario.Ledger, cancellationToken);
 
         await using (var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            scenario.Ledger,
-            new AsyncManualResetEvent(true)))
+                         persistence,
+                         await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
+                         scenario.Ledger,
+                         new AsyncManualResetEvent(true)))
         {
             var ambientScope = new object();
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
             try
             {
-                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
+                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
             }
             finally
             {
                 RpcMutationIdempotencyExecutionAmbient.Deactivate(ambientScope);
             }
 
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(persistence), cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        await RunRecoveryAsync(scenario, persistence, idempotencyStore);
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
 
         var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
-        Assert.True(replayed);
-        Assert.NotNull(response);
-        Assert.True(response.Added);
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Added).IsTrue();
     }
 
     /// <inheritdoc />
@@ -174,9 +179,40 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         _testMeter.Dispose();
     }
 
+    /// <summary>Asserts that the started frame carries the expected fingerprint.</summary>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="manifest">The manifest state.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task AssertStartedFrameHasFingerprint(PersistenceOptions persistence, State manifest, CancellationToken cancellationToken)
+    {
+        var found = false;
+        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation != JournalOperationKind.IdempotencyStarted)
+                continue;
+
+            _ = await Assert.That(record.IdempotencyOperationId).IsEqualTo(OperationId);
+            _ = await Assert.That(record.IdempotencyFingerprint).IsEqualTo(Fingerprint);
+            found = true;
+        }
+
+        _ = await Assert.That(found).IsTrue();
+    }
+
     private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
 
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, RpcMutationIdempotencyStore idempotencyStore)
+    /// <summary>Runs recovery for the given scenario.</summary>
+    /// <param name="scenario">The recovery scenario.</param>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="idempotencyStore">The idempotency store.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static Task RunRecoveryAsync(
+        RecoveryScenarioBuilder scenario,
+        PersistenceOptions persistence,
+        RpcMutationIdempotencyStore idempotencyStore,
+        CancellationToken cancellationToken)
     {
         var deps = new RecoveryDependencies<object?>(
             persistence,
@@ -186,38 +222,29 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
             idempotencyStore,
             StoreFactory.CreateReader(persistence));
         var recovery = new RecoveryService<object?>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<object?>>.Instance, deps);
-        return recovery.StartAsync(DefaultCancellationToken);
+        return recovery.StartAsync(cancellationToken);
     }
 
-    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore)
+    /// <summary>Writes a put and its idempotency outcome to the journal.</summary>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="manifestStore">The manifest store.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, Ledger manifestStore, CancellationToken cancellationToken)
     {
-        var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true));
-        await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
-        await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
     }
 
-    private static void AssertStartedFrameHasFingerprint(PersistenceOptions persistence, State manifest)
-    {
-        var found = false;
-        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken);
-        while (records.MoveNext())
-        {
-            var record = records.Current;
-            if (record.Operation != JournalOperationKind.IdempotencyStarted)
-                continue;
-
-            Assert.Equal(OperationId, record.IdempotencyOperationId);
-            Assert.Equal(Fingerprint, record.IdempotencyFingerprint);
-            found = true;
-        }
-
-        Assert.True(found);
-    }
-
-    private async Task WriteStartedSnapshotAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, ulong nextSequence)
+    /// <summary>Writes a started snapshot for the given scenario.</summary>
+    /// <param name="scenario">The recovery scenario.</param>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="nextSequence">The next sequence number.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private async Task WriteStartedSnapshotAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, ulong nextSequence, CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         store.RestoreStarted(OperationId, Fingerprint, DateTime.UtcNow);
@@ -225,8 +252,8 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
         IIdempotencySnapshotExporter exporter = store;
         exporter.ExportSnapshot(records, DateTime.UtcNow);
 
-        var path = await StoreFactory.CreateWriter(persistence).WriteAsync(1, [], records, DefaultCancellationToken).ConfigureAwait(false);
-        var prev = await scenario.Ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken).ConfigureAwait(false);
+        var path = await StoreFactory.CreateWriter(persistence).WriteAsync(1, [], records, cancellationToken).ConfigureAwait(false);
+        var prev = await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         await scenario.Ledger.WriteAsync(
             new State
             {
@@ -242,6 +269,6 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
                     ReplayFromJournalSegment = 1,
                 },
             },
-            DefaultCancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 }

@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -15,33 +18,34 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
     private const string GroupId = "quorum-recovery";
 
     /// <summary>A committed-not-applied entry is selected once, then its durable applied index suppresses replay.</summary>
-    [Fact]
-    public async Task CommittedNotAppliedReplaysOnce()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedNotAppliedReplaysOnce(CancellationToken cancellationToken)
     {
         using var directory = new TempDirectory("squirix-quorum-recovery");
         await using (var log = Open(directory))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(AppendOne(), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(1, DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(AppendOne(), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1, cancellationToken);
         }
 
         await using (var recovered = Open(directory))
         {
-            await recovered.OpenAsync(DefaultCancellationToken);
-            var status = await recovered.GetStatusAsync(DefaultCancellationToken);
-            var committed = await recovered.GetCommittedEntriesAsync(DefaultCancellationToken);
-            Assert.Equal(1, CountAfter(committed, status.LastAppliedIndex));
-            _ = await recovered.AdvanceAppliedAsync(1, DefaultCancellationToken);
+            await recovered.OpenAsync(cancellationToken);
+            var status = await recovered.GetStatusAsync(cancellationToken);
+            var committed = await recovered.GetCommittedEntriesAsync(cancellationToken);
+            _ = await Assert.That(CountAfter(committed, status.LastAppliedIndex)).IsEqualTo(1);
+            _ = await recovered.AdvanceAppliedAsync(1, cancellationToken);
         }
 
         await using var reopened = Open(directory);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        var reopenedStatus = await reopened.GetStatusAsync(DefaultCancellationToken);
-        var reopenedCommitted = await reopened.GetCommittedEntriesAsync(DefaultCancellationToken);
-        Assert.Equal(0, CountAfter(reopenedCommitted, reopenedStatus.LastAppliedIndex));
-        Assert.Equal(1UL, reopenedStatus.CommitIndex);
-        Assert.Equal(1UL, reopenedStatus.LastAppliedIndex);
+        await reopened.OpenAsync(cancellationToken);
+        var reopenedStatus = await reopened.GetStatusAsync(cancellationToken);
+        var reopenedCommitted = await reopened.GetCommittedEntriesAsync(cancellationToken);
+        _ = await Assert.That(CountAfter(reopenedCommitted, reopenedStatus.LastAppliedIndex)).IsEqualTo(0);
+        _ = await Assert.That(reopenedStatus.CommitIndex).IsEqualTo(1UL);
+        _ = await Assert.That(reopenedStatus.LastAppliedIndex).IsEqualTo(1UL);
     }
 
     private static FollowerLogAppendRequest AppendOne() => new(
@@ -64,6 +68,5 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
         return count;
     }
 
-    private static FollowerLog Open(TempDirectory directory) =>
-        new(directory, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog Open(TempDirectory directory) => new(directory, GroupId, GroupComposition.Create(GroupId));
 }

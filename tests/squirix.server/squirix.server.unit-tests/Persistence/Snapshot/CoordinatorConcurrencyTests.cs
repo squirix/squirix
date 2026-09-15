@@ -11,7 +11,9 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -20,11 +22,12 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
 {
     /// <summary>Concurrent trigger invocations evaluate shared trigger state; exactly one snapshot is published.</summary>
-    [Fact]
-    public async Task ConcurrentTriggersPublishExactlyOnce()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentTriggersPublishExactlyOnce(CancellationToken cancellationToken)
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
@@ -51,7 +54,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 "test-node",
                 throttleExpectations.Instance(),
                 null));
-        var cancellationToken = DefaultCancellationToken;
         var published = new StrongBox<int>(0);
         coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published.Value);
 
@@ -63,9 +65,15 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
         gate.Set();
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        Assert.Equal(1, Volatile.Read(ref published.Value));
+        _ = await Assert.That(Volatile.Read(ref published.Value)).IsEqualTo(1);
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
-        Assert.Equal(1, manifest.LastSnapshot?.Index);
+        _ = await Assert.That(manifest.LastSnapshot?.Index).IsEqualTo(1);
+    }
+
+    private static async Task RunGatedSnapshotAsync(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, CancellationToken cancellationToken)
+    {
+        _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
+        await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 
     private static Task[] StartSnapshotCallers(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, int count, CancellationToken cancellationToken)
@@ -84,11 +92,5 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).Unwrap();
         }
-    }
-
-    private static async Task RunGatedSnapshotAsync(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, CancellationToken cancellationToken)
-    {
-        _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
-        await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 }

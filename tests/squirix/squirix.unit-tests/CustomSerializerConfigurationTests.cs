@@ -3,7 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Client;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
@@ -15,8 +17,8 @@ namespace Squirix.UnitTests;
 public sealed class CustomSerializerConfigurationTests
 {
     /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> keeps a public setter for configure-delegate assignment.</summary>
-    [Fact]
-    public void BearerTokenHasPublicSetterForConfigure()
+    [Test]
+    public async Task BearerTokenHasPublicSetterForConfigure()
     {
         Func<CancellationToken, ValueTask<string>> provider = static _ => new ValueTask<string>("token");
         var options = new SquirixClientOptions
@@ -24,12 +26,12 @@ public sealed class CustomSerializerConfigurationTests
             BearerTokenProvider = provider,
         };
 
-        Assert.Same(provider, options.BearerTokenProvider);
+        _ = await Assert.That(ReferenceEquals(options.BearerTokenProvider, provider)).IsTrue();
     }
 
     /// <summary>Verifies <see cref="SquirixClientOptions.Serializer" /> keeps a public setter for configure-delegate assignment.</summary>
-    [Fact]
-    public void SerializerHasPublicSetterForConfigure()
+    [Test]
+    public async Task SerializerHasPublicSetterForConfigure()
     {
         var custom = new ISquirixSerializerCreateExpectations().Instance();
         var options = new SquirixClientOptions
@@ -37,6 +39,6 @@ public sealed class CustomSerializerConfigurationTests
             Serializer = custom,
         };
 
-        Assert.Same(custom, options.Serializer);
+        _ = await Assert.That(options.Serializer).IsSameReferenceAs(custom);
     }
 }

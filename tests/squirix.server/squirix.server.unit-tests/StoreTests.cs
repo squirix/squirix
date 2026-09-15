@@ -7,7 +7,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -18,13 +20,14 @@ public sealed class StoreTests : IsolatedStorageTestBase
     protected override string TempDirectoryName => "manifest";
 
     /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
-    [Fact]
-    public async Task EnqueueRollAdvancesPointerSequentially()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnqueueRollAdvancesPointerSequentially(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         await RollAsync();
         using var reloaded = new Ledger(options);
-        Assert.Equal(2, (await reloaded.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+        _ = await Assert.That((await reloaded.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         return;
 
         static async ValueTask<bool> ConditionAsync(Ledger s, CancellationToken ct)
@@ -39,43 +42,45 @@ public sealed class StoreTests : IsolatedStorageTestBase
             store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
             store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
 
-            await store.WaitUntilValueAsync(ConditionAsync, DefaultCancellationToken);
+            await store.WaitUntilValueAsync(ConditionAsync, cancellationToken);
             rollError.ThrowIfFaulted();
-            Assert.Equal(2, (await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
+            _ = await Assert.That((await store.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         }
     }
 
     /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>
-    [Fact]
-    public async Task WriteCreatesPointerAndManifestFile()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteCreatesPointerAndManifestFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new Ledger(options);
 
-        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
         var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
-        var pointerBytes = await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken);
-        Assert.Equal(12, pointerBytes.Length);
-        Assert.Equal(1, Pointer.Read(pointerBytes));
+        var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken);
+        _ = await Assert.That(pointerBytes.Length).IsEqualTo(12);
+        _ = await Assert.That(Pointer.Read(pointerBytes)).IsEqualTo(1);
 
         var manifestPath = NodePathKit.Combine(Dir.Path, "man-000001.bmqx");
-        Assert.True(File.Exists(manifestPath));
-        var manifest = FileCodec.Decode(await File.ReadAllBytesAsync(manifestPath, DefaultCancellationToken));
-        Assert.Equal(1, manifest.CurrentJournal);
-        Assert.Equal(1UL, manifest.NextSequence);
+        _ = await Assert.That(File.Exists(manifestPath)).IsTrue();
+        var manifest = FileCodec.Decode(await File.ReadAllBytesAsync(manifestPath, cancellationToken));
+        _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(1);
+        _ = await Assert.That(manifest.NextSequence).IsEqualTo(1UL);
     }
 
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
-    [Fact]
-    public async Task WriteUpdatesPointerViaTempFile()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteUpdatesPointerViaTempFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new Ledger(options);
 
-        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        Assert.False(File.Exists(NodePathKit.Combine(Dir.Path, "man-current.tmp")));
-        Assert.Equal(12, (await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);
+        _ = await Assert.That(File.Exists(NodePathKit.Combine(Dir.Path, "man-current.tmp"))).IsFalse();
+        _ = await Assert.That((await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), cancellationToken)).Length).IsEqualTo(12);
     }
 }

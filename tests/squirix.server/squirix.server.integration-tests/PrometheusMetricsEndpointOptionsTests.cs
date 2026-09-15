@@ -1,8 +1,11 @@
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -17,8 +20,8 @@ public sealed class PrometheusMetricsEndpointOptionsTests
     /// Verifies the full DI pipeline: initial defaults, configure override, post-configure override,
     /// and options validation all compose correctly with mutable setters.
     /// </summary>
-    [Fact]
-    public void FullPipelineComposesBothConfigurers()
+    [Test]
+    public async Task FullPipelineComposesBothConfigurers()
     {
         var services = new ServiceCollection();
         _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o =>
@@ -29,19 +32,19 @@ public sealed class PrometheusMetricsEndpointOptionsTests
 
         _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o => o.Path = "/overridden");
 
-        using var provider = services.BuildServiceProvider();
+        await using var provider = services.BuildServiceProvider();
         var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
 
-        Assert.True(resolved.Enabled);
-        Assert.Equal("/overridden", resolved.Path);
+        _ = await Assert.That(resolved.Enabled).IsTrue();
+        _ = await Assert.That(resolved.Path).IsEqualTo("/overridden");
     }
 
     /// <summary>
     /// Verifies that <c language="csharp">PostConfigure</c> can flip <see cref="PrometheusMetricsEndpointOptions.Enabled" /> to false
     /// after initial registration. This proves <c language="csharp">Enabled</c> cannot be <c language="csharp">init</c>-only.
     /// </summary>
-    [Fact]
-    public void PostConfigureDisablesEndpoint()
+    [Test]
+    public async Task PostConfigureDisablesEndpoint()
     {
         var services = new ServiceCollection();
         _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o =>
@@ -51,26 +54,26 @@ public sealed class PrometheusMetricsEndpointOptionsTests
         });
         _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o => o.Enabled = false);
 
-        using var provider = services.BuildServiceProvider();
+        await using var provider = services.BuildServiceProvider();
         var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
 
-        Assert.False(resolved.Enabled);
+        _ = await Assert.That(resolved.Enabled).IsFalse();
     }
 
     /// <summary>
     /// Verifies that <c language="csharp">PostConfigure</c> can override <see cref="PrometheusMetricsEndpointOptions.Path" />
     /// after the initial <c language="csharp">Configure</c> callback has set it. This proves <c language="csharp">Path</c> cannot be <c language="csharp">init</c>-only.
     /// </summary>
-    [Fact]
-    public void PostConfigureOverridesPath()
+    [Test]
+    public async Task PostConfigureOverridesPath()
     {
         var services = new ServiceCollection();
         _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o => o.Path = "/metrics");
         _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o => o.Path = "/custom-metrics");
 
-        using var provider = services.BuildServiceProvider();
+        await using var provider = services.BuildServiceProvider();
         var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
 
-        Assert.Equal("/custom-metrics", resolved.Path);
+        _ = await Assert.That(resolved.Path).IsEqualTo("/custom-metrics");
     }
 }

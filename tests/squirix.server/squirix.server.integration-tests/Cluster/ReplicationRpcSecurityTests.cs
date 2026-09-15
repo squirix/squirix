@@ -14,42 +14,143 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster;
 
 /// <summary>REQ-SEC-001: closed replication RPCs are bound to internal mTLS identity.</summary>
 public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 {
-    /// <summary>External listener does not expose the closed replication service.</summary>
-    [Fact]
-    public async Task ExternalListenerRefusesReplicationRpc()
+    /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateNodeIdMatchIsAccepted(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim sender_node_id node-b for matching identity.
+        var response = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken);
+
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo("not-ready");
+    }
+
+    /// <summary>Claimed sender_node_id must match the peer certificate NodeId.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateNodeIdMismatchIsRejected(CancellationToken cancellationToken)
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim sender_node_id node-a to force mismatch after TLS succeeds.
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+    }
+
+    /// <summary>External listener does not expose the closed replication service.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExternalListenerRefusesReplicationRpc(CancellationToken cancellationToken)
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uriA);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken).ResponseAsync);
 
-        Assert.Equal(StatusCode.Unimplemented, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
     }
 
-    /// <summary>Forged Host headers cannot bind closed replication RPCs onto the external listener.</summary>
-    [Fact]
-    public async Task ForgedInternalHostHeaderIsRejected()
+    /// <summary>Leader-authorized RPCs reject a trusted peer claiming a foreign LeaderNodeId.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForeignLeaderNodeIdIsRejected(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+
+        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUri,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+
+        // Certificate identity is node-b; claim leader_node_id node-a to force a leader identity mismatch.
+        var request = CreateAppendRequest("node-b", "node-a");
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.AppendReplicaEntriesAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
+    }
+
+    /// <summary>Forged Host headers cannot bind closed replication RPCs onto the external listener.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForgedInternalHostHeaderIsRejected(CancellationToken cancellationToken)
+    {
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
 
         var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
         var forgedHost = string.Create(CultureInfo.InvariantCulture, $"127.0.0.1:{mtlsOptions.InternalListenPort}");
@@ -69,124 +170,26 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetReplicaStatusAsync(
-                CreateStatusRequest("node-b"),
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
+            client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
 
-        Assert.True(ex.StatusCode == StatusCode.Unimplemented || ex.StatusCode == StatusCode.PermissionDenied || ex.StatusCode == StatusCode.Unauthenticated);
-    }
-
-    /// <summary>Claimed sender_node_id must match the peer certificate NodeId.</summary>
-    [Fact]
-    public async Task CertificateNodeIdMismatchIsRejected()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
-        using var channel = GrpcChannel.ForAddress(
-            interNodeUri,
-            new GrpcChannelOptions
-            {
-                HttpHandler = handler,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
-
-        // Certificate identity is node-b; claim sender_node_id node-a to force mismatch after TLS succeeds.
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: DefaultCancellationToken).ResponseAsync);
-
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
-    }
-
-    /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
-    [Fact]
-    public async Task CertificateNodeIdMatchIsAccepted()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
-        using var channel = GrpcChannel.ForAddress(
-            interNodeUri,
-            new GrpcChannelOptions
-            {
-                HttpHandler = handler,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
-
-        // Certificate identity is node-b; claim sender_node_id node-b for matching identity.
-        var response = await client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: DefaultCancellationToken);
-
-        Assert.NotNull(response);
-        Assert.Equal("not-ready", response.RefusalCode);
-    }
-
-    /// <summary>Leader-authorized RPCs reject a trusted peer claiming a foreign LeaderNodeId.</summary>
-    [Fact]
-    public async Task ForeignLeaderNodeIdIsRejected()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
-        using var channel = GrpcChannel.ForAddress(
-            interNodeUri,
-            new GrpcChannelOptions
-            {
-                HttpHandler = handler,
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
-
-        // Certificate identity is node-b; claim leader_node_id node-a to force a leader identity mismatch.
-        var request = CreateAppendRequest("node-b", "node-a");
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.AppendReplicaEntriesAsync(request, cancellationToken: DefaultCancellationToken).ResponseAsync);
-
-        Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode == StatusCode.Unimplemented || ex.StatusCode == StatusCode.PermissionDenied || ex.StatusCode == StatusCode.Unauthenticated).IsTrue();
     }
 
     /// <summary>Leader-authorized RPCs accept a trusted peer whose LeaderNodeId matches its certificate identity.</summary>
-    [Fact]
-    public async Task MatchingLeaderNodeIdIsAccepted()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MatchingLeaderNodeIdIsAccepted(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true });
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true });
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
 
         var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
         var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, DefaultCancellationToken);
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUri,
             new GrpcChannelOptions
@@ -199,26 +202,12 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
 
         // Certificate identity is node-b; claim leader_node_id node-b for matching identity.
-        var response = await client.AppendReplicaEntriesAsync(CreateAppendRequest("node-b", "node-b"), cancellationToken: DefaultCancellationToken);
+        var response = await client.AppendReplicaEntriesAsync(CreateAppendRequest("node-b", "node-b"), cancellationToken: cancellationToken);
 
-        Assert.NotNull(response);
-        Assert.False(response.Success);
-        Assert.Equal("not-ready", response.RefusalCode);
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Success).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo("not-ready");
     }
-
-    private static GetReplicaStatusRequest CreateStatusRequest(string senderNodeId) => new()
-    {
-        Header = new ReplicationEnvelopeHeader
-        {
-            SchemaVersion = EnvelopeCodec.SchemaVersion,
-            GroupId = "g1",
-            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
-            ConfigurationGeneration = 1,
-            Term = 1,
-            LeaderNodeId = senderNodeId,
-            SenderNodeId = senderNodeId,
-        },
-    };
 
     private static AppendReplicaEntriesRequest CreateAppendRequest(string senderNodeId, string leaderNodeId) => new()
     {
@@ -233,6 +222,20 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
             SenderNodeId = senderNodeId,
         },
         PrevLogIndex = 0,
+    };
+
+    private static GetReplicaStatusRequest CreateStatusRequest(string senderNodeId) => new()
+    {
+        Header = new ReplicationEnvelopeHeader
+        {
+            SchemaVersion = EnvelopeCodec.SchemaVersion,
+            GroupId = "g1",
+            TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+            ConfigurationGeneration = 1,
+            Term = 1,
+            LeaderNodeId = senderNodeId,
+            SenderNodeId = senderNodeId,
+        },
     };
 
     private sealed class ForgedHostHandler : DelegatingHandler

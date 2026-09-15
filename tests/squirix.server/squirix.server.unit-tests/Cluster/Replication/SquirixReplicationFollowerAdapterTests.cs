@@ -15,8 +15,9 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
-
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 using static Squirix.Server.UnitTests.Cluster.Replication.SquirixReplicationAdapterTestHelpers;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -26,69 +27,87 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
 {
     /// <summary>Verifies that AdvanceReplicaCommit succeeds on a served group.</summary>
-    [Fact]
-    public async Task AdvanceCommitOnServedGroupSucceedsAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdvanceCommitOnServedGroupSucceedsAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new AdvanceReplicaCommitRequest { Header = follower.Header, CommitIndex = 0 };
 
         var response = await follower.Adapter.AdvanceReplicaCommit(request, new TestServerCallContext(null, follower.HttpContext));
 
-        Assert.True(response.Success);
-        Assert.Equal(7UL, response.Term);
-        Assert.Equal(0UL, response.CommitIndex);
-        Assert.Equal(string.Empty, response.RefusalCode);
+        _ = await Assert.That(response.Success).IsTrue();
+        _ = await Assert.That(response.Term).IsEqualTo(7UL);
+        _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
     }
 
     /// <summary>Verifies that an empty append batch succeeds as a heartbeat.</summary>
-    [Fact]
-    public async Task EmptyAppendOnServedGroupSucceedsAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EmptyAppendOnServedGroupSucceedsAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
 
         var response = await follower.Adapter.AppendReplicaEntries(request, new TestServerCallContext(null, follower.HttpContext));
 
-        Assert.True(response.Success);
-        Assert.Equal(7UL, response.Term);
-        Assert.Equal(0UL, response.LastLogIndex);
-        Assert.Equal(string.Empty, response.RefusalCode);
+        _ = await Assert.That(response.Success).IsTrue();
+        _ = await Assert.That(response.Term).IsEqualTo(7UL);
+        _ = await Assert.That(response.LastLogIndex).IsEqualTo(0UL);
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
     }
 
     /// <summary>Verifies that GetReplicaStatus reports a ready follower.</summary>
-    [Fact]
-    public async Task GetStatusOnServedGroupReturnsReadyAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetStatusOnServedGroupReturnsReadyAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
 
         var response = await follower.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, follower.HttpContext));
 
-        Assert.Equal("ready", response.Readiness);
-        Assert.Equal(0UL, response.LastLogIndex);
-        Assert.Equal(0UL, response.CommitIndex);
-        Assert.Equal(string.Empty, response.RefusalCode);
+        _ = await Assert.That(response.Readiness).IsEqualTo("ready");
+        _ = await Assert.That(response.LastLogIndex).IsEqualTo(0UL);
+        _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
     }
 
     /// <summary>Verifies that InstallReplicaSnapshot refuses an unserved group.</summary>
-    [Fact]
-    public async Task InstallOnUnknownGroupIsRefusedAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         follower.Header.GroupId = "unknown-group";
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 }]);
 
         var response = await follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext));
 
-        Assert.False(response.Success);
-        Assert.Equal(FollowerLogRefusal.NotMember, response.RefusalCode);
+        _ = await Assert.That(response.Success).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(FollowerLogRefusal.NotMember);
+    }
+
+    /// <summary>Verifies that InstallReplicaSnapshot rejects a length-mismatched stream.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallRejectsLengthMismatchAsync(CancellationToken cancellationToken)
+    {
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 }]);
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that InstallReplicaSnapshot rejects a mismatched leader chunk.</summary>
-    [Fact]
-    public async Task InstallRejectsMismatchedLeaderChunkAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallRejectsMismatchedLeaderChunkAsync(CancellationToken cancellationToken)
     {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
+        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         var other = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeCodec.SchemaVersion,
@@ -102,19 +121,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot rejects a length-mismatched stream.</summary>
-    [Fact]
-    public async Task InstallRejectsLengthMismatchAsync()
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", DefaultCancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 }]);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
-
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Creates an adapter backed by an opened single-group registry.</summary>

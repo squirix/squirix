@@ -16,7 +16,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -36,8 +38,9 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
     }
 
     /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
-    [Fact]
-    public async Task MutationAppendsOutcomeThenCommitsDurably()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MutationAppendsOutcomeThenCommitsDurably(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -51,7 +54,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         using var manifestStore = new Ledger(options);
         await using var inner = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
 
@@ -80,9 +83,9 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
-        trace.AssertExpected();
+        await trace.AssertExpected();
         await JournalHasPutAndIdempotencyRecordsAsync(options.DataDir, manifestStore);
     }
 
@@ -108,8 +111,8 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
                 sawIdempotency = true;
         }
 
-        Assert.True(sawPut);
-        Assert.True(sawIdempotency);
+        _ = await Assert.That(sawPut).IsTrue();
+        _ = await Assert.That(sawIdempotency).IsTrue();
     }
 
     [Immutable]
@@ -214,12 +217,13 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         private OrderingStep _step1;
         private OrderingStep _step2;
 
-        internal void AssertExpected()
+        internal async Task AssertExpected()
         {
-            Assert.Equal(3, _count);
-            Assert.Equal(OrderingStep.Put, _step0);
-            Assert.Equal(OrderingStep.IdempotencyOutcome, _step1);
-            Assert.Equal(OrderingStep.AwaitDurabilityCommit, _step2);
+            const byte expectedCount = 3;
+            _ = await Assert.That(_count).IsEqualTo(expectedCount);
+            _ = await Assert.That(_step0).IsEqualTo(OrderingStep.Put);
+            _ = await Assert.That(_step1).IsEqualTo(OrderingStep.IdempotencyOutcome);
+            _ = await Assert.That(_step2).IsEqualTo(OrderingStep.AwaitDurabilityCommit);
         }
 
         internal void Record(OrderingStep step)

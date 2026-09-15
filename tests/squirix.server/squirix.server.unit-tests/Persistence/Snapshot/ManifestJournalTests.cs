@@ -10,7 +10,9 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -19,48 +21,55 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 public sealed class ManifestJournalTests : IsolatedStorageTestBase
 {
     /// <summary>
-    /// When the manifest lags behind a segment roll (roll published after the snapshot capture),
-    /// the published manifest carries the captured segment instead of the stale pointer.
-    /// </summary>
-    [Fact]
-    public async Task StaleManifestKeepsCapturedSegment()
-    {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        await using var journal = new SnapshotCutJournal(2, 2);
-
-        await SnapshotOnceAsync(store, journal, DefaultCancellationToken);
-
-        var published = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        Assert.Equal(2, published.CurrentJournal);
-        Assert.Equal(2, published.LastSnapshot?.ReplayFromJournalSegment);
-    }
-
-    /// <summary>
     /// When a roll is published during the snapshot build, the published manifest never moves
     /// the journal pointer backward to the captured segment.
     /// </summary>
-    [Fact]
-    public async Task AheadManifestNeverMovesBackward()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AheadManifestNeverMovesBackward(CancellationToken cancellationToken)
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
-        await store.WriteAsync(new State { Format = 1, CurrentJournal = 3, NextSequence = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { Format = 1, CurrentJournal = 3, NextSequence = 2 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
-        await SnapshotOnceAsync(store, journal, DefaultCancellationToken);
+        await SnapshotOnceAsync(store, journal, cancellationToken);
 
-        var published = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        Assert.Equal(3, published.CurrentJournal);
-        Assert.Equal(2, published.LastSnapshot?.ReplayFromJournalSegment);
+        var published = await store.ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(published.CurrentJournal).IsEqualTo(3);
+        _ = await Assert.That(published.LastSnapshot?.ReplayFromJournalSegment).IsEqualTo(2);
+    }
+
+    /// <summary>
+    /// When the manifest lags behind a segment roll (roll published after the snapshot capture),
+    /// the published manifest carries the captured segment instead of the stale pointer.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleManifestKeepsCapturedSegment(CancellationToken cancellationToken)
+    {
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir });
+        await store.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
+        await using var journal = new SnapshotCutJournal(2, 2);
+
+        await SnapshotOnceAsync(store, journal, cancellationToken);
+
+        var published = await store.ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(published.CurrentJournal).IsEqualTo(2);
+        _ = await Assert.That(published.LastSnapshot?.ReplayFromJournalSegment).IsEqualTo(2);
     }
 
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
-        _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).ReturnValue(default);
+        _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                               .ReturnValue(default);
         var writerExpectations = new ISnapshotWriterCreateExpectations();
-        _ = writerExpectations.Setups.WriteAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
+        _ = writerExpectations.Setups.WriteAsync(
+            Arg.Any<int>(),
+            Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
+            Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
+            Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
         var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         var throttleExpectations = new IBackgroundSnapshotMemoryThrottleCreateExpectations();

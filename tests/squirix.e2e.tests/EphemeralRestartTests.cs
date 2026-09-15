@@ -6,7 +6,9 @@ using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
@@ -15,18 +17,19 @@ namespace Squirix.E2ETests;
 public sealed class EphemeralRestartTests : EndToEndTestBase
 {
     /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>
-    [Fact]
-    public async Task EphemeralModeDropsValuesOnRestart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EphemeralModeDropsValuesOnRestart(CancellationToken cancellationToken)
     {
-        await using var node = await EphemeralRestartableSingleNode.StartAsync(DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<string>("ephemeral-restart", DefaultCancellationToken);
-        await cache.SetAsync("key", "value", cancellationToken: DefaultCancellationToken);
+        await using var node = await EphemeralRestartableSingleNode.StartAsync(cancellationToken);
+        var cache = await node.GetCacheAsync<string>("ephemeral-restart", cancellationToken);
+        await cache.SetAsync("key", "value", cancellationToken: cancellationToken);
 
-        await node.RestartAsync(DefaultCancellationToken);
+        await node.RestartAsync(cancellationToken);
 
-        cache = await node.GetCacheAsync<string>("ephemeral-restart", DefaultCancellationToken);
-        var result = await cache.GetValueAsync("key", DefaultCancellationToken);
-        Assert.False(result.Found);
+        cache = await node.GetCacheAsync<string>("ephemeral-restart", cancellationToken);
+        var result = await cache.GetValueAsync("key", cancellationToken);
+        _ = await Assert.That(result.Found).IsFalse();
     }
 
     private sealed class EphemeralRestartableSingleNode : IAsyncDisposable

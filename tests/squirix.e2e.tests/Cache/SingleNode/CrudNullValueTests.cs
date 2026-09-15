@@ -1,7 +1,10 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
@@ -10,108 +13,116 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 public sealed class CrudNullValueTests : ClockTestBase
 {
     /// <summary>Verifies GetEntryAsync returns entry or null when missing or expired.</summary>
-    [Fact]
-    public async Task GetEntryAsyncReturnsEntryOrNull()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetEntryAsyncReturnsEntryOrNull(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("get-entry-async", DefaultCancellationToken);
-        Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
+        var cache = await Client.GetCacheAsync<string>("get-entry-async", cancellationToken);
+        _ = await Assert.That((await cache.GetEntryAsync("missing", cancellationToken)).Found).IsFalse();
 
         // Generous expiration so expiry does not overtake the immediate read on a loaded CI runner.
         var expiration = TimeSpan.FromSeconds(2);
-        await cache.SetAsync("k1", "v1", Expiry.In(expiration), DefaultCancellationToken);
-        var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
-        Assert.True(e.Found);
-        Assert.Equal("v1", e.Value);
+        await cache.SetAsync("k1", "v1", Expiry.In(expiration), cancellationToken);
+        var e = await cache.GetEntryAsync("k1", cancellationToken);
+        _ = await Assert.That(e.Found).IsTrue();
+        _ = await Assert.That(e.Value).IsEqualTo("v1");
         Clock.Advance(expiration + TimeSpan.FromSeconds(2));
-        Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
+        _ = await Assert.That((await cache.GetEntryAsync("k1", cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies GetEntry returns entry with metadata or null when missing or expired.</summary>
-    [Fact]
-    public async Task GetEntryReturnsEntryOrNull()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetEntryReturnsEntryOrNull(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("get-entry", DefaultCancellationToken);
-        Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
+        var cache = await Client.GetCacheAsync<string>("get-entry", cancellationToken);
+        _ = await Assert.That((await cache.GetEntryAsync("missing", cancellationToken)).Found).IsFalse();
 
         // Generous expiration so the immediate read is not overtaken by expiry on a loaded CI runner.
         var expiration = TimeSpan.FromSeconds(2);
-        await cache.SetAsync("k1", "v1", Expiry.In(expiration), DefaultCancellationToken);
-        var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
-        Assert.True(e.Found);
-        Assert.Equal("v1", e.Value);
+        await cache.SetAsync("k1", "v1", Expiry.In(expiration), cancellationToken);
+        var e = await cache.GetEntryAsync("k1", cancellationToken);
+        _ = await Assert.That(e.Found).IsTrue();
+        _ = await Assert.That(e.Value).IsEqualTo("v1");
         Clock.Advance(expiration + TimeSpan.FromSeconds(2));
-        Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
-    }
-
-    /// <summary>Verifies RemoveAsync returns the removed entry metadata before deleting the key.</summary>
-    [Fact]
-    public async Task RemoveAsyncReturnsRemovedEntryMetadata()
-    {
-        var cache = await Client.GetCacheAsync<string>("try-remove-entry-metadata-public-extra", DefaultCancellationToken);
-        await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
-        var before = await cache.GetEntryAsync("k", DefaultCancellationToken);
-        Assert.True(before.Found);
-        Assert.Equal("v", before.Value);
-        var removed = await cache.RemoveAsync("k", DefaultCancellationToken);
-        Assert.True(removed);
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
-    }
-
-    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
-    [Fact]
-    public async Task RemoveAsyncStoredNullReportsRemoved()
-    {
-        var cache = await Client.GetCacheAsync<object?>("try-remove-null-stored-public-extra", DefaultCancellationToken);
-        await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
-        var removed = await cache.RemoveAsync("k", DefaultCancellationToken);
-        Assert.True(removed);
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
-    }
-
-    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
-    [Fact]
-    public async Task RemoveReturnsRemovedForStoredNullEntry()
-    {
-        var cache = await Client.GetCacheAsync<object?>("try-remove-null-entry-public-extra", DefaultCancellationToken);
-        await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
-        var result = await cache.RemoveAsync("k", DefaultCancellationToken);
-        Assert.True(result);
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
-    }
-
-    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
-    [Fact]
-    public async Task RemoveReturnsRemovedForStoredNullValue()
-    {
-        var cache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", DefaultCancellationToken);
-        await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
-        var removed = await cache.RemoveAsync("k", DefaultCancellationToken);
-        Assert.True(removed);
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
+        _ = await Assert.That((await cache.GetEntryAsync("k1", cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies TryGetValue returns proper flags and value.</summary>
-    [Fact]
-    public async Task GetReturnsFlags()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetReturnsFlags(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("try-get", DefaultCancellationToken);
-        var miss = await cache.GetValueAsync("missing", DefaultCancellationToken);
-        Assert.False(miss.Found);
-        await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-        var found = await cache.GetValueAsync("k1", DefaultCancellationToken);
-        Assert.True(found.Found);
+        var cache = await Client.GetCacheAsync<string>("try-get", cancellationToken);
+        var miss = await cache.GetValueAsync("missing", cancellationToken);
+        _ = await Assert.That(miss.Found).IsFalse();
+        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
+        var found = await cache.GetValueAsync("k1", cancellationToken);
+        _ = await Assert.That(found.Found).IsTrue();
+    }
+
+    /// <summary>Verifies RemoveAsync returns the removed entry metadata before deleting the key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveAsyncReturnsRemovedEntryMetadata(CancellationToken cancellationToken)
+    {
+        var cache = await Client.GetCacheAsync<string>("try-remove-entry-metadata-public-extra", cancellationToken);
+        await cache.SetAsync("k", "v", cancellationToken: cancellationToken);
+        var before = await cache.GetEntryAsync("k", cancellationToken);
+        _ = await Assert.That(before.Found).IsTrue();
+        _ = await Assert.That(before.Value).IsEqualTo("v");
+        var removed = await cache.RemoveAsync("k", cancellationToken);
+        _ = await Assert.That(removed).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+    }
+
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveAsyncStoredNullReportsRemoved(CancellationToken cancellationToken)
+    {
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-stored-public-extra", cancellationToken);
+        await cache.SetAsync("k", null, cancellationToken: cancellationToken);
+        var removed = await cache.RemoveAsync("k", cancellationToken);
+        _ = await Assert.That(removed).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies TryRemove returns whether a live entry was removed.</summary>
-    [Fact]
-    public async Task RemoveReturnsFlag()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveReturnsFlag(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("try-remove", DefaultCancellationToken);
-        var miss = await cache.RemoveAsync("missing", DefaultCancellationToken);
-        Assert.False(miss);
-        await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-        var removed = await cache.RemoveAsync("k1", DefaultCancellationToken);
-        Assert.True(removed);
-        Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
+        var cache = await Client.GetCacheAsync<string>("try-remove", cancellationToken);
+        var miss = await cache.RemoveAsync("missing", cancellationToken);
+        _ = await Assert.That(miss).IsFalse();
+        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
+        var removed = await cache.RemoveAsync("k1", cancellationToken);
+        _ = await Assert.That(removed).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse();
+    }
+
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveReturnsRemovedForStoredNullEntry(CancellationToken cancellationToken)
+    {
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-entry-public-extra", cancellationToken);
+        await cache.SetAsync("k", null, cancellationToken: cancellationToken);
+        var result = await cache.RemoveAsync("k", cancellationToken);
+        _ = await Assert.That(result).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+    }
+
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveReturnsRemovedForStoredNullValue(CancellationToken cancellationToken)
+    {
+        var cache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", cancellationToken);
+        await cache.SetAsync("k", null, cancellationToken: cancellationToken);
+        var removed = await cache.RemoveAsync("k", cancellationToken);
+        _ = await Assert.That(removed).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 }

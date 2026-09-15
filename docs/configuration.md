@@ -411,7 +411,7 @@ var token = authority.CreateBearerToken("squirix-test");
 ```
 
 `MockOidcAuthority` lives in `Squirix.Server.TestKit.Security` and serves discovery metadata plus JWKS on loopback
-without external network access. E2E tests run with xUnit parallelization enabled; auth scenarios must use explicit
+without external network access. E2E tests run with TUnit parallelization enabled; auth scenarios must use explicit
 `TestNodeSecurityOptions` overrides rather than process environment variables.
 
 ## Environment variables

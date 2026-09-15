@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -15,8 +18,8 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
 {
     /// <summary>ReplicaCount may reach MaxReplicaCount when peers allow it.</summary>
-    [Fact]
-    public void AcceptsReplicaCountAtProtocolMaximum()
+    [Test]
+    public async Task AcceptsReplicaCountAtProtocolMaximum()
     {
         var peers = CreatePeers(TopologyConstraints.MaxReplicaCount);
         var topology = new TopologyOptions(peers)
@@ -27,12 +30,12 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
             ReplicaCount = TopologyConstraints.MaxReplicaCount,
         };
 
-        Assert.True(TopologyValidator.TryValidate(topology, out _));
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out _)).IsTrue();
     }
 
     /// <summary>ReplicaCount may equal the distinct peer count.</summary>
-    [Fact]
-    public void AcceptsReplicaCountEqualPeerCount()
+    [Test]
+    public async Task AcceptsReplicaCountEqualPeerCount()
     {
         var peers = CreatePeers(3);
         var topology = new TopologyOptions(peers)
@@ -43,38 +46,38 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
             ReplicaCount = peers.Length,
         };
 
-        Assert.True(TopologyValidator.TryValidate(topology, out _));
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out _)).IsTrue();
     }
 
     /// <summary>Configurator copies replica placement fields.</summary>
-    [Fact]
-    public void ConfiguratorCopiesCountAndGeneration()
+    [Test]
+    public async Task ConfiguratorCopiesCountAndGeneration()
     {
         var source = CreateServerOptions(3);
         source.ConfigurationGeneration = 9;
         var target = new SquirixServerOptions();
         Configurator.CopyOptions(source, target);
-        Assert.Equal(3, target.ReplicaCount);
-        Assert.Equal(9u, target.ConfigurationGeneration);
+        _ = await Assert.That(target.ReplicaCount).IsEqualTo(3);
+        _ = await Assert.That(target.ConfigurationGeneration).IsEqualTo(9u);
     }
 
     /// <summary>Default ReplicaCount is one.</summary>
-    [Fact]
-    public void DefaultReplicaCountIsOne()
+    [Test]
+    public async Task DefaultReplicaCountIsOne()
     {
-        Assert.Equal(1, new SquirixServerOptions().ReplicaCount);
+        _ = await Assert.That(new SquirixServerOptions().ReplicaCount).IsEqualTo(1);
         var topology = new TopologyOptions(CreatePeers(1))
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = PeerUri(1),
         };
-        Assert.Equal(1, topology.ReplicaCount);
+        _ = await Assert.That(topology.ReplicaCount).IsEqualTo(1);
     }
 
     /// <summary>ReplicaCount cannot exceed distinct peers.</summary>
-    [Fact]
-    public void RejectsReplicaCountAbovePeerCount()
+    [Test]
+    public async Task RejectsReplicaCountAbovePeerCount()
     {
         var peers = CreatePeers(2);
         var topology = new TopologyOptions(peers)
@@ -85,13 +88,13 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
             ReplicaCount = 3,
         };
 
-        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
-        Assert.Contains("ReplicaCount cannot exceed the number of configured peers.", errors, StringComparer.Ordinal);
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out var errors)).IsFalse();
+        _ = await Assert.That(errors).Contains("ReplicaCount cannot exceed the number of configured peers.", StringComparer.Ordinal);
     }
 
     /// <summary>ReplicaCount cannot exceed MaxReplicaCount.</summary>
-    [Fact]
-    public void RejectsReplicaCountAboveProtocolMaximum()
+    [Test]
+    public async Task RejectsReplicaCountAboveProtocolMaximum()
     {
         var peers = CreatePeers(TopologyConstraints.MaxReplicaCount + 1);
         var topology = new TopologyOptions(peers)
@@ -102,13 +105,13 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
             ReplicaCount = TopologyConstraints.MaxReplicaCount + 1,
         };
 
-        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
-        Assert.Contains($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).", errors, StringComparer.Ordinal);
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out var errors)).IsFalse();
+        _ = await Assert.That(errors).Contains($"ReplicaCount cannot exceed MaxReplicaCount ({TopologyConstraints.MaxReplicaCount}).", StringComparer.Ordinal);
     }
 
     /// <summary>ReplicaCount must be positive.</summary>
-    [Fact]
-    public void RejectsReplicaCountZero()
+    [Test]
+    public async Task RejectsReplicaCountZero()
     {
         var peers = CreatePeers(2);
         var topology = new TopologyOptions(peers)
@@ -119,49 +122,50 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
             ReplicaCount = 0,
         };
 
-        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
-        Assert.Contains("ReplicaCount must be greater than zero.", errors, StringComparer.Ordinal);
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out var errors)).IsFalse();
+        _ = await Assert.That(errors).Contains("ReplicaCount must be greater than zero.", StringComparer.Ordinal);
     }
 
     /// <summary>RF&gt;1 activates when persistence and mTLS prerequisites are present.</summary>
-    [Fact]
-    public void RfTwoActivatesWithPrerequisites()
+    [Test]
+    public async Task RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
         ReplicationActivationGuard.CollectFailures(failures, 2, true, true, true);
-        Assert.Empty(failures);
+        _ = await Assert.That(failures).IsEmpty();
     }
 
     /// <summary>RF&gt;1 requires mTLS material when evaluated at hosting time.</summary>
-    [Fact]
-    public void RfTwoRequiresMtls()
+    [Test]
+    public async Task RfTwoRequiresMtls()
     {
         var failures = new List<string>();
         ReplicationActivationGuard.CollectFailures(failures, 2, true, false, true);
-        Assert.Contains(ReplicationActivationGuard.MtlsRequired, failures, StringComparer.Ordinal);
+        _ = await Assert.That(failures).Contains(ReplicationActivationGuard.MtlsRequired, StringComparer.Ordinal);
     }
 
     /// <summary>RF&gt;1 requires persistence before activation refusal.</summary>
-    [Fact]
-    public void RfTwoRequiresPersistence()
+    [Test]
+    public async Task RfTwoRequiresPersistence()
     {
         var options = CreateServerOptions(2);
-        Assert.False(options.TryValidate(out var errors));
-        Assert.Contains(ReplicationActivationGuard.PersistenceRequired, errors, StringComparer.Ordinal);
+        _ = await Assert.That(options.TryValidate(out var errors)).IsFalse();
+        _ = await Assert.That(errors).Contains(ReplicationActivationGuard.PersistenceRequired, StringComparer.Ordinal);
     }
 
     /// <summary>JSON settings load ReplicaCount and ConfigurationGeneration.</summary>
-    [Fact]
-    public async Task SettingsJsonLoadsCountAndGeneration()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsJsonLoadsCountAndGeneration(CancellationToken cancellationToken)
     {
         var path = Path.Join(Dir.Path, "Squirix.settings.json");
         const string json =
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":1,\"ConfigurationGeneration\":4,\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"}]}}}";
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
+        await File.WriteAllTextAsync(path, json, cancellationToken);
 
-        var options = await Configurator.LoadAsync(path, DefaultCancellationToken);
-        Assert.Equal(1, options.ReplicaCount);
-        Assert.Equal(4u, options.ConfigurationGeneration);
+        var options = await Configurator.LoadAsync(path, cancellationToken);
+        _ = await Assert.That(options.ReplicaCount).IsEqualTo(1);
+        _ = await Assert.That(options.ConfigurationGeneration).IsEqualTo(4u);
     }
 
     private static ServerPeer[] CreatePeers(int count)

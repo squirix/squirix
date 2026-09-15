@@ -1,8 +1,11 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -11,36 +14,22 @@ namespace Squirix.Server.UnitTests.Memory;
 public sealed class BackpressureOptionsTests
 {
     /// <summary>Ensures the default configuration passes validation and exposes conservative defaults.</summary>
-    [Fact]
-    public void DefaultsAreValid()
+    [Test]
+    public async Task DefaultsAreValid()
     {
         var options = new AdmissionOptions();
 
         options.Validate();
-        Assert.True(options.Enabled);
-        Assert.Equal(256, options.MaxInFlight);
-        Assert.Equal(128, options.MaxQueue);
-        Assert.Null(options.PerClientMaxInFlight);
-        Assert.Null(options.NodeRateLimitPerSecond);
-    }
-
-    /// <summary>Ensures rate limiting requires both refill rate and burst capacity.</summary>
-    [Fact]
-    public void ValidateThrowsForIncompleteRateLimit()
-    {
-        var options = new AdmissionOptions
-        {
-            NodeRateLimitPerSecond = 100,
-        };
-
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
-
-        Assert.Contains("NodeRateLimitBurst", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(options.Enabled).IsTrue();
+        _ = await Assert.That(options.MaxInFlight).IsEqualTo(256);
+        _ = await Assert.That(options.MaxQueue).IsEqualTo(128);
+        _ = await Assert.That(options.PerClientMaxInFlight).IsNull();
+        _ = await Assert.That(options.NodeRateLimitPerSecond).IsNull();
     }
 
     /// <summary>Ensures per-client concurrency cannot be configured above the global node cap.</summary>
-    [Fact]
-    public void ThrowsForInvalidPerClientConcurrency()
+    [Test]
+    public async Task ThrowsForInvalidPerClientConcurrency()
     {
         var options = new AdmissionOptions
         {
@@ -50,12 +39,12 @@ public sealed class BackpressureOptionsTests
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
-        Assert.Contains("PerClientMaxInFlight", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("PerClientMaxInFlight", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures invalid threshold ordering is rejected during validation.</summary>
-    [Fact]
-    public void ThrowsForInvalidThresholdOrdering()
+    [Test]
+    public async Task ThrowsForInvalidThresholdOrdering()
     {
         var options = new AdmissionOptions
         {
@@ -66,6 +55,20 @@ public sealed class BackpressureOptionsTests
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
-        Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rate limiting requires both refill rate and burst capacity.</summary>
+    [Test]
+    public async Task ValidateThrowsForIncompleteRateLimit()
+    {
+        var options = new AdmissionOptions
+        {
+            NodeRateLimitPerSecond = 100,
+        };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        _ = await Assert.That(ex.Message).Contains("NodeRateLimitBurst", StringComparison.Ordinal);
     }
 }

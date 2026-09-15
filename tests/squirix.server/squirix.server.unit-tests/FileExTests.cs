@@ -1,9 +1,14 @@
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -12,50 +17,56 @@ namespace Squirix.Server.UnitTests;
 public sealed class FileExTests : ServerUnitTestBase
 {
     /// <summary>FlushDirectoryEntry succeeds on an existing file and flushes the parent directory.</summary>
-    [Fact]
-    public void FlushDirectoryEntrySucceedsForFile()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FlushDirectoryEntrySucceedsForFile(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-flush");
         var filePath = Path.Join(dir.Path, "test.bin");
-        File.WriteAllBytes(filePath, [1, 2, 3]);
+        await File.WriteAllBytesAsync(filePath, [1, 2, 3], cancellationToken);
 
         FileEx.FlushDirectoryEntry(filePath);
 
-        Assert.True(File.Exists(filePath));
+        _ = await Assert.That(File.Exists(filePath)).IsTrue();
     }
 
     /// <summary>PublishFile moves a temp file to its final location and flushes the directory.</summary>
-    [Fact]
-    public void PublishFileMovesAndFlushes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileMovesAndFlushes(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-publish");
         var tempPath = Path.Join(dir.Path, "temp.bin");
         var finalPath = Path.Join(dir.Path, "final.bin");
-        File.WriteAllBytes(tempPath, [7, 8, 9]);
+        await File.WriteAllBytesAsync(tempPath, [7, 8, 9], cancellationToken);
 
-        Assert.True(FileEx.PublishFile(tempPath, finalPath));
-        Assert.False(File.Exists(tempPath));
-        Assert.True(File.Exists(finalPath));
-        Assert.Equal([7, 8, 9], File.ReadAllBytes(finalPath));
+        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath)).IsTrue();
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
+        _ = await Assert.That(File.Exists(finalPath)).IsTrue();
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.Equal<byte>([7, 8, 9], finalBytes);
     }
 
     /// <summary>PublishFile with backup replaces existing final and produces backup copy.</summary>
-    [Fact]
-    public void PublishFileReplaceWithBackup()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileReplaceWithBackup(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-replace");
         var tempPath = Path.Join(dir.Path, "temp.bin");
         var finalPath = Path.Join(dir.Path, "final.bin");
         var backupPath = Path.Join(dir.Path, "backup.bin");
-        File.WriteAllBytes(finalPath, [10, 20]);
-        File.WriteAllBytes(tempPath, [30, 40]);
+        await File.WriteAllBytesAsync(finalPath, [10, 20], cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, [30, 40], cancellationToken);
 
-        Assert.True(FileEx.PublishFile(tempPath, finalPath, backupPath));
+        _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, backupPath)).IsTrue();
 
-        Assert.False(File.Exists(tempPath));
-        Assert.True(File.Exists(finalPath));
-        Assert.True(File.Exists(backupPath));
-        Assert.Equal([30, 40], File.ReadAllBytes(finalPath));
-        Assert.Equal([10, 20], File.ReadAllBytes(backupPath));
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
+        _ = await Assert.That(File.Exists(finalPath)).IsTrue();
+        _ = await Assert.That(File.Exists(backupPath)).IsTrue();
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.Equal<byte>([30, 40], finalBytes);
+        var backupBytes = await File.ReadAllBytesAsync(backupPath, cancellationToken);
+        await SequenceAssert.Equal<byte>([10, 20], backupBytes);
     }
 }

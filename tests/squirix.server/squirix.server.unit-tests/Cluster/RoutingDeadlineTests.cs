@@ -10,7 +10,9 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -21,38 +23,39 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     private readonly Meter _testMeter = new("test-routing-deadline");
 
     /// <summary>The reroute budget and the transport retry loop observe the same absolute deadline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
     /// #236 mandates the name "RerouteAndTransportRetriesShareAbsoluteDeadline"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
-    [Fact]
-    public async Task RerouteAndRetriesShareDeadline()
+    [Test]
+    public async Task RerouteAndRetriesShareDeadline(CancellationToken cancellationToken)
     {
         var deadlineUtc = DateTime.UtcNow.AddSeconds(30);
         var budget = new RerouteBudget(new DateTimeOffset(deadlineUtc, TimeSpan.Zero), TimeProvider.System);
         using var scope = ServerRpcDeadlineContext.Push(deadlineUtc);
 
         var transportRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-        _ = Assert.NotNull(transportRemaining);
+        _ = await Assert.That(transportRemaining).IsNotNull();
         var rerouteRemaining = budget.GetRemaining();
-        Assert.True(rerouteRemaining > TimeSpan.Zero);
-        Assert.True(rerouteRemaining <= TimeSpan.FromSeconds(30));
-        Assert.False(budget.HasExpired());
+        _ = await Assert.That(rerouteRemaining > TimeSpan.Zero).IsTrue();
+        _ = await Assert.That(rerouteRemaining <= TimeSpan.FromSeconds(30)).IsTrue();
+        _ = await Assert.That(budget.HasExpired()).IsFalse();
 
         // The shared deadline advances under a fake clock without touching the ambient budget above.
         var time = new FakeTimeProvider(new DateTimeOffset(deadlineUtc, TimeSpan.Zero) - TimeSpan.FromSeconds(30));
         var paced = new RerouteBudget(time.GetUtcNow() + TimeSpan.FromSeconds(10), time);
-        Assert.False(paced.HasExpired());
+        _ = await Assert.That(paced.HasExpired()).IsFalse();
         time.Advance(TimeSpan.FromSeconds(11));
-        Assert.True(paced.HasExpired());
+        _ = await Assert.That(paced.HasExpired()).IsTrue();
 
         // An expired shared deadline rejects transport attempts before the first try.
         await using var policy = CreatePolicy(peer: "reroute-deadline", timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();
         using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1));
         var expiredBudget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
-        Assert.True(expiredBudget.HasExpired());
+        _ = await Assert.That(expiredBudget.HasExpired()).IsTrue();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(
@@ -62,14 +65,15 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                DefaultCancellationToken));
-        Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
-        Assert.Equal(0, attempts.Count);
+                cancellationToken));
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
 
     /// <summary>The server call policy drives retry backoff from the injected time provider.</summary>
-    [Fact]
-    public async Task ServerCallPolicyUsesInjectedTimeProvider()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ServerCallPolicyUsesInjectedTimeProvider(CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProvider();
         await using var policy = CreatePolicy(
@@ -85,16 +89,16 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                 var attempt = counter.Increment();
                 return attempt == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         while (attempts.Count < 1)
             await Task.Yield();
 
         // The retry backoff is parked on the fake clock: nothing runs until time advances.
-        Assert.False(executeTask.IsCompleted);
+        _ = await Assert.That(executeTask.IsCompleted).IsFalse();
         timeProvider.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(9, await executeTask);
-        Assert.Equal(2, attempts.Count);
+        _ = await Assert.That(await executeTask).IsEqualTo(9);
+        _ = await Assert.That(attempts.Count).IsEqualTo(2);
     }
 
     /// <inheritdoc />

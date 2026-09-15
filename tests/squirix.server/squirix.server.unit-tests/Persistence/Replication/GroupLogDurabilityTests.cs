@@ -1,11 +1,15 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -13,14 +17,15 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 public sealed class GroupLogDurabilityTests : ServerUnitTestBase
 {
     /// <summary>Replacement deletes the temp file and detaches the previous durable handle when publication fails mid-way.</summary>
-    [Fact]
-    public void ReplaceCleansUpTempWhenPublicationFails()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplaceCleansUpTempWhenPublicationFails(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-publish-fail");
         var finalPath = Path.Join(dir.Path, "existing-directory");
         Directory.CreateDirectory(finalPath);
         var tempPath = Path.Join(dir.Path, "group.log.tmp");
-        File.WriteAllBytes(tempPath, [1, 2, 3]);
+        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
         var oldPath = Path.Join(dir.Path, "old-group.log");
 
         using var durability = new GroupLogDurability();
@@ -32,17 +37,18 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(durability.Flush);
 
-        Assert.False(File.Exists(tempPath));
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
     }
 
     /// <summary>Replacement publication leaves the durable handle attached to the new log.</summary>
-    [Fact]
-    public void ReplacePublishesAndReopensTheReplacement()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplacePublishesAndReopensTheReplacement(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-replace");
         var finalPath = Path.Join(dir.Path, "group.log");
         var tempPath = Path.Join(dir.Path, "group.log.tmp");
-        File.WriteAllBytes(tempPath, [1, 2, 3]);
+        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
 
         using var durability = new GroupLogDurability();
         durability.Replace(tempPath, finalPath, 3L);
@@ -50,25 +56,26 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         // The durable handle must now point at the replacement, so a flush succeeds.
         durability.Flush();
 
-        Assert.False(File.Exists(tempPath));
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         using var published = File.OpenHandle(finalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var content = new byte[RandomAccess.GetLength(published)];
         var offset = 0L;
-        Assert.True(HandleEx.TryReadExact(published, content, ref offset));
-        Assert.Equal([1, 2, 3], content);
+        _ = await Assert.That(HandleEx.TryReadExact(published, content, ref offset)).IsTrue();
+        await SequenceAssert.Equal<byte>([1, 2, 3], content);
     }
 
     /// <summary>Replacement refuses a path without a containing directory and cleans up the temp file.</summary>
-    [Fact]
-    public void ReplaceRefusesPathWithoutDirectory()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplaceRefusesPathWithoutDirectory(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-no-dir");
         var tempPath = Path.Join(dir.Path, "group.log.tmp");
-        File.WriteAllBytes(tempPath, [1, 2, 3]);
+        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
 
         using var durability = new GroupLogDurability();
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws((durability, tempPath), static state => state.durability.Replace(state.tempPath, "standalone.log", 3L));
 
-        Assert.False(File.Exists(tempPath));
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
     }
 }

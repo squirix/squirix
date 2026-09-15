@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -11,7 +12,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -20,34 +23,36 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
-    [Fact]
-    public async Task AppendPutAsyncCreatesJournalPutSpan()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendPutAsyncCreatesJournalPutSpan(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
         using var manifestStore = new Ledger(options);
         await using var core = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
-        Assert.Equal("trace-key", context.Key);
-        Assert.Equal(payload.Length, context.PayloadBytes);
+        var (_, context) = await Assert.That(tracer.BeginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
+        _ = await Assert.That(context.Key).IsEqualTo("trace-key");
+        _ = await Assert.That(context.PayloadBytes).IsEqualTo(payload.Length);
     }
 
     /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>
     /// <param name="groupCommitMaxWaitMilliseconds">Group-commit wait window; zero disables group commit.</param>
-    [Theory]
-    [InlineData(5)]
-    [InlineData(0)]
-    public async Task PutAsyncContextReflectsDurability(int groupCommitMaxWaitMilliseconds)
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(5)]
+    [Arguments(0)]
+    public async Task PutAsyncContextReflectsDurability(int groupCommitMaxWaitMilliseconds, CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -59,19 +64,19 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         using var manifestStore = new Ledger(options);
         await using var core = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
         if (groupCommitMaxWaitMilliseconds > 0)
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
-        Assert.Equal(groupCommitMaxWaitMilliseconds > 0, context.GroupCommitEnabled);
+        var (_, context) = await Assert.That(tracer.BeginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
+        _ = await Assert.That(context.GroupCommitEnabled).IsEqualTo(groupCommitMaxWaitMilliseconds > 0);
     }
 
     /// <summary>Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.</summary>

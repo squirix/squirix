@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Adapters.Rest;
@@ -6,7 +7,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -15,27 +18,13 @@ namespace Squirix.Server.UnitTests;
 public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies logical cache metrics/tracing classify journal quota as resource exhausted.</summary>
-    [Fact]
-    public void ClassifierMapsJournalCapacityToExhausted() => Assert.Equal(
-        CacheOperationResults.ResourceExhausted,
-        CacheOperationClassifier.ClassifyException(new JournalCapacityExceededException()));
-
-    /// <summary>Verifies message and message+inner constructor overloads keep the provided detail text.</summary>
-    [Fact]
-    public void JournalCapacityCtorsPreserveMessage()
-    {
-        var withMessage = new JournalCapacityExceededException("quota message");
-        Assert.Equal("quota message", withMessage.Message);
-
-        var inner = new InvalidOperationException("inner");
-        var withInner = new JournalCapacityExceededException("outer", inner);
-        Assert.Equal("outer", withInner.Message);
-        Assert.Same(inner, withInner.InnerException);
-    }
+    [Test]
+    public async Task ClassifierMapsJournalCapacityToExhausted() => _ = await Assert.That(CacheOperationClassifier.ClassifyException(new JournalCapacityExceededException()))
+                                                                                    .IsEqualTo(CacheOperationResults.ResourceExhausted);
 
     /// <summary>Verifies stable codes across REST and gRPC projections for journal disk quota.</summary>
-    [Fact]
-    public void DiskQuotaMapsToHttp429AndGrpcExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
+    [Test]
+    public Task DiskQuotaMapsToHttp429AndGrpcExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
         ServerOpContract.JournalDiskQuota(),
         SquirixErrorCode.JournalDiskQuota,
         "JOURNAL_DISK_QUOTA",
@@ -43,13 +32,14 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
         static () => new JournalCapacityExceededException().ToRpcException());
 
     /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>
-    [Fact]
-    public async Task DiskQuotaRestPayloadUsesStableFields()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DiskQuotaRestPayloadUsesStableFields(CancellationToken cancellationToken)
     {
-        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(new JournalCapacityExceededException().ToHttpResult(), DefaultCancellationToken);
+        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(new JournalCapacityExceededException().ToHttpResult(), cancellationToken);
         using (payload)
         {
-            ErrorContractTestKit.AssertErrorJsonPayload(
+            await ErrorContractTestKit.AssertErrorJsonPayload(
                 payload,
                 status,
                 StatusCodes.Status429TooManyRequests,
@@ -57,5 +47,18 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
                 "JOURNAL_DISK_QUOTA",
                 JournalCapacityExceededException.StableDetail);
         }
+    }
+
+    /// <summary>Verifies message and message+inner constructor overloads keep the provided detail text.</summary>
+    [Test]
+    public async Task JournalCapacityCtorsPreserveMessage()
+    {
+        var withMessage = new JournalCapacityExceededException("quota message");
+        _ = await Assert.That(withMessage.Message).IsEqualTo("quota message");
+
+        var inner = new InvalidOperationException("inner");
+        var withInner = new JournalCapacityExceededException("outer", inner);
+        _ = await Assert.That(withInner.Message).IsEqualTo("outer");
+        _ = await Assert.That(withInner.InnerException).IsSameReferenceAs(inner);
     }
 }

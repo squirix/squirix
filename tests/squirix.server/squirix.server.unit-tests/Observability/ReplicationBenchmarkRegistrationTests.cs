@@ -1,61 +1,65 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.UnitTests.Architecture;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Verifies required replication benchmarks are registered with per-phase evidence schemas.</summary>
 public sealed class ReplicationBenchmarkRegistrationTests : ServerUnitTestBase
 {
-    /// <summary>All eight required benchmarks are registered and discoverable from source.</summary>
-    [Fact]
-    public void RequiredBenchmarksAreDiscoverable()
-    {
-        var required = ReplicationBenchmarkCatalog.RequiredBenchmarks;
-        Assert.Equal(8, required.Count);
-        Assert.All(required, static name => Assert.True(ReplicationBenchmarkCatalog.IsMappedToPhase(name)));
-
-        var root = RepositoryPaths.FindRepositoryRoot();
-        for (var i = 0; i < required.Count; i++)
-            Assert.True(File.Exists(BenchmarkSourcePath(root, required[i])), $"Benchmark source is missing for '{required[i]}'.");
-    }
-
-    /// <summary>RF-parameterized benchmarks cover replica factors one, two, three, and five.</summary>
-    [Fact]
-    public async Task RfBenchmarksCoverOneTwoThreeAndFive()
-    {
-        int[] expected = [1, 2, 3, 5];
-        for (var i = 0; i < expected.Length; i++)
-            Assert.True(ReplicationBenchmarkCatalog.CoversReplicaFactor(expected[i]));
-
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var placementPath = Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaPlacementBenchmarks.cs");
-        var text = await File.ReadAllTextAsync(placementPath, DefaultCancellationToken);
-        Assert.Contains("GetReplicaGroupRfOne", text, StringComparison.Ordinal);
-        Assert.Contains("GetReplicaGroupRfTwo", text, StringComparison.Ordinal);
-        Assert.Contains("GetReplicaGroupRfThree", text, StringComparison.Ordinal);
-        Assert.Contains("GetReplicaGroupRfFive", text, StringComparison.Ordinal);
-    }
-
     /// <summary>Every benchmark phase has a stored machine-fingerprint evidence schema.</summary>
-    [Fact]
-    public void EveryPhaseHasStoredEvidenceSchema()
+    [Test]
+    public async Task EveryPhaseHasStoredEvidenceSchema()
     {
-        Assert.True(ReplicationBenchmarkCatalog.EveryPhaseHasStoredEvidenceSchema());
+        _ = await Assert.That(ReplicationBenchmarkCatalog.EveryPhaseHasStoredEvidenceSchema()).IsTrue();
 
         var phases = ReplicationBenchmarkCatalog.Phases;
-        Assert.Equal(8, phases.Count);
+        _ = await Assert.That(phases.Count).IsEqualTo(8);
         for (var i = 0; i < phases.Count; i++)
         {
             var schema = ReplicationBenchmarkCatalog.GetEvidenceSchemaForPhase(phases[i]);
-            Assert.Equal(PerformanceEvidenceGate.EvidenceSchema, schema);
+            _ = await Assert.That(schema).IsEqualTo(PerformanceEvidenceGate.EvidenceSchema);
             var benchmark = ReplicationBenchmarkCatalog.GetBenchmarkForPhase(phases[i]);
-            Assert.True(ReplicationBenchmarkCatalog.IsMappedToPhase(benchmark));
+            _ = await Assert.That(ReplicationBenchmarkCatalog.IsMappedToPhase(benchmark)).IsTrue();
         }
+    }
+
+    /// <summary>All eight required benchmarks are registered and discoverable from source.</summary>
+    [Test]
+    public async Task RequiredBenchmarksAreDiscoverable()
+    {
+        var required = ReplicationBenchmarkCatalog.RequiredBenchmarks;
+        _ = await Assert.That(required.Count).IsEqualTo(8);
+        _ = await Assert.That(required).All(static name => ReplicationBenchmarkCatalog.IsMappedToPhase(name));
+
+        var root = RepositoryPaths.FindRepositoryRoot();
+        for (var i = 0; i < required.Count; i++)
+            _ = await Assert.That(File.Exists(BenchmarkSourcePath(root, required[i]))).IsTrue().Because($"Benchmark source is missing for '{required[i]}'.");
+    }
+
+    /// <summary>RF-parameterized benchmarks cover replica factors one, two, three, and five.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfBenchmarksCoverOneTwoThreeAndFive(CancellationToken cancellationToken)
+    {
+        int[] expected = [1, 2, 3, 5];
+        for (var i = 0; i < expected.Length; i++)
+            _ = await Assert.That(ReplicationBenchmarkCatalog.CoversReplicaFactor(expected[i])).IsTrue();
+
+        var root = RepositoryPaths.FindRepositoryRoot();
+        var placementPath = Path.Join(root, "benchmarks", "squirix.server.benchmarks", "ReplicaPlacementBenchmarks.cs");
+        var text = await File.ReadAllTextAsync(placementPath, cancellationToken);
+        _ = await Assert.That(text).Contains("GetReplicaGroupRfOne", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("GetReplicaGroupRfTwo", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("GetReplicaGroupRfThree", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("GetReplicaGroupRfFive", StringComparison.Ordinal);
     }
 
     private static string BenchmarkSourcePath(string root, string benchmarkFullName)

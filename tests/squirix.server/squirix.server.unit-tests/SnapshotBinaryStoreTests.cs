@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
@@ -14,7 +15,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -25,8 +28,9 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     private static readonly byte[] SampleBytes = [1, 2, 3];
 
     /// <summary>Streaming reader rejects snapshots with a corrupted file CRC footer.</summary>
-    [Fact]
-    public async Task LoadStrictAsyncRejectsCorruptedFileCrc()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncRejectsCorruptedFileCrc(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-crc");
         var options = new PersistenceOptions { DataDir = dir.Path };
@@ -37,41 +41,22 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
         };
 
-        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
-    }
-
-    /// <summary>An oversized snapshot record body length is rejected during load instead of allocating multiple GB for the scratch buffer.</summary>
-    [Fact]
-    public async Task LoadStrictAsyncRejectsOversizedRecord()
-    {
-        using var dir = new TempDirectory("squirix-binary-snapshot-oversized");
-        var options = new PersistenceOptions { DataDir = dir.Path };
-        var writer = StoreFactory.CreateWriter(options);
-        var reader = StoreFactory.CreateReader(options);
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
-        {
-            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
-        };
-
-        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
-
-        // Patch the first record's declared body length to a multi-GB value. The body-length clamp throws before the footer CRC is ever reached, so the file CRC stays at the writer's original fixed value.
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-        const uint oversized = 0x7FFFFFFF;
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), oversized);
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
-
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
     }
 
     /// <summary>A record declaring a near-uint.MaxValue body length surfaces InvalidDataException instead of an OverflowException or a multi-GB scratch allocation.</summary>
-    [Fact]
-    public async Task LoadStrictAsyncRejectsNearMaxBodyLength()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncRejectsNearMaxBodyLength(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-near-max");
         var options = new PersistenceOptions { DataDir = dir.Path };
@@ -82,17 +67,51 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
         };
 
-        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), uint.MaxValue);
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
+    }
+
+    /// <summary>An oversized snapshot record body length is rejected during load instead of allocating multiple GB for the scratch buffer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncRejectsOversizedRecord(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-oversized");
+        var options = new PersistenceOptions { DataDir = dir.Path };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
+
+        // Patch the first record's declared body length to a multi-GB value. The body-length clamp throws before the footer CRC is ever reached, so the file CRC stays at the writer's original fixed value.
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        const uint oversized = 0x7FFFFFFF;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(5 + 1), oversized);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
     }
 
     /// <summary>A record declaring a body that extends past the file footer is rejected instead of reading out of bounds.</summary>
-    [Fact]
-    public async Task LoadStrictAsyncRejectsPastFooter()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncRejectsPastFooter(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-past-footer");
         var options = new PersistenceOptions { DataDir = dir.Path };
@@ -103,20 +122,25 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
         };
 
-        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
 
         // Patch the first record's declared body length to a moderate value that still exceeds the remaining file extent. The extent check throws before the footer CRC is ever reached, so the file CRC stays at the writer's original fixed value.
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         const int patchedBodyLength = 1000;
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(5 + 1), patchedBodyLength);
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken).AsTask());
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: token).AsTask());
     }
 
     /// <summary>Writes mixed entries and idempotency records, then loads them back.</summary>
-    [Fact]
-    public async Task WriteAndReadRoundTripMixedEntries()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteAndReadRoundTripMixedEntries(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot");
         var options = new PersistenceOptions { DataDir = dir.Path };
@@ -126,20 +150,20 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         var items = BuildSampleItems();
         var idempotency = BuildIdempotencyRecords();
 
-        var path = await writer.WriteAsync(1, items, idempotency, DefaultCancellationToken);
-        Assert.EndsWith(".bsqx", path, StringComparison.Ordinal);
-        Assert.True(File.Exists(path));
+        var path = await writer.WriteAsync(1, items, idempotency, cancellationToken);
+        _ = await Assert.That(path).EndsWith(".bsqx", StringComparison.Ordinal);
+        _ = await Assert.That(File.Exists(path)).IsTrue();
 
-        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken);
-        Assert.Equal(items.Count, loaded.Entries.Count);
-        Assert.Equal(idempotency.Length, loaded.IdempotencyRecords.Count);
+        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: cancellationToken);
+        _ = await Assert.That(loaded.Entries.Count).IsEqualTo(items.Count);
+        _ = await Assert.That(loaded.IdempotencyRecords.Count).IsEqualTo(idempotency.Length);
 
         var byKey = ToDictionary(loaded.Entries);
         foreach (var (key, entry) in items)
         {
             var lookupKey = $"{key.Namespace}:{key.Key}";
-            Assert.True(byKey.TryGetValue(lookupKey, out var roundTrip));
-            Assert.True(EntryEquals(entry, roundTrip));
+            _ = await Assert.That(byKey.TryGetValue(lookupKey, out var roundTrip)).IsTrue();
+            _ = await Assert.That(EntryEquals(entry, roundTrip!)).IsTrue();
         }
     }
 

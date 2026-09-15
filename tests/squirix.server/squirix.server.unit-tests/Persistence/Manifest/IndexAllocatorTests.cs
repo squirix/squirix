@@ -1,7 +1,10 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -12,30 +15,31 @@ public sealed class IndexAllocatorTests : ServerUnitTestBase
     /// A cold seed (cache-misread on an uninitialized allocator) establishes the next index from the published
     /// index it read from disk, and later allocations continue monotonically from there.
     /// </summary>
-    [Fact]
-    public void ColdSeedEstablishesNextIndex()
+    [Test]
+    public async Task ColdSeedEstablishesNextIndex()
     {
         var allocator = new IndexAllocator("data", "current", "manifest", "manifest*", static () => null);
         allocator.SeedNextManifestIndex(10);
-        Assert.Equal(11, allocator.AllocateNextManifestIndex());
+        _ = await Assert.That(allocator.AllocateNextManifestIndex()).IsEqualTo(11);
     }
 
     /// <summary>
-    ///     Two concurrent cold seeds must serialize through the double-checked guard: exactly one establishes the
-    ///     next index and the loser observes the inner guard and returns without overwriting. This exercises the
-    ///     inner <c language="csharp">if (_nextIndexInitialized) return;</c> branch that single-threaded seeds cannot reach.
+    /// Two concurrent cold seeds must serialize through the double-checked guard: exactly one establishes the
+    /// next index and the loser observes the inner guard and returns without overwriting. This exercises the
+    /// inner <c language="csharp">if (_nextIndexInitialized) return;</c> branch that single-threaded seeds cannot reach.
     /// </summary>
-    [Fact]
-    public async Task ConcurrentSeedTakesInnerDoubleCheckGuard()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentSeedTakesInnerDoubleCheckGuard(CancellationToken cancellationToken)
     {
         var allocator = new IndexAllocator("data", "current", "manifest", "manifest*", static () => null);
 
-        var first = Task.Factory.StartNew(() => allocator.SeedNextManifestIndex(7), DefaultCancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        var second = Task.Factory.StartNew(() => allocator.SeedNextManifestIndex(7), DefaultCancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var first = Task.Factory.StartNew(() => allocator.SeedNextManifestIndex(7), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var second = Task.Factory.StartNew(() => allocator.SeedNextManifestIndex(7), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         await Task.WhenAll(first, second);
 
-        Assert.Equal(8, allocator.AllocateNextManifestIndex());
+        _ = await Assert.That(allocator.AllocateNextManifestIndex()).IsEqualTo(8);
     }
 
     /// <summary>
@@ -43,12 +47,12 @@ public sealed class IndexAllocatorTests : ServerUnitTestBase
     /// published index while the allocator was already initialized to a higher value must not rewind the next
     /// index. Without the guard this reseeds to the stale value and the following allocation reuses an index.
     /// </summary>
-    [Fact]
-    public void StaleSeedNeverRewindsNextIndex()
+    [Test]
+    public async Task StaleSeedNeverRewindsNextIndex()
     {
         var allocator = new IndexAllocator("data", "current", "manifest", "manifest*", static () => 15);
-        Assert.Equal(16, allocator.AllocateNextManifestIndex());
+        _ = await Assert.That(allocator.AllocateNextManifestIndex()).IsEqualTo(16);
         allocator.SeedNextManifestIndex(10);
-        Assert.Equal(17, allocator.AllocateNextManifestIndex());
+        _ = await Assert.That(allocator.AllocateNextManifestIndex()).IsEqualTo(17);
     }
 }

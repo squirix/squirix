@@ -5,7 +5,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -16,13 +18,13 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
     private const string GroupId = "grp-1";
 
     /// <summary>Concurrent readiness polls racing startup observe only defined readiness states and settle on ready.</summary>
-    [Fact]
-    public async Task ConcurrentPollsObserveDefinedReadiness()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentPollsObserveDefinedReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-readiness-visibility");
         var composition = GroupComposition.Create(GroupId);
         await using var log = new FollowerLog(dir, GroupId, composition);
-        var cancellationToken = DefaultCancellationToken;
 
         // A start gate releases every poller at once so readiness reads race the gated startup writes.
         using var gate = new ManualResetEventSlim(false);
@@ -35,9 +37,24 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
         for (var i = 0; i < polls.Length; i++)
             undefined += await polls[i].WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        Assert.Equal(0, undefined);
-        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
-        Assert.Equal(FollowerLogReadiness.Ready, (await log.GetStatusAsync(cancellationToken)).Readiness);
+        _ = await Assert.That(undefined).IsEqualTo(0);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+    }
+
+    private static int PollReadinessUntilReady(FollowerLog log, ManualResetEventSlim gate, CancellationToken cancellationToken)
+    {
+        _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
+
+        // A bounded spin: startup completes on the test thread, so termination does not depend on timing.
+        var undefined = 0;
+        for (var i = 0; i < 1_000_000 && log.Readiness != FollowerLogReadiness.Ready; i++)
+        {
+            if (log.Readiness is not (FollowerLogReadiness.Unknown or FollowerLogReadiness.Ready or FollowerLogReadiness.Failed))
+                undefined++;
+        }
+
+        return undefined;
     }
 
     private static Task<int>[] StartReadinessPollers(FollowerLog log, ManualResetEventSlim gate, int count, CancellationToken cancellationToken)
@@ -56,20 +73,5 @@ public sealed class FollowerReadinessTests : ServerUnitTestBase
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
         }
-    }
-
-    private static int PollReadinessUntilReady(FollowerLog log, ManualResetEventSlim gate, CancellationToken cancellationToken)
-    {
-        _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
-
-        // A bounded spin: startup completes on the test thread, so termination does not depend on timing.
-        var undefined = 0;
-        for (var i = 0; i < 1_000_000 && log.Readiness != FollowerLogReadiness.Ready; i++)
-        {
-            if (log.Readiness is not (FollowerLogReadiness.Unknown or FollowerLogReadiness.Ready or FollowerLogReadiness.Failed))
-                undefined++;
-        }
-
-        return undefined;
     }
 }

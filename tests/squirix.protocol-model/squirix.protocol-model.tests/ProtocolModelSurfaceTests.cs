@@ -1,58 +1,61 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.ProtocolModel.Tests;
 
 [UsedImplicitly]
-public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
+public sealed class ProtocolModelSurfaceTests
 {
     private static readonly string[] SampleCounterexamplePaths = ["start", "elect"];
 
-    [Fact]
-    public static void ExploreProfileForCliBuildsSmallAndFull()
-    {
-        var small = ExploreProfile.ForCli("small", true);
-        Assert.Equal("small", small.Name, StringComparer.Ordinal);
-        Assert.Equal(2, small.Majority);
-        Assert.False(small.AllowPartition);
-
-        var full = ExploreProfile.ForCli("full", false);
-        Assert.Equal("full", full.Name, StringComparer.Ordinal);
-        Assert.True(full.AllowCrash);
-        Assert.True(full.AllowPartition);
-        Assert.False(full.SymmetryReduce);
-
-        var rf = ExploreProfile.ForReplicaCount(3, 2, 1, 2, 0, true, true);
-        Assert.True(rf.AllowPartition);
-        Assert.Equal(2, rf.Majority);
-    }
-
-    [Fact]
-    public static void ExploreProfileForCliRejectsUnknownName() =>
-        ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
-
-    [Fact]
-    public static void BudgetExceptionCarriesPayload()
+    [Test]
+    public async Task BudgetExceptionCarriesPayload()
     {
         var exception = new TraceSearchBudgetExhaustedException(100, 100);
 
-        Assert.Equal(100, exception.MaxStates);
-        Assert.Equal(100, exception.VisitedStates);
-        Assert.Contains("100 of 100", exception.Message, StringComparison.Ordinal);
+        _ = await Assert.That(exception.MaxStates).IsEqualTo(100);
+        _ = await Assert.That(exception.VisitedStates).IsEqualTo(100);
+        _ = await Assert.That(exception.Message).Contains("100 of 100", StringComparison.Ordinal);
     }
 
-    [Fact]
-    public static void ExploreReplicaCountProfileRejectsRange()
+    [Test]
+    public async Task ExploreProfileForCliBuildsSmallAndFull()
+    {
+        var small = ExploreProfile.ForCli("small", true);
+        _ = await Assert.That(small.Name).IsEqualTo("small", StringComparer.Ordinal);
+        _ = await Assert.That(small.Majority).IsEqualTo(2);
+        _ = await Assert.That(small.AllowPartition).IsFalse();
+
+        var full = ExploreProfile.ForCli("full", false);
+        _ = await Assert.That(full.Name).IsEqualTo("full", StringComparer.Ordinal);
+        _ = await Assert.That(full.AllowCrash).IsTrue();
+        _ = await Assert.That(full.AllowPartition).IsTrue();
+        _ = await Assert.That(full.SymmetryReduce).IsFalse();
+
+        var rf = ExploreProfile.ForReplicaCount(3, 2, 1, 2, 0, true, true);
+        _ = await Assert.That(rf.AllowPartition).IsTrue();
+        _ = await Assert.That(rf.Majority).IsEqualTo(2);
+    }
+
+    [Test]
+    public void ExploreProfileForCliRejectsUnknownName() =>
+        _ = ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForCli("tiny", true));
+
+    [Test]
+    public void ExploreReplicaCountProfileRejectsRange()
     {
         _ = ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
         _ = ProtocolModelExceptionAssert.For<ArgumentOutOfRangeException>().Throws(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
     }
 
-    [Fact]
-    public static void LogEntryEqualityMatchesTermAndIndex()
+    [Test]
+    public async Task LogEntryEqualityMatchesTermAndIndex()
     {
         var a = new LogEntry(1, 2);
         var b = new LogEntry(1, 2);
@@ -61,30 +64,32 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         object other = c;
         object wrong = "x";
 
-        Assert.True(a == b);
-        Assert.False(a != b);
-        Assert.True(a.Equals(boxed));
-        Assert.False(a.Equals(other));
-        Assert.Equal(a.GetHashCode(), b.GetHashCode());
-        Assert.False(a.Equals(wrong));
+        _ = await Assert.That(a == b).IsTrue();
+        _ = await Assert.That(a != b).IsFalse();
+        _ = await Assert.That(a.Equals(boxed)).IsTrue();
+        _ = await Assert.That(a.Equals(other)).IsFalse();
+        _ = await Assert.That(b.GetHashCode()).IsEqualTo(a.GetHashCode());
+        _ = await Assert.That(a.Equals(wrong)).IsFalse();
     }
 
-    [Fact]
-    public static async Task RunCliBrokenVoteCounterexampleAsync()
+    /// <summary>Verifies the CLI reports the broken-vote counterexample for the small profile.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunCliBrokenVoteCounterexampleAsync(CancellationToken cancellationToken)
     {
         var output = CreateTempDir();
         try
         {
             var code = await ExploreRunner.RunCliAsync("small", output, BrokenMode.Vote);
-            Assert.Equal(0, code);
-            Assert.True(File.Exists(Path.Join(output, "summary.json")));
-            Assert.True(File.Exists(Path.Join(output, "counterexample.json")));
-            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
-            Assert.Contains("\"broken\":\"Vote\"", summary, StringComparison.Ordinal);
-            Assert.Contains("\"invariant\":\"ElectionSafety\"", summary, StringComparison.Ordinal);
-            var counterexample = await File.ReadAllTextAsync(Path.Join(output, "counterexample.json"), DefaultCancellationToken);
-            Assert.Contains("\"invariant\":\"ElectionSafety\"", counterexample, StringComparison.Ordinal);
-            Assert.Contains("\"path\":[", counterexample, StringComparison.Ordinal);
+            _ = await Assert.That(code).IsEqualTo(0);
+            _ = await Assert.That(File.Exists(Path.Join(output, "summary.json"))).IsTrue();
+            _ = await Assert.That(File.Exists(Path.Join(output, "counterexample.json"))).IsTrue();
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), cancellationToken);
+            _ = await Assert.That(summary).Contains("\"broken\":\"Vote\"", StringComparison.Ordinal);
+            _ = await Assert.That(summary).Contains("\"invariant\":\"ElectionSafety\"", StringComparison.Ordinal);
+            var counterexample = await File.ReadAllTextAsync(Path.Join(output, "counterexample.json"), cancellationToken);
+            _ = await Assert.That(counterexample).Contains("\"invariant\":\"ElectionSafety\"", StringComparison.Ordinal);
+            _ = await Assert.That(counterexample).Contains("\"path\":[", StringComparison.Ordinal);
         }
         finally
         {
@@ -92,8 +97,10 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         }
     }
 
-    [Fact]
-    public static async Task RunCliFormatsCommitAndReadModesAsync()
+    /// <summary>Verifies the CLI formats commit and read exploration modes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunCliFormatsCommitAndReadModesAsync(CancellationToken cancellationToken)
     {
         var outputCommit = CreateTempDir();
         var outputRead = CreateTempDir();
@@ -102,13 +109,13 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
             // small profile may not hit these invariants; accept either found (0) or missing (3).
             var commitCode = await ExploreRunner.RunCliAsync("small", outputCommit, BrokenMode.CurrentTermCommit);
             var readCode = await ExploreRunner.RunCliAsync("small", outputRead, BrokenMode.ReadIndex);
-            Assert.True(commitCode == 0 || commitCode == 3);
-            Assert.True(readCode == 0 || readCode == 3);
+            _ = await Assert.That(commitCode == 0 || commitCode == 3).IsTrue();
+            _ = await Assert.That(readCode == 0 || readCode == 3).IsTrue();
 
-            var commitSummary = await File.ReadAllTextAsync(Path.Join(outputCommit, "summary.json"), DefaultCancellationToken);
-            var readSummary = await File.ReadAllTextAsync(Path.Join(outputRead, "summary.json"), DefaultCancellationToken);
-            Assert.Contains("\"broken\":\"CurrentTermCommit\"", commitSummary, StringComparison.Ordinal);
-            Assert.Contains("\"broken\":\"ReadIndex\"", readSummary, StringComparison.Ordinal);
+            var commitSummary = await File.ReadAllTextAsync(Path.Join(outputCommit, "summary.json"), cancellationToken);
+            var readSummary = await File.ReadAllTextAsync(Path.Join(outputRead, "summary.json"), cancellationToken);
+            _ = await Assert.That(commitSummary).Contains("\"broken\":\"CurrentTermCommit\"", StringComparison.Ordinal);
+            _ = await Assert.That(readSummary).Contains("\"broken\":\"ReadIndex\"", StringComparison.Ordinal);
         }
         finally
         {
@@ -117,19 +124,21 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         }
     }
 
-    [Fact]
-    public static async Task RunCliWritesSummaryForSmallProfileAsync()
+    /// <summary>Verifies the CLI writes a summary for the small profile.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunCliWritesSummaryForSmallProfileAsync(CancellationToken cancellationToken)
     {
         var output = CreateTempDir();
         try
         {
             var code = await ExploreRunner.RunCliAsync("small", output, BrokenMode.None);
-            Assert.Equal(0, code);
-            Assert.True(File.Exists(Path.Join(output, "summary.json")));
-            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), DefaultCancellationToken);
-            Assert.Contains("\"fixedPointReached\":true", summary, StringComparison.Ordinal);
-            Assert.Contains("\"violation\":null", summary, StringComparison.Ordinal);
-            Assert.Contains(ExploreRunner.ModelVersionHash, summary, StringComparison.Ordinal);
+            _ = await Assert.That(code).IsEqualTo(0);
+            _ = await Assert.That(File.Exists(Path.Join(output, "summary.json"))).IsTrue();
+            var summary = await File.ReadAllTextAsync(Path.Join(output, "summary.json"), cancellationToken);
+            _ = await Assert.That(summary).Contains("\"fixedPointReached\":true", StringComparison.Ordinal);
+            _ = await Assert.That(summary).Contains("\"violation\":null", StringComparison.Ordinal);
+            _ = await Assert.That(summary).Contains(ExploreRunner.ModelVersionHash, StringComparison.Ordinal);
         }
         finally
         {
@@ -137,17 +146,17 @@ public sealed class ProtocolModelSurfaceTests : ProtocolModelTestBase
         }
     }
 
-    [Fact]
-    public static void SafetyCheckerFormatsCounterexampleJson()
+    [Test]
+    public async Task SafetyCheckerFormatsCounterexampleJson()
     {
         var state = ClusterState.CreateInitial(3);
         var violation = new SafetyViolation("ElectionSafety", "dual leaders", state.Fingerprint(false));
         var json = SafetyChecker.FormatCounterexampleJson(violation, state, SampleCounterexamplePaths);
 
-        Assert.Contains("\"invariant\":\"ElectionSafety\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"path\":[\"start\",\"elect\"]", json, StringComparison.Ordinal);
-        Assert.Contains("\"nodes\":[", json, StringComparison.Ordinal);
-        Assert.Null(SafetyChecker.Check(state));
+        _ = await Assert.That(json).Contains("\"invariant\":\"ElectionSafety\"", StringComparison.Ordinal);
+        _ = await Assert.That(json).Contains("\"path\":[\"start\",\"elect\"]", StringComparison.Ordinal);
+        _ = await Assert.That(json).Contains("\"nodes\":[", StringComparison.Ordinal);
+        _ = await Assert.That(SafetyChecker.Check(state)).IsNull();
     }
 
     private static string CreateTempDir()

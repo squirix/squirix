@@ -7,7 +7,9 @@ using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests.Cluster;
 
@@ -16,14 +18,14 @@ namespace Squirix.UnitTests.Cluster;
 public sealed class CallPolicyTests
 {
     /// <summary>Rejects new calls after BeginDrain.</summary>
-    [Fact]
+    [Test]
     public async Task BeginDrainRejectsNewCallsAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
 
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     /// <summary>
@@ -33,7 +35,7 @@ public sealed class CallPolicyTests
     /// post-enter check (or the drain gate) instead of a disposed concurrency semaphore.
     /// Mirrors the server-side regression test for issue #423.
     /// </summary>
-    [Fact]
+    [Test]
     public async Task DisposeRacingExecuteStaysClean()
     {
         const int rounds = 64;
@@ -63,12 +65,12 @@ public sealed class CallPolicyTests
             foreach (var caller in callers)
                 await caller;
 
-            Assert.False(faults.TryPeek(out var fault), $"SemaphoreSlim disposed fault escaped to a caller: {fault}");
+            _ = await Assert.That(faults.TryPeek(out var fault)).IsFalse().Because($"SemaphoreSlim disposed fault escaped to a caller: {fault}");
         }
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
-    [Fact]
+    [Test]
     public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
@@ -83,12 +85,12 @@ public sealed class CallPolicyTests
                 },
                 box,
                 CancellationToken.None));
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(1, box.Count);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(box.Count).IsEqualTo(1);
     }
 
     /// <summary>Retries Unavailable RpcException.</summary>
-    [Fact]
+    [Test]
     public async Task ExecuteRetriesUnavailableRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
@@ -103,12 +105,12 @@ public sealed class CallPolicyTests
             box,
             CancellationToken.None);
 
-        Assert.Equal(8, value);
-        Assert.Equal(2, box.Count);
+        _ = await Assert.That(value).IsEqualTo(8);
+        _ = await Assert.That(box.Count).IsEqualTo(2);
     }
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
-    [Fact]
+    [Test]
     public async Task QueuedCallRejectedOnDrainAsync()
     {
         var timeout = TimeSpan.FromSeconds(5);
@@ -135,13 +137,13 @@ public sealed class CallPolicyTests
         policy.BeginDrain();
         releaseFirst.SetResult();
 
-        Assert.Equal(1, await first);
+        _ = await Assert.That(await first).IsEqualTo(1);
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     /// <summary>Retries DeadlineExceeded RpcException.</summary>
-    [Fact]
+    [Test]
     public async Task RetriesDeadlineExceededRpcAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
@@ -156,12 +158,12 @@ public sealed class CallPolicyTests
             box,
             CancellationToken.None);
 
-        Assert.Equal(4, value);
-        Assert.Equal(2, box.Count);
+        _ = await Assert.That(value).IsEqualTo(4);
+        _ = await Assert.That(box.Count).IsEqualTo(2);
     }
 
     /// <summary>Retries HttpRequestException then succeeds.</summary>
-    [Fact]
+    [Test]
     public async Task RetriesHttpRequestExceptionAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
@@ -176,12 +178,12 @@ public sealed class CallPolicyTests
             box,
             CancellationToken.None);
 
-        Assert.Equal(3, value);
-        Assert.Equal(2, box.Count);
+        _ = await Assert.That(value).IsEqualTo(3);
+        _ = await Assert.That(box.Count).IsEqualTo(2);
     }
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
-    [Fact]
+    [Test]
     public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
     {
         await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");

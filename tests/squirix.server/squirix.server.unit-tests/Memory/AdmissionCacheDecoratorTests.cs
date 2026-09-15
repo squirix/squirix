@@ -12,7 +12,9 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -27,19 +29,20 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Ensures RemoveAsync accounts for one removed local-owner entry.</summary>
-    [Fact]
-    public async Task ConcurrentRemoveDeletesLocalKeyOnce()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentRemoveDeletesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "remove-race";
         var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
-        Assert.Equal(1, accounting.ReadEntryCount());
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
 
-        var remove = new ConcurrentCacheOp(cache, key);
-        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, remove.Remove, DefaultCancellationToken);
+        var remove = new ConcurrentCacheOp(cache, key, cancellationToken);
+        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, remove.Remove, cancellationToken);
 
         var removedCount = 0;
         foreach (var result in results)
@@ -48,15 +51,16 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
                 removedCount++;
         }
 
-        Assert.Equal(1, removedCount);
-        Assert.Equal(0, accounting.ReadEntryCount());
-        Assert.Equal(0, accounting.ReadEstimatedBytes());
-        Assert.False(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
+        _ = await Assert.That(removedCount).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(0);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(0);
+        _ = await Assert.That(await KeyExistsAsync(inner, CacheName, key, cancellationToken)).IsFalse();
     }
 
     /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
-    [Fact]
-    public async Task ConcurrentSetMissAccountsOneEntry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentSetMissAccountsOneEntry(CancellationToken cancellationToken)
     {
         const string key = "set-race";
         var physical = new PhysicalCache<string>();
@@ -64,17 +68,18 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
-        var set = new ConcurrentCacheOp(cache, key, entry);
-        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, set.SetEntry, DefaultCancellationToken);
+        var set = new ConcurrentCacheOp(cache, key, cancellationToken, entry);
+        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, set.SetEntry, cancellationToken);
 
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expectedBytes);
+        _ = await Assert.That(await KeyExistsAsync(inner, CacheName, key, cancellationToken)).IsTrue();
     }
 
     /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
-    [Fact]
-    public async Task ConcurrentTryAddMissAddsSingleEntry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentTryAddMissAddsSingleEntry(CancellationToken cancellationToken)
     {
         const string key = "try-add-race";
         var physical = new PhysicalCache<string>();
@@ -82,8 +87,8 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
-        var tryAdd = new ConcurrentCacheOp(cache, key, entry);
-        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, tryAdd.TryAddEntry, DefaultCancellationToken);
+        var tryAdd = new ConcurrentCacheOp(cache, key, cancellationToken, entry);
+        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, tryAdd.TryAddEntry, cancellationToken);
 
         var addedCount = 0;
         foreach (var added in results)
@@ -92,15 +97,16 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
                 addedCount++;
         }
 
-        Assert.Equal(1, addedCount);
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
+        _ = await Assert.That(addedCount).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expectedBytes);
+        _ = await Assert.That(await KeyExistsAsync(inner, CacheName, key, cancellationToken)).IsTrue();
     }
 
     /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
-    [Fact]
-    public async Task ConcurrentUpdateReplacesLocalKeyOnce()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentUpdateReplacesLocalKeyOnce(CancellationToken cancellationToken)
     {
         const string key = "update-race";
         var physical = new PhysicalCache<string>();
@@ -109,21 +115,22 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        var update = new ConcurrentCacheOp(cache, key, updatedValue: updatedValue);
-        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, update.Update, DefaultCancellationToken);
+        var update = new ConcurrentCacheOp(cache, key, cancellationToken, updatedValue: updatedValue);
+        var results = await RunSynchronizedConcurrentlyAsync(ConcurrentRaceWidth, update.Update, cancellationToken);
 
-        Assert.All(results, Assert.True);
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
+        _ = await Assert.That(results).All(static result => result);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeUpdate + expectedDelta);
     }
 
     /// <summary>Ensures RemoveExpirationAsync accounts for removed expiration metadata on a local-owner entry.</summary>
-    [Fact]
-    public async Task RemoveExpiryAccountsShrinkForLocalKey()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveExpiryAccountsShrinkForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "remove-expiration-key";
         var timeProvider = new FakeTimeProvider();
@@ -138,17 +145,18 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         };
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
         var bytesWithExpiration = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, key, DefaultCancellationToken));
-        Assert.Equal(bytesWithExpiration - expirationGrowth, accounting.ReadEstimatedBytes());
-        Assert.Equal(1, accounting.ReadEntryCount());
+        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, key, cancellationToken)).IsTrue();
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesWithExpiration - expirationGrowth);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
     /// <summary>Ensures RemoveAsync subtracts recorded bytes rather than a stale pre-remove snapshot.</summary>
-    [Fact]
-    public async Task RemoveUsesRecordedBytesNotStale()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveUsesRecordedBytesNotStale(CancellationToken cancellationToken)
     {
         const string key = "remove-stale-snapshot";
         var small = CreateEntry("a");
@@ -161,24 +169,25 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         inner.GetResult = null;
         inner.TryAddResult = true;
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, cancellationToken)).IsTrue();
 
         inner.GetResult = small;
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, DefaultCancellationToken);
-        Assert.Equal(1, accounting.ReadEntryCount());
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, cancellationToken);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
 
         inner.GetResult = small;
         inner.RemoveResult = true;
-        var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, DefaultCancellationToken);
+        var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, cancellationToken);
 
-        Assert.True(result.Removed);
-        Assert.Equal(0, accounting.ReadEntryCount());
-        Assert.Equal(0, accounting.ReadEstimatedBytes());
+        _ = await Assert.That(result.Removed).IsTrue();
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(0);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(0);
     }
 
     /// <summary>Ensures SetEntryAsync accounts the entry when TryAdd loses the race and falls back to overwrite.</summary>
-    [Fact]
-    public async Task SetFallbackAccountsEntry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetFallbackAccountsEntry(CancellationToken cancellationToken)
     {
         const string key = "set-fallback-race";
         var entry = CreateEntry("v");
@@ -189,16 +198,17 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken);
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken);
 
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
-        Assert.True(inner.SetCalled);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expectedBytes);
+        _ = await Assert.That(inner.SetCalled).IsTrue();
     }
 
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
-    [Fact]
-    public async Task SetReplaceAccountsValueDeltaForLocalKey()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetReplaceAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "set-replace";
         var physical = new PhysicalCache<string>();
@@ -206,19 +216,20 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
         var bytesBeforeReplace = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, replacement, DefaultCancellationToken);
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, replacement, cancellationToken);
 
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(bytesBeforeReplace + expectedDelta, accounting.ReadEstimatedBytes());
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeReplace + expectedDelta);
     }
 
     /// <summary>Ensures TouchAsync accounts for added expiration metadata on a previously non-expiring entry.</summary>
-    [Fact]
-    public async Task TouchAccountsExpiryGrowthForLocalKey()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchAccountsExpiryGrowthForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "touch-key";
         var timeProvider = new FakeTimeProvider();
@@ -228,17 +239,18 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var entry = CreateEntry("v");
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
-        Assert.Equal(bytesBeforeTouch + expirationGrowth, accounting.ReadEstimatedBytes());
-        Assert.Equal(1, accounting.ReadEntryCount());
+        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeTouch + expirationGrowth);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
     /// <summary>Ensures TouchAsync does not change accounting when expiration metadata was already present.</summary>
-    [Fact]
-    public async Task TouchChangesExpiryWhenMetadataPresent()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchChangesExpiryWhenMetadataPresent(CancellationToken cancellationToken)
     {
         const string key = "retouch-key";
         var timeProvider = new FakeTimeProvider();
@@ -251,33 +263,34 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
-        Assert.Equal(bytesBeforeTouch, accounting.ReadEstimatedBytes());
-        Assert.Equal(1, accounting.ReadEntryCount());
+        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeTouch);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
     /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
-    [Fact]
-    public async Task UpdateAccountsValueDeltaForLocalKey()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UpdateAccountsValueDeltaForLocalKey(CancellationToken cancellationToken)
     {
         const string key = "update-replace";
         var physical = new PhysicalCache<string>();
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        Assert.True(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, key, updatedValue, DefaultCancellationToken));
+        _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, key, updatedValue, cancellationToken)).IsTrue();
 
-        Assert.Equal(1, accounting.ReadEntryCount());
-        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeUpdate + expectedDelta);
     }
 
     /// <inheritdoc />
@@ -357,14 +370,21 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     private sealed class ConcurrentCacheOp
     {
         private readonly MemoryAdmissionCacheDecorator<string> _cache;
+        private readonly CancellationToken _cancellationToken;
         private readonly NodeCacheEntry<string>? _entry;
         private readonly string _key;
         private readonly string? _updatedValue;
 
-        internal ConcurrentCacheOp(MemoryAdmissionCacheDecorator<string> cache, string key, NodeCacheEntry<string>? entry = null, string? updatedValue = null)
+        internal ConcurrentCacheOp(
+            MemoryAdmissionCacheDecorator<string> cache,
+            string key,
+            CancellationToken cancellationToken,
+            NodeCacheEntry<string>? entry = null,
+            string? updatedValue = null)
         {
             _cache = cache;
             _key = key;
+            _cancellationToken = cancellationToken;
             _entry = entry;
             _updatedValue = updatedValue;
             Remove = RemoveCoreAsync;
@@ -381,24 +401,24 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         internal Func<int, Task<bool>> Update { get; }
 
-        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, DefaultCancellationToken).AsTask();
+        private Task<CacheRemoveResult<string>> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
 
         private Task SetEntryCoreAsync(int index)
         {
             var entry = ThrowHelper.Required(_entry, "Entry is required for SetEntryAsync.");
-            return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
+            return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, _cancellationToken).AsTask();
         }
 
         private Task<bool> TryAddEntryCoreAsync(int index)
         {
             var entry = ThrowHelper.Required(_entry, "Entry is required for TryAddEntryAsync.");
-            return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, DefaultCancellationToken).AsTask();
+            return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, _cancellationToken).AsTask();
         }
 
         private Task<bool> UpdateCoreAsync(int index)
         {
             var updatedValue = ThrowHelper.Required(_updatedValue, "Updated value is required for UpdateAsync.");
-            return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, DefaultCancellationToken).AsTask();
+            return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, _cancellationToken).AsTask();
         }
     }
 

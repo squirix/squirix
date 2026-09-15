@@ -9,7 +9,9 @@ using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
@@ -18,19 +20,21 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 public sealed class InterNodeMtlsTests : EndToEndTestBase
 {
     /// <summary>Verifies a two-node cluster with internode mTLS enabled starts and serves SDK traffic.</summary>
-    [Fact]
-    public async Task ClusterWithInterNodeMtlsStartsUp()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ClusterWithInterNodeMtlsStartsUp(CancellationToken cancellationToken)
     {
-        await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
+        await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(cancellationToken);
 
-        await cluster.CacheA.SetAsync("mtls-startup", "ok", cancellationToken: DefaultCancellationToken);
+        await cluster.CacheA.SetAsync("mtls-startup", "ok", cancellationToken: cancellationToken);
 
-        Assert.Equal("ok", (await cluster.CacheB.GetValueAsync("mtls-startup", DefaultCancellationToken)).Value);
+        _ = await Assert.That((await cluster.CacheB.GetValueAsync("mtls-startup", cancellationToken)).Value).IsEqualTo("ok");
     }
 
     /// <summary>Verifies an external client cannot spoof internal owner-routing metadata on the primary listener.</summary>
-    [Fact]
-    public async Task ExternalClientCannotSpoofOwnerHeader()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -41,82 +45,94 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
             JwtAudience = credentials.Audience,
         };
 
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: DefaultCancellationToken);
-        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, DefaultCancellationToken);
-        Assert.Equal(StatusCode.Unauthenticated, status);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
+        var status = await InterNodeGrpcProbe.GetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, cancellationToken);
+        _ = await Assert.That(status).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A presents a certificate signed by an untrusted CA.</summary>
-    [Fact]
-    public async Task ForwardFailsUntrustedCallerCert()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardFailsUntrustedCallerCert(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate });
+        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(
+            new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate },
+            cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        AssertForwardRejected(ex);
+        await AssertForwardRejected(ex);
     }
 
     /// <summary>Verifies node A rejects internode forwarding to node C with an untrusted server certificate while node B traffic still flows.</summary>
-    [Fact]
-    public async Task ForwardFailsUntrustedNodeCCert()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardFailsUntrustedNodeCCert(CancellationToken cancellationToken)
     {
         var options = new MultiNodeStartOptions { NodeCProfile = TestNodeProfile.UntrustedInboundServerCertificate };
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(ForwardFailsUntrustedNodeCCert), options, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(ForwardFailsUntrustedNodeCCert), options, cancellationToken: cancellationToken);
         var rejectedKey = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("orders", "nodeC", "e2e-untrusted-node-c");
-        await using var clientA = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        var cacheA = await clientA.GetCacheAsync<object?>("orders", DefaultCancellationToken);
+        await using var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+        var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cacheA.SetAsync(rejectedKey, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cacheA.SetAsync(rejectedKey, "blocked", cancellationToken: cancellationToken));
 
-        AssertForwardRejected(ex);
+        await AssertForwardRejected(ex);
 
         // Only node C is distrusted: traffic to healthy node B keeps flowing through node A.
         var healthyKey = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("orders", "nodeB", "e2e-trusted-node-b");
-        await cacheA.SetAsync(healthyKey, "ok", cancellationToken: DefaultCancellationToken);
-        Assert.Equal("ok", (await cacheA.GetValueAsync(healthyKey, DefaultCancellationToken)).Value);
+        await cacheA.SetAsync(healthyKey, "ok", cancellationToken: cancellationToken);
+        _ = await Assert.That((await cacheA.GetValueAsync(healthyKey, cancellationToken)).Value).IsEqualTo("ok");
     }
 
     /// <summary>Verifies node A rejects internode forwarding when node B presents an untrusted server certificate.</summary>
-    [Fact]
-    public async Task ForwardFailsUntrustedOwnerCert()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardFailsUntrustedOwnerCert(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new MultiNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate });
+        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(
+            new MultiNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate },
+            cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        AssertForwardRejected(ex);
+        await AssertForwardRejected(ex);
     }
 
     /// <summary>Verifies expired peer certificates are rejected for internode forwarding.</summary>
-    [Fact]
-    public async Task ForwardFailsWhenPeerCertificateIsExpired()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardFailsWhenPeerCertificateIsExpired(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.ExpiredPeerCertificate });
+        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.ExpiredPeerCertificate }, cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        AssertForwardRejected(ex);
+        await AssertForwardRejected(ex);
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A does not present a client certificate.</summary>
-    [Fact]
-    public async Task ForwardFailsWithoutCallerCertificate()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardFailsWithoutCallerCertificate(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.NoOutboundClientCertificate });
+        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(
+            new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.NoOutboundClientCertificate },
+            cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        AssertForwardRejected(ex);
+        await AssertForwardRejected(ex);
     }
 
     /// <summary>Verifies external JWT authentication works independently of internode mTLS forwarding.</summary>
-    [Fact]
-    public async Task JwtAuthIndependentOfInterNodeMtls()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JwtAuthIndependentOfInterNodeMtls(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -127,49 +143,61 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
             JwtAudience = credentials.Audience,
         };
 
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { Security = security }, cancellationToken: cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-jwt-mtls");
         var provider = CreateBearerTokenProvider(bearerToken);
         var nodeA = cluster.GetUri("nodeA");
         var nodeB = cluster.GetUri("nodeB");
-        await using var clientA = await LoopbackConnect.ConnectAsync(nodeA, provider, DefaultCancellationToken);
-        await using var clientB = await LoopbackConnect.ConnectAsync(nodeB, provider, DefaultCancellationToken);
-        var cacheA = await clientA.GetCacheAsync<object?>("orders", DefaultCancellationToken);
-        var cacheB = await clientB.GetCacheAsync<object?>("orders", DefaultCancellationToken);
+        await using var clientA = await LoopbackConnect.ConnectAsync(nodeA, provider, cancellationToken);
+        await using var clientB = await LoopbackConnect.ConnectAsync(nodeB, provider, cancellationToken);
+        var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
+        var cacheB = await clientB.GetCacheAsync<object?>("orders", cancellationToken);
 
-        await cacheA.SetAsync(key, "jwt-forwarded", cancellationToken: DefaultCancellationToken);
+        await cacheA.SetAsync(key, "jwt-forwarded", cancellationToken: cancellationToken);
 
-        Assert.Equal("jwt-forwarded", (await cacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
+        _ = await Assert.That((await cacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("jwt-forwarded");
     }
 
     /// <summary>Verifies a client connected to node A forwards owner mutations to node B overtrusted internode mTLS.</summary>
-    [Fact]
-    public async Task NodeAClientForwardsToOwnerOverMtls()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NodeAClientForwardsToOwnerOverMtls(CancellationToken cancellationToken)
     {
-        await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
+        await using var cluster = await TwoNodeSupport.StartTwoNodeNamedCachesAsync<object?>(cancellationToken);
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-mtls-forward");
-        await using var client = await LoopbackConnect.ConnectAsync(cluster.NodeAAddress, DefaultCancellationToken);
-        var cache = await client.GetCacheAsync<object?>("orders", DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(cluster.NodeAAddress, cancellationToken);
+        var cache = await client.GetCacheAsync<object?>("orders", cancellationToken);
 
-        await cache.SetAsync(key, "forwarded", cancellationToken: DefaultCancellationToken);
+        await cache.SetAsync(key, "forwarded", cancellationToken: cancellationToken);
 
-        Assert.Equal("forwarded", (await cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
+        _ = await Assert.That((await cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("forwarded");
     }
 
-    private static void AssertForwardRejected(RpcException exception) => Assert.True(
-        exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown ||
-        exception.StatusCode == StatusCode.DeadlineExceeded);
+    private static async Task AssertForwardRejected(RpcException exception)
+    {
+        _ = await Assert.That(
+            exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown ||
+            exception.StatusCode == StatusCode.DeadlineExceeded).IsTrue();
+    }
 
     private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
 
-    private static async Task<TwoNodeNamedCaches<object?>> StartTwoNodeCachesWithProfilesAsync(MultiNodeStartOptions startOptions, [CallerMemberName] string testName = "")
+    /// <summary>Starts a two-node cluster with custom node profiles for mTLS failure tests.</summary>
+    /// <param name="startOptions">The multi-node start options.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="testName">The calling test name.</param>
+    /// <returns>The named caches for both nodes.</returns>
+    private static async Task<TwoNodeNamedCaches<object?>> StartTwoNodeCachesWithProfilesAsync(
+        MultiNodeStartOptions startOptions,
+        CancellationToken cancellationToken,
+        [CallerMemberName] string testName = "")
     {
-        var cluster = await HostedCluster.StartTwoNodeAsync(startOptions, testName, cancellationToken: DefaultCancellationToken);
+        var cluster = await HostedCluster.StartTwoNodeAsync(startOptions, testName, cancellationToken: cancellationToken);
         try
         {
-            var clientA = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-            var clientB = await cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-            return await TwoNodeNamedCaches<object?>.CreateAsync(cluster, clientA, clientB, DefaultCancellationToken);
+            var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+            var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
+            return await TwoNodeNamedCaches<object?>.CreateAsync(cluster, clientA, clientB, cancellationToken);
         }
         catch (Exception ex) when (ex is RpcException or IOException or InvalidOperationException)
         {

@@ -6,7 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -91,7 +92,7 @@ internal static class ServerArchitectureFixtures
     /// <summary>Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.</summary>
     /// <param name="repositoryRoot">Absolute path to the repository root.</param>
     /// <returns>Sorted repo-relative paths of offending projects.</returns>
-    internal static List<string> CollectImplicitUsingsProjectOffenders(string repositoryRoot)
+    internal static async Task<List<string>> CollectImplicitUsingsProjectOffenders(string repositoryRoot)
     {
         var projectOffenders = new List<string>();
         foreach (var path in Directory.GetFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories))
@@ -100,7 +101,7 @@ internal static class ServerArchitectureFixtures
                 continue;
 
             var hasImplicitUsings = false;
-            var navigator = LoadProject(path);
+            var navigator = await LoadProject(path);
             var elements = navigator.Select("//*");
             while (elements.MoveNext())
             {
@@ -154,12 +155,12 @@ internal static class ServerArchitectureFixtures
 
     internal static MsbuildProjectIndex GetServerProjectIndex() => ServerProjectIndex.Value;
 
-    internal static XPathNavigator LoadProject(string relativeOrAbsolutePath)
+    internal static async Task<XPathNavigator> LoadProject(string relativeOrAbsolutePath)
     {
         var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
             RepositoryPaths.FindRepositoryRoot(),
             relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
+        _ = await Assert.That(File.Exists(path)).IsTrue();
 
         var document = new XmlDocument();
         document.Load(path);
@@ -192,7 +193,7 @@ internal static class ServerArchitectureFixtures
         {
             var relativePath = paths[i].Replace('/', Path.DirectorySeparatorChar);
             var absolutePath = Path.Join(root, relativePath);
-            Assert.True(File.Exists(absolutePath));
+            _ = await Assert.That(File.Exists(absolutePath)).IsTrue();
             sources[i] = (relativePath, await File.ReadAllTextAsync(absolutePath, cancellationToken));
         }
 
@@ -264,7 +265,8 @@ internal static class ServerArchitectureFixtures
     private static XPathNavigator LoadServerProject()
     {
         var path = Path.Join(RepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Expected the server project to exist at '{path}'.", path);
 
         var document = new XmlDocument();
         document.Load(path);

@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -12,83 +16,67 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
-    [Fact]
-    public async Task JournalThreadShouldBeJoinedOnDispose()
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var coordinatorText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), DefaultCancellationToken);
-        var durabilityText = await File.ReadAllTextAsync(
-            Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalDurabilityCoordinator.cs"),
-            DefaultCancellationToken);
-
-        Assert.Contains("JournalThread.Join(", durabilityText, StringComparison.Ordinal);
-        Assert.Contains("AwaitJournalThreadDuringDisposeAsync", coordinatorText, StringComparison.Ordinal);
-    }
-
-    /// <summary>Ensures product code does not use access-check bypass attributes.</summary>
-    [Fact]
-    public async Task SourcesMustNotUseIgnoresAccessChecksTo()
-    {
-        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src");
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var paths = new List<string>(200);
-        paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
-
-        paths.Sort(StringComparer.Ordinal);
-        foreach (var path in paths)
-        {
-            if (path.Contains(objMarker, StringComparison.Ordinal))
-                continue;
-
-            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            Assert.False(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal));
-        }
-    }
-
-    /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
-    [Fact]
-    public async Task NoGlobalOrImplicitUsingsInRepo()
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        Assert.Empty(await ServerArchitectureFixtures.CollectGlobalUsingSourceOffendersAsync(root, DefaultCancellationToken));
-        Assert.Empty(ServerArchitectureFixtures.CollectImplicitUsingsProjectOffenders(root));
-    }
-
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
-    [Fact]
-    public async Task BootstrapSourcesUsePackageHostStartup()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BootstrapSourcesUsePackageHostStartup(CancellationToken cancellationToken)
     {
-        var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(DefaultCancellationToken);
+        var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(cancellationToken);
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
 
-        Assert.Contains("AddSquirixServerAsync", combined, StringComparison.Ordinal);
-        Assert.Contains("MapSquirixServer", combined, StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("AddSquirixServerAsync", StringComparison.Ordinal);
+        _ = await Assert.That(combined).Contains("MapSquirixServer", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
-    [Fact]
-    public void HostProjectPacksAsGlobalToolExecutable()
+    [Test]
+    public async Task HostProjectPacksAsGlobalToolExecutable()
     {
-        var index = ServerArchitectureFixtures.ParseMsbuildProject(ServerArchitectureFixtures.LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
+        var index = ServerArchitectureFixtures.ParseMsbuildProject(await ServerArchitectureFixtures.LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
-        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
-        Assert.Equal("Exe", index.RequireProperty("OutputType"));
-        Assert.Equal("Squirix.Server.Host", index.RequireProperty("AssemblyName"));
-        Assert.Equal("Squirix.Server.Host", index.RequireProperty("RootNamespace"));
-        Assert.Equal("true", index.RequireProperty("IsPackable"));
-        Assert.Equal("true", index.RequireProperty("PackAsTool"));
-        Assert.Equal("squirix-server", index.RequireProperty("ToolCommandName"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
+        _ = await Assert.That(await index.RequireProperty("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequireProperty("OutputType")).IsEqualTo("Exe");
+        _ = await Assert.That(await index.RequireProperty("AssemblyName")).IsEqualTo("Squirix.Server.Host");
+        _ = await Assert.That(await index.RequireProperty("RootNamespace")).IsEqualTo("Squirix.Server.Host");
+        _ = await Assert.That(await index.RequireProperty("IsPackable")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequireProperty("PackAsTool")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequireProperty("ToolCommandName")).IsEqualTo("squirix-server");
+        _ = await Assert.That(await index.RequireProperty("Version")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequireProperty("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
         var projectReferences = index.GetIncludes("ProjectReference");
-        Assert.NotNull(projectReferences);
-        Assert.Equal(@"..\squirix.server\Squirix.Server.csproj", projectReferences[0]);
+        _ = await Assert.That(projectReferences).IsNotNull();
+        _ = await Assert.That(projectReferences[0]).IsEqualTo(@"..\squirix.server\Squirix.Server.csproj");
+    }
+
+    /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
+    [Test]
+    public async Task HostingDependenciesMatchApprovedBaseline()
+    {
+        var index = ServerArchitectureFixtures.GetServerProjectIndex();
+        var frameworkIncludes = index.GetIncludes("FrameworkReference");
+        _ = await Assert.That(frameworkIncludes).IsNotNull();
+
+        _ = await Assert.That(
+            ServerArchitectureFixtures.CollectUnexpectedMatches(
+                index.GetIncludes("PackageReference"),
+                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
+                ServerArchitectureFixtures.KnownServerPackageDependencyBaseline,
+                StringComparer.Ordinal)).IsEmpty();
+
+        _ = await Assert.That(
+            ServerArchitectureFixtures.CollectUnexpectedMatches(
+                frameworkIncludes,
+                static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal),
+                ServerArchitectureFixtures.KnownServerFrameworkDependencyBaseline,
+                StringComparer.Ordinal)).IsEmpty();
+
+        _ = await Assert.That(frameworkIncludes).Contains(static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
-    [Fact]
-    public async Task InternalsVisibleToMatchesAllowlist()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InternalsVisibleToMatchesAllowlist(CancellationToken cancellationToken)
     {
         string[] approved =
         [
@@ -104,7 +92,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
         var root = RepositoryPaths.FindRepositoryRoot();
         var assemblyInfoPath = Path.Join(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
-        var text = await File.ReadAllTextAsync(assemblyInfoPath, DefaultCancellationToken);
+        var text = await File.ReadAllTextAsync(assemblyInfoPath, cancellationToken);
         var granted = new List<string>();
         var index = 0;
         while ((index = text.IndexOf("InternalsVisibleTo(\"", index, StringComparison.Ordinal)) >= 0)
@@ -117,50 +105,69 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
         granted.Sort(StringComparer.Ordinal);
         Array.Sort(approved, StringComparer.Ordinal);
-        Assert.Equal(approved, granted, StringComparer.OrdinalIgnoreCase);
+        await SequenceAssert.Equal(approved, granted, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
-    [Fact]
-    public void HostingDependenciesMatchApprovedBaseline()
+    /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalThreadShouldBeJoinedOnDispose(CancellationToken cancellationToken)
     {
-        var index = ServerArchitectureFixtures.GetServerProjectIndex();
-        var frameworkIncludes = index.GetIncludes("FrameworkReference");
-        Assert.NotNull(frameworkIncludes);
+        var root = RepositoryPaths.FindRepositoryRoot();
+        var coordinatorText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), cancellationToken);
+        var durabilityText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalDurabilityCoordinator.cs"), cancellationToken);
 
-        Assert.Empty(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                index.GetIncludes("PackageReference"),
-                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerPackageDependencyBaseline,
-                StringComparer.Ordinal));
+        _ = await Assert.That(durabilityText).Contains("JournalThread.Join(", StringComparison.Ordinal);
+        _ = await Assert.That(coordinatorText).Contains("AwaitJournalThreadDuringDisposeAsync", StringComparison.Ordinal);
+    }
 
-        Assert.Empty(
-            ServerArchitectureFixtures.CollectUnexpectedMatches(
-                frameworkIncludes,
-                static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal),
-                ServerArchitectureFixtures.KnownServerFrameworkDependencyBaseline,
-                StringComparer.Ordinal));
-
-        Assert.Contains(frameworkIncludes, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
+    /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoGlobalOrImplicitUsingsInRepo(CancellationToken cancellationToken)
+    {
+        var root = RepositoryPaths.FindRepositoryRoot();
+        _ = await Assert.That(await ServerArchitectureFixtures.CollectGlobalUsingSourceOffendersAsync(root, cancellationToken)).IsEmpty();
+        _ = await Assert.That(await ServerArchitectureFixtures.CollectImplicitUsingsProjectOffenders(root)).IsEmpty();
     }
 
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
-    [Fact]
-    public void ServerProjectShouldBePackableLibrary()
+    [Test]
+    public async Task ServerProjectShouldBePackableLibrary()
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
 
-        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
-        Assert.False(index.ContainsElement("OutputType"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("AssemblyName"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("RootNamespace"));
-        Assert.Equal(ServerArchitectureNamespaces.PackageId, index.RequireProperty("PackageId"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
-        Assert.Equal("Apache-2.0", index.RequireProperty("PackageLicenseExpression"));
-        Assert.Equal("true", index.RequireProperty("IsPackable"));
-        Assert.Equal("true", index.RequireProperty("TreatWarningsAsErrors"));
-        Assert.Equal("enable", index.RequireProperty("Nullable"));
+        _ = await Assert.That(await index.RequireProperty("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(index.ContainsElement("OutputType")).IsFalse();
+        _ = await Assert.That(await index.RequireProperty("AssemblyName")).IsEqualTo(ServerArchitectureNamespaces.Root);
+        _ = await Assert.That(await index.RequireProperty("RootNamespace")).IsEqualTo(ServerArchitectureNamespaces.Root);
+        _ = await Assert.That(await index.RequireProperty("PackageId")).IsEqualTo(ServerArchitectureNamespaces.PackageId);
+        _ = await Assert.That(await index.RequireProperty("Version")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequireProperty("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequireProperty("PackageLicenseExpression")).IsEqualTo("Apache-2.0");
+        _ = await Assert.That(await index.RequireProperty("IsPackable")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequireProperty("TreatWarningsAsErrors")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequireProperty("Nullable")).IsEqualTo("enable");
+    }
+
+    /// <summary>Ensures product code does not use access-check bypass attributes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SourcesMustNotUseIgnoresAccessChecksTo(CancellationToken cancellationToken)
+    {
+        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src");
+        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
+        var paths = new List<string>(200);
+        paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
+
+        paths.Sort(StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            if (path.Contains(objMarker, StringComparison.Ordinal))
+                continue;
+
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
+            _ = await Assert.That(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal)).IsFalse();
+        }
     }
 }

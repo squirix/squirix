@@ -1,9 +1,12 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Utils;
 
@@ -12,39 +15,39 @@ namespace Squirix.Server.UnitTests.Utils;
 public sealed class ThrowHelperTests : ServerUnitTestBase
 {
     /// <summary>Required returns the value when it is not null.</summary>
-    [Fact]
-    public void RequiredReturnsValue() => Assert.Equal("v", ThrowHelper.Required<string>("v", "boom"));
+    [Test]
+    public async Task RequiredReturnsValue() => _ = await Assert.That(ThrowHelper.Required<string>("v", "boom")).IsEqualTo("v");
 
     /// <summary>Required throws with the message when the value is null.</summary>
-    [Fact]
-    public void RequiredThrowsOnNull()
+    [Test]
+    public async Task RequiredThrowsOnNull()
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws("boom", static message => ThrowHelper.Required<string>(null, message));
 
-        Assert.Equal("boom", ex.Message);
+        _ = await Assert.That(ex.Message).IsEqualTo("boom");
     }
 
     /// <summary>RequiredValue returns the value when it has a value.</summary>
-    [Fact]
-    public void RequiredValueReturnsValue() => Assert.Equal(7, ThrowHelper.RequiredValue<int>(7, "boom"));
+    [Test]
+    public async Task RequiredValueReturnsValue() => _ = await Assert.That(ThrowHelper.RequiredValue<int>(7, "boom")).IsEqualTo(7);
 
     /// <summary>RequiredValue throws with the message when there is no value.</summary>
-    [Fact]
-    public void RequiredValueThrowsOnNull()
+    [Test]
+    public async Task RequiredValueThrowsOnNull()
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws("boom", static message => ThrowHelper.RequiredValue<int>(null, message));
 
-        Assert.Equal("boom", ex.Message);
+        _ = await Assert.That(ex.Message).IsEqualTo("boom");
     }
 
     /// <summary>Throw raises the given exception for expression-embedded use.</summary>
-    [Fact]
-    public void ThrowRaisesException()
+    [Test]
+    public async Task ThrowRaisesException()
     {
         var expected = new InvalidOperationException("boom");
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(expected, static e => ThrowHelper.Throw<string>(e));
 
-        Assert.Same(expected, ex);
+        _ = await Assert.That(ex).IsSameReferenceAs(expected);
     }
 }

@@ -1,10 +1,14 @@
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -14,56 +18,58 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
 {
     /// <summary>EnumerateSegments returns empty for invalid operator paths without throwing.</summary>
     /// <param name="path">Invalid directory path.</param>
-    [Theory]
-    [InlineData("..")]
-    [InlineData("a*b")]
-    [InlineData("")]
-    public static void EnumerateSegmentsEmptyOnBadPath(string path)
+    [Test]
+    [Arguments("..")]
+    [Arguments("a*b")]
+    [Arguments("")]
+    public async Task EnumerateSegmentsEmptyOnBadPath(string path)
     {
         var segments = JournalReader.EnumerateSegments(path, 1);
-        Assert.Empty(segments);
-    }
-
-    /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
-    [Fact]
-    public void EnumerateSegmentsSortedAscending()
-    {
-        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x");
-
-        var segments = JournalReader.EnumerateSegments(Dir, 9);
-        Assert.Equal(2, segments.Length);
-        Assert.Equal(9, segments[0].Index);
-        Assert.Equal(15, segments[1].Index);
+        _ = await Assert.That(segments).IsEmpty();
     }
 
     /// <summary>EnumerateSegments returns empty when journal directory does not exist.</summary>
-    [Fact]
-    public void EnumerateSegmentsEmptyOnMissingDir()
+    [Test]
+    public async Task EnumerateSegmentsEmptyOnMissingDir()
     {
         var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
         var segments = JournalReader.EnumerateSegments(dir, 1);
-        Assert.Empty(segments);
+        _ = await Assert.That(segments).IsEmpty();
     }
 
     /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>
-    [Fact]
-    public void EnumerateSegmentsSkipsNonNumericNames()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnumerateSegmentsSkipsNonNumericNames(CancellationToken cancellationToken)
     {
-        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x");
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x", cancellationToken);
         var segments = JournalReader.EnumerateSegments(Dir, 1);
-        var seg = Assert.Single(segments);
-        Assert.Equal(42, seg.Index);
+        var seg = await Assert.That(segments).HasSingleItem();
+        _ = await Assert.That(seg.Index).IsEqualTo(42);
+    }
+
+    /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnumerateSegmentsSortedAscending(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x", cancellationToken);
+
+        var segments = JournalReader.EnumerateSegments(Dir, 9);
+        _ = await Assert.That(segments.Length).IsEqualTo(2);
+        _ = await Assert.That(segments[0].Index).IsEqualTo(9);
+        _ = await Assert.That(segments[1].Index).IsEqualTo(15);
     }
 
     /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
-    [Fact]
-    public void SegmentStatsDefaultsOnBadPath()
+    [Test]
+    public async Task SegmentStatsDefaultsOnBadPath()
     {
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats("..");
-        Assert.Equal(0, segmentCount);
-        Assert.Equal(0, totalBytes);
+        _ = await Assert.That(segmentCount).IsEqualTo(0);
+        _ = await Assert.That(totalBytes).IsEqualTo(0);
     }
 }

@@ -1,6 +1,9 @@
 using System.IO;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -9,17 +12,17 @@ namespace Squirix.Server.UnitTests.Support;
 public sealed class RecoveryScenarioBuilderTests
 {
     /// <summary>Verifies the shared recovery scenario owns and deletes its temporary directory.</summary>
-    [Fact]
-    public void DisposeDeletesTemporaryDirectory()
+    [Test]
+    public async Task DisposeDeletesTemporaryDirectory()
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-builder-guard");
         var dataDir = scenario.DataDir;
 
-        Assert.True(Directory.Exists(dataDir));
+        _ = await Assert.That(Directory.Exists(dataDir)).IsTrue();
 
         // ReSharper disable once DisposeOnUsingVariable
         scenario.Dispose();
 
-        Assert.False(Directory.Exists(dataDir));
+        _ = await Assert.That(Directory.Exists(dataDir)).IsFalse();
     }
 }

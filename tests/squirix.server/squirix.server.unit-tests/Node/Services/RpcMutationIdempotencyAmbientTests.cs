@@ -1,6 +1,9 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Runtime;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -9,37 +12,37 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class RpcMutationIdempotencyAmbientTests
 {
     /// <summary>Deactivating a foreign scope leaves the active scope intact.</summary>
-    [Fact]
-    public void DeactivateMismatchKeepsScope()
+    [Test]
+    public async Task DeactivateMismatchKeepsScope()
     {
         var active = new object();
         RpcMutationIdempotencyExecutionAmbient.Activate(active, "op-1");
         try
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(new object());
-            Assert.True(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
-            Assert.Equal("op-1", RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue);
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsTrue();
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-1");
         }
         finally
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(active);
         }
 
-        Assert.False(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsFalse();
     }
 
     /// <summary>Notifying without an active scope is a no-op.</summary>
-    [Fact]
-    public void NotifyWithoutScopeIsNoOp()
+    [Test]
+    public async Task NotifyWithoutScopeIsNoOp()
     {
         RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
 
-        Assert.False(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsDeferred).IsFalse();
     }
 
     /// <summary>Stamping is tracked per scope across nesting.</summary>
-    [Fact]
-    public void StampingTrackedPerScope()
+    [Test]
+    public async Task StampingTrackedPerScope()
     {
         var outer = new object();
         var inner = new object();
@@ -49,18 +52,18 @@ public sealed class RpcMutationIdempotencyAmbientTests
             RpcMutationIdempotencyExecutionAmbient.Activate(inner, "op-inner");
             try
             {
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner));
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner)).IsFalse();
                 RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
-                Assert.True(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner));
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(outer));
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(new object()));
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner)).IsTrue();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(outer)).IsFalse();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(new object())).IsFalse();
             }
             finally
             {
                 RpcMutationIdempotencyExecutionAmbient.Deactivate(inner);
             }
 
-            Assert.Equal("op-outer", RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue);
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-outer");
         }
         finally
         {

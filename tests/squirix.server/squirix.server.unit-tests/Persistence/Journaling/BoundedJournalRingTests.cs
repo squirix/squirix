@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -13,20 +15,19 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class BoundedJournalRingTests
 {
     /// <summary>A full ring invokes the failure poll on slice expiry and keeps its slot accounting.</summary>
-    [Fact]
+    [Test]
     public async Task SlicePollObservesPipelineFailure()
     {
         using var ring = new BoundedJournalRing(1);
         await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
 
         var probe = new PipelineFailureProbe();
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None, probe.Throw).AsTask());
-        Assert.Same(probe.Reason, thrown);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None, probe.Throw).AsTask());
+        _ = await Assert.That(thrown).IsSameReferenceAs(probe.Reason);
 
-        Assert.True(ring.TryDequeue(out var filler));
-        Assert.NotNull(filler);
-        Assert.False(ring.TryDequeue(out _));
+        _ = await Assert.That(ring.TryDequeue(out var filler)).IsTrue();
+        _ = await Assert.That(filler).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
     private sealed class PipelineFailureProbe

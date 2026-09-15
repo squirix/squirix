@@ -1,8 +1,11 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -13,18 +16,9 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
     private const string CacheName = "orders";
     private const string Key = "item";
 
-    /// <summary>Null payloads cost the base overhead only (96 + 6 + 4 + 8).</summary>
-    [Fact]
-    public void EstimateBytesNullIsBaseOverhead()
-    {
-        var estimator = new CacheEntrySizeEstimator<object?>();
-
-        Assert.Equal(114, estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = null, Version = 1 }, false));
-    }
-
     /// <summary>Each payload kind maps to its documented golden size.</summary>
-    [Fact]
-    public void EstimateBytesMatchesGoldenPerType()
+    [Test]
+    public async Task EstimateBytesMatchesGoldenPerType()
     {
         const sbyte sbyteValue = 1;
         const byte byteValue = 2;
@@ -55,6 +49,15 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
 
         var estimator = new CacheEntrySizeEstimator<object?>();
         foreach (var (value, expected) in cases)
-            Assert.Equal(expected, estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = value, Version = 1 }, false));
+            _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = value, Version = 1 }, false)).IsEqualTo(expected);
+    }
+
+    /// <summary>Null payloads cost the base overhead only (96 + 6 + 4 + 8).</summary>
+    [Test]
+    public async Task EstimateBytesNullIsBaseOverhead()
+    {
+        var estimator = new CacheEntrySizeEstimator<object?>();
+
+        _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = null, Version = 1 }, false)).IsEqualTo(114);
     }
 }

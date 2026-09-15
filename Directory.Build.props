@@ -102,7 +102,6 @@
     <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
     <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
         <PackageReference Include="Rocks" PrivateAssets="all"/>
-        <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- MTP native code coverage for every test executable. -->

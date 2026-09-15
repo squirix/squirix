@@ -13,39 +13,91 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
-
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 using static Squirix.Server.UnitTests.Cluster.Replication.SquirixReplicationAdapterTestHelpers;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Unit tests for <see cref="SquirixReplicationServiceAdapter"/>.</summary>
+/// <summary>Unit tests for <see cref="SquirixReplicationServiceAdapter" />.</summary>
 [Immutable]
 public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 {
     /// <summary>Verifies that AdvanceReplicaCommit refuses while echoing the term and a zero commit index.</summary>
-    [Fact]
-    public async Task AdvanceReplicaCommitReturnsNotReadyAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdvanceReplicaCommitReturnsNotReadyAsync(CancellationToken cancellationToken)
     {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
+        using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new AdvanceReplicaCommitRequest { Header = CreateValidHeader(), CommitIndex = 42 };
 
         var response = await fixture.Adapter.AdvanceReplicaCommit(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
 
-        Assert.Equal(7UL, response.Term);
-        Assert.Equal(0UL, response.CommitIndex);
-        Assert.False(response.Success);
-        Assert.Equal(RefusalCodes.NotReady, response.RefusalCode);
+        _ = await Assert.That(response.Term).IsEqualTo(7UL);
+        _ = await Assert.That(response.CommitIndex).IsEqualTo(0UL);
+        _ = await Assert.That(response.Success).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+    }
+
+    /// <summary>Verifies that the adapter constructor requires a cluster topology.</summary>
+    [Test]
+    public void ConstructorRequiresCluster()
+    {
+        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
+        TopologyOptions? cluster = null;
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(material, cluster, static (m, c) => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), m));
+    }
+
+    /// <summary>Verifies that the adapter constructor requires mTLS certificate material.</summary>
+    [Test]
+    public void ConstructorRequiresMtlsMaterial()
+    {
+        MtlsCertificateMaterial? material = null;
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            material,
+            static m => _ = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, m!));
+    }
+
+    /// <summary>Verifies that the adapter constructor requires mTLS options.</summary>
+    [Test]
+    public void ConstructorRequiresMtlsOptions()
+    {
+        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
+        MtlsOptions? mtlsOptions = null;
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            material,
+            mtlsOptions,
+            static (m, mtls) => _ = new SquirixReplicationServiceAdapter(CreateTopology(), mtls!, m));
+    }
+
+    /// <summary>Verifies that a disabled mTLS material makes the internal listener unavailable.</summary>
+    [Test]
+    public async Task DisabledMtlsMaterialIsRejected()
+    {
+        var adapter = new SquirixReplicationServiceAdapter(
+            CreateTopology(),
+            new MtlsOptions { InternalListenPort = 6001 },
+            MtlsCertificateMaterial.Load(new MtlsOptions(), null, false));
+        var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     /// <summary>Verifies that AppendReplicaEntries returns failure and a zero-last log index when the node refuses.</summary>
-    [Fact]
-    public async Task EntriesAppendOnRefusalReturnsZeroAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EntriesAppendOnRefusalReturnsZeroAsync(CancellationToken cancellationToken)
     {
         var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
         var topology = new TopologyOptions(peer);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
         using var mtlsMaterial = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
 
@@ -75,68 +127,84 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var response = adapter.AppendReplicaEntries(request, new TestServerCallContext(null, httpContext));
         var result = await response;
 
-        Assert.False(result.Success);
-        Assert.Equal(0UL, result.LastLogIndex);
-        Assert.Equal(RefusalCodes.NotReady, result.RefusalCode);
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.LastLogIndex).IsEqualTo(0UL);
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
     }
 
-    /// <summary>Verifies that the adapter constructor requires a cluster topology.</summary>
-    [Fact]
-    public void ConstructorRequiresCluster()
+    /// <summary>Verifies that InstallReplicaSnapshot skips later chunks without a header.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InstallSkipsHeaderlessChunksAsync(CancellationToken cancellationToken)
     {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
-        TopologyOptions? cluster = null;
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
+            [new InstallReplicaSnapshotRequest { Header = CreateValidHeader() }, new InstallReplicaSnapshotRequest()]);
 
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(material, cluster, static (m, c) => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), m));
+        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
+
+        _ = await Assert.That(response.Success).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
     }
 
-    /// <summary>Verifies that the adapter constructor requires mTLS certificate material.</summary>
-    [Fact]
-    public void ConstructorRequiresMtlsMaterial()
+    /// <summary>Verifies that a request without a client certificate is unauthenticated.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MissingClientCertificateIsRejectedAsync(CancellationToken cancellationToken)
     {
-        MtlsCertificateMaterial? material = null;
-
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
-            material,
-            static m => _ = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, m!));
-    }
-
-    /// <summary>Verifies that the adapter constructor requires mTLS options.</summary>
-    [Fact]
-    public void ConstructorRequiresMtlsOptions()
-    {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
-        MtlsOptions? mtlsOptions = null;
-
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
-            material,
-            mtlsOptions,
-            static (m, mtls) => _ = new SquirixReplicationServiceAdapter(CreateTopology(), mtls!, m));
-    }
-
-    /// <summary>Verifies that a disabled mTLS material makes the internal listener unavailable.</summary>
-    [Fact]
-    public async Task DisabledMtlsMaterialIsRejected()
-    {
-        var adapter = new SquirixReplicationServiceAdapter(
-            CreateTopology(),
-            new MtlsOptions { InternalListenPort = 6001 },
-            MtlsCertificateMaterial.Load(new MtlsOptions(), null, false));
+        using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                LocalPort = fixture.Mtls.InternalListenPort,
+            },
+        };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+    }
+
+    /// <summary>Verifies that a missing envelope header is rejected before peer authentication.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MissingHeaderIsRejectedAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            fixture.Adapter.GetReplicaStatus(new GetReplicaStatusRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+    }
+
+    /// <summary>Verifies that a header with an empty sender node id is rejected.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MissingSenderNodeIdIsRejectedAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var request = new GetReplicaStatusRequest
+        {
+            Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeCodec.SchemaVersion, SenderNodeId = " " },
+        };
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that GetReplicaStatus returns the node's current topology fingerprint and configuration generation.</summary>
-    [Fact]
-    public async Task ReplicaStatusReturnsLocalTopologyAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplicaStatusReturnsLocalTopologyAsync(CancellationToken cancellationToken)
     {
         var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
         var topology = new TopologyOptions(peer);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
         using var mtlsMaterial = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
 
@@ -169,130 +237,75 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         // a broken fingerprint implementation identically on both sides.
         const string expectedFingerprint = "1DE62DAF83BD5D2129BFF07DFDCEF1DAA7C3361B48F565688FF2D5800EC133A5";
         var actualFingerprint = Convert.ToHexString(result.TopologyFingerprint.ToByteArray());
-        Assert.Equal(expectedFingerprint, actualFingerprint, StringComparer.Ordinal);
-        Assert.Equal(topology.ConfigurationGeneration, result.ConfigurationGeneration);
-        Assert.Equal(RefusalCodes.NotReady, result.RefusalCode);
+        _ = await Assert.That(actualFingerprint).IsEqualTo(expectedFingerprint, StringComparer.Ordinal);
+        _ = await Assert.That(result.ConfigurationGeneration).IsEqualTo(topology.ConfigurationGeneration);
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+    }
+
+    /// <summary>Verifies that a claimed sender node id differing from the certificate is unauthenticated.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SenderNodeIdMismatchIsRejectedAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-b") };
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+    }
+
+    /// <summary>Verifies that InstallReplicaSnapshot refuses a single-chunk stream.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotInstallReportsNotReadyAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = CreateValidHeader(), LastIncludedIndex = 9 }]);
+
+        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
+
+        _ = await Assert.That(response.Term).IsEqualTo(7UL);
+        _ = await Assert.That(response.Success).IsFalse();
+        _ = await Assert.That(response.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
+    }
+
+    /// <summary>Verifies that InstallReplicaSnapshot requires at least one chunk.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotInstallRequiresFirstChunkAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([]);
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext())));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that InstallReplicaSnapshot rejects a later chunk with a different sender node id.</summary>
-    [Fact]
-    public async Task SnapshotRejectsMismatchedSenderAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotRejectsMismatchedSenderAsync(CancellationToken cancellationToken)
     {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
+        using var fixture = await CreateAdapterAsync(cancellationToken);
         var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
             [new InstallReplicaSnapshotRequest { Header = CreateValidHeader() }, new InstallReplicaSnapshotRequest { Header = CreateValidHeader("node-b") }]);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot requires at least one chunk.</summary>
-    [Fact]
-    public async Task SnapshotInstallRequiresFirstChunkAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([]);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot refuses a single-chunk stream.</summary>
-    [Fact]
-    public async Task SnapshotInstallReportsNotReadyAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = CreateValidHeader(), LastIncludedIndex = 9 }]);
-
-        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
-
-        Assert.Equal(7UL, response.Term);
-        Assert.False(response.Success);
-        Assert.Equal(RefusalCodes.NotReady, response.RefusalCode);
-    }
-
-    /// <summary>Verifies that InstallReplicaSnapshot skips later chunks without a header.</summary>
-    [Fact]
-    public async Task InstallSkipsHeaderlessChunksAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(
-            [new InstallReplicaSnapshotRequest { Header = CreateValidHeader() }, new InstallReplicaSnapshotRequest()]);
-
-        var response = await fixture.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, fixture.CreateHttpContext()));
-
-        Assert.False(response.Success);
-        Assert.Equal(RefusalCodes.NotReady, response.RefusalCode);
-    }
-
-    /// <summary>Verifies that a request without a client certificate is unauthenticated.</summary>
-    [Fact]
-    public async Task MissingClientCertificateIsRejectedAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
-        var httpContext = new DefaultHttpContext
-        {
-            Connection =
-            {
-                LocalPort = fixture.Mtls.InternalListenPort,
-            },
-        };
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
-
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that a missing envelope header is rejected before peer authentication.</summary>
-    [Fact]
-    public async Task MissingHeaderIsRejectedAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.GetReplicaStatus(new GetReplicaStatusRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that a header with an empty sender node id is rejected.</summary>
-    [Fact]
-    public async Task MissingSenderNodeIdIsRejectedAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var request = new GetReplicaStatusRequest
-        {
-            Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeCodec.SchemaVersion, SenderNodeId = " " },
-        };
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-    }
-
-    /// <summary>Verifies that a claimed sender node id differing from the certificate is unauthenticated.</summary>
-    [Fact]
-    public async Task SenderNodeIdMismatchIsRejectedAsync()
-    {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
-        var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-b") };
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
-
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that a certificate not bound to a configured peer is unauthenticated.</summary>
-    [Fact]
-    public async Task UnknownPeerCertificateIsRejectedAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnknownPeerCertificateIsRejectedAsync(CancellationToken cancellationToken)
     {
         var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
         var topology = new TopologyOptions(peer);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var unknownCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-unknown");
         using var material = MtlsCertificateMaterial.Create(unknownCertificate, bundle.Ca);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material);
@@ -308,14 +321,15 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     /// <summary>Verifies that an unsupported envelope schema version is rejected.</summary>
-    [Fact]
-    public async Task UnsupportedSchemaVersionIsRejectedAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnsupportedSchemaVersionIsRejectedAsync(CancellationToken cancellationToken)
     {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
+        using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest
         {
             Header = new ReplicationEnvelopeHeader { SchemaVersion = 99, SenderNodeId = "node-a" },
@@ -323,14 +337,15 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
     /// <summary>Verifies that a call not arriving on the internal listener is denied.</summary>
-    [Fact]
-    public async Task WrongLocalPortIsRejectedAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WrongLocalPortIsRejectedAsync(CancellationToken cancellationToken)
     {
-        using var fixture = await CreateAdapterAsync(DefaultCancellationToken);
+        using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
         var httpContext = new DefaultHttpContext
         {
@@ -343,7 +358,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
-        Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
     }
 
     [Immutable]

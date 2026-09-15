@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -14,8 +17,8 @@ namespace Squirix.Server.UnitTests.Hosting;
 public sealed class ConfiguratorTests : IsolatedStorageTestBase
 {
     /// <summary>Canonicalizes a safe data directory override to an absolute path.</summary>
-    [Fact]
-    public void CommandLineCanonicalizesDataDir()
+    [Test]
+    public async Task CommandLineCanonicalizesDataDir()
     {
         var options = new SquirixServerOptions
         {
@@ -28,12 +31,12 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         };
 
         Configurator.ApplyCommandLineOverrides(options, null, Dir.Path, true);
-        Assert.Equal(Path.GetFullPath(Dir.Path), options.DataDirectory);
+        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir.Path));
     }
 
     /// <summary>Command-line overrides enable the replication opt-in.</summary>
-    [Fact]
-    public void CommandLineEnablesReplicationOptIn()
+    [Test]
+    public async Task CommandLineEnablesReplicationOptIn()
     {
         var options = new SquirixServerOptions
         {
@@ -46,12 +49,12 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         };
 
         Configurator.ApplyCommandLineOverrides(options, null, null, false, true);
-        Assert.True(options.ReplicationEnabled);
+        _ = await Assert.That(options.ReplicationEnabled).IsTrue();
     }
 
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
-    [Fact]
-    public void CommandLineOverridesTraversalDataDir()
+    [Test]
+    public async Task CommandLineOverridesTraversalDataDir()
     {
         var options = new SquirixServerOptions
         {
@@ -64,21 +67,12 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         };
 
         var ex = NodeExceptionAssert.For<ArgumentException>().Throws(options, static value => Configurator.ApplyCommandLineOverrides(value, null, "../data", true));
-        Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>ApplyRuntimeDefaults canonicalizes an existing data directory.</summary>
-    [Fact]
-    public void RuntimeDefaultsCanonicalizeDataDir()
-    {
-        var options = new SquirixServerOptions { DataDirectory = Dir.Path };
-        Configurator.ApplyRuntimeDefaults(options);
-        Assert.Equal(Path.GetFullPath(Dir.Path), options.DataDirectory);
+        _ = await Assert.That(ex.Message).Contains("'.' or '..'", StringComparison.Ordinal);
     }
 
     /// <summary>CopyOptions preserves replica placement fields.</summary>
-    [Fact]
-    public void CopyOptionsCopiesReplicaSettings()
+    [Test]
+    public async Task CopyOptionsCopiesReplicaSettings()
     {
         var source = new SquirixServerOptions
         {
@@ -94,92 +88,107 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         };
         var target = new SquirixServerOptions();
         Configurator.CopyOptions(source, target);
-        Assert.Equal(3, target.ReplicaCount);
-        Assert.True(target.ReplicationEnabled);
-        Assert.Equal(9u, target.ConfigurationGeneration);
+        _ = await Assert.That(target.ReplicaCount).IsEqualTo(3);
+        _ = await Assert.That(target.ReplicationEnabled).IsTrue();
+        _ = await Assert.That(target.ConfigurationGeneration).IsEqualTo(9u);
+    }
+
+    /// <summary>Ensures invalid peer topology returns structured errors.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadFromFileErrorsForInvalidPeers(CancellationToken cancellationToken)
+    {
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
+        var path = NodePathKit.Combine(Dir, "invalid.json");
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+        var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("local NodeId", StringComparison.Ordinal);
+    }
+
+    /// <summary>TryLoadFromFile reports a clear error when the settings file is missing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadFromFileErrorsWhenFileMissing(CancellationToken cancellationToken)
+    {
+        var (success, _, error) = await Configurator.LoadFromFileAsync(Path.Join(Dir.Path, "missing.json"), cancellationToken);
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("does not exist", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures cluster settings can be loaded from a settings file path.</summary>
-    [Fact]
-    public async Task LoadFromFileReadsClusterSection()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadFromFileReadsClusterSection(CancellationToken cancellationToken)
     {
         const string json =
             """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
         var path = NodePathKit.Combine(Dir, "Squirix.settings.json");
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        var options = await Configurator.LoadAsync(path, DefaultCancellationToken);
-        Assert.Equal("node-a", options.NodeId);
-        Assert.Equal("c1", options.ClusterId);
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+        var options = await Configurator.LoadAsync(path, cancellationToken);
+        _ = await Assert.That(options.NodeId).IsEqualTo("node-a");
+        _ = await Assert.That(options.ClusterId).IsEqualTo("c1");
     }
 
-    /// <summary>Ensures TryValidate surfaces multiple validation failures.</summary>
-    [Fact]
-    public void ValidateReturnsErrorsWithoutThrowing()
+    /// <summary>Rejects settings paths that contain parent-directory segments.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadFromFileRejectsTraversalPath(CancellationToken cancellationToken)
     {
-        var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
-        var ok = options.TryValidate(out var errors);
-        Assert.False(ok);
-        Assert.True(errors.Count >= 2);
-    }
-
-    /// <summary>ResolveSettingsPath validates an explicit settings path.</summary>
-    [Fact]
-    public void SettingsPathCanonicalizesExplicitInput()
-    {
-        var path = Path.Join(Dir.Path, "Squirix.settings.json");
-        File.WriteAllText(path, "{}");
-        var resolved = Configurator.ResolveSettingsPath(path);
-        Assert.Equal(Path.GetFullPath(path), resolved);
+        var (success, _, error) = await Configurator.LoadFromFileAsync("../Squirix.settings.json", cancellationToken);
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("'.' or '..'", StringComparison.Ordinal);
     }
 
     /// <summary>Public path helpers reject traversal segments.</summary>
-    [Fact]
+    [Test]
     public void ResolveValidatedHelpersRejectTraversal()
     {
         _ = NodeExceptionAssert.For<ArgumentException>().Throws("../data", static value => Configurator.ResolveValidatedDataDirectory(value));
         _ = NodeExceptionAssert.For<ArgumentException>().Throws("../Squirix.settings.json", static value => Configurator.ResolveValidatedFilePath(value));
     }
 
-    /// <summary>Rejects settings paths that contain parent-directory segments.</summary>
-    [Fact]
-    public async Task LoadFromFileRejectsTraversalPath()
+    /// <summary>ApplyRuntimeDefaults canonicalizes an existing data directory.</summary>
+    [Test]
+    public async Task RuntimeDefaultsCanonicalizeDataDir()
     {
-        var (success, _, error) = await Configurator.LoadFromFileAsync("../Squirix.settings.json", DefaultCancellationToken);
-        Assert.False(success);
-        Assert.Contains("'.' or '..'", error, StringComparison.Ordinal);
+        var options = new SquirixServerOptions { DataDirectory = Dir.Path };
+        Configurator.ApplyRuntimeDefaults(options);
+        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir.Path));
     }
 
-    /// <summary>TryLoadFromFile reports a clear error when the settings file is missing.</summary>
-    [Fact]
-    public async Task LoadFromFileErrorsWhenFileMissing()
+    /// <summary>ResolveSettingsPath validates an explicit settings path.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SettingsPathCanonicalizesExplicitInput(CancellationToken cancellationToken)
     {
-        var (success, _, error) = await Configurator.LoadFromFileAsync(Path.Join(Dir.Path, "missing.json"), DefaultCancellationToken);
-        Assert.False(success);
-        Assert.Contains("does not exist", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Ensures invalid peer topology returns structured errors.</summary>
-    [Fact]
-    public async Task LoadFromFileErrorsForInvalidPeers()
-    {
-        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
-        var path = NodePathKit.Combine(Dir, "invalid.json");
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        var (success, _, error) = await Configurator.LoadFromFileAsync(path, DefaultCancellationToken);
-        Assert.False(success);
-        Assert.Contains("local NodeId", error, StringComparison.Ordinal);
+        var path = Path.Join(Dir.Path, "Squirix.settings.json");
+        await File.WriteAllTextAsync(path, "{}", cancellationToken);
+        var resolved = Configurator.ResolveSettingsPath(path);
+        _ = await Assert.That(resolved).IsEqualTo(Path.GetFullPath(path));
     }
 
     /// <summary>Ensures strict validation rejects invalid memory pressure thresholds.</summary>
-    [Fact]
-    public async Task ValidateFileFlagsInvalidMemoryPressure()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValidateFileFlagsInvalidMemoryPressure(CancellationToken cancellationToken)
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";
         var path = NodePathKit.Combine(Dir, "strict.json");
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        var (success, error) = await Configurator.ValidateSettingsFileAsync(path, true, DefaultCancellationToken);
-        Assert.False(success);
-        Assert.Contains("HighPressureThresholdPercent", error, StringComparison.Ordinal);
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+        var (success, error) = await Configurator.ValidateSettingsFileAsync(path, true, cancellationToken);
+        _ = await Assert.That(success).IsFalse();
+        _ = await Assert.That(error).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures TryValidate surfaces multiple validation failures.</summary>
+    [Test]
+    public async Task ValidateReturnsErrorsWithoutThrowing()
+    {
+        var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
+        var ok = options.TryValidate(out var errors);
+        _ = await Assert.That(ok).IsFalse();
+        _ = await Assert.That(errors.Count >= 2).IsTrue();
     }
 }

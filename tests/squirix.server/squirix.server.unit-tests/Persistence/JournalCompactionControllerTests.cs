@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -12,7 +13,9 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -21,7 +24,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 {
     /// <summary>Double dispose does not throw.</summary>
-    [Fact]
+    [Test]
     [SuppressMessage("Major Code Smell", "S2699:Tests should include assertions", Justification = "This lifecycle test asserts that the second Dispose call does not throw.")]
     [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
     public async Task DisposeIsIdempotent()
@@ -33,9 +36,24 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         controller.Dispose();
     }
 
+    /// <summary>Disposed controller rejects further compaction attempts.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TriggerAfterDisposeThrows(CancellationToken cancellationToken)
+    {
+        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
+        using var manifestStore = new Ledger(opt);
+        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
+        var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
+        controller.Dispose();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerAsync(cancellationToken));
+    }
+
     /// <summary>When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerAsync" /> returns false without waiting.</summary>
-    [Fact]
-    public async Task TriggerNowFalseWhenMutexUnavailableAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TriggerNowFalseWhenMutexUnavailableAsync(CancellationToken cancellationToken)
     {
         var opt = new PersistenceOptions
         {
@@ -46,30 +64,17 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
 
         using var manifestStore = new Ledger(opt);
         await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
-        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
 
-        var firstTrigger = controller.TryTriggerAsync(DefaultCancellationToken);
-        var secondTrigger = controller.TryTriggerAsync(DefaultCancellationToken);
+        var firstTrigger = controller.TryTriggerAsync(cancellationToken);
+        var secondTrigger = controller.TryTriggerAsync(cancellationToken);
         var firstResult = await firstTrigger;
         var secondResult = await secondTrigger;
 
-        Assert.True(firstResult ^ secondResult);
-        Assert.True(await controller.TryTriggerAsync(DefaultCancellationToken));
-    }
-
-    /// <summary>Disposed controller rejects further compaction attempts.</summary>
-    [Fact]
-    public async Task TriggerAfterDisposeThrows()
-    {
-        var opt = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
-        using var manifestStore = new Ledger(opt);
-        await using var journal = JournalCoordinatorFactory.Create(opt, new State(), manifestStore, new AsyncManualResetEvent(true));
-        var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
-        controller.Dispose();
-
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerAsync(DefaultCancellationToken));
+        _ = await Assert.That(firstResult ^ secondResult).IsTrue();
+        _ = await Assert.That(await controller.TryTriggerAsync(cancellationToken)).IsTrue();
     }
 }

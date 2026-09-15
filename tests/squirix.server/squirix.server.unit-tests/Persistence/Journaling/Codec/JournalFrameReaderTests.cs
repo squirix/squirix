@@ -12,7 +12,9 @@ using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -24,7 +26,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     private static readonly byte[] TruncatedHeaderBytes = [0x10, 0x00];
 
     /// <summary>Verifies CRC mismatches classify consistently.</summary>
-    [Fact]
+    [Test]
     public Task CrcMismatchIsClassifiedConsistently()
     {
         var payload = BuildPayload(1, "bad-crc");
@@ -34,22 +36,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies an empty frame source is reported as EOF consistently.</summary>
-    [Fact]
+    [Test]
     public Task EmptyFrameSourceIsHandledConsistently() => AssertStatusAsync(EmptyFrameBytes, EmptyFrameBytes.Length, JournalFrameReadStatus.EndOfFile);
 
-    /// <summary>Verifies oversized declared payload lengths are rejected consistently.</summary>
-    [Fact]
-    public Task OversizedFrameIsClassifiedConsistently()
-    {
-        var length = BufferKit.ToOwnedBytes(
-            JournalFraming.FrameHeaderSize,
-            0x8000_0000u,
-            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
-        return AssertStatusAsync(length, length.Length, JournalFrameReadStatus.OversizedFrame);
-    }
-
     /// <summary>Verifies a large positive declared length (corrupt header) is rejected as oversized before any buffer is rented.</summary>
-    [Fact]
+    [Test]
     public Task LargePositiveFrameLengthIsOversized()
     {
         var length = BufferKit.ToOwnedBytes(
@@ -59,8 +50,19 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         return AssertStatusAsync(length, length.Length, JournalFrameReadStatus.OversizedFrame);
     }
 
+    /// <summary>Verifies oversized declared payload lengths are rejected consistently.</summary>
+    [Test]
+    public Task OversizedFrameIsClassifiedConsistently()
+    {
+        var length = BufferKit.ToOwnedBytes(
+            JournalFraming.FrameHeaderSize,
+            0x8000_0000u,
+            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
+        return AssertStatusAsync(length, length.Length, JournalFrameReadStatus.OversizedFrame);
+    }
+
     /// <summary>Verifies truncated frame checksum footers classify consistently.</summary>
-    [Fact]
+    [Test]
     public Task TruncatedChecksumClassifiedStably()
     {
         var payload = BuildPayload(1, "crc");
@@ -69,11 +71,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies truncated frame headers classify consistently.</summary>
-    [Fact]
+    [Test]
     public Task TruncatedHeaderIsClassifiedConsistently() => AssertStatusAsync(TruncatedHeaderBytes, TruncatedHeaderBytes.Length, JournalFrameReadStatus.TruncatedHeader);
 
     /// <summary>Verifies truncated frame payloads classify consistently.</summary>
-    [Fact]
+    [Test]
     public Task TruncatedPayloadIsClassifiedConsistently()
     {
         var bytes = BufferKit.ToOwnedBytes(
@@ -88,27 +90,30 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
-    [Fact]
-    public Task ValidFramesPreserveOrderAndOffsets()
+    [Test]
+    public async Task ValidFramesPreserveOrderAndOffsets()
     {
         var first = BuildPayload(1, "first");
         var second = BuildPayload(2, "second");
         var bytes = BuildFrameBytes(first, second);
+        var capture = new OrderedFramesCapture();
 
-        return WithFrameFileAsync(
+        await WithFrameFileAsync(
             bytes,
             bytes.Length,
             handle =>
             {
                 var firstRead = JournalFrameReader.ReadNext(handle, 0, out var firstBuffer, out var firstLength);
-                Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
-                Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
-                Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer!, firstLength).Key.Key);
+                capture.FirstStatus = firstRead.Status;
+                capture.FirstNextOffset = firstRead.NextFrameOffset;
+                capture.FirstExpectedOffset = JournalFraming.FrameTotalLength(first.Length);
+                capture.FirstKey = firstBuffer == null ? null : BinaryJournalCodec.Decode(firstBuffer, firstLength).Key.Key;
 
                 var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, out var secondBuffer, out var secondLength);
-                Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
-                Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
-                Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer!, secondLength).Key.Key);
+                capture.SecondStatus = secondRead.Status;
+                capture.SecondNextOffset = secondRead.NextFrameOffset;
+                capture.SecondExpectedOffset = bytes.Length;
+                capture.SecondKey = secondBuffer == null ? null : BinaryJournalCodec.Decode(secondBuffer, secondLength).Key.Key;
 
                 if (firstBuffer != null)
                     ArrayPool<byte>.Shared.Return(firstBuffer);
@@ -116,40 +121,60 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
                 if (secondBuffer != null)
                     ArrayPool<byte>.Shared.Return(secondBuffer);
             });
+
+        _ = await Assert.That(capture.FirstStatus).IsEqualTo(JournalFrameReadStatus.Success);
+        _ = await Assert.That(capture.FirstNextOffset).IsEqualTo(capture.FirstExpectedOffset);
+        _ = await Assert.That(capture.FirstKey).IsEqualTo("first");
+        _ = await Assert.That(capture.SecondStatus).IsEqualTo(JournalFrameReadStatus.Success);
+        _ = await Assert.That(capture.SecondNextOffset).IsEqualTo(capture.SecondExpectedOffset);
+        _ = await Assert.That(capture.SecondKey).IsEqualTo("second");
     }
 
     /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
-    [Fact]
-    public Task ValidSingleFrameIsReadSuccessfully()
+    [Test]
+    public async Task ValidSingleFrameIsReadSuccessfully()
     {
         var payload = BuildPayload(1, "single");
         var bytes = BuildFrameBytes(payload);
+        var capture = new SingleFrameCapture();
 
-        return WithFrameFileAsync(
+        await WithFrameFileAsync(
             bytes,
             bytes.Length,
             handle =>
             {
                 var read = JournalFrameReader.ReadNext(handle, 0, out var rentedBuffer, out var payloadLength);
-
-                Assert.Equal(JournalFrameReadStatus.Success, read.Status);
-                Assert.Equal(bytes.Length, read.NextFrameOffset);
-                Assert.Equal(payload.Length, payloadLength);
-                Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer.AsSpan(0, payloadLength)));
+                capture.Status = read.Status;
+                capture.NextOffset = read.NextFrameOffset;
+                capture.ExpectedOffset = bytes.Length;
+                capture.PayloadLength = payloadLength;
+                capture.ExpectedPayloadLength = payload.Length;
+                capture.PayloadMatches = rentedBuffer != null && payload.AsSpan().SequenceEqual(rentedBuffer.AsSpan(0, payloadLength));
 
                 if (rentedBuffer != null)
                     ArrayPool<byte>.Shared.Return(rentedBuffer);
             });
+
+        _ = await Assert.That(capture.Status).IsEqualTo(JournalFrameReadStatus.Success);
+        _ = await Assert.That(capture.NextOffset).IsEqualTo(capture.ExpectedOffset);
+        _ = await Assert.That(capture.PayloadLength).IsEqualTo(capture.ExpectedPayloadLength);
+        _ = await Assert.That(capture.PayloadMatches).IsTrue();
     }
 
-    private static Task AssertStatusAsync(byte[] bytes, int visibleLength, JournalFrameReadStatus expectedStatus) => WithFrameFileAsync(
-        bytes,
-        visibleLength,
-        handle =>
-        {
-            var read = JournalFrameReader.ReadNext(handle, 0, out _, out _);
-            Assert.Equal(expectedStatus, read.Status);
-        });
+    private static async Task AssertStatusAsync(byte[] bytes, int visibleLength, JournalFrameReadStatus expectedStatus)
+    {
+        var capture = new StatusCapture();
+        await WithFrameFileAsync(
+            bytes,
+            visibleLength,
+            handle =>
+            {
+                var read = JournalFrameReader.ReadNext(handle, 0, out _, out _);
+                capture.Status = read.Status;
+            });
+
+        _ = await Assert.That(capture.Status).IsEqualTo(expectedStatus);
+    }
 
     private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
         JournalFraming.FrameTotalLength(payload.Length),
@@ -201,5 +226,44 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         {
             File.Delete(path);
         }
+    }
+
+    private sealed class OrderedFramesCapture
+    {
+        public long FirstExpectedOffset { get; set; }
+
+        public string? FirstKey { get; set; }
+
+        public long FirstNextOffset { get; set; }
+
+        public JournalFrameReadStatus FirstStatus { get; set; }
+
+        public long SecondExpectedOffset { get; set; }
+
+        public string? SecondKey { get; set; }
+
+        public long SecondNextOffset { get; set; }
+
+        public JournalFrameReadStatus SecondStatus { get; set; }
+    }
+
+    private sealed class SingleFrameCapture
+    {
+        public long ExpectedOffset { get; set; }
+
+        public int ExpectedPayloadLength { get; set; }
+
+        public long NextOffset { get; set; }
+
+        public int PayloadLength { get; set; }
+
+        public bool PayloadMatches { get; set; }
+
+        public JournalFrameReadStatus Status { get; set; }
+    }
+
+    private sealed class StatusCapture
+    {
+        public JournalFrameReadStatus Status { get; set; }
     }
 }

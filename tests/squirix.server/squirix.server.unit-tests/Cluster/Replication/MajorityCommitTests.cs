@@ -1,7 +1,10 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -10,27 +13,27 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class MajorityCommitTests
 {
     /// <summary>Ahead-of-prefix indexes are buffered and count once the missing prefix lands.</summary>
-    [Fact]
-    public void CommitIndexNeverSkipsMissingPrefix()
+    [Test]
+    public async Task CommitIndexNeverSkipsMissingPrefix()
     {
         var quorum = new ReplicaCommitQuorum(3);
         var first = CreateMutation(1, [1]);
         var second = CreateMutation(2, [2]);
 
-        Assert.True(quorum.TryRecord(0, CreateAcknowledgement(first), first));
-        Assert.True(quorum.TryRecord(1, CreateAcknowledgement(second), second));
-        Assert.True(quorum.TryRecord(2, CreateAcknowledgement(second), second));
-        Assert.Equal(0UL, quorum.FindCommitIndex(0, 2));
-        Assert.Equal(0UL, quorum.MatchIndexFor(1));
+        _ = await Assert.That(quorum.TryRecord(0, CreateAcknowledgement(first), first)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(second), second)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(2, CreateAcknowledgement(second), second)).IsTrue();
+        _ = await Assert.That(quorum.FindCommitIndex(0, 2)).IsEqualTo(0UL);
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(0UL);
 
-        Assert.True(quorum.TryRecord(1, CreateAcknowledgement(first), first));
-        Assert.Equal(2UL, quorum.MatchIndexFor(1));
-        Assert.Equal(1UL, quorum.FindCommitIndex(0, 2));
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(first), first)).IsTrue();
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(2UL);
+        _ = await Assert.That(quorum.FindCommitIndex(0, 2)).IsEqualTo(1UL);
     }
 
     /// <summary>Every acknowledgement identity field must match the prepared mutation.</summary>
-    [Fact]
-    public void RejectsAcknowledgementForDifferentEntry()
+    [Test]
+    public async Task RejectsAcknowledgementForDifferentEntry()
     {
         var mutation = CreateMutation(1, [1, 2, 3]);
         var quorum = new ReplicaCommitQuorum(3);
@@ -43,33 +46,33 @@ public sealed class MajorityCommitTests
         var notDurable = valid with { IsDurable = false };
         var notReady = valid with { IsReady = false };
 
-        Assert.False(quorum.TryRecord(0, in wrongGroup, mutation));
-        Assert.False(quorum.TryRecord(0, in wrongTerm, mutation));
-        Assert.False(quorum.TryRecord(0, in wrongIndex, mutation));
-        Assert.False(quorum.TryRecord(0, in wrongFingerprint, mutation));
-        Assert.False(quorum.TryRecord(0, in wrongChecksum, mutation));
-        Assert.False(quorum.TryRecord(0, in notDurable, mutation));
-        Assert.False(quorum.TryRecord(0, in notReady, mutation));
-        Assert.Equal(0UL, quorum.MatchIndexFor(0));
+        _ = await Assert.That(quorum.TryRecord(0, in wrongGroup, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in wrongTerm, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in wrongIndex, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in wrongFingerprint, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in wrongChecksum, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in notDurable, mutation)).IsFalse();
+        _ = await Assert.That(quorum.TryRecord(0, in notReady, mutation)).IsFalse();
+        _ = await Assert.That(quorum.MatchIndexFor(0)).IsEqualTo(0UL);
     }
 
     /// <summary>Every supported replica factor uses the expected majority.</summary>
-    [Fact]
-    public void RequiredCopiesCoverAllConfiguredRfValues()
+    [Test]
+    public async Task RequiredCopiesCoverAllConfiguredRfValues()
     {
-        Assert.Equal(1, new ReplicaCommitQuorum(1).RequiredCopies);
-        Assert.Equal(2, new ReplicaCommitQuorum(2).RequiredCopies);
-        Assert.Equal(2, new ReplicaCommitQuorum(3).RequiredCopies);
-        Assert.Equal(3, new ReplicaCommitQuorum(4).RequiredCopies);
-        Assert.Equal(3, new ReplicaCommitQuorum(5).RequiredCopies);
+        _ = await Assert.That(new ReplicaCommitQuorum(1).RequiredCopies).IsEqualTo(1);
+        _ = await Assert.That(new ReplicaCommitQuorum(2).RequiredCopies).IsEqualTo(2);
+        _ = await Assert.That(new ReplicaCommitQuorum(3).RequiredCopies).IsEqualTo(2);
+        _ = await Assert.That(new ReplicaCommitQuorum(4).RequiredCopies).IsEqualTo(3);
+        _ = await Assert.That(new ReplicaCommitQuorum(5).RequiredCopies).IsEqualTo(3);
     }
 
     /// <summary>Required copies use floor-half plus one.</summary>
-    [Fact]
-    public void RequiredCopiesUsesFloorHalfPlusOne()
+    [Test]
+    public async Task RequiredCopiesUsesFloorHalfPlusOne()
     {
-        Assert.Equal(2, new ReplicaCommitQuorum(3).RequiredCopies);
-        Assert.Equal(3, new ReplicaCommitQuorum(5).RequiredCopies);
+        _ = await Assert.That(new ReplicaCommitQuorum(3).RequiredCopies).IsEqualTo(2);
+        _ = await Assert.That(new ReplicaCommitQuorum(5).RequiredCopies).IsEqualTo(3);
     }
 
     private static ReplicaDurableAcknowledgement CreateAcknowledgement(PreparedReplicaMutation mutation) => new(
