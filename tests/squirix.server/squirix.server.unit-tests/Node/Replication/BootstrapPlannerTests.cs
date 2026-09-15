@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Replication;
@@ -7,7 +8,9 @@ using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Replication;
 
@@ -15,113 +18,123 @@ namespace Squirix.Server.UnitTests.Node.Replication;
 public sealed class BootstrapPlannerTests : ServerUnitTestBase
 {
     /// <summary>Preparation publishes a readable checksummed manifest without changing source data.</summary>
-    [Fact]
-    public async Task CreatesManifestAndPreservesSource()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CreatesManifestAndPreservesSource(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-create");
         var sourcePath = Path.Join(dir, "journal-000001.sqr");
-        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], DefaultCancellationToken);
-        var before = await File.ReadAllBytesAsync(sourcePath, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], cancellationToken);
+        var before = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
 
-        var result = await new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken);
-        var decoded = await new BootstrapManifestStore(dir).ReadAsync(DefaultCancellationToken);
+        var result = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
+        var decoded = await new BootstrapManifestStore(dir).ReadAsync(cancellationToken);
 
-        Assert.False(result.Resumed);
-        Assert.NotNull(decoded);
-        Assert.Equal<ushort>(1, decoded.FormatVersion);
-        Assert.Equal(3, decoded.TargetReplicaCount);
-        Assert.Equal(2UL, decoded.TargetGeneration);
-        Assert.All(decoded.Groups, static group => Assert.Equal(BootstrapGroupState.Pending, group.State));
-        Assert.Equal(before, await File.ReadAllBytesAsync(sourcePath, DefaultCancellationToken));
+        _ = await Assert.That(result.Resumed).IsFalse();
+        _ = await Assert.That(decoded).IsNotNull();
+        const ushort expectedFormatVersion = 1;
+        _ = await Assert.That(decoded.FormatVersion).IsEqualTo(expectedFormatVersion);
+        _ = await Assert.That(decoded.TargetReplicaCount).IsEqualTo(3);
+        _ = await Assert.That(decoded.TargetGeneration).IsEqualTo(2UL);
+        _ = await Assert.That(decoded.Groups).All(static group => group.State == BootstrapGroupState.Pending);
+        var after = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
+        await SequenceAssert.Equal(before, after);
     }
 
     /// <summary>A different generation and a corrupted manifest both fail closed.</summary>
-    [Fact]
-    public async Task RejectsDifferentOrCorruptManifest()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectsDifferentOrCorruptManifest(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-reject");
         var planner = new BootstrapPlanner();
-        var prepared = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
+        var prepared = await planner.PrepareAsync(Request(dir), cancellationToken);
         var different = Request(dir, true, 1, 3, 3UL);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(different, DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(different, cancellationToken)));
 
-        var bytes = await File.ReadAllBytesAsync(prepared.ManifestPath, DefaultCancellationToken);
+        var bytes = await File.ReadAllBytesAsync(prepared.ManifestPath, cancellationToken);
         bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(prepared.ManifestPath, bytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(prepared.ManifestPath, bytes, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir), cancellationToken)));
     }
 
     /// <summary>Changing a fingerprint input other than RF and generation is rejected.</summary>
-    [Fact]
-    public async Task RejectsTopologyInputChanges()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectsTopologyInputChanges(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-topology");
         var request = Request(dir);
         request = request.WithTarget(Topology(3, 2UL, 256));
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, cancellationToken)));
     }
 
     /// <summary>Unscoped legacy outcomes report the earliest time at which all blockers have expired.</summary>
-    [Fact]
-    public async Task RejectsUnscopedLegacyOutcomes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectsUnscopedLegacyOutcomes(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-legacy");
         var retry = DateTimeOffset.UtcNow.AddHours(2);
         var request = Request(dir, true, 1, 3, 2UL, [new BootstrapLegacyOutcome(false, retry)]);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(request, cancellationToken)));
 
-        Assert.Contains(retry.ToString("O"), exception.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(Path.Join(dir, "bootstrap.manifest")));
+        _ = await Assert.That(exception.Message).Contains(retry.ToString("O"), StringComparison.Ordinal);
+        _ = await Assert.That(File.Exists(Path.Join(dir, "bootstrap.manifest"))).IsFalse();
     }
 
     /// <summary>An existing exclusive owner proves the cluster is not stopped and blocks preparation.</summary>
-    [Fact]
-    public async Task RequiresExclusiveDirectoryOwnership()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RequiresExclusiveDirectoryOwnership(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-lock");
         var lockPath = Path.Join(dir, "bootstrap.lock");
         using var ownership = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken)));
     }
 
     /// <summary>Persistence, RF=1 source, RF&gt;1 target, and generation increase are mandatory.</summary>
-    [Fact]
-    public async Task RequiresRfAndPersistenceInvariants()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RequiresRfAndPersistenceInvariants(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-invariants");
         var planner = new BootstrapPlanner();
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, false), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, false), cancellationToken)));
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 2), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 2), cancellationToken)));
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 1, 1), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 1, 1), cancellationToken)));
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, BootstrapPreparationResult>(
-            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 1, 3, 1UL), DefaultCancellationToken)));
+            new ValueTask<BootstrapPreparationResult>(planner.PrepareAsync(Request(dir, true, 1, 3, 1UL), cancellationToken)));
     }
 
     /// <summary>An identical rerun resumes the same generation and leaves manifest bytes unchanged.</summary>
-    [Fact]
-    public async Task SameTargetResumesManifest()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SameTargetResumesManifest(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-resume");
         var planner = new BootstrapPlanner();
-        var first = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
-        var before = await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken);
+        var first = await planner.PrepareAsync(Request(dir), cancellationToken);
+        var before = await File.ReadAllBytesAsync(first.ManifestPath, cancellationToken);
 
-        var resumed = await planner.PrepareAsync(Request(dir), DefaultCancellationToken);
+        var resumed = await planner.PrepareAsync(Request(dir), cancellationToken);
 
-        Assert.True(resumed.Resumed);
-        Assert.Equal(first.Manifest.TargetGeneration, resumed.Manifest.TargetGeneration);
-        Assert.Equal(before, await File.ReadAllBytesAsync(first.ManifestPath, DefaultCancellationToken));
+        _ = await Assert.That(resumed.Resumed).IsTrue();
+        _ = await Assert.That(resumed.Manifest.TargetGeneration).IsEqualTo(first.Manifest.TargetGeneration);
+        var manifestBytes = await File.ReadAllBytesAsync(first.ManifestPath, cancellationToken);
+        await SequenceAssert.Equal(before, manifestBytes);
     }
 
     private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)

@@ -6,7 +6,9 @@ using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -15,7 +17,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 public sealed class ExtensionCachePipelineAdapterTests
 {
     /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>
-    [Fact]
+    [Test]
     public async Task EntryOpsUseEntryAwarePipelineAsync()
     {
         var core = new RecordingLogicalCache();
@@ -26,15 +28,15 @@ public sealed class ExtensionCachePipelineAdapterTests
         await adapter.SetEntryAsync(UnitMutationOpIds.Default, "cache", "key", entry, CancellationToken.None);
         var result = await adapter.GetEntryAsync("cache", "key", CancellationToken.None);
 
-        Assert.Equal(1, decorated.InsertEntryCalls);
-        Assert.Equal(1, decorated.GetEntryCalls);
-        Assert.Equal(0, core.InsertEntryCalls);
-        Assert.Equal(0, core.GetEntryCalls);
-        Assert.Same(entry, result);
+        _ = await Assert.That(decorated.InsertEntryCalls).IsEqualTo(1);
+        _ = await Assert.That(decorated.GetEntryCalls).IsEqualTo(1);
+        _ = await Assert.That(core.InsertEntryCalls).IsEqualTo(0);
+        _ = await Assert.That(core.GetEntryCalls).IsEqualTo(0);
+        _ = await Assert.That(result).IsSameReferenceAs(entry);
     }
 
     /// <summary>Ensures value reads route through the decorated pipeline.</summary>
-    [Fact]
+    [Test]
     public async Task GetValueUsesDecoratedPipelineAsync()
     {
         var core = new RecordingLogicalCache();
@@ -43,8 +45,8 @@ public sealed class ExtensionCachePipelineAdapterTests
 
         _ = await adapter.GetValueAsync("cache", "key", CancellationToken.None);
 
-        Assert.Equal(1, decorated.GetValueCalls);
-        Assert.Equal(0, core.GetValueCalls);
+        _ = await Assert.That(decorated.GetValueCalls).IsEqualTo(1);
+        _ = await Assert.That(core.GetValueCalls).IsEqualTo(0);
     }
 
     private sealed class RecordingEntryPipeline : ISquirixServerEntryCachePipeline<object?>

@@ -6,12 +6,14 @@ using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
 /// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
-[Trait(Category.TraitName, Category.TraitValue)]
+[Property(Category.TraitName, Category.TraitValue)]
 [Immutable]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
@@ -23,11 +25,12 @@ public sealed class MixedMutationStressTests : LoadTestBase
     /// Races concurrent TryAdd then Insert over a shared key set and asserts a single add winner per key
     /// and a converged final value drawn from the writer set.
     /// </summary>
-    [Fact]
-    public async Task ConcurrentMixedMutationsStayConsistent()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentMixedMutationsStayConsistent(CancellationToken cancellationToken)
     {
         var profile = LoadProfiles.MixedMutation;
-        using var deadline = CreateDeadline(profile);
+        using var deadline = CreateDeadline(profile, cancellationToken);
         var token = deadline.Token;
 
         var keys = CreateKeySet(LoadProfiles.ScaleOperations(50));
@@ -36,7 +39,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);
-        AssertSingleTryAddWinnerPerKey(keys, addSuccesses);
+        await AssertSingleTryAddWinnerPerKey(keys, addSuccesses);
 
         var expectedValues = BuildWriterValues(profile.Writers, WriterValuesV2);
         await RunInsertContentionAsync(caches, keys, profile, token);
@@ -52,18 +55,19 @@ public sealed class MixedMutationStressTests : LoadTestBase
     private static async Task AssertKeyConvergedAsync(ICache<object?> cache, string key, HashSet<string> expectedValues, CancellationToken token)
     {
         var entry = await cache.GetEntryAsync(key, token);
-        Assert.True(entry.Found);
-        Assert.Contains(Assert.IsType<string>(entry.Value), expectedValues);
+        _ = await Assert.That(entry.Found).IsTrue();
+        var valueText = (await Assert.That(entry.Value).IsTypeOf<string>())!;
+        _ = await Assert.That(expectedValues).Contains(valueText);
 
         var reread = await cache.GetEntryAsync(key, token);
-        Assert.True(reread.Found);
-        Assert.Equal(entry.Value, reread.Value);
+        _ = await Assert.That(reread.Found).IsTrue();
+        _ = await Assert.That(reread.Value).IsEqualTo(entry.Value);
     }
 
-    private static void AssertSingleTryAddWinnerPerKey(string[] keys, int[] addSuccesses)
+    private static async Task AssertSingleTryAddWinnerPerKey(string[] keys, int[] addSuccesses)
     {
         for (var k = 0; k < keys.Length; k++)
-            Assert.Equal(1, addSuccesses[k]);
+            _ = await Assert.That(addSuccesses[k]).IsEqualTo(1);
     }
 
     private static HashSet<string> BuildWriterValues(int writers, string[] writerValues)
@@ -106,14 +110,14 @@ public sealed class MixedMutationStressTests : LoadTestBase
     private static Task RunInsertContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
         var runner = new InsertContentionRunner(caches, keys, WriterValuesV2, token);
-        return RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
+        return RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget, token);
     }
 
     private static async Task<int[]> RunTryAddContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
         var addSuccesses = new int[keys.Length];
         var runner = new TryAddContentionRunner(caches, keys, WriterValues, addSuccesses, token);
-        await RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
+        await RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget, token);
 
         return addSuccesses;
     }

@@ -1,10 +1,13 @@
 using System;
 using System.Buffers.Binary;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -12,75 +15,35 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
 {
-    /// <summary>Encode/decode preserves the mandatory envelope fields.</summary>
-    [Fact]
-    public void RoundTripPreservesRequiredFields()
-    {
-        var fingerprint = BufferKit.CopyToOwned([1, 2, 3, 4, 5, 6, 7, 8]);
-        var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", fingerprint, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
-
-        var decoded = EnvelopeCodec.Decode(EnvelopeCodec.Encode(envelope));
-
-        Assert.Equal(envelope.SchemaVersion, decoded.SchemaVersion);
-        Assert.Equal(envelope.GroupId, decoded.GroupId);
-        Assert.Equal(envelope.TopologyFingerprint, decoded.TopologyFingerprint);
-        Assert.Equal(envelope.ConfigurationGeneration, decoded.ConfigurationGeneration);
-        Assert.Equal(envelope.Term, decoded.Term);
-        Assert.Equal(envelope.LeaderNodeId, decoded.LeaderNodeId);
-        Assert.Equal(envelope.SenderNodeId, decoded.SenderNodeId);
-        Assert.Equal(envelope.LogIndex, decoded.LogIndex);
-        Assert.Equal(envelope.CommitIndex, decoded.CommitIndex);
-        Assert.Equal(envelope.PayloadChecksum, decoded.PayloadChecksum);
-    }
-
-    /// <summary>Encode emits the documented golden wire bytes for a fixed envelope.</summary>
-    [Fact]
-    public void EncodeMatchesGoldenWireBytes()
-    {
-        var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
-
-        Assert.Equal(GoldenWireBytes(), EnvelopeCodec.Encode(envelope));
-    }
-
     /// <summary>Decode reads the golden wire bytes back into the fixed envelope fields.</summary>
-    [Fact]
-    public void DecodeReadsGoldenWireBytes()
+    [Test]
+    public async Task DecodeReadsGoldenWireBytes()
     {
         var decoded = EnvelopeCodec.Decode(GoldenWireBytes());
 
-        Assert.Equal(EnvelopeCodec.SchemaVersion, decoded.SchemaVersion);
-        Assert.Equal("group-a", decoded.GroupId);
-        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, decoded.TopologyFingerprint);
-        Assert.Equal(9UL, decoded.ConfigurationGeneration);
-        Assert.Equal(11UL, decoded.Term);
-        Assert.Equal("leader-1", decoded.LeaderNodeId);
-        Assert.Equal("sender-2", decoded.SenderNodeId);
-        Assert.Equal(13UL, decoded.LogIndex);
-        Assert.Equal(17UL, decoded.CommitIndex);
-        Assert.Equal(0xA5A5_A5A5u, decoded.PayloadChecksum);
+        _ = await Assert.That(decoded.SchemaVersion).IsEqualTo(EnvelopeCodec.SchemaVersion);
+        _ = await Assert.That(decoded.GroupId).IsEqualTo("group-a");
+        await SequenceAssert.EqualMemory(new ReadOnlyMemory<byte>([1, 2, 3, 4, 5, 6, 7, 8]), decoded.TopologyFingerprint);
+        _ = await Assert.That(decoded.ConfigurationGeneration).IsEqualTo(9UL);
+        _ = await Assert.That(decoded.Term).IsEqualTo(11UL);
+        _ = await Assert.That(decoded.LeaderNodeId).IsEqualTo("leader-1");
+        _ = await Assert.That(decoded.SenderNodeId).IsEqualTo("sender-2");
+        _ = await Assert.That(decoded.LogIndex).IsEqualTo(13UL);
+        _ = await Assert.That(decoded.CommitIndex).IsEqualTo(17UL);
+        _ = await Assert.That(decoded.PayloadChecksum).IsEqualTo(0xA5A5_A5A5u);
     }
 
-    /// <summary>Verifies that a payload shorter than the fixed header is rejected as truncated.</summary>
-    [Fact]
-    public void PayloadShorterThanFixedHeaderIsRejected()
+    /// <summary>Encode emits the documented golden wire bytes for a fixed envelope.</summary>
+    [Test]
+    public Task EncodeMatchesGoldenWireBytes()
     {
-        var payload = BufferKit.ToOwnedBytes(47, 0, static (_, _) => { });
+        var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
 
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
-    }
-
-    /// <summary>Verifies that an unsupported envelope schema version is rejected.</summary>
-    [Fact]
-    public void UnsupportedSchemaVersionIsRejected()
-    {
-        var payload = EnvelopeCodec.Encode(CreateValidEnvelope());
-        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 99);
-
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
+        return SequenceAssert.Equal(GoldenWireBytes(), EnvelopeCodec.Encode(envelope));
     }
 
     /// <summary>Verifies that an envelope missing its commit index is rejected as truncated.</summary>
-    [Fact]
+    [Test]
     public void MissingCommitIndexIsRejected()
     {
         var payload = EnvelopeCodec.Encode(CreateValidEnvelope());
@@ -89,7 +52,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies that a fingerprint length prefix missing from the buffer is rejected.</summary>
-    [Fact]
+    [Test]
     public void MissingFingerprintLengthIsRejected()
     {
         var payload = CreateFixedLengthPayload(9);
@@ -98,7 +61,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies that a negative fingerprint length prefix is rejected.</summary>
-    [Fact]
+    [Test]
     public void NegativeFingerprintLengthIsRejected()
     {
         var payload = CreateFixedLengthPayload(0, -1);
@@ -106,17 +69,8 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
-    /// <summary>Verifies that an oversized fingerprint length prefix is rejected.</summary>
-    [Fact]
-    public void OversizedFingerprintLengthIsRejected()
-    {
-        var payload = CreateFixedLengthPayload(0, 100);
-
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
-    }
-
     /// <summary>Verifies that a negative group id length prefix is rejected.</summary>
-    [Fact]
+    [Test]
     public void NegativeGroupIdLengthIsRejected()
     {
         var payload = CreateFixedLengthPayload(-1);
@@ -124,8 +78,17 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
+    /// <summary>Verifies that an oversized fingerprint length prefix is rejected.</summary>
+    [Test]
+    public void OversizedFingerprintLengthIsRejected()
+    {
+        var payload = CreateFixedLengthPayload(0, 100);
+
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
+    }
+
     /// <summary>Verifies that an oversized group id length prefix is rejected.</summary>
-    [Fact]
+    [Test]
     public void OversizedGroupIdLengthIsRejected()
     {
         var payload = CreateFixedLengthPayload(1000);
@@ -133,8 +96,38 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
+    /// <summary>Verifies that a payload shorter than the fixed header is rejected as truncated.</summary>
+    [Test]
+    public void PayloadShorterThanFixedHeaderIsRejected()
+    {
+        var payload = BufferKit.ToOwnedBytes(47, 0, static (_, _) => { });
+
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
+    }
+
+    /// <summary>Encode/decode preserves the mandatory envelope fields.</summary>
+    [Test]
+    public async Task RoundTripPreservesRequiredFields()
+    {
+        var fingerprint = BufferKit.CopyToOwned([1, 2, 3, 4, 5, 6, 7, 8]);
+        var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", fingerprint, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
+
+        var decoded = EnvelopeCodec.Decode(EnvelopeCodec.Encode(envelope));
+
+        _ = await Assert.That(decoded.SchemaVersion).IsEqualTo(envelope.SchemaVersion);
+        _ = await Assert.That(decoded.GroupId).IsEqualTo(envelope.GroupId);
+        await SequenceAssert.EqualMemory(envelope.TopologyFingerprint, decoded.TopologyFingerprint);
+        _ = await Assert.That(decoded.ConfigurationGeneration).IsEqualTo(envelope.ConfigurationGeneration);
+        _ = await Assert.That(decoded.Term).IsEqualTo(envelope.Term);
+        _ = await Assert.That(decoded.LeaderNodeId).IsEqualTo(envelope.LeaderNodeId);
+        _ = await Assert.That(decoded.SenderNodeId).IsEqualTo(envelope.SenderNodeId);
+        _ = await Assert.That(decoded.LogIndex).IsEqualTo(envelope.LogIndex);
+        _ = await Assert.That(decoded.CommitIndex).IsEqualTo(envelope.CommitIndex);
+        _ = await Assert.That(decoded.PayloadChecksum).IsEqualTo(envelope.PayloadChecksum);
+    }
+
     /// <summary>Verifies that a leader node id length prefix missing from the buffer is rejected.</summary>
-    [Fact]
+    [Test]
     public void TruncatedLeaderNodeIdLengthIsRejected()
     {
         var payload = CreateFixedLengthPayload(6, 1);
@@ -142,7 +135,38 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
     }
 
-    private static Envelope CreateValidEnvelope() => new(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
+    /// <summary>Verifies that an unsupported envelope schema version is rejected.</summary>
+    [Test]
+    public void UnsupportedSchemaVersionIsRejected()
+    {
+        var payload = EnvelopeCodec.Encode(CreateValidEnvelope());
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 99);
+
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(payload, static value => _ = EnvelopeCodec.Decode(value));
+    }
+
+    private static byte[] CreateFixedLengthPayload(int groupIdLength, int? fingerprintLength = null) => BufferKit.ToOwnedBytes(
+        48,
+        (groupIdLength, fingerprintLength),
+        static (state, buffer) =>
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer, EnvelopeCodec.SchemaVersion);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer[32..], state.groupIdLength);
+            if (state.fingerprintLength is { } fpLength)
+                BinaryPrimitives.WriteInt32LittleEndian(buffer[(36 + state.groupIdLength)..], fpLength);
+        });
+
+    private static Envelope CreateValidEnvelope() => new(
+        EnvelopeCodec.SchemaVersion,
+        "group-a",
+        new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+        9,
+        11,
+        "leader-1",
+        "sender-2",
+        13,
+        17,
+        0xA5A5_A5A5);
 
     /// <summary>
     /// Hand-built golden encoding of the fixed envelope above (schema 1, group-a,
@@ -164,15 +188,4 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
         0x08, 0x00, 0x00, 0x00, 0x73, 0x65, 0x6E, 0x64, 0x65, 0x72, 0x2D, 0x32,
         0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
-
-    private static byte[] CreateFixedLengthPayload(int groupIdLength, int? fingerprintLength = null) => BufferKit.ToOwnedBytes(
-        48,
-        (groupIdLength, fingerprintLength),
-        static (state, buffer) =>
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer, EnvelopeCodec.SchemaVersion);
-            BinaryPrimitives.WriteInt32LittleEndian(buffer[32..], state.groupIdLength);
-            if (state.fingerprintLength is { } fpLength)
-                BinaryPrimitives.WriteInt32LittleEndian(buffer[(36 + state.groupIdLength)..], fpLength);
-        });
 }

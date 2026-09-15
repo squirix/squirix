@@ -5,7 +5,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -14,7 +16,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class RetentionCleanupReadinessCheckTests
 {
     /// <summary>Ensures the readiness health check reports unhealthy when retention cleanup is degraded.</summary>
-    [Fact]
+    [Test]
     public async Task HealthReportsCleanupDegradedAsync()
     {
         var readiness = CreateReadiness(2, 5);
@@ -24,7 +26,7 @@ public sealed class RetentionCleanupReadinessCheckTests
         var check = new RetentionCleanupReadinessCheck(readiness);
         var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
     }
 
     private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) => new(

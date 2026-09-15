@@ -1,57 +1,41 @@
 using System;
-using Xunit;
+using System.Threading.Tasks;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.ProtocolModel.Tests;
 
-public static class ProtocolModelEngineTests
+public sealed class ProtocolModelEngineTests
 {
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
-    [Fact]
-    public static void ExplorerRejectsBrokenTermCommitRule()
-    {
-        var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
-        Assert.NotNull(result.Violation);
-        Assert.Equal("CurrentTermCommit", result.Violation.Invariant);
-    }
-
-    [Fact]
-    public static void ExplorerRejectsBrokenReadIndexRule()
+    [Test]
+    public async Task ExplorerRejectsBrokenReadIndexRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallRead(), BrokenMode.ReadIndex);
-        Assert.NotNull(result.Violation);
-        Assert.Equal("ReadIndex", result.Violation.Invariant);
+        _ = await Assert.That(result.Violation).IsNotNull();
+        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("ReadIndex");
     }
 
-    [Fact]
-    public static void ExplorerRejectsBrokenVoteRule()
+    [Test]
+    public async Task ExplorerRejectsBrokenTermCommitRule()
+    {
+        var result = ExploreRunner.Run(ExploreProfile.SmallCommit(), BrokenMode.CurrentTermCommit);
+        _ = await Assert.That(result.Violation).IsNotNull();
+        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("CurrentTermCommit");
+    }
+
+    [Test]
+    public async Task ExplorerRejectsBrokenVoteRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.Vote);
-        Assert.NotNull(result.Violation);
-        Assert.Equal("ElectionSafety", result.Violation.Invariant);
+        _ = await Assert.That(result.Violation).IsNotNull();
+        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("ElectionSafety");
     }
 
-    [Fact]
-    public static void ReducedAndUnreducedSearchAgree()
-    {
-        var reduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
-        var unreduced = ExploreRunner.Run(ExploreProfile.SmallElection(false), BrokenMode.None);
-
-        Assert.Null(reduced.Violation);
-        Assert.Null(unreduced.Violation);
-        Assert.True(reduced.FixedPointReached);
-        Assert.True(unreduced.FixedPointReached);
-        Assert.True(unreduced.StatesVisited >= reduced.StatesVisited);
-
-        var brokenReduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.Vote);
-        var brokenUnreduced = ExploreRunner.Run(ExploreProfile.SmallElection(false), BrokenMode.Vote);
-        Assert.NotNull(brokenReduced.Violation);
-        Assert.NotNull(brokenUnreduced.Violation);
-        Assert.Equal(brokenReduced.Violation.Invariant, brokenUnreduced.Violation.Invariant);
-    }
-
-    [Fact]
-    public static void FingerprintIsLabelInvariantForVoteMasks()
+    [Test]
+    public async Task FingerprintIsLabelInvariantForVoteMasks()
     {
         var state = ClusterState.CreateInitial(3).WithNodes(
         [
@@ -68,7 +52,26 @@ public static class ProtocolModelEngineTests
             new NodeState(2, NodeRole.Follower, 1, 1, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false, false)),
         ]);
 
-        Assert.Equal(state.Fingerprint(true), rotated.Fingerprint(true), StringComparer.Ordinal);
-        Assert.NotEqual(state.Fingerprint(false), rotated.Fingerprint(false), StringComparer.Ordinal);
+        _ = await Assert.That(rotated.Fingerprint(true)).IsEqualTo(state.Fingerprint(true), StringComparer.Ordinal);
+        _ = await Assert.That(rotated.Fingerprint(false)).IsNotEqualTo(state.Fingerprint(false), StringComparer.Ordinal);
+    }
+
+    [Test]
+    public async Task ReducedAndUnreducedSearchAgree()
+    {
+        var reduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
+        var unreduced = ExploreRunner.Run(ExploreProfile.SmallElection(false), BrokenMode.None);
+
+        _ = await Assert.That(reduced.Violation).IsNull();
+        _ = await Assert.That(unreduced.Violation).IsNull();
+        _ = await Assert.That(reduced.FixedPointReached).IsTrue();
+        _ = await Assert.That(unreduced.FixedPointReached).IsTrue();
+        _ = await Assert.That(unreduced.StatesVisited >= reduced.StatesVisited).IsTrue();
+
+        var brokenReduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.Vote);
+        var brokenUnreduced = ExploreRunner.Run(ExploreProfile.SmallElection(false), BrokenMode.Vote);
+        _ = await Assert.That(brokenReduced.Violation).IsNotNull();
+        _ = await Assert.That(brokenUnreduced.Violation).IsNotNull();
+        _ = await Assert.That(brokenUnreduced.Violation.Invariant).IsEqualTo(brokenReduced.Violation.Invariant);
     }
 }

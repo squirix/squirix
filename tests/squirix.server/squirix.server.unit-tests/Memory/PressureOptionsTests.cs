@@ -1,10 +1,13 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -12,15 +15,55 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class PressureOptionsTests
 {
+    /// <summary>Verifies default threshold values match the contract.</summary>
+    [Test]
+    public async Task DefaultsMatchContract()
+    {
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(10_000));
+        _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(8_000L);
+        _ = await Assert.That(resolved.HighPressureThresholdPercent).IsEqualTo(80);
+        _ = await Assert.That(resolved.CriticalPressureThresholdPercent).IsEqualTo(95);
+    }
+
+    /// <summary>Verifies local threshold boundaries remain accepted before cross-property validation runs.</summary>
+    [Test]
+    public async Task FieldValidationAcceptsBoundaries()
+    {
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 1,
+            HighPressureThresholdPercent = 1,
+            CriticalPressureThresholdPercent = 100,
+        };
+
+        options.Validate();
+        _ = await Assert.That(options.MaxEstimatedCacheBytes).IsEqualTo(1);
+        _ = await Assert.That(options.HighPressureThresholdPercent).IsEqualTo(1);
+        _ = await Assert.That(options.CriticalPressureThresholdPercent).IsEqualTo(100);
+    }
+
+    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
+    [Test]
+    public async Task JsonDeserializeBindsValidatedScalars()
+    {
+        const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
+        var options = new ServerJsonSerializer().Deserialize<PressureOptions>(json);
+        _ = await Assert.That(options).IsNotNull();
+        options.Validate();
+        _ = await Assert.That(options.MaxEstimatedCacheBytes).IsEqualTo(4096);
+        _ = await Assert.That(options.HighPressureThresholdPercent).IsEqualTo(60);
+        _ = await Assert.That(options.CriticalPressureThresholdPercent).IsEqualTo(90);
+    }
+
     /// <summary>Verifies invalid threshold combinations are rejected.</summary>
     /// <param name="critical">Critical threshold value.</param>
     /// <param name="high">High threshold value.</param>
     /// <param name="expectedMessageFragment">Expected validation detail fragment.</param>
-    [Theory]
-    [InlineData(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
-    [InlineData(90, 90, "HighPressureThresholdPercent")]
-    [InlineData(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
-    public static void RejectsInvalidThresholdCombos(int critical, int high, string expectedMessageFragment)
+    [Test]
+    [Arguments(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
+    [Arguments(90, 90, "HighPressureThresholdPercent")]
+    [Arguments(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
+    public async Task RejectsInvalidThresholdCombos(int critical, int high, string expectedMessageFragment)
     {
         var options = new PressureOptions
         {
@@ -31,65 +74,11 @@ public sealed class PressureOptionsTests
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
-        Assert.Contains(expectedMessageFragment, ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies non-positive byte limits are rejected.</summary>
-    /// <param name="maxBytes">Invalid limit value.</param>
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(-1000)]
-    public static void ValidateRejectsNonPositiveMaxBytes(long maxBytes)
-    {
-        var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
-
-        Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies default threshold values match the contract.</summary>
-    [Fact]
-    public void DefaultsMatchContract()
-    {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(10_000));
-        Assert.Equal(8_000L, resolved.MaxEstimatedCacheBytes);
-        Assert.Equal(80, resolved.HighPressureThresholdPercent);
-        Assert.Equal(95, resolved.CriticalPressureThresholdPercent);
-    }
-
-    /// <summary>Verifies local threshold boundaries remain accepted before cross-property validation runs.</summary>
-    [Fact]
-    public void FieldValidationAcceptsBoundaries()
-    {
-        var options = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 1,
-            HighPressureThresholdPercent = 1,
-            CriticalPressureThresholdPercent = 100,
-        };
-
-        options.Validate();
-        Assert.Equal(1, options.MaxEstimatedCacheBytes);
-        Assert.Equal(1, options.HighPressureThresholdPercent);
-        Assert.Equal(100, options.CriticalPressureThresholdPercent);
-    }
-
-    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
-    [Fact]
-    public void JsonDeserializeBindsValidatedScalars()
-    {
-        const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
-        var options = new ServerJsonSerializer().Deserialize<PressureOptions>(json);
-        Assert.NotNull(options);
-        options.Validate();
-        Assert.Equal(4096, options.MaxEstimatedCacheBytes);
-        Assert.Equal(60, options.HighPressureThresholdPercent);
-        Assert.Equal(90, options.CriticalPressureThresholdPercent);
+        _ = await Assert.That(ex.Message).Contains(expectedMessageFragment, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies a representative valid configuration passes <see cref="PressureOptions.Validate" />.</summary>
-    [Fact]
+    [Test]
     public void ValidateAcceptsValidConfiguration()
     {
         var options = new PressureOptions
@@ -100,5 +89,19 @@ public sealed class PressureOptionsTests
         };
 
         options.Validate();
+    }
+
+    /// <summary>Verifies non-positive byte limits are rejected.</summary>
+    /// <param name="maxBytes">Invalid limit value.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(-1)]
+    [Arguments(-1000)]
+    public async Task ValidateRejectsNonPositiveMaxBytes(long maxBytes)
+    {
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        _ = await Assert.That(ex.Message).Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), StringComparison.Ordinal);
     }
 }

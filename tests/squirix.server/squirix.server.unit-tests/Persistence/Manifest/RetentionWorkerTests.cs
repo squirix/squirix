@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -14,8 +17,9 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 public sealed class RetentionWorkerTests : ServerUnitTestBase
 {
     /// <summary>Invalid DataDir causes cleanup failure reporting without crashing the worker.</summary>
-    [Fact]
-    public async Task CleanupWithBadDirRecordsFailure()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CleanupWithBadDirRecordsFailure(CancellationToken cancellationToken)
     {
         var readiness = new RecordingReadiness();
         var metrics = new RecordingFailureMetrics();
@@ -24,10 +28,10 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2 });
 
-        await readiness.WaitUntilAsync(static r => r.Outcomes.Count > 0, DefaultCancellationToken);
+        await readiness.WaitUntilAsync(static r => r.Outcomes.Count > 0, cancellationToken);
 
-        Assert.Contains(true, readiness.Outcomes);
-        Assert.True(metrics.Failures > 0);
+        _ = await Assert.That(readiness.Outcomes).Contains(true);
+        _ = await Assert.That(metrics.Failures > 0).IsTrue();
     }
 
     private sealed class RecordingFailureMetrics : IManifestRetentionFailureMetrics

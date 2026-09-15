@@ -11,7 +11,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App;
 
@@ -20,9 +22,10 @@ namespace Squirix.Server.UnitTests.Node.App;
 public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
     /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
-    [Fact]
-    public async Task MemoryFailureAfterJournalNotRetried()
+    [Test]
+    public async Task MemoryFailureAfterJournalNotRetried(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -33,11 +36,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
 
         try
         {
@@ -52,11 +51,11 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
                         static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
                         static (s, ct) => s.Apply.ApplyAsync(ct)),
-                    DefaultCancellationToken));
+                    cancellationToken));
 
-            Assert.Equal("memory apply failed", error.Message);
-            Assert.Equal(1, applyState.Calls);
-            Assert.Equal(1, journal.AppendedOps);
+            _ = await Assert.That(error.Message).IsEqualTo("memory apply failed");
+            _ = await Assert.That(applyState.Calls).IsEqualTo(1);
+            _ = await Assert.That(journal.AppendedOps).IsEqualTo(1);
         }
         finally
         {
@@ -65,8 +64,9 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
     }
 
     /// <summary>Precondition Skip returns the skip result without appending.</summary>
-    [Fact]
-    public async Task PreconditionSkipSkipsJournalAppend()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreconditionSkipSkipsJournalAppend(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -77,11 +77,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
         };
 
         using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true));
 
         try
         {
@@ -95,11 +91,11 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                     (journal, CacheKey.Default("skip-key"), JournalEntryPayloadKit.EncodePut("v"), applyState),
                     static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
                     static (s, ct) => s.Apply.ApplyAsync(ct)),
-                DefaultCancellationToken);
+                cancellationToken);
 
-            Assert.Equal(99, result);
-            Assert.Equal(0, applyState.Calls);
-            Assert.Equal(0, journal.AppendedOps);
+            _ = await Assert.That(result).IsEqualTo(99);
+            _ = await Assert.That(applyState.Calls).IsEqualTo(0);
+            _ = await Assert.That(journal.AppendedOps).IsEqualTo(0);
         }
         finally
         {

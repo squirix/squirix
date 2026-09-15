@@ -4,7 +4,7 @@
          the test-executable specific settings on top. -->
     <Import Project="$(MSBuildThisFileDirectory)..\Directory.Build.props" Condition="Exists('$(MSBuildThisFileDirectory)..\Directory.Build.props')"/>
 
-    <!-- Shared build settings for Squirix test executables (xUnit v3 + MTP runner).
+    <!-- Shared build settings for Squirix test executables (TUnit + MTP runner).
          Selected by project name so the testkit libraries (Squirix.TestKit /
          Squirix.Server.TestKit) stay ordinary libraries and are not turned into
          MTP executables. -->
@@ -16,10 +16,20 @@
         <OutputType>Exe</OutputType>
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
         <UseAppHost>true</UseAppHost>
+        <!-- Explicit usings everywhere: TUnit's implicit global usings hide
+             dependencies and violate the repository global-using rules. -->
+        <TUnitImplicitUsings>false</TUnitImplicitUsings>
+        <TUnitAssertionsImplicitUsings>false</TUnitAssertionsImplicitUsings>
+    </PropertyGroup>
+
+    <!-- Same explicit-usings policy for the TestKit class libraries. -->
+    <PropertyGroup Condition="$(MSBuildProjectName.Contains('TestKit'))">
+        <TUnitImplicitUsings>false</TUnitImplicitUsings>
+        <TUnitAssertionsImplicitUsings>false</TUnitAssertionsImplicitUsings>
     </PropertyGroup>
 
     <ItemGroup Condition="$(MSBuildProjectName.Contains('Tests'))">
-        <PackageReference Include="xunit.v3.aot"/>
-        <PackageReference Include="xunit.v3.assert.aot"/>
+        <PackageReference Include="TUnit"/>
+        <PackageReference Include="Microsoft.Testing.Extensions.TrxReport"/>
     </ItemGroup>
 </Project>

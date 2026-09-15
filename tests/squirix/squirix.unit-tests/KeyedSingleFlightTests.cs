@@ -3,7 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
@@ -12,15 +14,16 @@ namespace Squirix.UnitTests;
 public sealed class KeyedSingleFlightTests : UnitTestBase
 {
     /// <summary>Ensures concurrent callers observe the same factory exception.</summary>
-    [Fact]
-    public async Task PropagatesSameFailureToConcurrentCallers()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PropagatesSameFailureToConcurrentCallers(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
         var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
 
         var first = RunFailingAsync();
         var second = RunFailingAsync();
-        await Task.Delay(30, DefaultCancellationToken);
+        await Task.Delay(30, cancellationToken);
         state.Gate.SetResult();
 
         InvalidOperationException? firstException = null;
@@ -43,9 +46,9 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
             secondException = ex;
         }
 
-        Assert.NotNull(firstException);
-        Assert.NotNull(secondException);
-        Assert.Equal(1, state.Executions);
+        _ = await Assert.That(firstException).IsNotNull();
+        _ = await Assert.That(secondException).IsNotNull();
+        _ = await Assert.That(state.Executions).IsEqualTo(1);
         return;
 
         Task<int> RunFailingAsync()
@@ -59,25 +62,26 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
                     await testState.Gate.Task.WaitAsync(ct);
                     throw new InvalidOperationException("factory failed");
                 },
-                DefaultCancellationToken);
+                cancellationToken);
         }
     }
 
     /// <summary>Ensures concurrent callers for one key share one execution.</summary>
-    [Fact]
-    public async Task RunAsyncSharesOneExecutionForSameKey()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunAsyncSharesOneExecutionForSameKey(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
         var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
 
         var first = RunOnceAsync();
         var second = RunOnceAsync();
-        await Task.Delay(30, DefaultCancellationToken);
+        await Task.Delay(30, cancellationToken);
         state.Gate.SetResult();
 
-        Assert.Equal(1, state.Executions);
-        Assert.Equal(7, await first);
-        Assert.Equal(7, await second);
+        _ = await Assert.That(state.Executions).IsEqualTo(1);
+        _ = await Assert.That(await first).IsEqualTo(7);
+        _ = await Assert.That(await second).IsEqualTo(7);
         return;
 
         Task<int> RunOnceAsync()
@@ -91,7 +95,7 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
                     await testState.Gate.Task.WaitAsync(ct);
                     return 7;
                 },
-                DefaultCancellationToken);
+                cancellationToken);
         }
     }
 

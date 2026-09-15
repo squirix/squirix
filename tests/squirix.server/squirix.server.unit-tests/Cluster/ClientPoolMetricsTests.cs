@@ -7,7 +7,9 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -20,7 +22,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Case-distinct node identities require distinct transport resources.</summary>
-    [Fact]
+    [Test]
     public async Task CaseDistinctNodeIdsUseSeparatePools()
     {
         ServerPeer[] peers =
@@ -30,13 +32,13 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         ];
         await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
 
-        Assert.NotSame(pool.ForNode("node-a"), pool.ForNode("NODE-A"));
-        Assert.NotSame(pool.PolicyFor("node-a"), pool.PolicyFor("NODE-A"));
+        _ = await Assert.That(pool.ForNode("NODE-A")).IsNotSameReferenceAs(pool.ForNode("node-a"));
+        _ = await Assert.That(pool.PolicyFor("NODE-A")).IsNotSameReferenceAs(pool.PolicyFor("node-a"));
     }
 
     /// <summary>Inter-node address rewrite rejects a non-absolute primary peer URI.</summary>
-    [Fact]
-    public void ConstructorRejectsRelativePeerUri()
+    [Test]
+    public async Task ConstructorRejectsRelativePeerUri()
     {
         var peers = new ServerPeer[]
         {
@@ -54,11 +56,11 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
             args,
             _testMeter,
             static (peerList, poolArgs, meter) => _ = new ServerClientPool(peerList, poolArgs, new ServerClientPoolMetrics(meter)));
-        Assert.Equal("Cluster peer URI is invalid.", ex.Message);
+        _ = await Assert.That(ex.Message).IsEqualTo("Cluster peer URI is invalid.");
     }
 
     /// <summary>Ensures Dispose emits squirix_peer_pool_disposals_total counter events.</summary>
-    [Fact]
+    [Test]
     public async Task DisposeIncrementsDisposalsTotal()
     {
         using var meter = new Meter("Squirix");
@@ -68,11 +70,11 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
 
         await pool.DisposeAsync();
 
-        Assert.True(sink.HasEvent(PoolDisposalsTotalInstrumentName));
+        _ = await Assert.That(sink.HasEvent(PoolDisposalsTotalInstrumentName)).IsTrue();
     }
 
     /// <summary>Repeated lookups for the same node must return the same gRPC client instance.</summary>
-    [Fact]
+    [Test]
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
         var peers = BuildPeers(1);
@@ -80,21 +82,21 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         var first = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
-            Assert.Same(first, pool.ForNode("n0"));
+            _ = await Assert.That(pool.ForNode("n0")).IsSameReferenceAs(first);
     }
 
     /// <summary>Ensures NodeIds is a deterministic snapshot of the pool membership.</summary>
-    [Fact]
+    [Test]
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
         var peers = BuildPeers(3);
         await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
 
-        Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
+        await SequenceAssert.Equal(["n0", "n1", "n2"], pool.NodeIds);
     }
 
     /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
-    [Fact]
+    [Test]
     public async Task PoolSizeStableAcrossManyForNodeLookups()
     {
         var peers = BuildPeers(2);
@@ -105,7 +107,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         for (var i = 0; i < 256; i++)
             _ = pool.ForNode(i % 2 == 0 ? "n0" : "n1");
 
-        Assert.Same(anchor, pool.ForNode("n0"));
+        _ = await Assert.That(pool.ForNode("n0")).IsSameReferenceAs(anchor);
     }
 
     /// <inheritdoc />

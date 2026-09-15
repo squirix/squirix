@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Replication;
@@ -6,7 +7,9 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -14,23 +17,24 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class TopologyAgreementTests : NodeIntegrationTestBase
 {
     /// <summary>A restart with a new generation and no offline bootstrap is refused at startup.</summary>
-    [Fact(DisplayName = "TopologyAgreementTests.GenerationChangeWithoutBootstrapIsRejected")]
-    public async Task GenerationChangeRejectedWithoutBootstrap()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GenerationChangeRejectedWithoutBootstrap(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
         var options = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-generation" };
-        var nodeA = await StartNodeAsync(uriA, peers, options);
+        var nodeA = await StartNodeAsync(uriA, peers, options, cancellationToken);
         try
         {
-            await using var nodeB = await StartNodeAsync(uriB, peers, options);
+            await using var nodeB = await StartNodeAsync(uriB, peers, options, cancellationToken);
             await nodeA.DisposeAsync();
 
             var opt = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-generation", ConfigurationGeneration = 2 };
-            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(StartNodeAsync(uriA, peers, opt));
+            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(StartNodeAsync(uriA, peers, opt, cancellationToken));
 
-            Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+            _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
         }
         finally
         {
@@ -39,28 +43,30 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
     }
 
     /// <summary>A restart with the same activated identity starts and its group logs stay ready.</summary>
-    [Fact(DisplayName = "TopologyAgreementTests.RestartWithMatchingMajorityAllowsReadiness")]
-    public async Task RestartMatchingAllowsReadiness()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartMatchingAllowsReadiness(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
         var options = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "topology-restart" };
-        var nodeA = await StartNodeAsync(uriA, peers, options);
+        var nodeA = await StartNodeAsync(uriA, peers, options, cancellationToken);
         try
         {
-            await using var nodeB = await StartNodeAsync(uriB, peers, options);
+            await using var nodeB = await StartNodeAsync(uriB, peers, options, cancellationToken);
             await nodeA.DisposeAsync();
 
             await using var restarted = await StartNodeAsync(
                 uriA,
                 peers,
-                new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-restart" });
+                new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-restart" },
+                cancellationToken);
             var registry = restarted.Services.GetRequiredService<ReplicaGroupRegistry>();
 
-            Assert.True(registry.TryGetLog("n1", out var log));
-            var status = await log.GetStatusAsync(DefaultCancellationToken);
-            Assert.Equal(FollowerLogReadiness.Ready, status.Readiness);
+            _ = await Assert.That(registry.TryGetLog("n1", out var log)).IsTrue();
+            var status = await log!.GetStatusAsync(cancellationToken);
+            _ = await Assert.That(status.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         }
         finally
         {

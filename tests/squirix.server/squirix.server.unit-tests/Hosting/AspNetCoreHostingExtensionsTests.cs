@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -15,7 +16,9 @@ using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -36,8 +39,9 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         static context => context.Response.WriteAsync("ok", context.RequestAborted));
 
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
-    [Fact]
-    public async Task CustomAspNetCoreHostStartsMappedServer()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CustomAspNetCoreHostStartsMappedServer(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -52,22 +56,23 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
             },
             loadDiscoveredSettings: false,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
         var endpoints = GetMappedEndpoints(app);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
+        _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
+        _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
 
-        await app.StartAsync(DefaultCancellationToken);
-        await app.StopAsync(DefaultCancellationToken);
+        await app.StartAsync(cancellationToken);
+        await app.StopAsync(cancellationToken);
     }
 
     /// <summary>Ensures a configured data directory keeps the server's default strict fsync persistence mode.</summary>
-    [Fact]
-    public async Task DataDirOverrideKeepsStrictFsyncDefault()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DataDirOverrideKeepsStrictFsyncDefault(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -77,17 +82,18 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurer = new PersistenceOptionsConfigurer(port, Dir.Path);
 
-        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
+        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
-        Assert.Equal(Dir.Path, persistence.DataDir);
+        _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir.Path);
     }
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
-    [Fact]
-    public async Task ExtensionReceivesStateWhenMappingRoutes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExtensionReceivesStateWhenMappingRoutes(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -103,17 +109,18 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
-        Assert.False(state.AuthEnabled);
+        _ = await Assert.That(state.AuthEnabled).IsFalse();
     }
 
     /// <summary>Ensures optional package extensions can register services and map endpoints through the public hosting API.</summary>
-    [Fact]
-    public async Task ExtensionRegistersServicesAndMapsRoutes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExtensionRegistersServicesAndMapsRoutes(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -127,21 +134,22 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
         var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
-        Assert.Same(marker, registeredMarker);
-        Assert.Equal(marker.Name, registeredMarker.Name);
+        _ = await Assert.That(registeredMarker).IsSameReferenceAs(marker);
+        _ = await Assert.That(registeredMarker.Name).IsEqualTo(marker.Name);
         var endpoints = GetMappedEndpoints(app);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
+        _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
     }
 
     /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
-    [Fact]
-    public async Task MapSquirixServerMapsQuotaToHttp429()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MapSquirixServerMapsQuotaToHttp429(CancellationToken cancellationToken)
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", port));
@@ -156,21 +164,22 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             configureExtensions: ConfigureJournalQuotaExtensions,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         _ = app.MapSquirixServer();
-        await app.StartAsync(DefaultCancellationToken);
+        await app.StartAsync(cancellationToken);
 
-        using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), DefaultCancellationToken);
+        using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), cancellationToken);
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        await app.StopAsync(DefaultCancellationToken);
+        _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.TooManyRequests);
+        await app.StopAsync(cancellationToken);
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
-    [Fact]
-    public async Task PackageExtensionDecoratesCachePipeline()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PackageExtensionDecoratesCachePipeline(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -186,12 +195,12 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         await using (var app = builder.Build())
             _ = app.Services.GetRequiredService<ICacheRuntime>();
 
-        Assert.Equal(1, state.CallbackCount);
+        _ = await Assert.That(state.CallbackCount).IsEqualTo(1);
     }
 
     private static List<Endpoint> GetMappedEndpoints(WebApplication app)

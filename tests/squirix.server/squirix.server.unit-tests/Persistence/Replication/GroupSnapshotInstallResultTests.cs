@@ -1,5 +1,8 @@
+using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -10,32 +13,32 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 public sealed class GroupSnapshotInstallResultTests
 {
     /// <summary>A default instance reports no success and an empty normalized refusal marker.</summary>
-    [Fact]
-    public void DefaultIsNotSuccessfulWithEmptyRefusal()
+    [Test]
+    public async Task DefaultIsNotSuccessfulWithEmptyRefusal()
     {
         var result = default(GroupSnapshotInstallResult);
 
-        Assert.False(result.Success);
-        Assert.Equal(string.Empty, result.Refusal);
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.Refusal).IsEqualTo(string.Empty);
     }
 
     /// <summary>The accepted outcome reports success and carries an empty refusal marker.</summary>
-    [Fact]
-    public void InstalledCarriesEmptyRefusal()
+    [Test]
+    public async Task InstalledCarriesEmptyRefusal()
     {
         var result = GroupSnapshotInstallResult.Installed;
 
-        Assert.True(result.Success);
-        Assert.Equal(string.Empty, result.Refusal);
+        _ = await Assert.That(result.Success).IsTrue();
+        _ = await Assert.That(result.Refusal).IsEqualTo(string.Empty);
     }
 
     /// <summary>The refused outcome reports failure and keeps its stable marker through the normalized accessor.</summary>
-    [Fact]
-    public void RefusedKeepsMarkerThroughRefusal()
+    [Test]
+    public async Task RefusedKeepsMarkerThroughRefusal()
     {
         var result = GroupSnapshotInstallResult.Refused("not-ready");
 
-        Assert.False(result.Success);
-        Assert.Equal("not-ready", result.Refusal);
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.Refusal).IsEqualTo("not-ready");
     }
 }

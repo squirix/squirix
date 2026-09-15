@@ -11,7 +11,9 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -19,59 +21,66 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class WriterCleanupTests : IsolatedStorageTestBase
 {
-    /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
-    [Fact]
-    public async Task WriteCreatesFinalWithoutPrecreate()
-    {
-        var writer = new SnapshotWriter(Dir);
-
-        var path = await writer.WriteSingleAsync(1, CacheKey.Default("a"), BuildEntry("first"), DefaultCancellationToken);
-
-        Assert.True(File.Exists(path));
-        Assert.EndsWith(".bsqx", path, StringComparison.Ordinal);
-        Assert.Equal("a", Assert.Single(await ReadSnapshotKeysAsync(path)));
-        Assert.Empty(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly));
-    }
-
     /// <summary>Verifies a failed finalize leaves the previous final snapshot intact and removes the temporary file.</summary>
-    [Fact]
-    public async Task FailedFinalizeKeepsPreviousSnapshot()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedFinalizeKeepsPreviousSnapshot(CancellationToken cancellationToken)
     {
         var writer = new SnapshotWriter(Dir);
-        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), DefaultCancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), cancellationToken);
 
         var failingWriter = new SnapshotWriter(Dir, new PublishFailingStorageFileOperations());
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), cancellationToken));
 
-        Assert.True(File.Exists(path));
-        Assert.Equal("stable", Assert.Single(await ReadSnapshotKeysAsync(path)));
-        Assert.Empty(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly));
+        _ = await Assert.That(File.Exists(path)).IsTrue();
+        var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
+        _ = await Assert.That(singleKey).IsEqualTo("stable");
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
 
     /// <summary>Verifies a snapshot write failure removes the temporary file.</summary>
-    [Fact]
-    public async Task FailedSerializationRemovesTmpFile()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedSerializationRemovesTmpFile(CancellationToken cancellationToken)
     {
         var writer = new SnapshotWriter(Dir);
         var items = FailingItems();
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(writer.WriteAsync(1, items, [], DefaultCancellationToken));
-        Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(writer.WriteAsync(1, items, [], cancellationToken));
+        _ = await Assert.That(ex.Message).Contains("serialization", StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
 
     /// <summary>Verifies a snapshot writer replaces an existing final snapshot without leaving the path absent after success.</summary>
-    [Fact]
-    public async Task ReplaceNeedsNoExplicitPreDelete()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplaceNeedsNoExplicitPreDelete(CancellationToken cancellationToken)
     {
         var writer = new SnapshotWriter(Dir);
-        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stale"), BuildEntry("old"), DefaultCancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stale"), BuildEntry("old"), cancellationToken);
 
-        var rewrittenPath = await writer.WriteSingleAsync(1, CacheKey.Default("fresh"), BuildEntry("new"), DefaultCancellationToken);
+        var rewrittenPath = await writer.WriteSingleAsync(1, CacheKey.Default("fresh"), BuildEntry("new"), cancellationToken);
 
-        Assert.Equal(path, rewrittenPath);
-        Assert.True(File.Exists(path));
-        Assert.Equal("fresh", Assert.Single(await ReadSnapshotKeysAsync(path)));
-        Assert.Empty(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly));
+        _ = await Assert.That(rewrittenPath).IsEqualTo(path);
+        _ = await Assert.That(File.Exists(path)).IsTrue();
+        var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
+        _ = await Assert.That(singleKey).IsEqualTo("fresh");
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
+    }
+
+    /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteCreatesFinalWithoutPrecreate(CancellationToken cancellationToken)
+    {
+        var writer = new SnapshotWriter(Dir);
+
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("a"), BuildEntry("first"), cancellationToken);
+
+        _ = await Assert.That(File.Exists(path)).IsTrue();
+        _ = await Assert.That(path).EndsWith(".bsqx", StringComparison.Ordinal);
+        var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
+        _ = await Assert.That(singleKey).IsEqualTo("a");
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
 
     private static NodeCacheEntry<object?> BuildEntry(object? value) => new() { Value = value, Version = 1 };

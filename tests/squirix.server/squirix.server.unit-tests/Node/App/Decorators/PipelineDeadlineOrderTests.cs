@@ -8,7 +8,9 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -16,7 +18,7 @@ namespace Squirix.Server.UnitTests.Node.App.Decorators;
 public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
 {
     /// <summary>Admission observes the caller token, while execution underneath still runs under the pipeline deadline.</summary>
-    [Fact]
+    [Test]
     public async Task AdmissionBypassesPipelineDeadline()
     {
         var gate = new RecordingGate();
@@ -25,12 +27,12 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
 
         _ = await pipeline.GetValueAsync("c", "k", CancellationToken.None);
 
-        Assert.False(gate.ObservedToken.CanBeCanceled);
-        Assert.True(inner.ObservedToken.CanBeCanceled);
+        _ = await Assert.That(gate.ObservedToken.CanBeCanceled).IsFalse();
+        _ = await Assert.That(inner.ObservedToken.CanBeCanceled).IsTrue();
     }
 
     /// <summary>A hung execution still faults with TimeoutException once the pipeline deadline expires.</summary>
-    [Fact]
+    [Test]
     public async Task SlowExecutionStillHitsPipelineDeadline()
     {
         var gate = new RecordingGate();
@@ -89,7 +91,8 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
             ValueTask.FromResult(false);

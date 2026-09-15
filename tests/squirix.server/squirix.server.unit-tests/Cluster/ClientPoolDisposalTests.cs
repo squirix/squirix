@@ -9,7 +9,9 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -20,7 +22,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
 
     /// <summary>An unexpected policy disposal failure must not leak the remaining peers or channels.</summary>
-    [Fact]
+    [Test]
     public async Task DisposeContinuesAfterPolicyFailure()
     {
         using var meter = new Meter("Squirix");
@@ -36,10 +38,10 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         {
             await pool.DisposeAsync();
 
-            Assert.True(policies["n0"].Disposed);
-            Assert.True(policies["n1"].Disposed);
-            Assert.True(policies["n2"].Disposed);
-            Assert.True(sink.HasEvent(PoolDisposalsTotalInstrumentName));
+            _ = await Assert.That(policies["n0"].Disposed).IsTrue();
+            _ = await Assert.That(policies["n1"].Disposed).IsTrue();
+            _ = await Assert.That(policies["n2"].Disposed).IsTrue();
+            _ = await Assert.That(sink.HasEvent(PoolDisposalsTotalInstrumentName)).IsTrue();
         }
     }
 

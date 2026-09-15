@@ -7,7 +7,9 @@ using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
@@ -16,8 +18,9 @@ namespace Squirix.E2ETests;
 public sealed class TransportOptionsTests : EndToEndTestBase
 {
     /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.</summary>
-    [Fact]
-    public async Task ConnectsWithBearerTokenProvider()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConnectsWithBearerTokenProvider(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var bearerToken = JwtHelper.CreateBearerToken(credentials);
@@ -32,20 +35,21 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(ConnectsWithBearerTokenProvider),
             security,
             timeProvider: TimeProvider.System,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
         var uri = cluster.GetUri("nodeA");
         var provider = CreateBearerTokenProvider(bearerToken);
 
-        await using var client = await LoopbackConnect.ConnectAsync(uri, provider, DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(uri, provider, cancellationToken);
 
-        var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
-        await cache.SetAsync("jwt-e2e", "ok", cancellationToken: DefaultCancellationToken);
-        Assert.Equal("ok", (await cache.GetValueAsync("jwt-e2e", DefaultCancellationToken)).Value);
+        var cache = await client.GetCacheAsync<string>("default", cancellationToken);
+        await cache.SetAsync("jwt-e2e", "ok", cancellationToken: cancellationToken);
+        _ = await Assert.That((await cache.GetValueAsync("jwt-e2e", cancellationToken)).Value).IsEqualTo("ok");
     }
 
     /// <summary>Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.</summary>
-    [Fact]
-    public async Task FailsWhenJwtRequiredButUnconfigured()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailsWhenJwtRequiredButUnconfigured(CancellationToken cancellationToken)
     {
         var credentials = JwtHelper.CreateSymmetricCredentials();
         var security = new TestNodeSecurityOptions
@@ -58,14 +62,14 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(FailsWhenJwtRequiredButUnconfigured),
             security,
             timeProvider: TimeProvider.System,
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
         var uri = cluster.GetUri("nodeA");
 
-        await using var client = await LoopbackConnect.ConnectAsync(uri, DefaultCancellationToken);
-        var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
+        var cache = await client.GetCacheAsync<string>("default", cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync("jwt-missing", "v", cancellationToken: cancellationToken));
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;

@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -13,8 +16,8 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class ReplicationMetricsTests : ServerUnitTestBase
 {
     /// <summary>Verifies instrument names are stable and labels stay bounded to node, group, scope, and reason.</summary>
-    [Fact]
-    public void ExposesStableMetricsWithBoundedLabels()
+    [Test]
+    public async Task ExposesStableMetricsWithBoundedLabels()
     {
         using var meter = new Meter("Squirix");
         using var listener = CreateListener(meter, out var records);
@@ -39,26 +42,26 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
 
         listener.RecordObservableInstruments();
 
-        AssertReportsTotal(records, 7);
-        AssertMismatchTotal(records, "group-b", "topology", 1);
-        AssertMismatchTotal(records, "group-c", "generation", 1);
-        AssertMismatchTotal(records, "group-d", "topology", 1);
-        AssertMismatchTotal(records, "group-d", "generation", 1);
-        AssertGauge(records, "squirix_replication_term", "group-a", 4);
-        AssertGauge(records, "squirix_replication_commit_index", "group-a", 7);
-        AssertGauge(records, "squirix_replication_applied_index", "group-a", 5);
-        AssertGauge(records, "squirix_replication_commit_lag_entries", "group-a", 3);
-        AssertGauge(records, "squirix_replication_apply_lag_entries", "group-a", 2);
-        AssertGauge(records, "squirix_replication_topology_match", "group-a", 1);
-        AssertGauge(records, "squirix_replication_generation_match", "group-a", 1);
-        AssertGauge(records, "squirix_replication_ready", "group-a", 1);
-        AssertGauge(records, "squirix_replication_term", "group-b", 6);
-        AssertGauge(records, "squirix_replication_topology_match", "group-b", 0);
-        AssertGauge(records, "squirix_replication_ready", "group-b", 0);
-        AssertLabelSetsAreBounded(records);
+        await AssertReportsTotal(records, 7);
+        await AssertMismatchTotal(records, "group-b", "topology", 1);
+        await AssertMismatchTotal(records, "group-c", "generation", 1);
+        await AssertMismatchTotal(records, "group-d", "topology", 1);
+        await AssertMismatchTotal(records, "group-d", "generation", 1);
+        await AssertGauge(records, "squirix_replication_term", "group-a", 4);
+        await AssertGauge(records, "squirix_replication_commit_index", "group-a", 7);
+        await AssertGauge(records, "squirix_replication_applied_index", "group-a", 5);
+        await AssertGauge(records, "squirix_replication_commit_lag_entries", "group-a", 3);
+        await AssertGauge(records, "squirix_replication_apply_lag_entries", "group-a", 2);
+        await AssertGauge(records, "squirix_replication_topology_match", "group-a", 1);
+        await AssertGauge(records, "squirix_replication_generation_match", "group-a", 1);
+        await AssertGauge(records, "squirix_replication_ready", "group-a", 1);
+        await AssertGauge(records, "squirix_replication_term", "group-b", 6);
+        await AssertGauge(records, "squirix_replication_topology_match", "group-b", 0);
+        await AssertGauge(records, "squirix_replication_ready", "group-b", 0);
+        await AssertLabelSetsAreBounded(records);
     }
 
-    private static void AssertGauge(List<MeasurementRecord> records, string name, string group, double expected)
+    private static async Task AssertGauge(List<MeasurementRecord> records, string name, string group, double expected)
     {
         var found = false;
         for (var i = 0; i < records.Count; i++)
@@ -66,28 +69,29 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             if (!string.Equals(records[i].Name, name, StringComparison.Ordinal) || !string.Equals(records[i].Group, group, StringComparison.Ordinal))
                 continue;
 
-            Assert.Equal(expected, records[i].Value);
+            _ = await Assert.That(records[i].Value).IsEqualTo(expected);
             found = true;
         }
 
-        Assert.True(found, $"Expected gauge '{name}' for group '{group}'.");
+        _ = await Assert.That(found).IsTrue().Because($"Expected gauge '{name}' for group '{group}'.");
     }
 
-    private static void AssertLabelSetsAreBounded(List<MeasurementRecord> records)
+    private static async Task AssertLabelSetsAreBounded(List<MeasurementRecord> records)
     {
         for (var i = 0; i < records.Count; i++)
         {
             var record = records[i];
-            Assert.StartsWith("squirix_replication_", record.Name, StringComparison.Ordinal);
-            Assert.True(record.Scope == null || string.Equals(record.Scope, "replication", StringComparison.Ordinal));
-            Assert.True(
-                record.Reason == null || string.Equals(record.Reason, "topology", StringComparison.Ordinal) ||
-                string.Equals(record.Reason, "generation", StringComparison.Ordinal));
-            Assert.True(record.Node != null || record.Group != null);
+            _ = await Assert.That(record.Name).StartsWith("squirix_replication_", StringComparison.Ordinal);
+            _ = await Assert.That(record.Scope == null || string.Equals(record.Scope, "replication", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(
+                                 record.Reason == null || string.Equals(record.Reason, "topology", StringComparison.Ordinal) ||
+                                 string.Equals(record.Reason, "generation", StringComparison.Ordinal))
+                            .IsTrue();
+            _ = await Assert.That(record.Node != null || record.Group != null).IsTrue();
         }
     }
 
-    private static void AssertMismatchTotal(List<MeasurementRecord> records, string group, string reason, int expectedCount)
+    private static async Task AssertMismatchTotal(List<MeasurementRecord> records, string group, string reason, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)
@@ -97,14 +101,14 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
 
             if (!string.Equals(records[i].Group, group, StringComparison.Ordinal) || !string.Equals(records[i].Reason, reason, StringComparison.Ordinal))
                 continue;
-            Assert.Equal("node-a", records[i].Node);
+            _ = await Assert.That(records[i].Node).IsEqualTo("node-a");
             count++;
         }
 
-        Assert.Equal(expectedCount, count);
+        _ = await Assert.That(count).IsEqualTo(expectedCount);
     }
 
-    private static void AssertReportsTotal(List<MeasurementRecord> records, int expectedCount)
+    private static async Task AssertReportsTotal(List<MeasurementRecord> records, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)
@@ -112,12 +116,12 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             if (!string.Equals(records[i].Name, "squirix_replication_status_reports_total", StringComparison.Ordinal))
                 continue;
 
-            Assert.Equal("node-a", records[i].Node);
-            Assert.Equal("replication", records[i].Scope);
+            _ = await Assert.That(records[i].Node).IsEqualTo("node-a");
+            _ = await Assert.That(records[i].Scope).IsEqualTo("replication");
             count++;
         }
 
-        Assert.Equal(expectedCount, count);
+        _ = await Assert.That(count).IsEqualTo(expectedCount);
     }
 
     private static MeterListener CreateListener(Meter meter, out List<MeasurementRecord> records)

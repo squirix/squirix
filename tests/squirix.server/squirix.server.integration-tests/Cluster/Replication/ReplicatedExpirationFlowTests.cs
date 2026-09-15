@@ -6,7 +6,10 @@ using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
-using Xunit;
+using Squirix.Server.TestKit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -14,8 +17,9 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 {
     /// <summary>The common majority pipeline applies a tombstone before exposing the miss.</summary>
-    [Fact]
-    public async Task ExpiredFlowCommitsBeforeMiss()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredFlowCommitsBeforeMiss(CancellationToken cancellationToken)
     {
         var pipeline = new ImmediatePipeline();
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
@@ -39,12 +43,12 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
                     1,
                     new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4)),
                 Timeout = TimeSpan.FromSeconds(2),
-                CancellationToken = DefaultCancellationToken,
+                CancellationToken = cancellationToken,
             });
 
         pipeline.Trace.Add("miss");
-        Assert.True(miss);
-        Assert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace);
+        _ = await Assert.That(miss).IsTrue();
+        await SequenceAssert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
     }
 
     private sealed class ImmediatePipeline : IReplicaCommitPipeline

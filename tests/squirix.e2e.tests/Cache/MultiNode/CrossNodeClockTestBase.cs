@@ -1,9 +1,10 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.E2ETests.Cluster;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
@@ -12,7 +13,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// an isolated cluster and clock, so parallel tests never observe each other's time advances.
 /// </summary>
 [Immutable]
-public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
+public abstract class CrossNodeClockTestBase : EndToEndTestBase
 {
     private HostedCluster? _cluster;
 
@@ -33,21 +34,22 @@ public abstract class CrossNodeClockTestBase : EndToEndTestBase, IAsyncLifetime
         private set;
     }
 
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    /// <summary>Disposes this test's cluster.</summary>
+    [After(HookType.Test)]
+    public async Task DisposeAsync()
     {
         if (_cluster != null)
             await _cluster.DisposeAsync();
-
-        GC.SuppressFinalize(this);
     }
 
-    /// <inheritdoc />
-    public async ValueTask InitializeAsync()
+    /// <summary>Starts this test's isolated cluster.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Before(HookType.Test)]
+    public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { TimeProvider = Clock }, cancellationToken: DefaultCancellationToken);
-        var clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        var clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        Cluster = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, DefaultCancellationToken, false);
+        _cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { TimeProvider = Clock }, cancellationToken: cancellationToken);
+        var clientA = await _cluster.ConnectClientAsync("nodeA", cancellationToken);
+        var clientB = await _cluster.ConnectClientAsync("nodeB", cancellationToken);
+        Cluster = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, cancellationToken, false);
     }
 }

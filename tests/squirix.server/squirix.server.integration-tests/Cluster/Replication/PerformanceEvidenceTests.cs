@@ -1,8 +1,11 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -12,27 +15,28 @@ public sealed class PerformanceEvidenceTests : NodeIntegrationTestBase
     /// <summary>The percentage gate requires a matching machine fingerprint before comparing values.</summary>
     /// <remarks>
     /// #239 mandates the name "PercentageGateRequiresMatchingMachineFingerprint"; it is shortened here because
-    /// SQR0005 limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
+    /// SQR0005 limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered
+    /// behavior.
     /// </remarks>
-    [Fact]
-    public void PercentageGateRequiresMachineFingerprint()
+    [Test]
+    public async Task PercentageGateRequiresMachineFingerprint()
     {
         var machine = MachineFingerprint.Compute();
-        Assert.False(string.IsNullOrWhiteSpace(machine));
-        Assert.True(MachineFingerprint.Matches(machine, MachineFingerprint.Compute()));
+        _ = await Assert.That(string.IsNullOrWhiteSpace(machine)).IsFalse();
+        _ = await Assert.That(MachineFingerprint.Matches(machine, MachineFingerprint.Compute())).IsTrue();
 
         var within = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "placement", machine, 100.0, 105.0, 10.0);
-        Assert.True(PerformanceEvidenceGate.Check(within, machine));
+        _ = await Assert.That(PerformanceEvidenceGate.Check(within, machine)).IsTrue();
 
         var regressed = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "placement", machine, 100.0, 120.0, 10.0);
-        Assert.False(PerformanceEvidenceGate.Check(regressed, machine));
+        _ = await Assert.That(PerformanceEvidenceGate.Check(regressed, machine)).IsFalse();
 
         var foreign = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "placement", machine + "|foreign", 100.0, 100.0, 10.0);
         var exception = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             foreign,
             machine,
             static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
-        Assert.Contains("fingerprint", exception.Message, StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(exception.Message).Contains("fingerprint", StringComparison.OrdinalIgnoreCase);
 
         // Misconfigured evidence fails loud instead of masquerading as a regression verdict.
         var zeroBaseline = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "placement", machine, 0.0, 100.0, 10.0);
@@ -49,17 +53,11 @@ public sealed class PerformanceEvidenceTests : NodeIntegrationTestBase
 
         // Non-finite values fail loud instead of skewing the ceiling comparison.
         var nanBaseline = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "placement", machine, double.NaN, 100.0, 10.0);
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
-            nanBaseline,
-            machine,
-            static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(nanBaseline, machine, static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
 
         // Evidence bound to the wrong benchmark or an unknown phase never reaches the gate.
         var mismatched = new PerformanceEvidence("Squirix.Server.Benchmarks.FollowerAppendBenchmarks", "placement", machine, 100.0, 100.0, 10.0);
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
-            mismatched,
-            machine,
-            static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(mismatched, machine, static (evidence, current) => _ = PerformanceEvidenceGate.Check(evidence, current));
 
         var unknownPhase = new PerformanceEvidence("Squirix.Server.Benchmarks.ReplicaPlacementBenchmarks", "no-such-phase", machine, 100.0, 100.0, 10.0);
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(

@@ -11,7 +11,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -28,8 +30,9 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
     /// coordinator healthy: a subsequent clean durable mutation still commits and the pipeline disposes
     /// without hanging.
     /// </summary>
-    [Fact]
-    public async Task CanceledGroupCommitKeepsPipelineHealthy()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledGroupCommitKeepsPipelineHealthy(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -44,30 +47,31 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         using var manifestStore = new Ledger(options);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        await journal.WaitForStartupAsync(cancellationToken);
 
         const int iterations = 256;
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await RunCancellationStormAsync(journal, payload, iterations, DefaultCancellationToken);
+        await RunCancellationStormAsync(journal, payload, iterations, cancellationToken);
 
         var opsBefore = journal.AppendedOps;
 
         // The pool/counter must still be intact: a clean durable mutation completes promptly.
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, DefaultCancellationToken).AsTask()
-                     .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, cancellationToken).AsTask()
+                     .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
-        Assert.True(journal.AppendedOps > opsBefore);
+        _ = await Assert.That(journal.AppendedOps > opsBefore).IsTrue();
     }
 
     /// <summary>
     /// A durable group commit issued across a forced segment roll completes (it is not starved for the
     /// whole roll), and the journal rolls to the next segment.
     /// </summary>
-    [Fact]
-    public async Task GroupCommitCompletesAcrossRoll()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GroupCommitCompletesAcrossRoll(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -82,10 +86,10 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         using var manifestStore = new Ledger(options);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+        var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         const int payloadSize = 16_000;
         var payload = new byte[payloadSize];
@@ -94,12 +98,12 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         var deadline = Environment.TickCount64 + 30_000;
         for (var i = 0; pipelined.CurrentSegmentIndex == 1 && Environment.TickCount64 < deadline;)
         {
-            await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, cancellationToken);
+            await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             i++;
         }
 
-        Assert.Equal(2, pipelined.CurrentSegmentIndex);
+        _ = await Assert.That(pipelined.CurrentSegmentIndex).IsEqualTo(2);
     }
 
     private static async Task AppendIgnoringCancellationAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, int cancelAfterMs)

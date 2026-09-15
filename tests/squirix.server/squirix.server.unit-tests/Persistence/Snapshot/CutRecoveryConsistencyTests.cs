@@ -20,7 +20,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -42,8 +44,9 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
     /// When a segment roll happens during the slow snapshot build phase, recovery must still replay journal tail
     /// records from the closed segment. Replay-from segment and next sequence are frozen at flush time under the mutation gate.
     /// </summary>
-    [Fact]
-    public async Task RollDuringCutKeepsJournalTailIntact()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RollDuringCutKeepsJournalTailIntact(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-snap-cut-roll-recovery");
         var persistence = new PersistenceOptions
@@ -57,23 +60,23 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         using var manifestStore = new Ledger(persistence);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
         var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
         var overflowFrameLen = PutFrameLength(overflowPayload, OverflowKey);
 
-        await journal.AppendPutAsync(BaseKey, JournalEntryPayloadKit.EncodePut("base"), DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-        await FillSegmentOneForRollAsync(coordinator, overflowFrameLen, DefaultCancellationToken);
+        await journal.AppendPutAsync(BaseKey, JournalEntryPayloadKit.EncodePut("base"), cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
+        await FillSegmentOneForRollAsync(coordinator, overflowFrameLen, cancellationToken);
 
-        var snapshotRef = await CutSnapshotDuringSegmentRollAsync(coordinator, manifestStore, writer, overflowPayload, DefaultCancellationToken);
-        Assert.Equal(1, snapshotRef.ReplayFromJournalSegment);
-        Assert.True(coordinator.CurrentSegmentIndex >= 2);
+        var snapshotRef = await CutSnapshotDuringSegmentRollAsync(coordinator, manifestStore, writer, overflowPayload, cancellationToken);
+        _ = await Assert.That(snapshotRef.ReplayFromJournalSegment).IsEqualTo(1);
+        _ = await Assert.That(coordinator.CurrentSegmentIndex >= 2).IsTrue();
 
-        await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
+        await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -123,7 +126,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         await journal.AppendPutAsync(TailKey, JournalEntryPayloadKit.EncodePut("tail"), cancellationToken);
         await journal.AppendPutAsync(OverflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
-        Assert.True(journal.CurrentSegmentIndex >= 2);
+        _ = await Assert.That(journal.CurrentSegmentIndex >= 2).IsTrue();
         releaseBuild.SetResult();
         return await snapshotTask.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
     }
@@ -141,8 +144,8 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        Assert.Equal(1, journal.CurrentSegmentIndex);
-        Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes);
+        _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxSegmentBytes).IsTrue();
     }
 
     private static int PutFrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -171,9 +174,9 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         var options = new RecoveryOptions { BlockOnStart = true };
         await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
 
-        Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
+        _ = await Assert.That((await cache.GetValueAsync(BaseKey, cancellationToken)).Value).IsEqualTo("base");
         var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
-        Assert.True(tailEntry.Found);
-        Assert.Equal("tail", tailEntry.Value);
+        _ = await Assert.That(tailEntry.Found).IsTrue();
+        _ = await Assert.That(tailEntry.Value).IsEqualTo("tail");
     }
 }

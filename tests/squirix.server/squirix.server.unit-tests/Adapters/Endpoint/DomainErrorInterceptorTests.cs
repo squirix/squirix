@@ -5,7 +5,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
@@ -14,14 +16,14 @@ namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
     /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
-    [Fact]
+    [Test]
     public async Task UnaryMapsQuotaToResourceExhausted()
     {
         var interceptor = new ResourceExhaustedExceptionInterceptor();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             interceptor.UnaryServerHandler("request", new TestServerCallContext(), static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
 
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(JournalCapacityExceededException.StableDetail);
     }
 }

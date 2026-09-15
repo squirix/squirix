@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Xml.XPath;
 using Squirix.Server.Attributes;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -32,27 +34,27 @@ internal sealed class MsbuildProjectIndex
 
     internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-    internal XPathNavigator RequireIncludedElement(string localName, string include)
+    internal async Task<XPathNavigator> RequireIncludedElement(string localName, string include)
     {
-        Assert.True(_includedElements.TryGetValue(localName, out var elements));
+        _ = await Assert.That(_includedElements.TryGetValue(localName, out var elements)).IsTrue();
+        var present = (await Assert.That(elements).IsNotNull())!;
 
         XPathNavigator? match = null;
-        for (var i = 0; i < elements.Count; i++)
+        for (var i = 0; i < present.Count; i++)
         {
-            var element = elements[i];
+            var element = present[i];
             if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
                 continue;
             match = element;
             break;
         }
 
-        Assert.NotNull(match);
-        return match;
+        return await Assert.That(match).IsNotNull();
     }
 
-    internal string RequireProperty(string propertyName)
+    internal async Task<string> RequireProperty(string propertyName)
     {
-        Assert.True(_properties.TryGetValue(propertyName, out var value));
-        return value;
+        _ = await Assert.That(_properties.TryGetValue(propertyName, out var value)).IsTrue();
+        return await Assert.That(value).IsNotNull();
     }
 }

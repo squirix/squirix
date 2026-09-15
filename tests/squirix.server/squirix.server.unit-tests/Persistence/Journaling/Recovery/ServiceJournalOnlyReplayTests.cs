@@ -1,4 +1,5 @@
 using System.Diagnostics.Metrics;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
@@ -10,7 +11,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
@@ -21,8 +24,9 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
     private readonly Meter _testMeter = new("test");
 
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>
-    [Fact]
-    public async Task RecoveryReplaysClosedCurrentJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveryReplaysClosedCurrentJournal(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
         var seg1A = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "seg1-a", "a");
@@ -38,7 +42,7 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
                 NextSequence = 4,
                 LastSnapshot = null,
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
@@ -52,11 +56,11 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
                 gate,
                 new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
                 StoreFactory.CreateReader(persistence)));
-        await recovery.StartAsync(DefaultCancellationToken);
+        await recovery.StartAsync(cancellationToken);
 
-        Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), DefaultCancellationToken)).Found);
-        Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-b"), DefaultCancellationToken)).Found);
-        Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg2-c"), DefaultCancellationToken)).Found);
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-b"), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg2-c"), cancellationToken)).Found).IsTrue();
     }
 
     /// <inheritdoc />

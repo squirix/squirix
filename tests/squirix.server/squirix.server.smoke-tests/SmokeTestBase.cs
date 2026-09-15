@@ -18,7 +18,6 @@ using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
-using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
@@ -35,15 +34,12 @@ public abstract class SmokeTestBase : IDisposable
 
     private ClusterTls? _mtls;
 
-    /// <summary>Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.</summary>
-    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
-
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>
-    /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />,
-    /// <see cref="HttpClient" />, and default <see cref="CancellationTokenSource" />.
+    /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />
+    /// and <see cref="HttpClient" />.
     /// </summary>
     public void Dispose()
     {

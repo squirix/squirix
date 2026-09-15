@@ -9,7 +9,9 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -17,8 +19,9 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
 {
     /// <summary>An expired shared deadline rejects transport attempts before the first try.</summary>
-    [Fact]
-    public async Task ExpiredDeadlineRejectsTransportAttempts()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredDeadlineRejectsTransportAttempts(CancellationToken cancellationToken)
     {
         using var meter = new Meter("test-routing-flow");
         var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter));
@@ -27,7 +30,7 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
         var attempts = new InvocationCounter();
         using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1));
         var budget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
-        Assert.True(budget.HasExpired());
+        _ = await Assert.That(budget.HasExpired()).IsTrue();
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
             policy.ExecuteAsync(
@@ -37,25 +40,25 @@ public sealed class RoutingDeadlineFlowTests : NodeIntegrationTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                DefaultCancellationToken));
-        Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
-        Assert.Equal(0, attempts.Count);
+                cancellationToken));
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
 
     /// <summary>A stale term consumes the single reroute while the shared deadline still bounds retries.</summary>
-    [Fact]
-    public void StaleTermRerouteSharesDeadline()
+    [Test]
+    public async Task StaleTermRerouteSharesDeadline()
     {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var budget = new RerouteBudget(time.GetUtcNow() + TimeSpan.FromSeconds(10), time);
 
-        Assert.Equal(StaleTermVerdict.Stale, StaleTermClassifier.Classify(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm))));
-        Assert.True(budget.TryConsumeReroute());
-        Assert.False(budget.HasExpired());
+        _ = await Assert.That(StaleTermClassifier.Classify(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)))).IsEqualTo(StaleTermVerdict.Stale);
+        _ = await Assert.That(budget.TryConsumeReroute()).IsTrue();
+        _ = await Assert.That(budget.HasExpired()).IsFalse();
 
         time.Advance(TimeSpan.FromSeconds(11));
-        Assert.True(budget.HasExpired());
-        Assert.False(budget.TryConsumeReroute());
+        _ = await Assert.That(budget.HasExpired()).IsTrue();
+        _ = await Assert.That(budget.TryConsumeReroute()).IsFalse();
     }
 
     private sealed class InvocationCounter

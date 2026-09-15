@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -10,7 +11,9 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -19,8 +22,8 @@ namespace Squirix.Server.UnitTests.Hosting;
 public sealed class OptionsValidatorTests : ServerUnitTestBase
 {
     /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>
-    [Fact]
-    public void BackpressureAcceptsThresholdBoundaries()
+    [Test]
+    public async Task BackpressureAcceptsThresholdBoundaries()
     {
         var v = new AdmissionOptionsValidator();
         var options = new AdmissionOptions
@@ -35,12 +38,12 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, options);
 
-        Assert.False(result.Failed);
+        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies a burst without rate limit configuration is rejected.</summary>
-    [Fact]
-    public void BackpressureRejectsBurstWithoutRate()
+    [Test]
+    public async Task BackpressureRejectsBurstWithoutRate()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions
@@ -50,24 +53,24 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, bad);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
     }
 
     /// <summary>Verifies backpressure queue wait must remain positive when enabled semantics apply.</summary>
-    [Fact]
-    public void BackpressureRejectsNonPositiveQueueWait()
+    [Test]
+    public async Task BackpressureRejectsNonPositiveQueueWait()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions { MaxQueueWait = TimeSpan.Zero };
 
         var result = v.Validate(Options.DefaultName, bad);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
     }
 
     /// <summary>Verifies backpressure validator rejects per-client inflight values above the node cap.</summary>
-    [Fact]
-    public void BackpressureRejectsPerFlightOverCap()
+    [Test]
+    public async Task BackpressureRejectsPerFlightOverCap()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions
@@ -78,12 +81,24 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, bad);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
+    }
+
+    /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
+    [Test]
+    public async Task CompactionValidatorAcceptsTailSegments()
+    {
+        var v = new JournalCompactionOptionsValidator();
+        var options = new JournalCompactionOptions { MinTailSegments = 0 };
+
+        var result = v.Validate(Options.DefaultName, options);
+
+        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies a minimal valid cluster configuration passes validation.</summary>
-    [Fact]
-    public void ConfigValidatorAcceptsWellFormedCluster()
+    [Test]
+    public async Task ConfigValidatorAcceptsWellFormedCluster()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
@@ -96,12 +111,12 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, cfg);
 
-        Assert.False(result.Failed);
+        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies duplicate peer identifiers fail validation.</summary>
-    [Fact]
-    public void ConfigValidatorRejectsDuplicatePeerIds()
+    [Test]
+    public async Task ConfigValidatorRejectsDuplicatePeerIds()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(
@@ -118,12 +133,12 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, cfg);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
     }
 
     /// <summary>Verifies empty node identifiers fail validation.</summary>
-    [Fact]
-    public void ConfigValidatorRejectsEmptyNodeId()
+    [Test]
+    public async Task ConfigValidatorRejectsEmptyNodeId()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "x", Uri = new Uri("https://localhost:6001") })
@@ -136,12 +151,12 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, cfg);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
     }
 
     /// <summary>Verifies peer URLs must be absolute HTTPS endpoints.</summary>
-    [Fact]
-    public void ConfigValidatorRejectsInvalidPeerUrls()
+    [Test]
+    public async Task ConfigValidatorRejectsInvalidPeerUrls()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") })
@@ -154,12 +169,72 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, cfg);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
+    }
+
+    /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
+    [Test]
+    public async Task ExporterValidatorAcceptsValidInterval()
+    {
+        var v = new JournalMetricsExporterOptionsValidator();
+        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
+
+        var result = v.Validate(Options.DefaultName, options);
+
+        _ = await Assert.That(result.Failed).IsFalse();
+    }
+
+    /// <summary>Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.</summary>
+    [Test]
+    public async Task PersistenceValidatorRejectsEmptyDataDir()
+    {
+        var v = new PersistenceOptionsValidator();
+        var bad = new PersistenceOptions
+        {
+            DataDir = " ",
+            JournalMaxSegmentMb = 1,
+            FlushInterval = 5,
+            ManifestRetentionCount = 1,
+            SnapshotRetentionCount = 1,
+        };
+
+        var result = v.Validate(Options.DefaultName, bad);
+
+        _ = await Assert.That(result.Failed).IsTrue();
+    }
+
+    /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
+    [Test]
+    public async Task PressureValidatorAcceptsBelowCritical()
+    {
+        var v = new PressureOptionsValidator();
+        var bad = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 1024,
+            HighPressureThresholdPercent = 90,
+            CriticalPressureThresholdPercent = 90,
+        };
+
+        var result = v.Validate(Options.DefaultName, bad);
+
+        _ = await Assert.That(result.Failed).IsTrue();
+    }
+
+    /// <summary>Verifies snapshot trigger validator accepts valid local scalar values after setter validation.</summary>
+    [Test]
+    public async Task TriggerValidatorAcceptsValidCadence()
+    {
+        var v = new TriggerOptionsValidator();
+        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
+
+        var result = v.Validate(Options.DefaultName, options);
+
+        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies ReplicaCount must be positive and within peer/policy limits.</summary>
-    [Fact]
-    public void ValidatorRejectsInvalidReplicaCount()
+    [Test]
+    public async Task ValidatorRejectsInvalidReplicaCount()
     {
         var v = new ConfigValidator();
         ServerPeer[] peers =
@@ -174,7 +249,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = 0,
         };
-        Assert.True(v.Validate(Options.DefaultName, zero).Failed);
+        _ = await Assert.That(v.Validate(Options.DefaultName, zero).Failed).IsTrue();
 
         var maxValid = new TopologyOptions(peers)
         {
@@ -183,7 +258,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = peers.Length,
         };
-        Assert.False(v.Validate(Options.DefaultName, maxValid).Failed);
+        _ = await Assert.That(v.Validate(Options.DefaultName, maxValid).Failed).IsFalse();
 
         var abovePeers = new TopologyOptions(peers)
         {
@@ -192,7 +267,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             Uri = peers[0].Uri,
             ReplicaCount = 3,
         };
-        Assert.True(v.Validate(Options.DefaultName, abovePeers).Failed);
+        _ = await Assert.That(v.Validate(Options.DefaultName, abovePeers).Failed).IsTrue();
 
         // Raw peer entries can exceed the physical ring; RF must use DistinctNodeIds count.
         ServerPeer[] peersWithDuplicate =
@@ -209,13 +284,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             ReplicaCount = peersWithDuplicate.Length,
         };
         var aboveDistinctResult = v.Validate(Options.DefaultName, aboveDistinct);
-        Assert.True(aboveDistinctResult.Failed);
-        Assert.Contains("ReplicaCount cannot exceed the number of configured peers.", aboveDistinctResult.Failures, StringComparer.Ordinal);
+        _ = await Assert.That(aboveDistinctResult.Failed).IsTrue();
+        _ = await Assert.That(aboveDistinctResult.Failures).Contains("ReplicaCount cannot exceed the number of configured peers.", StringComparer.Ordinal);
     }
 
     /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
-    [Fact]
-    public void ValidatorRejectsPlaintextHttpPeers()
+    [Test]
+    public async Task ValidatorRejectsPlaintextHttpPeers()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
@@ -228,12 +303,12 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
         var result = v.Validate(Options.DefaultName, cfg);
 
-        Assert.True(result.Failed);
+        _ = await Assert.That(result.Failed).IsTrue();
     }
 
     /// <summary>Verifies ConfigurationGeneration must be greater than zero.</summary>
-    [Fact]
-    public void ValidatorRejectsZeroConfigGeneration()
+    [Test]
+    public async Task ValidatorRejectsZeroConfigGeneration()
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
@@ -244,78 +319,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
             ConfigurationGeneration = 0,
         };
 
-        Assert.True(v.Validate(Options.DefaultName, cfg).Failed);
-    }
-
-    /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
-    [Fact]
-    public void CompactionValidatorAcceptsTailSegments()
-    {
-        var v = new JournalCompactionOptionsValidator();
-        var options = new JournalCompactionOptions { MinTailSegments = 0 };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        Assert.False(result.Failed);
-    }
-
-    /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
-    [Fact]
-    public void ExporterValidatorAcceptsValidInterval()
-    {
-        var v = new JournalMetricsExporterOptionsValidator();
-        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        Assert.False(result.Failed);
-    }
-
-    /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
-    [Fact]
-    public void PressureValidatorAcceptsBelowCritical()
-    {
-        var v = new PressureOptionsValidator();
-        var bad = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 1024,
-            HighPressureThresholdPercent = 90,
-            CriticalPressureThresholdPercent = 90,
-        };
-
-        var result = v.Validate(Options.DefaultName, bad);
-
-        Assert.True(result.Failed);
-    }
-
-    /// <summary>Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.</summary>
-    [Fact]
-    public void PersistenceValidatorRejectsEmptyDataDir()
-    {
-        var v = new PersistenceOptionsValidator();
-        var bad = new PersistenceOptions
-        {
-            DataDir = " ",
-            JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
-            ManifestRetentionCount = 1,
-            SnapshotRetentionCount = 1,
-        };
-
-        var result = v.Validate(Options.DefaultName, bad);
-
-        Assert.True(result.Failed);
-    }
-
-    /// <summary>Verifies snapshot trigger validator accepts valid local scalar values after setter validation.</summary>
-    [Fact]
-    public void TriggerValidatorAcceptsValidCadence()
-    {
-        var v = new TriggerOptionsValidator();
-        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        Assert.False(result.Failed);
+        _ = await Assert.That(v.Validate(Options.DefaultName, cfg).Failed).IsTrue();
     }
 }

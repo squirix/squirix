@@ -1,20 +1,21 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>
-/// Per-test single-node cluster driven by a dedicated fake clock. xUnit creates a new instance per
+/// Per-test single-node cluster driven by a dedicated fake clock. TUnit creates a new instance per
 /// test method, so each test owns an isolated node and clock, and parallel tests never observe each
 /// other's time advances.
 /// </summary>
 [Immutable]
-public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
+public abstract class ClockTestBase : EndToEndTestBase
 {
     private HostedCluster? _cluster;
 
@@ -35,19 +36,20 @@ public abstract class ClockTestBase : EndToEndTestBase, IAsyncLifetime
     /// <summary>Gets the fake clock driving this test's node. Advance it instead of sleeping for deterministic expiry.</summary>
     protected FakeTimeProvider Clock { get; }
 
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    /// <summary>Disposes this test's cluster.</summary>
+    [After(HookType.Test)]
+    public async Task DisposeAsync()
     {
         if (_cluster != null)
             await _cluster.DisposeAsync();
-
-        GC.SuppressFinalize(this);
     }
 
-    /// <inheritdoc />
-    public async ValueTask InitializeAsync()
+    /// <summary>Starts this test's isolated cluster.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Before(HookType.Test)]
+    public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: Clock, cancellationToken: DefaultCancellationToken);
-        Client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
+        _cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: Clock, cancellationToken: cancellationToken);
+        Client = await _cluster.ConnectClientAsync(cancellationToken: cancellationToken);
     }
 }

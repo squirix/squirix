@@ -16,7 +16,9 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -36,58 +38,55 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     /// A failed segment roll fails the pipeline: durable appends parked behind the
     /// roll-deferred frame fault instead of hanging, and the counter returns to baseline.
     /// </summary>
-    [Fact]
-    public async Task FailedRollFailsPendingDurableAppends()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedRollFailsPendingDurableAppends(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            ledger,
-            new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(cancellationToken);
+        var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
         var baseline = pipelined.QueuedAppendsCounter.Value;
 
         var overflowPayload = new byte[LargePayloadSize];
         Array.Fill(overflowPayload, Convert.ToByte('y'));
         var overflowKey = CacheKey.Default("overflow-key");
-        await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), DefaultCancellationToken);
+        await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), cancellationToken);
 
         // Calibration roll like in BlockedManifestStillAppendsFrames: it advances the manifest
         // numbering so the file blocked below is the one the journal-triggered roll writes.
         // Without it the roll targets a different manifest file and succeeds instead of failing.
         await EnqueueCalibrationRollAsync(ledger);
 
-        await BlockManifestFileAsync(Dir, 2, DefaultCancellationToken);
+        await BlockManifestFileAsync(Dir, 2, cancellationToken);
 
         // The overflow append is non-durable like in the roll tests: a durable overflow would
         // bypass the staging deferral path and fail the pipeline with a roll error instead of
         // parking. The durable followers queue behind it in ring order and never dequeue while
         // it is parked, so the drain below faults all of them.
-        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
-        var pending = StartDurableAppends(journal, payload, DefaultCancellationToken);
+        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        var pending = StartDurableAppends(journal, payload, cancellationToken);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), DefaultCancellationToken);
-        Assert.True(journal.HasFlushLoopFailure);
+        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
+        _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
 
         var all = Task.WhenAll(pending);
-        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), DefaultCancellationToken);
-        Assert.True(all.IsFaulted, "Append tasks completed instead of faulting.");
+        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
+        _ = await Assert.That(all.IsFaulted).IsTrue().Because("Append tasks completed instead of faulting.");
         _ = all.Exception;
 
         // Task.WhenAll faults when any constituent faults: assert every append faulted, not just one.
         for (var i = 0; i < pending.Count; i++)
         {
-            Assert.True(pending[i].IsFaulted, "Append task completed instead of faulting.");
+            _ = await Assert.That(pending[i].IsFaulted).IsTrue().Because("Append task completed instead of faulting.");
             _ = pending[i].Exception;
         }
 
-        Assert.Equal(baseline, pipelined.QueuedAppendsCounter.Value);
+        _ = await Assert.That(pipelined.QueuedAppendsCounter.Value).IsEqualTo(baseline);
     }
 
     /// <summary>
@@ -95,27 +94,24 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     /// parked behind the roll-deferred frame instead of leaving them hanging. A concurrent flush
     /// waiter is failed by the same catch branch.
     /// </summary>
-    [Fact]
-    public async Task FailingMaintenanceDrainsPendingAppends()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailingMaintenanceDrainsPendingAppends(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
         using var ledger = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await ledger.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            ledger,
-            new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var pipelined = Assert.IsType<JournalCoordinator>(journal);
+        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(cancellationToken);
+        var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
         var baseline = pipelined.QueuedAppendsCounter.Value;
 
         var overflowPayload = new byte[LargePayloadSize];
         Array.Fill(overflowPayload, Convert.ToByte('y'));
         var overflowKey = CacheKey.Default("overflow-key");
-        await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), DefaultCancellationToken);
+        await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), cancellationToken);
 
         // Calibration roll like in FailedRollFailsPendingDurableAppends: it advances the manifest
         // numbering so the file blocked below is the one the journal-triggered roll writes.
@@ -123,35 +119,35 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         await EnqueueCalibrationRollAsync(ledger);
 
         var gate = new BlockingMaintenanceAction();
-        var maintenance = journal.ExecuteMaintenanceExclusiveAsync(gate.RunAsync, DefaultCancellationToken);
-        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-        await BlockManifestFileAsync(Dir, 2, DefaultCancellationToken);
+        var maintenance = journal.ExecuteMaintenanceExclusiveAsync(gate.RunAsync, cancellationToken);
+        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        await BlockManifestFileAsync(Dir, 2, cancellationToken);
 
         // Non-durable overflow (see above): it parks on the roll-deferred frame while the
         // durable followers stay queued behind it for the drain.
-        await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
-        var pending = StartDurableAppends(journal, payload, DefaultCancellationToken);
-        QueueFlushWait(pending, journal, DefaultCancellationToken);
+        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        var pending = StartDurableAppends(journal, payload, cancellationToken);
+        QueueFlushWait(pending, journal, cancellationToken);
 
         _ = gate.Release.TrySetResult();
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(maintenance);
-        Assert.Same(gate.Original, thrown);
+        _ = await Assert.That(thrown).IsSameReferenceAs(gate.Original);
 
-        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), DefaultCancellationToken);
+        await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
 
         var all = Task.WhenAll(pending);
-        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), DefaultCancellationToken);
-        Assert.True(all.IsFaulted, "Append tasks completed instead of faulting.");
+        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), cancellationToken);
+        _ = await Assert.That(all.IsFaulted).IsTrue().Because("Append tasks completed instead of faulting.");
         _ = all.Exception;
 
         // Task.WhenAll faults when any constituent faults: assert every append faulted, not just one.
         for (var i = 0; i < pending.Count; i++)
         {
-            Assert.True(pending[i].IsFaulted, "Append task completed instead of faulting.");
+            _ = await Assert.That(pending[i].IsFaulted).IsTrue().Because("Append task completed instead of faulting.");
             _ = pending[i].Exception;
         }
 
-        Assert.Equal(baseline, pipelined.QueuedAppendsCounter.Value);
+        _ = await Assert.That(pipelined.QueuedAppendsCounter.Value).IsEqualTo(baseline);
     }
 
     private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
@@ -188,11 +184,18 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         return pending.AsTask();
     }
 
-    private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
-        pending.Add(AwaitFlushAsync(journal, cancellationToken));
+    private static Task BlockManifestFileAsync(string dir, int index, CancellationToken cancellationToken) => File.WriteAllBytesAsync(
+        NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(index)),
+        [],
+        cancellationToken);
 
-    private static Task BlockManifestFileAsync(string dir, int index, CancellationToken cancellationToken) =>
-        File.WriteAllBytesAsync(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(index)), [], cancellationToken);
+    private static PersistenceOptions CreateOptions(string dataDir) => new()
+    {
+        DataDir = dataDir,
+        JournalMaxSegmentMb = 1,
+        FlushInterval = 600_000,
+        ManifestRetentionCount = 3,
+    };
 
     private static async Task EnqueueCalibrationRollAsync(Ledger ledger)
     {
@@ -210,23 +213,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         await rolled.Task;
         rollError.ThrowIfFaulted();
     }
-
-    private static List<Task> StartDurableAppends(IJournalCoordinator journal, byte[] payload, CancellationToken cancellationToken)
-    {
-        var pending = new List<Task>(PendingAppends);
-        for (var i = 0; i < PendingAppends; i++)
-            pending.Add(AppendDurableAsync(journal, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
-
-        return pending;
-    }
-
-    private static PersistenceOptions CreateOptions(string dataDir) => new()
-    {
-        DataDir = dataDir,
-        JournalMaxSegmentMb = 1,
-        FlushInterval = 600_000,
-        ManifestRetentionCount = 3,
-    };
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
@@ -248,8 +234,8 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
-        Assert.Equal(1, journal.CurrentSegmentIndex);
-        Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes);
+        _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes).IsTrue();
     }
 
     private static int FrameLength(ReadOnlyMemory<byte> payload, CacheKey key)
@@ -263,6 +249,18 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             PutEntryBytes = payload,
         };
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+    }
+
+    private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
+        pending.Add(AwaitFlushAsync(journal, cancellationToken));
+
+    private static List<Task> StartDurableAppends(IJournalCoordinator journal, byte[] payload, CancellationToken cancellationToken)
+    {
+        var pending = new List<Task>(PendingAppends);
+        for (var i = 0; i < PendingAppends; i++)
+            pending.Add(AppendDurableAsync(journal, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
+
+        return pending;
     }
 
     private sealed class BlockingMaintenanceAction

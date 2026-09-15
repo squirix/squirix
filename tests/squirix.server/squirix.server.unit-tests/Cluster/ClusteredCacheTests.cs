@@ -12,7 +12,9 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -24,8 +26,9 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
     private const string Self = "node-a";
 
     /// <summary>A pool disposal racing remote execution surfaces Unavailable instead of ObjectDisposedException.</summary>
-    [Fact]
-    public async Task DisposedPolicyMapsToUnavailable()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposedPolicyMapsToUnavailable(CancellationToken cancellationToken)
     {
         using var meter = new Meter("test-clustered-cache-disposed");
         var instrumentation = new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter));
@@ -36,39 +39,41 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
         await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter));
         var cache = new ClusteredCache<string>(Self, new RecordingCache(), RocksDoubles.CreateOwnerLocator("node-b"), pool);
 
-        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(cache.GetEntryAsync(CacheName, Key, DefaultCancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
 
-        Assert.Equal(StatusCode.Unavailable, exception.StatusCode);
+        _ = await Assert.That(exception.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
     /// <summary>Owners differing only by case are remote because node identifiers are ordinal.</summary>
-    [Fact]
-    public async Task SetEntryAsyncCasedOwnerUsesRemoteCache()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetEntryAsyncCasedOwnerUsesRemoteCache(CancellationToken cancellationToken)
     {
         var local = new RecordingCache();
         await using var clients = new ThrowingClientPool();
         var cache = CreateCache("NODE-A", local, clients);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, DefaultCancellationToken));
+            cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, cancellationToken));
 
-        Assert.Equal(ThrowingClientPool.RemoteCallMessage, exception.Message);
-        Assert.Equal(0, local.SetEntryCalls);
-        Assert.Equal(1, clients.ForNodeCalls);
+        _ = await Assert.That(exception.Message).IsEqualTo(ThrowingClientPool.RemoteCallMessage);
+        _ = await Assert.That(local.SetEntryCalls).IsEqualTo(0);
+        _ = await Assert.That(clients.ForNodeCalls).IsEqualTo(1);
     }
 
     /// <summary>Exact owner identities execute the mutation through the local cache.</summary>
-    [Fact]
-    public async Task SetEntryAsyncExactOwnerUsesLocalCache()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SetEntryAsyncExactOwnerUsesLocalCache(CancellationToken cancellationToken)
     {
         var local = new RecordingCache();
         await using var clients = new ThrowingClientPool();
         var cache = CreateCache(Self, local, clients);
 
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, DefaultCancellationToken);
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, cancellationToken);
 
-        Assert.Equal(1, local.SetEntryCalls);
-        Assert.Equal(0, clients.ForNodeCalls);
+        _ = await Assert.That(local.SetEntryCalls).IsEqualTo(1);
+        _ = await Assert.That(clients.ForNodeCalls).IsEqualTo(0);
     }
 
     private static ClusteredCache<string> CreateCache(string owner, RecordingCache local, IServerClientPool clients) =>

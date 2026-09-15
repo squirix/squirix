@@ -1,6 +1,6 @@
 using System;
 using Squirix.Server.Attributes;
-using Xunit.Sdk;
+using TUnit.Assertions.Exceptions;
 
 namespace Squirix.Server.TestKit;
 
@@ -14,7 +14,7 @@ public readonly record struct NodeExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public TException Throws(Action operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -36,7 +36,7 @@ public readonly record struct NodeExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public TException Throws<TState>(TState state, Action<TState> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -60,7 +60,7 @@ public readonly record struct NodeExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public TException Throws<TState1, TState2>(TState1 state1, TState2 state2, Action<TState1, TState2> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -86,7 +86,7 @@ public readonly record struct NodeExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public TException Throws<TState1, TState2, TState3>(TState1 state1, TState2 state2, TState3 state3, Action<TState1, TState2, TState3> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -108,7 +108,7 @@ public readonly record struct NodeExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public TException ThrowsAny<TState>(TState state, Action<TState> operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -124,5 +124,5 @@ public readonly record struct NodeExceptionExpectation<TException>
         throw Missing();
     }
 
-    private static XunitException Missing() => new(NodeMissingExceptionMessage.For<TException>());
+    private static AssertionException Missing() => new(NodeMissingExceptionMessage.For<TException>());
 }

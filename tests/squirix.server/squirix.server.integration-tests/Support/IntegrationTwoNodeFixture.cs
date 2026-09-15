@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Core.Interfaces;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -20,7 +20,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 ///     </para>
 /// </remarks>
 [UsedImplicitly]
-public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncLifetime
+public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
     private TestNodeHost? _nodeA;
     private TestNodeHost? _nodeB;
@@ -49,7 +49,7 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncL
     }
 
     /// <inheritdoc />
-    public async ValueTask InitializeAsync()
+    public async Task InitializeAsync()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

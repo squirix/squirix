@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
@@ -12,7 +13,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -25,17 +28,18 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
 
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
-    [Fact]
-    public async Task JournalFailureObservableOnWrite()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalFailureObservableOnWrite(CancellationToken cancellationToken)
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("journal-retention-delete-failure");
         var staleJournalSegment = NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000001);
         var currentJournalPath = NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000003);
-        await File.WriteAllTextAsync(staleJournalSegment, "stale journal", DefaultCancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", DefaultCancellationToken);
-        await File.WriteAllTextAsync(currentJournalPath, "current journal", DefaultCancellationToken);
+        await File.WriteAllTextAsync(staleJournalSegment, "stale journal", cancellationToken);
+        await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", cancellationToken);
+        await File.WriteAllTextAsync(currentJournalPath, "current journal", cancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
         using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleJournalSegment));
         await store.WriteAsync(
@@ -51,27 +55,29 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                     ReplayFromJournalSegment = 3,
                 },
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase)),
-            DefaultCancellationToken);
+            cancellationToken);
 
-        Assert.True(File.Exists(currentJournalPath));
-        Assert.True(File.Exists(staleJournalSegment));
-        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
-        Assert.True(
+        _ = await Assert.That(File.Exists(currentJournalPath)).IsTrue();
+        _ = await Assert.That(File.Exists(staleJournalSegment)).IsTrue();
+        _ = await Assert.That(logger.Entries)
+                        .Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
+        _ = await Assert.That(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
                 ("artifact", ManifestRetentionArtifactKind.JournalSegment),
-                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed))).IsTrue();
 
         RestoreNormalAttributes(staleJournalSegment);
     }
 
     /// <summary>Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.</summary>
-    [Fact]
-    public async Task ManifestFailureObservableOnWrite()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ManifestFailureObservableOnWrite(CancellationToken cancellationToken)
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
@@ -79,25 +85,25 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
-        await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
 
-        Assert.True(File.Exists(staleManifest));
-        await store.WriteAsync(new State { CurrentJournal = 3 }, DefaultCancellationToken);
+        _ = await Assert.That(File.Exists(staleManifest)).IsTrue();
+        await store.WriteAsync(new State { CurrentJournal = 3 }, cancellationToken);
 
         await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase)),
-            DefaultCancellationToken);
+            cancellationToken);
 
         var latest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000003);
-        Assert.True(File.Exists(latest));
-        Assert.True(File.Exists(staleManifest));
-        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
-        Assert.True(
+        _ = await Assert.That(File.Exists(latest)).IsTrue();
+        _ = await Assert.That(File.Exists(staleManifest)).IsTrue();
+        _ = await Assert.That(logger.Entries).Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
+        _ = await Assert.That(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
                 ("artifact", ManifestRetentionArtifactKind.Manifest),
-                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed))).IsTrue();
 
         var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         if (File.Exists(stale))
@@ -105,8 +111,9 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     }
 
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
-    [Fact]
-    public async Task RepeatedRetentionFailuresDegradeReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RepeatedRetentionFailuresDegradeReady(CancellationToken cancellationToken)
     {
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-readiness");
@@ -119,18 +126,18 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         };
         var readiness = new RetentionCleanupReadiness(options);
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, cancellationToken);
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
-        await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
-        await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, DefaultCancellationToken);
-        Assert.False(readiness.IsDegraded);
-        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
+        await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, cancellationToken);
+        _ = await Assert.That(readiness.IsDegraded).IsFalse();
+        _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(1);
 
-        await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
-        await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, DefaultCancellationToken);
-        Assert.True(readiness.IsDegraded);
-        Assert.Equal(2, readiness.ConsecutiveWriteFailures);
+        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
+        await readiness.WaitUntilAsync(static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 }, cancellationToken);
+        _ = await Assert.That(readiness.IsDegraded).IsTrue();
+        _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(2);
 
         var stale = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
         if (File.Exists(stale))
@@ -138,16 +145,17 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     }
 
     /// <summary>Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.</summary>
-    [Fact]
-    public async Task SnapshotFailureObservableOnWrite()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotFailureObservableOnWrite(CancellationToken cancellationToken)
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("snapshot-retention-delete-failure");
         var staleSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001);
         var currentSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000002);
-        await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", DefaultCancellationToken);
-        await File.WriteAllTextAsync(currentSnapshot, "current snapshot", DefaultCancellationToken);
+        await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", cancellationToken);
+        await File.WriteAllTextAsync(currentSnapshot, "current snapshot", cancellationToken);
         var options = new PersistenceOptions
         {
             DataDir = dir,
@@ -167,20 +175,20 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
                     ReplayFromJournalSegment = 2,
                 },
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         await logger.WaitUntilAsync(
             static log => log.Entries.Exists(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase)),
-            DefaultCancellationToken);
+            cancellationToken);
 
-        Assert.True(File.Exists(currentSnapshot));
-        Assert.True(File.Exists(staleSnapshot));
-        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
-        Assert.True(
+        _ = await Assert.That(File.Exists(currentSnapshot)).IsTrue();
+        _ = await Assert.That(File.Exists(staleSnapshot)).IsTrue();
+        _ = await Assert.That(logger.Entries).Contains(static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
+        _ = await Assert.That(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
                 ("artifact", ManifestRetentionArtifactKind.Snapshot),
-                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed))).IsTrue();
 
         RestoreNormalAttributes(staleSnapshot);
     }

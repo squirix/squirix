@@ -8,7 +8,9 @@ using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -16,8 +18,9 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
 {
     /// <summary>Cancellation after local durability projects to unavailable commit unknown.</summary>
-    [Fact(DisplayName = "CancellationAfterLocalAppendReturnsCommitUnknown")]
-    public async Task CancellationAfterAppendIsUnknown()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancellationAfterAppendIsUnknown(CancellationToken cancellationToken)
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
@@ -30,14 +33,14 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
             using var cancellation = new CancellationTokenSource();
             var operation = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellation.Token);
 
-            _ = await pipeline.LocalAppended.Task.WaitAsync(DefaultCancellationToken);
+            _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
 
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             var transport = ServerOpContract.CommitOutcomeUnknown();
-            Assert.Equal(StatusCode.Unavailable, SquirixErrorMapper.ToGrpcStatusCode(transport.Code));
-            Assert.Equal(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, SquirixErrorMapper.ToPublicCode(transport.Code));
+            _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(transport.Code)).IsEqualTo(StatusCode.Unavailable);
+            _ = await Assert.That(SquirixErrorMapper.ToPublicCode(transport.Code)).IsEqualTo(ReplicaCommitCoordinator.CommitOutcomeUnknownCode);
         }
         finally
         {

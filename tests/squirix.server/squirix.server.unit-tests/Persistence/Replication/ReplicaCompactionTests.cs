@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -8,7 +9,9 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -17,39 +20,97 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-compaction";
 
+    /// <summary>
+    /// Compaction refuses a published snapshot whose included boundary falls below the applied watermark, so committed-and-applied frames are never dropped without a covering
+    /// snapshot.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionRefusesBelowAppliedMark(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compaction-below-applied");
+        var composition = GroupComposition.Create(GroupId);
+
+        // Seed a log whose durable metadata carries an applied watermark above the snapshot's included boundary:
+        // the exact incoherent state the guard defends against, where compaction would otherwise drop applied frames.
+        await using (var seed = new FollowerLog(dir, GroupId, composition))
+        {
+            await seed.OpenAsync(cancellationToken);
+            _ = await seed.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await seed.AppendAsync(Append(2UL, "b"), cancellationToken);
+            _ = await seed.AppendAsync(Append(3UL, "c"), cancellationToken);
+            _ = await seed.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await seed.AdvanceAppliedAsync(2UL, cancellationToken);
+            _ = await seed.CreateSnapshotAsync(2UL, cancellationToken);
+        }
+
+        var incoherent = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 3UL, 2UL, 3UL);
+        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(incoherent)];
+        GroupLogCodec.EncodeMeta(incoherent, encoded);
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, cancellationToken);
+
+        await using var log = new FollowerLog(dir, GroupId, composition);
+        await log.OpenAsync(cancellationToken);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(3UL);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+
+        // Published snapshot covers only index 2 while the applied watermark sits at 3.
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
+        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
+
+        var result = await log.CompactAsync(cancellationToken);
+
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        var after = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(after.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(after.LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That(after.LastAppliedIndex).IsEqualTo(3UL);
+        _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
+    }
+
     /// <summary>Compaction refuses a published snapshot whose boundary term conflicts with the local boundary, preserving the divergent suffix as a replicable tail.</summary>
-    [Fact]
-    public async Task CompactionRefusesConflictingBoundaryTerm()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionRefusesConflictingBoundaryTerm(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compaction-divergent-boundary");
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
-        _ = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
         // Publish a snapshot whose included term diverges from the local boundary entry's term. Compaction refuses the
         // snapshot and preserves the divergent suffix as a replicable tail.
         var store = new GroupSnapshotStore(dir, GroupId);
         var divergent = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 99UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
-        await store.PublishAsync(divergent, DefaultCancellationToken);
+        await store.PublishAsync(divergent, cancellationToken);
 
-        var result = await log.CompactAsync(DefaultCancellationToken);
+        var result = await log.CompactAsync(cancellationToken);
 
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        var status = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(3UL, status.LastLogIndex);
-        _ = Assert.Single(await log.GetUncommittedTailAsync(DefaultCancellationToken));
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
     }
 
-    /// <summary>Compaction refuses a published snapshot whose committed outcomes exceed the configured idempotency capacity, so the durable prefix is never truncated without a restorable state.</summary>
-    [Fact]
-    public async Task CompactionRefusesSnapshotPastCapacity()
+    /// <summary>
+    /// Compaction refuses a published snapshot whose committed outcomes exceed the configured idempotency capacity, so the durable prefix is never truncated without a restorable
+    /// state.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionRefusesSnapshotPastCapacity(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compaction-capacity");
         var composition = GroupComposition.Create(GroupId);
@@ -68,134 +129,75 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         byte[] bytesAfterCompaction;
         await using (var log = new FollowerLog(dir, GroupId, composition, options))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            Assert.True((await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken)).Success);
-            Assert.True((await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken)).Success);
-            Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
-            Assert.True((await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken)).Success);
+            await log.OpenAsync(cancellationToken);
+            _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AppendAsync(Append(2UL, "b"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AdvanceAppliedAsync(2UL, cancellationToken)).Success).IsTrue();
 
             // Published snapshot covers both committed entries but exports three distinct resolved outcomes,
             // more than the configured capacity of two. Compaction must refuse before the destructive rewrite.
             var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, outcomes);
-            await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, DefaultCancellationToken);
+            await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
-            bytesBeforeCompaction = await ReadLogBytesAsync(logPath);
-            var result = await log.CompactAsync(DefaultCancellationToken);
-            bytesAfterCompaction = await ReadLogBytesAsync(logPath);
+            bytesBeforeCompaction = await ReadLogBytesAsync(logPath, cancellationToken);
+            var result = await log.CompactAsync(cancellationToken);
+            bytesAfterCompaction = await ReadLogBytesAsync(logPath, cancellationToken);
 
-            Assert.False(result.Success);
-            Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
+            _ = await Assert.That(result.Success).IsFalse();
+            _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
         }
 
         // The durable prefix must survive intact because compaction refused before any truncate: the journal
         // bytes are unchanged and a reopened log still serves the committed entries.
-        Assert.Equal(bytesBeforeCompaction, bytesAfterCompaction);
+        await SequenceAssert.Equal(bytesBeforeCompaction, bytesAfterCompaction);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition);
-        await reopened.OpenAsync(DefaultCancellationToken);
+        await reopened.OpenAsync(cancellationToken);
 
         // The applied prefix releases its payloads during recovery, so the watermarks — not the entry payloads —
         // prove the journal survived the refused compaction.
-        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(2UL, status.LastLogIndex);
-        Assert.Equal(2UL, status.CommitIndex);
-        Assert.Equal(2UL, status.LastAppliedIndex);
-    }
-
-    /// <summary>Compaction refuses a published snapshot whose included boundary falls below the applied watermark, so committed-and-applied frames are never dropped without a covering snapshot.</summary>
-    [Fact]
-    public async Task CompactionRefusesBelowAppliedMark()
-    {
-        using var dir = new TempDirectory("squirix-compaction-below-applied");
-        var composition = GroupComposition.Create(GroupId);
-
-        // Seed a log whose durable metadata carries an applied watermark above the snapshot's included boundary:
-        // the exact incoherent state the guard defends against, where compaction would otherwise drop applied frames.
-        await using (var seed = new FollowerLog(dir, GroupId, composition))
-        {
-            await seed.OpenAsync(DefaultCancellationToken);
-            _ = await seed.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
-            _ = await seed.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-            _ = await seed.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-            _ = await seed.AdvanceCommitAsync(2UL, DefaultCancellationToken);
-            _ = await seed.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
-            _ = await seed.CreateSnapshotAsync(2UL, DefaultCancellationToken);
-        }
-
-        var incoherent = new GroupLogMetadata(
-            GroupId,
-            ReadOnlyMemory<byte>.Empty,
-            0UL,
-            0UL,
-            string.Empty,
-            3UL,
-            2UL,
-            3UL);
-        var encoded = new byte[GroupLogCodec.ComputeMetaEncodedLength(incoherent)];
-        GroupLogCodec.EncodeMeta(incoherent, encoded);
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), encoded, DefaultCancellationToken);
-
-        await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-
-        var status = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
-        Assert.Equal(2UL, status.CommitIndex);
-        Assert.Equal(3UL, status.LastAppliedIndex);
-        Assert.Equal(3UL, status.LastLogIndex);
-
-        // Published snapshot covers only index 2 while the applied watermark sits at 3.
-        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 2UL, 2UL, Array.Empty<GroupIdempotencyRecord>());
-        await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, DefaultCancellationToken);
-
-        var result = await log.CompactAsync(DefaultCancellationToken);
-
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.NotReady, result.RefusalCode);
-        var after = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(2UL, after.CommitIndex);
-        Assert.Equal(3UL, after.LastLogIndex);
-        Assert.Equal(3UL, after.LastAppliedIndex);
-        Assert.Empty(await log.GetUncommittedTailAsync(DefaultCancellationToken));
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(2UL);
     }
 
     /// <summary>Compaction releases an unresolved reservation that the snapshot did not export, and keeps the resolved outcome.</summary>
-    [Fact]
-    public async Task CompactionReleasesPrefixReservation()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompactionReleasesPrefixReservation(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-replica-idempotency-compaction");
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-        _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        Assert.Equal(
-            GroupIdempotencyReserveResult.Success,
-            log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL));
-        Assert.Equal(
-            GroupIdempotencyReserveResult.Success,
-            log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL));
-        Assert.True(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL));
-        _ = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
-        var snapshot = await log.CreateSnapshotAsync(2UL, DefaultCancellationToken);
-        Assert.Equal(GroupId, snapshot.GroupId);
-        var compaction = await log.CompactAsync(DefaultCancellationToken);
-        Assert.True(compaction.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL)).IsTrue();
+        _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
+        var snapshot = await log.CreateSnapshotAsync(2UL, cancellationToken);
+        _ = await Assert.That(snapshot.GroupId).IsEqualTo(GroupId);
+        var compaction = await log.CompactAsync(cancellationToken);
+        _ = await Assert.That(compaction.Success).IsTrue();
 
-        Assert.Equal(GroupIdempotencyLookup.Miss, log.Idempotency.Lookup("client", "orphan", [1], out _));
-        Assert.Equal(GroupIdempotencyLookup.Found, log.Idempotency.Lookup("client", "kept", [2], out var record));
-        Assert.True(record.IsResolved);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL));
+        _ = await Assert.That(log.Idempotency.Lookup("client", "orphan", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+        _ = await Assert.That(log.Idempotency.Lookup("client", "kept", [2], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(record.IsResolved).IsTrue();
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>A failed replacement after flushing the compacted file preserves the original durable journal and the readable published snapshot.</summary>
-    [Fact]
-    public async Task FailedReplacementPreservesDurableJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedReplacementPreservesDurableJournal(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-replica-compaction-replacement-fault");
         var faults = new ArmableFlushFaultHooks(static () => new IOException("simulated failure before compaction publish."));
@@ -203,100 +205,63 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         await using (var log = new FollowerLog(dir, GroupId, composition, faults))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
-            _ = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
-            _ = await log.CreateSnapshotAsync(2UL, DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
+            _ = await log.CreateSnapshotAsync(2UL, cancellationToken);
 
             faults.Arm();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactAsync(DefaultCancellationToken));
-            Assert.Equal(FollowerLogReadiness.Failed, log.Readiness);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactAsync(cancellationToken));
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             var tempPath = GroupStoragePaths.GetLogTempPath(dir, GroupId);
-            Assert.False(File.Exists(tempPath), $"Compaction temp file should be cleaned up after failure: {tempPath}");
+            _ = await Assert.That(File.Exists(tempPath)).IsFalse().Because($"Compaction temp file should be cleaned up after failure: {tempPath}");
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
 
-        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal(2UL, status.CommitIndex);
-        Assert.Equal(3UL, status.LastLogIndex);
-        var tail = await reopened.GetUncommittedTailAsync(DefaultCancellationToken);
-        _ = Assert.Single(tail);
-        Assert.Equal(3UL, tail[0].LogIndex);
-        Assert.Equal("c", Encoding.UTF8.GetString(tail[0].Payload.Span));
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(tail).HasSingleItem();
+        _ = await Assert.That(tail[0].LogIndex).IsEqualTo(3UL);
+        _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("c");
 
         var snapshotStore = new GroupSnapshotStore(dir, GroupId);
-        var published = Assert.NotNull(await snapshotStore.ReadPublishedAsync(DefaultCancellationToken));
-        Assert.Equal(2UL, published.LastIncludedIndex);
+        var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(2UL);
     }
 
     /// <summary>Probing below the snapshot boundary after compaction returns a log mismatch without failing readiness.</summary>
-    [Fact]
-    public async Task ProbeBelowBoundaryReturnsMismatch()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProbeBelowBoundaryReturnsMismatch(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compaction-probe");
         var composition = GroupComposition.Create(GroupId);
 
         await using var log = new FollowerLog(dir, GroupId, composition);
-        await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-        _ = await log.AdvanceCommitAsync(3UL, DefaultCancellationToken);
-        _ = await log.AdvanceAppliedAsync(3UL, DefaultCancellationToken);
-        _ = await log.CreateSnapshotAsync(3UL, DefaultCancellationToken);
-        var compaction = await log.CompactAsync(DefaultCancellationToken);
-        Assert.True(compaction.Success);
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+        _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
+        _ = await log.CreateSnapshotAsync(3UL, cancellationToken);
+        var compaction = await log.CompactAsync(cancellationToken);
+        _ = await Assert.That(compaction.Success).IsTrue();
 
         var probe = new FollowerLogAppendRequest("leader", 1UL, 2UL, 1UL, 3UL, default);
-        var result = await log.AppendAsync(probe, DefaultCancellationToken);
+        var result = await log.AppendAsync(probe, cancellationToken);
 
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(FollowerLogReadiness.Ready, log.Readiness);
-    }
-
-    /// <summary>Compaction retains the snapshot and recovers the uncommitted tail after restart.</summary>
-    [Fact]
-    public async Task RetainsInstallableStateForLaggingReplica()
-    {
-        using var dir = new TempDirectory("squirix-replica-compaction");
-        var composition = GroupComposition.Create(GroupId);
-
-        await using (var log = new FollowerLog(dir, GroupId, composition))
-        {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(3UL, "c"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(2UL, DefaultCancellationToken);
-            _ = await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken);
-            _ = await log.CreateSnapshotAsync(2UL, DefaultCancellationToken);
-
-            var result = await log.CompactAsync(DefaultCancellationToken);
-
-            Assert.True(result.Success);
-            Assert.NotNull(result.SnapshotPath);
-            _ = Assert.Single(await log.GetUncommittedTailAsync(DefaultCancellationToken));
-        }
-
-        await using var reopened = new FollowerLog(dir, GroupId, composition);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
-
-        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal(2UL, status.CommitIndex);
-        Assert.Equal(3UL, status.LastLogIndex);
-        Assert.Equal("c", Encoding.UTF8.GetString((await reopened.GetUncommittedTailAsync(DefaultCancellationToken))[0].Payload.ToArray()));
-
-        var snapshotStore = new GroupSnapshotStore(dir, GroupId);
-        var published = Assert.NotNull(await snapshotStore.ReadPublishedAsync(DefaultCancellationToken));
-        Assert.Equal(2UL, published.LastIncludedIndex);
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
 
     /// <summary>
@@ -304,46 +269,86 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     /// between publishing that snapshot and the next compaction leaves valid durable state that must not be
     /// reported as a committed gap.
     /// </summary>
-    [Fact]
-    public async Task RecoversJournalInsideNewerSnapshotPrefix()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoversJournalInsideNewerSnapshotPrefix(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compaction-snapshot-restart");
         var composition = GroupComposition.Create(GroupId);
 
         await using (var log = new FollowerLog(dir, GroupId, composition))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            Assert.True((await log.AppendAsync(Append(1UL, "a"), DefaultCancellationToken)).Success);
-            Assert.True((await log.AppendAsync(Append(2UL, "b"), DefaultCancellationToken)).Success);
-            Assert.True((await log.AdvanceCommitAsync(2UL, DefaultCancellationToken)).Success);
-            Assert.True((await log.AdvanceAppliedAsync(2UL, DefaultCancellationToken)).Success);
+            await log.OpenAsync(cancellationToken);
+            _ = await Assert.That((await log.AppendAsync(Append(1UL, "a"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AppendAsync(Append(2UL, "b"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AdvanceCommitAsync(2UL, cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AdvanceAppliedAsync(2UL, cancellationToken)).Success).IsTrue();
 
-            _ = await log.CreateSnapshotAsync(2UL, DefaultCancellationToken);
-            var compaction = await log.CompactAsync(DefaultCancellationToken);
-            Assert.True(compaction.Success);
+            _ = await log.CreateSnapshotAsync(2UL, cancellationToken);
+            var compaction = await log.CompactAsync(cancellationToken);
+            _ = await Assert.That(compaction.Success).IsTrue();
 
             // A newer snapshot is published without compacting the journal again, so the durable journal still
             // starts at the previous compaction boundary plus one while the snapshot covers through index three.
-            Assert.True((await log.AppendAsync(Append(3UL, "c"), DefaultCancellationToken)).Success);
-            Assert.True((await log.AdvanceCommitAsync(3UL, DefaultCancellationToken)).Success);
-            var snapshot = await log.CreateSnapshotAsync(3UL, DefaultCancellationToken);
-            Assert.Equal(3UL, snapshot.LastIncludedIndex);
+            _ = await Assert.That((await log.AppendAsync(Append(3UL, "c"), cancellationToken)).Success).IsTrue();
+            _ = await Assert.That((await log.AdvanceCommitAsync(3UL, cancellationToken)).Success).IsTrue();
+            var snapshot = await log.CreateSnapshotAsync(3UL, cancellationToken);
+            _ = await Assert.That(snapshot.LastIncludedIndex).IsEqualTo(3UL);
         }
 
         // The restart lands on the third journal shape: the first frame lies above one and below snapshotBase + one.
         await using var reopened = new FollowerLog(dir, GroupId, composition);
-        await reopened.OpenAsync(DefaultCancellationToken);
+        await reopened.OpenAsync(cancellationToken);
 
-        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(3UL, status.LastLogIndex);
-        var committed = await reopened.GetCommittedEntriesAsync(DefaultCancellationToken);
-        _ = Assert.Single(committed);
-        Assert.Equal("c", Encoding.UTF8.GetString(committed[0].Payload.Span));
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        var committed = await reopened.GetCommittedEntriesAsync(cancellationToken);
+        _ = await Assert.That(committed).HasSingleItem();
+        _ = await Assert.That(Encoding.UTF8.GetString(committed[0].Payload.Span)).IsEqualTo("c");
 
         var snapshotStore = new GroupSnapshotStore(dir, GroupId);
-        var published = Assert.NotNull(await snapshotStore.ReadPublishedAsync(DefaultCancellationToken));
-        Assert.Equal(3UL, published.LastIncludedIndex);
+        var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(3UL);
+    }
+
+    /// <summary>Compaction retains the snapshot and recovers the uncommitted tail after restart.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetainsInstallableStateForLaggingReplica(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-replica-compaction");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using (var log = new FollowerLog(dir, GroupId, composition))
+        {
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, "c"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
+            _ = await log.CreateSnapshotAsync(2UL, cancellationToken);
+
+            var result = await log.CompactAsync(cancellationToken);
+
+            _ = await Assert.That(result.Success).IsTrue();
+            _ = await Assert.That(result.SnapshotPath).IsNotNull();
+            _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(status.CommitIndex).IsEqualTo(2UL);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That(Encoding.UTF8.GetString((await reopened.GetUncommittedTailAsync(cancellationToken))[0].Payload.ToArray())).IsEqualTo("c");
+
+        var snapshotStore = new GroupSnapshotStore(dir, GroupId);
+        var published = await Assert.That(await snapshotStore.ReadPublishedAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(published.LastIncludedIndex).IsEqualTo(2UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);
@@ -352,15 +357,15 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
     /// <summary>Reads the durable journal bytes while the durability layer holds the log open.</summary>
     /// <param name="path">The journal file path to read.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The complete journal content.</returns>
     /// <exception cref="InvalidOperationException">The journal could not be read in full.</exception>
-    private static async Task<byte[]> ReadLogBytesAsync(string path)
+    private static async Task<byte[]> ReadLogBytesAsync(string path, CancellationToken cancellationToken)
     {
         // The durability layer holds the log open with FileShare.Read, so a share-compatible handle is required.
         using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var content = new byte[RandomAccess.GetLength(handle)];
-        return await HandleEx.ReadExactAsync(handle, content, 0, DefaultCancellationToken).ConfigureAwait(false) != null
-            ? content
+        return await HandleEx.ReadExactAsync(handle, content, 0, cancellationToken).ConfigureAwait(false) != null ? content
             : throw new InvalidOperationException($"Incomplete read of '{path}'.");
     }
 }

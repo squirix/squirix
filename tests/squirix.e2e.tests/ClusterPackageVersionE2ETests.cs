@@ -7,7 +7,9 @@ using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
@@ -23,8 +25,9 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
     /// input. The isolated variation (identical topology, only the version differs) is covered by
     /// TopologyFingerprintTests.FingerprintTracksPackageVersionChange; this test covers the enforcement side.
     /// </remarks>
-    [Fact]
-    public async Task MismatchedPackageVersionFailsReadiness()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MismatchedPackageVersionFailsReadiness(CancellationToken cancellationToken)
     {
         var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
         var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
@@ -42,12 +45,12 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
             peers,
             new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA },
             mtls,
-            DefaultCancellationToken);
+            cancellationToken);
 
         // Control case: homogeneous peers activate the RF=2 topology and serve traffic.
         // hostB is disposed when the helper returns, freeing dirB for the legacy restart below.
-        Assert.True(hostA.HasInterNodeMtlsListener);
-        await ProveHomogeneousTrafficAsync(uriA, uriB, peers, dirB, mtls, DefaultCancellationToken);
+        _ = await Assert.That(hostA.HasInterNodeMtlsListener).IsTrue();
+        await ProveHomogeneousTrafficAsync(uriA, uriB, peers, dirB, mtls, cancellationToken);
 
         // A peer built from an older package embeds that version in its topology fingerprint, so it
         // necessarily presents a divergent identity. Restarting on the stopped node's directory with such
@@ -61,9 +64,9 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
                 divergentPeers,
                 new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB },
                 mtls,
-                DefaultCancellationToken));
+                cancellationToken));
 
-        Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
     }
 
     /// <summary>Runs the homogeneous control case and disposes the second host, freeing its directory.</summary>
@@ -73,13 +76,7 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
     /// <param name="dirB">Persistence directory of the second node.</param>
     /// <param name="mtls">Caller-owned shared mTLS context.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    private static async Task ProveHomogeneousTrafficAsync(
-        Uri uriA,
-        Uri uriB,
-        (string NodeId, Uri Uri)[] peers,
-        string dirB,
-        ClusterTls mtls,
-        CancellationToken cancellationToken)
+    private static async Task ProveHomogeneousTrafficAsync(Uri uriA, Uri uriB, (string NodeId, Uri Uri)[] peers, string dirB, ClusterTls mtls, CancellationToken cancellationToken)
     {
         await using var hostB = await TestNodeHostFactory.StartNodeAsync(
             "nodeB",
@@ -88,11 +85,11 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
             new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB },
             mtls,
             cancellationToken);
-        Assert.True(hostB.HasInterNodeMtlsListener);
+        _ = await Assert.That(hostB.HasInterNodeMtlsListener).IsTrue();
 
         await using var client = await LoopbackConnect.ConnectAsync(uriA, cancellationToken);
         var cache = await client.GetCacheAsync<string>("package-version", cancellationToken);
         await cache.SetAsync("homogeneous", "ready", cancellationToken: cancellationToken);
-        Assert.Equal("ready", (await cache.GetValueAsync("homogeneous", cancellationToken)).Value);
+        _ = await Assert.That((await cache.GetValueAsync("homogeneous", cancellationToken)).Value).IsEqualTo("ready");
     }
 }

@@ -24,7 +24,6 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
-using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -47,16 +46,10 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
     }
 
-    /// <summary>
-    /// Gets a default <see cref="CancellationToken" /> with a 30s timeout,
-    /// recreated lazily on first access.
-    /// </summary>
-    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
-
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
-    /// <summary>Cleans up sockets handler, HTTP client, and cancellation tokens.</summary>
+    /// <summary>Cleans up sockets handler and HTTP client.</summary>
     public void Dispose()
     {
         Dispose(true);
@@ -116,13 +109,26 @@ public abstract class NodeIntegrationTestBase : IDisposable
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, testName);
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        string uri,
+        string nodeId,
+        NodeStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken, testName);
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, testName);
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        Uri uri,
+        string nodeId,
+        NodeStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken, testName);
 
-    internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null)
+    internal async ValueTask<TestNodeHost> StartNodeAsync(
+        Uri uri,
+        ServerPeer[] peers,
+        NodeStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null)
     {
         options ??= new NodeStartOptions();
         ArgumentNullException.ThrowIfNull(uri);
@@ -149,11 +155,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 options.PersistenceOptions,
                 selfNodeId,
                 BuildTestScope(scopeName, options.ExtraScope),
-                options.CleanTestDir);
+                options.CleanTestDir,
+                cancellationToken);
             dir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, config, canonicalUri, DefaultCancellationToken);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, config, canonicalUri, cancellationToken);
 
         var startOptions = new NodeHostStartOptions
         {
@@ -174,7 +181,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MtlsMaterial = mtlsMaterial,
             FoundationOnly = options.FoundationOnly,
         };
-        var application = await NodeHost.StartAsync(config, startOptions, DefaultCancellationToken);
+        var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
         return new TestNodeHost(application, canonicalUri, dir, persistenceOptionsOverride != null);
     }
 
@@ -279,7 +286,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean)
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
         PathValidationKit.ValidateSegmentName(testScope, nameof(testScope));
         PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
@@ -291,7 +298,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         // Serialize cleanup-and-creation per scope so a concurrent node start can never create
         // its node directory while another caller is deleting the scope.
         var scopeLock = ScopeLocks.GetOrAdd(path, static _ => new SemaphoreSlim(1, 1));
-        await scopeLock.WaitAsync(DefaultCancellationToken).ConfigureAwait(false);
+        await scopeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (clean && CleanedScopes.TryAdd(path, 0))
@@ -335,15 +342,20 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="uri">The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.</param>
     /// <param name="peers">The cluster peer set, including the node being started (its <see cref="ServerPeer.Uri" /> must equal <paramref name="uri" />).</param>
     /// <param name="options">Optional startup knobs (persistence, security, policies, etc.).</param>
+    /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <param name="testName">
     /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
-    /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
+    /// Under TUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
     /// </param>
     /// <returns>
     /// A started <see cref="TestNodeHost" /> wrapper containing the running application, its base URL, and the resolved data directory.
     /// Dispose it to stop the node and release resources.
     /// </returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).</exception>
-    private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, testName);
+    private ValueTask<TestNodeHost> StartNodeAsync(
+        string uri,
+        ServerPeer[] peers,
+        NodeStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken, testName);
 }

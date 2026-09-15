@@ -1,12 +1,15 @@
 using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
@@ -17,86 +20,90 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
     private const string GroupId = "grp-1";
 
     /// <summary>A divergent uncommitted tail is truncated and rewritten by the new leader.</summary>
-    [Fact]
-    public async Task ConflictingTailIsTruncatedAndRewritten()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConflictingTailIsTruncatedAndRewritten(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-ordering-conflict");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
-        await log.OpenAsync(DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
 
         // Old leader (term 1) appends an entry at index 1, then crashes before a majority.
-        var first = await log.AppendAsync(Append(1UL, 1UL, "x"), DefaultCancellationToken);
-        Assert.True(first.Success);
+        var first = await log.AppendAsync(Append(1UL, 1UL, "x"), cancellationToken);
+        _ = await Assert.That(first.Success).IsTrue();
 
         // New leader (term 2) rewrites index 1 with a conflicting entry.
-        var result = await log.AppendAsync(Append(1UL, 2UL, "y"), DefaultCancellationToken);
+        var result = await log.AppendAsync(Append(1UL, 2UL, "y"), cancellationToken);
 
-        Assert.True(result.Success);
-        Assert.Equal(1UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
-        var tail = await log.GetUncommittedTailAsync(DefaultCancellationToken);
-        _ = Assert.Single(tail);
-        Assert.Equal(2UL, tail[0].Term);
-        Assert.Equal("y", Encoding.UTF8.GetString(tail[0].Payload.Span));
+        _ = await Assert.That(result.Success).IsTrue();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
+        var tail = await log.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(tail).HasSingleItem();
+        _ = await Assert.That(tail[0].Term).IsEqualTo(2UL);
+        _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("y");
     }
 
     /// <summary>A duplicate batch produces exactly one journal effect.</summary>
-    [Fact]
-    public async Task DuplicateBatchProducesOneJournalEffect()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DuplicateBatchProducesOneJournalEffect(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-ordering-duplicate");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
-        await log.OpenAsync(DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
 
         var batch = Batch([Entry(1UL, 1UL, "a"), Entry(2UL, 1UL, "b")], 0UL, 0UL, 1UL);
-        var first = await log.AppendAsync(batch, DefaultCancellationToken);
+        var first = await log.AppendAsync(batch, cancellationToken);
         var logLength = FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId));
-        var second = await log.AppendAsync(batch, DefaultCancellationToken);
+        var second = await log.AppendAsync(batch, cancellationToken);
 
-        Assert.True(first.Success);
-        Assert.True(second.Success);
-        Assert.Equal(2UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
-        Assert.Equal(logLength, FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId)));
+        _ = await Assert.That(first.Success).IsTrue();
+        _ = await Assert.That(second.Success).IsTrue();
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupStoragePaths.GetLogPath(dir, GroupId))).IsEqualTo(logLength);
     }
 
     /// <summary>A higher term is persisted durably before the appending is acknowledged.</summary>
-    [Fact]
-    public async Task HigherTermPersistsBeforeResponse()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermPersistsBeforeResponse(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-ordering-higher-term");
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId)))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
             var higher = new FollowerLogAppendRequest("leader-1", 9UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([Entry(2UL, 9UL, "b")]));
-            var result = await log.AppendAsync(higher, DefaultCancellationToken);
+            var result = await log.AppendAsync(higher, cancellationToken);
 
-            Assert.True(result.Success);
-            Assert.Equal(9UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+            _ = await Assert.That(result.Success).IsTrue();
+            _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(9UL);
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
-        await reopened.OpenAsync(DefaultCancellationToken);
-        Assert.Equal(9UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(9UL);
     }
 
     /// <summary>An out-of-order batch is rejected without any partial appending.</summary>
-    [Fact]
-    public async Task OutOfOrderBatchRejectedAtomically()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OutOfOrderBatchRejectedAtomically(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-ordering-gap");
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
-        await log.OpenAsync(DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
 
-        var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL, 0UL, 1UL), DefaultCancellationToken);
+        var result = await log.AppendAsync(Batch([Entry(1UL, 1UL, "a"), Entry(3UL, 1UL, "c")], 0UL, 0UL, 1UL), cancellationToken);
 
-        Assert.False(result.Success);
-        Assert.Equal(FollowerLogRefusal.LogMismatch, result.RefusalCode);
-        Assert.Equal(0UL, (await log.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        _ = await Assert.That(result.Success).IsFalse();
+        _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => Batch([Entry(index, term, payload)], index - 1, index == 1UL ? 0UL : term, term);

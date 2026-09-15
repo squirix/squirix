@@ -4,7 +4,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -13,25 +15,25 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalProducerGateTests : ServerUnitTestBase
 {
     /// <summary>Entered and exited work drains immediately within any sane timeout.</summary>
-    [Fact]
+    [Test]
     public async Task EnterExitDrainsImmediately()
     {
         var gate = new JournalProducerGate();
         gate.Enter();
         gate.Exit();
 
-        Assert.True(await gate.WaitAsync(TimeSpan.FromSeconds(1)));
+        _ = await Assert.That(await gate.WaitAsync(TimeSpan.FromSeconds(1))).IsTrue();
     }
 
     /// <summary>Work held past the timeout fails the drain instead of hanging disposal.</summary>
-    [Fact]
+    [Test]
     public async Task HeldEnterTimesOutDrain()
     {
         var gate = new JournalProducerGate();
         gate.Enter();
         try
         {
-            Assert.False(await gate.WaitAsync(TimeSpan.FromMilliseconds(1)));
+            _ = await Assert.That(await gate.WaitAsync(TimeSpan.FromMilliseconds(1))).IsFalse();
         }
         finally
         {
@@ -40,7 +42,7 @@ public sealed class JournalProducerGateTests : ServerUnitTestBase
     }
 
     /// <summary>Initiated shutdown rejects new work with ObjectDisposedException.</summary>
-    [Fact]
+    [Test]
     public void InitiateShutdownRejectsNewWork()
     {
         var gate = new JournalProducerGate();

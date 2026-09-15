@@ -1,5 +1,5 @@
 using System;
-using Xunit.Sdk;
+using TUnit.Assertions.Exceptions;
 
 namespace Squirix.ProtocolModel.Tests;
 
@@ -12,7 +12,7 @@ public readonly record struct ProtocolModelExceptionExpectation<TException>
     /// <param name="operation">Operation expected to throw.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully or throws an unexpected exception type.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully or throws an unexpected exception type.</exception>
     public TException Throws(Action operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -26,9 +26,9 @@ public readonly record struct ProtocolModelExceptionExpectation<TException>
         }
         catch (Exception thrown)
         {
-            throw new XunitException($"Expected {typeof(TException)} but observed {thrown.GetType()}.");
+            throw new AssertionException($"Expected {typeof(TException)} but observed {thrown.GetType()}.");
         }
 
-        throw new XunitException($"Expected {typeof(TException)} but no matching exception was thrown.");
+        throw new AssertionException($"Expected {typeof(TException)} but no matching exception was thrown.");
     }
 }

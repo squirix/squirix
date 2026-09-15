@@ -15,7 +15,9 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -30,8 +32,9 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Snapshot idempotency must match the flush watermark, not outcomes recorded after the mutation gate opens.</summary>
-    [Fact]
-    public async Task CutMustNotExportPostFlushRecords()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CutMustNotExportPostFlushRecords(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-snap-cut-idempotency");
         var persistence = new PersistenceOptions
@@ -45,20 +48,20 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
         using var manifestStore = new Ledger(persistence);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
         var idempotency = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var writer = StoreFactory.CreateWriter(persistence);
 
-        await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var snapshotPath = await CutDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
+        var snapshotPath = await CutDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, cancellationToken);
 
-        var loaded = await StoreFactory.CreateReader(persistence).LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
-        var record = Assert.Single(loaded.IdempotencyRecords);
-        Assert.Equal(AtFlushOperationId, record.OperationId);
+        var loaded = await StoreFactory.CreateReader(persistence).LoadStrictAsync<object?>(snapshotPath, cancellationToken: cancellationToken);
+        var record = await Assert.That(loaded.IdempotencyRecords).HasSingleItem();
+        _ = await Assert.That(record.OperationId).IsEqualTo(AtFlushOperationId);
     }
 
     /// <inheritdoc />

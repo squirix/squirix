@@ -5,7 +5,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -41,7 +42,7 @@ internal static class ServerTypeCatalog
     /// <param name="exactNamespace">Required exact namespace.</param>
     /// <exception cref="ArgumentNullException"><paramref name="types" /> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="types" /> is empty or <paramref name="exactNamespace" /> is null or empty.</exception>
-    internal static void AssertResideInNamespace(IReadOnlyList<DeclaredType> types, string exactNamespace)
+    internal static async Task AssertResideInNamespace(IReadOnlyList<DeclaredType> types, string exactNamespace)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentException.ThrowIfNullOrEmpty(exactNamespace);
@@ -51,9 +52,8 @@ internal static class ServerTypeCatalog
         for (var index = 0; index < types.Count; index++)
         {
             var type = types[index];
-            Assert.True(
-                string.Equals(type.NamespaceName, exactNamespace, StringComparison.Ordinal),
-                $"Type '{type.FullName}' resides in '{type.NamespaceName}', expected '{exactNamespace}'.");
+            _ = await Assert.That(string.Equals(type.NamespaceName, exactNamespace, StringComparison.Ordinal)).IsTrue()
+                            .Because($"Type '{type.FullName}' resides in '{type.NamespaceName}', expected '{exactNamespace}'.");
         }
     }
 
@@ -62,7 +62,7 @@ internal static class ServerTypeCatalog
     /// <param name="exactNamespaces">Allowed exact namespace names.</param>
     /// <exception cref="ArgumentNullException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is empty.</exception>
-    internal static void AssertResideInOneOfNamespaces(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
+    internal static async Task AssertResideInOneOfNamespaces(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentNullException.ThrowIfNull(exactNamespaces);
@@ -74,9 +74,8 @@ internal static class ServerTypeCatalog
         for (var index = 0; index < types.Count; index++)
         {
             var type = types[index];
-            Assert.True(
-                ResidesInOneOfExactNamespaces(type.NamespaceName, exactNamespaces),
-                $"Type '{type.FullName}' resides in '{type.NamespaceName}', which is not an approved namespace.");
+            _ = await Assert.That(ResidesInOneOfExactNamespaces(type.NamespaceName, exactNamespaces)).IsTrue()
+                            .Because($"Type '{type.FullName}' resides in '{type.NamespaceName}', which is not an approved namespace.");
         }
     }
 
@@ -204,7 +203,7 @@ internal static class ServerTypeCatalog
     private static async Task<IReadOnlyList<DeclaredType>> ScanAsync()
     {
         var matches = new List<DeclaredType>();
-        var paths = ServerSourceFiles.EnumerateCsharpFiles();
+        var paths = await ServerSourceFiles.EnumerateCsharpFiles();
         for (var pathIndex = 0; pathIndex < paths.Count; pathIndex++)
         {
             var lines = await File.ReadAllLinesAsync(paths[pathIndex], CancellationToken.None).ConfigureAwait(false);

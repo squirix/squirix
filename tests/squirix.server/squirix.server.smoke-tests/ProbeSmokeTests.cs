@@ -1,7 +1,10 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.SmokeTests;
 
@@ -9,22 +12,19 @@ namespace Squirix.Server.SmokeTests;
 public sealed class ProbeSmokeTests : SmokeTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
-    [Fact]
-    public async Task HealthProbesOpenWithJwtAuthEnabled()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HealthProbesOpenWithJwtAuthEnabled(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(
-            uri,
-            "node-health",
-            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            DefaultCancellationToken);
+        await using var node = await StartNodeAsync(uri, "node-health", new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), DefaultCancellationToken);
-        Assert.True(live.IsSuccessStatusCode);
+        var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), cancellationToken);
+        _ = await Assert.That(live.IsSuccessStatusCode).IsTrue();
 
-        var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken);
-        Assert.True(ready.IsSuccessStatusCode);
+        var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken);
+        _ = await Assert.That(ready.IsSuccessStatusCode).IsTrue();
     }
 }

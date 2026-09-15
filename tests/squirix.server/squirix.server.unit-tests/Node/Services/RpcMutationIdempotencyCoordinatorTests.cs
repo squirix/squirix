@@ -13,7 +13,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -32,8 +34,9 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     /// simulates the race: the store stays empty and the gate stays closed while ExecuteAsync is in flight, then
     /// recovery restores the record and the gate opens. Regression guard for issue #320.
     /// </summary>
-    [Fact]
-    public async Task CoordinatorAwaitsStartupGateBeforeReplay()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CoordinatorAwaitsStartupGateBeforeReplay(CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await using var journal = new RecordingGateJournal();
@@ -53,9 +56,9 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
                 state.Value = true;
                 return Task.FromResult(new TryAddAsyncResponse { Added = false });
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
-        Assert.False(operation.IsCompleted);
+        _ = await Assert.That(operation.IsCompleted).IsFalse();
 
         // Recovery restores the idempotency record and opens the startup gate.
         store.RestoreRecord(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original), DateTime.UtcNow);
@@ -63,28 +66,29 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var response = await operation;
 
-        Assert.True(response.Added);
-        Assert.False(flag.Value);
+        _ = await Assert.That(response.Added).IsTrue();
+        _ = await Assert.That(flag.Value).IsFalse();
     }
 
     /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
-    [Fact]
-    public async Task ExpiredRecordsAreNotReplayed()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredRecordsAreNotReplayed(CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMilliseconds(50) }, "local", new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
-        await Task.Delay(100, DefaultCancellationToken);
+        await Task.Delay(100, cancellationToken);
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
-        Assert.False(replayed);
-        Assert.Null(response);
+        _ = await Assert.That(replayed).IsFalse();
+        _ = await Assert.That(response).IsNull();
     }
 
     /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
-    [Fact]
-    public void FingerprintMismatchThrowsTypedException()
+    [Test]
+    public async Task FingerprintMismatchThrowsTypedException()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         store.RecordSuccess("op-1", "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
@@ -97,12 +101,12 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
                 Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
             });
 
-        Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
+        _ = await Assert.That(ex.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
     }
 
     /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
-    [Fact]
-    public void ReplayAfterSuccessReturnsCachedResponse()
+    [Test]
+    public async Task ReplayAfterSuccessReturnsCachedResponse()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var original = new TryAddAsyncResponse { Added = true };
@@ -110,25 +114,26 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
-        Assert.True(replayed);
-        Assert.NotNull(response);
-        Assert.True(response.Added);
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Added).IsTrue();
     }
 
     /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
-    [Fact]
-    public void ReplayReturnsFalseForUnknownOpId()
+    [Test]
+    public async Task ReplayReturnsFalseForUnknownOpId()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
-        Assert.False(replayed);
-        Assert.Null(response);
+        _ = await Assert.That(replayed).IsFalse();
+        _ = await Assert.That(response).IsNull();
     }
 
     /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
-    [Fact]
-    public async Task ReplaySkipsHandlerReexecution()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplaySkipsHandlerReexecution(CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store);
@@ -143,7 +148,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
                 state.Value++;
                 return Task.FromResult(new TryAddAsyncResponse { Added = true });
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         var second = await coordinator.ExecuteAsync(
             ValidOperationId,
@@ -154,66 +159,66 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
                 state.Value++;
                 return Task.FromResult(new TryAddAsyncResponse { Added = false });
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
-        Assert.True(first.Added);
-        Assert.True(second.Added);
-        Assert.Equal(1, ctx.Value);
+        _ = await Assert.That(first.Added).IsTrue();
+        _ = await Assert.That(second.Added).IsTrue();
+        _ = await Assert.That(ctx.Value).IsEqualTo(1);
     }
 
     /// <summary>Ensures conforming operation ids pass validation.</summary>
-    [Fact]
-    public void RequireOperationIdAcceptsValidValue()
+    [Test]
+    public async Task RequireOperationIdAcceptsValidValue()
     {
         var normalized = RpcMutationContracts.RequireOperationId(ValidOperationId);
-        Assert.Equal(ValidOperationId, normalized);
+        _ = await Assert.That(normalized).IsEqualTo(ValidOperationId);
     }
 
     /// <summary>Ensures empty operation ids are rejected with the stable invalid-argument contract.</summary>
-    [Fact]
-    public void RequireOperationIdRejectsEmptyValue()
+    [Test]
+    public async Task RequireOperationIdRejectsEmptyValue()
     {
         var ex = NodeExceptionAssert.For<RpcException>().Throws(string.Empty, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdRequiredDetail);
     }
 
     /// <summary>Ensures malformed operation ids are rejected with the stable format contract.</summary>
-    [Fact]
-    public void RequireOperationIdRejectsInvalidFormat()
+    [Test]
+    public async Task RequireOperationIdRejectsInvalidFormat()
     {
         var ex = NodeExceptionAssert.For<RpcException>().Throws("not-a-valid-operation-id", static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
     }
 
     /// <summary>Ensures over-length operation ids are rejected before format validation.</summary>
-    [Fact]
-    public void RequireOperationIdRejectsTooLongValue()
+    [Test]
+    public async Task RequireOperationIdRejectsTooLongValue()
     {
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
         var ex = NodeExceptionAssert.For<RpcException>().Throws(tooLong, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdTooLongDetail);
     }
 
     /// <summary>Ensures uppercase hex operation ids are rejected.</summary>
-    [Fact]
-    public void RequireOperationIdRejectsUppercaseHex()
+    [Test]
+    public async Task RequireOperationIdRejectsUppercaseHex()
     {
         var uppercase = ValidOperationId.ToUpperInvariant();
         var ex = NodeExceptionAssert.For<RpcException>().Throws(uppercase, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
     }
 
     /// <summary>Ensures RestoreRecord honors CreatedUtc for retention sweeps after recovery replay.</summary>
-    [Fact]
-    public void RestoredExpiredRecordIsNotReplayed()
+    [Test]
+    public async Task RestoredExpiredRecordIsNotReplayed()
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter));
         var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
@@ -221,8 +226,8 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
-        Assert.False(replayed);
-        Assert.Null(response);
+        _ = await Assert.That(replayed).IsFalse();
+        _ = await Assert.That(response).IsNull();
     }
 
     /// <inheritdoc />

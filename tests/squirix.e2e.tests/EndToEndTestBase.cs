@@ -1,13 +1,7 @@
-using System.Threading;
 using Squirix.Attributes;
-using Xunit;
 
 namespace Squirix.E2ETests;
 
 /// <summary>Base class for SDK end-to-end tests.</summary>
 [Immutable]
-public abstract class EndToEndTestBase
-{
-    /// <summary>Gets the default cancellation token for the current test.</summary>
-    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
-}
+public abstract class EndToEndTestBase;

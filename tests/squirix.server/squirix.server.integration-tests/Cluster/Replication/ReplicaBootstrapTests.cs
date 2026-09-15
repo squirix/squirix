@@ -1,12 +1,16 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -14,30 +18,41 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
 {
     /// <summary>Bootstrap preparation seeds replica groups with pending state and preserves source data.</summary>
-    [Fact(DisplayName = "Squirix.Server.IntegrationTests.Cluster.Replication.ReplicaBootstrapTests.OfflineRfOneBootstrapSeedsReplicaGroups")]
-    public async Task OfflineRfOneBootstrapSeedsReplicaGroups()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OfflineRfOneBootstrapSeedsReplicaGroups(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-bootstrap-seed");
         var sourcePath = Path.Join(dir, "journal-000001.sqr");
-        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], DefaultCancellationToken);
-        var before = await File.ReadAllBytesAsync(sourcePath, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], cancellationToken);
+        var before = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
 
-        var prepared = await new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken);
-        var decoded = await new BootstrapManifestStore(dir).ReadAsync(DefaultCancellationToken);
+        var prepared = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
+        var decoded = await new BootstrapManifestStore(dir).ReadAsync(cancellationToken);
 
-        Assert.False(prepared.Resumed);
-        Assert.NotNull(decoded);
-        Assert.Equal(3, decoded.TargetReplicaCount);
-        Assert.Equal(2UL, decoded.TargetGeneration);
-        Assert.Equal(2, decoded.Groups.Count);
-        Assert.Equal("group-a", decoded.Groups[0].GroupId);
-        Assert.Equal("group-b", decoded.Groups[1].GroupId);
-        Assert.All(decoded.Groups, static group => Assert.Equal(BootstrapGroupState.Pending, group.State));
-        Assert.Equal(before, await File.ReadAllBytesAsync(sourcePath, DefaultCancellationToken));
+        _ = await Assert.That(prepared.Resumed).IsFalse();
+        _ = await Assert.That(decoded).IsNotNull();
+        _ = await Assert.That(decoded.TargetReplicaCount).IsEqualTo(3);
+        _ = await Assert.That(decoded.TargetGeneration).IsEqualTo(2UL);
+        _ = await Assert.That(decoded.Groups.Count).IsEqualTo(2);
+        _ = await Assert.That(decoded.Groups[0].GroupId).IsEqualTo("group-a");
+        _ = await Assert.That(decoded.Groups[1].GroupId).IsEqualTo("group-b");
+        _ = await Assert.That(decoded.Groups).All(static group => group.State == BootstrapGroupState.Pending);
+        await SequenceAssert.Equal(before, await File.ReadAllBytesAsync(sourcePath, cancellationToken));
 
-        var resumed = await new BootstrapPlanner().PrepareAsync(Request(dir), DefaultCancellationToken);
-        Assert.True(resumed.Resumed);
-        Assert.Equal(prepared.Manifest.TargetGeneration, resumed.Manifest.TargetGeneration);
+        var resumed = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
+        _ = await Assert.That(resumed.Resumed).IsTrue();
+        _ = await Assert.That(resumed.Manifest.TargetGeneration).IsEqualTo(prepared.Manifest.TargetGeneration);
+    }
+
+    private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)
+    {
+        return new ServerPeer
+        {
+            InterNodeUri = new Uri($"https://127.0.0.1:{internalPort}"),
+            NodeId = nodeId,
+            Uri = new Uri($"https://127.0.0.1:{clientPort}"),
+        };
     }
 
     private static BootstrapPreparationRequest Request(string dataDirectory)
@@ -70,16 +85,6 @@ public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
             ReplicaCount = replicaCount,
             Uri = peers[0].Uri,
             VirtualNodes = 128,
-        };
-    }
-
-    private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)
-    {
-        return new ServerPeer
-        {
-            InterNodeUri = new Uri($"https://127.0.0.1:{internalPort}"),
-            NodeId = nodeId,
-            Uri = new Uri($"https://127.0.0.1:{clientPort}"),
         };
     }
 }

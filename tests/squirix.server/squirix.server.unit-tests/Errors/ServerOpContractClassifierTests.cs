@@ -1,7 +1,10 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Errors;
 
@@ -10,24 +13,24 @@ namespace Squirix.Server.UnitTests.Errors;
 public sealed class ServerOpContractClassifierTests : ServerUnitTestBase
 {
     /// <summary>Recognizes operation-id reuse mismatch details.</summary>
-    [Fact]
-    public void DetectsOperationIdReuseMismatchDetail()
+    [Test]
+    public async Task DetectsOperationIdReuseMismatchDetail()
     {
-        Assert.True(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ServerOpIdMismatchException.StableDetail));
-        Assert.False(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(null));
-        Assert.False(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail("other"));
+        _ = await Assert.That(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ServerOpIdMismatchException.StableDetail)).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(null)).IsFalse();
+        _ = await Assert.That(ServerOpContractClassifier.IsOperationIdReuseMismatchDetail("other")).IsFalse();
     }
 
     /// <summary>Exposes insert-version FailedPrecondition details as invalid-operation messages.</summary>
-    [Fact]
-    public void InsertVersionDetailMapsToInvalidOp()
+    [Test]
+    public async Task InsertVersionDetailMapsToInvalidOp()
     {
         const string detail = "Version must be greater than current (current=1, provided=0)";
-        Assert.True(ServerOpContractClassifier.TryGetFailedPreconditionMessage(detail, out var message));
-        Assert.Equal(detail, message);
+        _ = await Assert.That(ServerOpContractClassifier.TryGetFailedPreconditionMessage(detail, out var message)).IsTrue();
+        _ = await Assert.That(message).IsEqualTo(detail);
 
-        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionMessage(ServerOpIdMismatchException.StableDetail, out var reuse));
-        Assert.Null(reuse);
-        Assert.False(ServerOpContractClassifier.TryGetFailedPreconditionMessage(null, out _));
+        _ = await Assert.That(ServerOpContractClassifier.TryGetFailedPreconditionMessage(ServerOpIdMismatchException.StableDetail, out var reuse)).IsFalse();
+        _ = await Assert.That(reuse).IsNull();
+        _ = await Assert.That(ServerOpContractClassifier.TryGetFailedPreconditionMessage(null, out _)).IsFalse();
     }
 }

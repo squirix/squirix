@@ -6,7 +6,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -14,8 +16,17 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class JournalRecoveryReadinessHealthCheckTests
 {
+    /// <summary>Rejects a null readiness gate.</summary>
+    [Test]
+    public void RejectsNullGate()
+    {
+        AsyncManualResetEvent? gate = null;
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(gate, static value => _ = new JournalRecoveryReadinessHealthCheck(value!));
+    }
+
     /// <summary>Reports healthy once journal recovery signals completion.</summary>
-    [Fact]
+    [Test]
     public async Task ReportsHealthyAfterRecoveryAsync()
     {
         var gate = new AsyncManualResetEvent();
@@ -23,24 +34,15 @@ public sealed class JournalRecoveryReadinessHealthCheckTests
 
         var result = await new JournalRecoveryReadinessHealthCheck(gate).CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
-        Assert.Equal(HealthStatus.Healthy, result.Status);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
     /// <summary>Reports unhealthy while journal recovery is still in progress.</summary>
-    [Fact]
+    [Test]
     public async Task ReportsUnhealthyWhilePendingAsync()
     {
         var result = await new JournalRecoveryReadinessHealthCheck(new AsyncManualResetEvent()).CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-    }
-
-    /// <summary>Rejects a null readiness gate.</summary>
-    [Fact]
-    public void RejectsNullGate()
-    {
-        AsyncManualResetEvent? gate = null;
-
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(gate, static value => _ = new JournalRecoveryReadinessHealthCheck(value!));
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
     }
 }

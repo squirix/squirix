@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Xunit;
+using System.Threading.Tasks;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -14,18 +16,18 @@ internal static class ServerSourceFiles
     /// </summary>
     /// <param name="relativePathSegments">Optional path segments under the server project root.</param>
     /// <returns>Matching source file paths.</returns>
-    internal static IReadOnlyList<string> EnumerateCsharpFiles(params string[] relativePathSegments)
+    internal static async Task<IReadOnlyList<string>> EnumerateCsharpFiles(params string[] relativePathSegments)
     {
         ArgumentNullException.ThrowIfNull(relativePathSegments);
 
         var serverRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server");
-        Assert.True(Directory.Exists(serverRoot), $"Expected source root '{serverRoot}'.");
+        _ = await Assert.That(Directory.Exists(serverRoot)).IsTrue().Because($"Expected source root '{serverRoot}'.");
 
         var searchRoot = serverRoot;
         for (var index = 0; index < relativePathSegments.Length; index++)
             searchRoot = Path.Join(searchRoot, relativePathSegments[index]);
 
-        Assert.True(Directory.Exists(searchRoot), $"Expected source root '{searchRoot}'.");
+        _ = await Assert.That(Directory.Exists(searchRoot)).IsTrue().Because($"Expected source root '{searchRoot}'.");
 
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
         var files = Directory.GetFiles(searchRoot, "*.cs", SearchOption.AllDirectories);

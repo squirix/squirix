@@ -9,7 +9,9 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -23,8 +25,9 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
     private const string MeterName = "Squirix";
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
-    [Fact]
-    public async Task GaugesReflectInFlightAndQueueDepth()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GaugesReflectInFlightAndQueueDepth(CancellationToken cancellationToken)
     {
         using var meter = new Meter(MeterName);
         var inFlight = new List<int>();
@@ -48,9 +51,9 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
         using var gate = new AdmissionGate(backpressureOptions, new BackpressureMetrics(meter));
-        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
-        var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken).AsTask();
-        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
+        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
+        var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", cancellationToken).AsTask();
+        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
         first.Dispose();
 
         var (_, secondLease) = await secondAcquire;
@@ -58,8 +61,9 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies observable gauges are not overwritten by an idle gate and remain correct after that gate is disposed.</summary>
-    [Fact]
-    public async Task GaugesStayBoundAfterIdleGateDispose()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GaugesStayBoundAfterIdleGateDispose(CancellationToken cancellationToken)
     {
         using var meter = new Meter(MeterName);
         var inFlight = new List<int>();
@@ -85,13 +89,13 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
 
         using var gateA = new AdmissionGate(options, new BackpressureMetrics(meter));
 
-        var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", DefaultCancellationToken)).Lease;
-        var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", DefaultCancellationToken).AsTask();
+        var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", cancellationToken)).Lease;
+        var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", cancellationToken).AsTask();
 
         var gateB = new AdmissionGate(options, new BackpressureMetrics(meter));
         gateB.Dispose();
 
-        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
+        await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, cancellationToken);
 
         firstA.Dispose();
 
@@ -143,9 +147,9 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
             TimeSpan.FromSeconds(1),
             cancellationToken);
 
-        Assert.True(HasAtLeast(inFlight, 1));
-        Assert.True(HasAtLeast(queueDepth, 1));
-        Assert.True(HasAtLeast(trackedClients, 2));
+        _ = await Assert.That(HasAtLeast(inFlight, 1)).IsTrue();
+        _ = await Assert.That(HasAtLeast(queueDepth, 1)).IsTrue();
+        _ = await Assert.That(HasAtLeast(trackedClients, 2)).IsTrue();
     }
 
     [Immutable]

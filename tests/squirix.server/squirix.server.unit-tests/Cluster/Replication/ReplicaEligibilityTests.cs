@@ -1,7 +1,11 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Xunit;
+using Squirix.Server.TestKit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -10,56 +14,56 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaEligibilityTests
 {
     /// <summary>An invalid catch-up report demotes a ready participant and revokes authority.</summary>
-    [Fact]
-    public void InvalidCatchUpDemotesReadyParticipant()
+    [Test]
+    public async Task InvalidCatchUpDemotesReadyParticipant()
     {
         var eligibility = new ReplicaEligibility(1);
         var target = Progress(2, 1, 1, 1, 7, 42);
-        Assert.True(eligibility.TryMarkReady(0, in target, in target));
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
         var invalid = target with { NextIndex = 99 };
 
-        Assert.False(eligibility.TryMarkCatchingUp(0, in invalid));
-        Assert.Equal(ReplicaParticipantState.CatchingUp, eligibility.StateFor(0));
-        Assert.Equal(default, eligibility.ProgressFor(0));
-        Assert.False(eligibility.CanVote(0));
-        Assert.False(eligibility.CanBePromoted(0));
-        Assert.False(eligibility.CanCountInWriteQuorum(0));
+        _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in invalid)).IsFalse();
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
+        _ = await Assert.That(eligibility.CanBePromoted(0)).IsFalse();
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
 
     /// <summary>An invalid readiness report demotes a ready participant and revokes authority.</summary>
-    [Fact]
-    public void InvalidReadinessDemotesReadyParticipant()
+    [Test]
+    public async Task InvalidReadinessDemotesReadyParticipant()
     {
         var eligibility = new ReplicaEligibility(1);
         var target = Progress(2, 1, 1, 1, 7, 42);
-        Assert.True(eligibility.TryMarkReady(0, in target, in target));
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
         var invalid = target with { AppliedIndex = 99 };
 
-        Assert.False(eligibility.TryMarkReady(0, in invalid, in target));
-        Assert.Equal(ReplicaParticipantState.CatchingUp, eligibility.StateFor(0));
-        Assert.Equal(default, eligibility.ProgressFor(0));
-        Assert.False(eligibility.CanVote(0));
-        Assert.False(eligibility.CanBePromoted(0));
-        Assert.False(eligibility.CanCountInWriteQuorum(0));
+        _ = await Assert.That(eligibility.TryMarkReady(0, in invalid, in target)).IsFalse();
+        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
+        _ = await Assert.That(eligibility.CanBePromoted(0)).IsFalse();
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
 
     /// <summary>Every participant begins recovering with no retained progress.</summary>
-    [Fact]
-    public void NewParticipantsBeginRecovering()
+    [Test]
+    public async Task NewParticipantsBeginRecovering()
     {
         var eligibility = new ReplicaEligibility(3);
 
         for (var i = 0; i < eligibility.ReplicaCount; i++)
         {
-            Assert.Equal(ReplicaParticipantState.Recovering, eligibility.StateFor(i));
-            Assert.False(eligibility.CanCountInWriteQuorum(i));
-            Assert.Equal(default, eligibility.ProgressFor(i));
+            _ = await Assert.That(eligibility.StateFor(i)).IsEqualTo(ReplicaParticipantState.Recovering);
+            _ = await Assert.That(eligibility.CanCountInWriteQuorum(i)).IsFalse();
+            _ = await Assert.That(eligibility.ProgressFor(i)).IsEqualTo(default);
         }
     }
 
     /// <summary>Every named readiness state has a stable distinct value.</summary>
-    [Fact]
-    public void ParticipationStatesAreExplicit()
+    [Test]
+    public Task ParticipationStatesAreExplicit()
     {
         ReplicaParticipantState[] expected =
         [
@@ -69,33 +73,33 @@ public sealed class ReplicaEligibilityTests
             ReplicaParticipantState.Quarantined,
         ];
 
-        Assert.Equal(expected, Enum.GetValues<ReplicaParticipantState>());
+        return SequenceAssert.Equal(expected, Enum.GetValues<ReplicaParticipantState>());
     }
 
     /// <summary>A progress regression removes a previously ready durable copy from commit calculation.</summary>
-    [Fact]
-    public void ProgressRegressionRemovesReadyCopy()
+    [Test]
+    public async Task ProgressRegressionRemovesReadyCopy()
     {
         var eligibility = new ReplicaEligibility(3);
         var current = Progress(2, 1, 1, 1, 1, 10);
-        Assert.True(eligibility.TryMarkReady(0, in current, in current));
-        Assert.True(eligibility.TryMarkReady(1, in current, in current));
+        _ = await Assert.That(eligibility.TryMarkReady(0, in current, in current)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in current, in current)).IsTrue();
         var quorum = new ReplicaCommitQuorum(3, eligibility: eligibility);
         var mutation = Mutation(1);
         var acknowledgement = Acknowledgement(mutation);
-        Assert.True(quorum.TryRecord(0, in acknowledgement, mutation));
-        Assert.True(quorum.TryRecord(1, in acknowledgement, mutation));
-        Assert.Equal(1UL, quorum.FindCommitIndex(0, 1));
+        _ = await Assert.That(quorum.TryRecord(0, in acknowledgement, mutation)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(1, in acknowledgement, mutation)).IsTrue();
+        _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(1UL);
 
         var regressed = Progress(1, 0, 0, 0, 1, 11);
-        Assert.False(eligibility.TryMarkCatchingUp(1, in regressed));
-        Assert.Equal(ReplicaParticipantState.CatchingUp, eligibility.StateFor(1));
-        Assert.Equal(0UL, quorum.FindCommitIndex(0, 1));
+        _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in regressed)).IsFalse();
+        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(0UL);
     }
 
     /// <summary>Readiness requires exact identity, generation, indexes, term, and checksum.</summary>
-    [Fact]
-    public void ReadinessRequiresVerifiedProgress()
+    [Test]
+    public async Task ReadinessRequiresVerifiedProgress()
     {
         var expected = Progress(5, 4, 4, 4, 3, 91);
         ReplicaProgress[] mismatches =
@@ -113,33 +117,33 @@ public sealed class ReplicaEligibilityTests
         foreach (var mismatch in mismatches)
         {
             var eligibility = new ReplicaEligibility(1);
-            Assert.False(eligibility.TryMarkReady(0, in mismatch, in expected));
-            Assert.False(eligibility.CanCountInWriteQuorum(0));
+            _ = await Assert.That(eligibility.TryMarkReady(0, in mismatch, in expected)).IsFalse();
+            _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
         }
     }
 
     /// <summary>A stale participant cannot exercise authority or contribute a durable copy before catch-up verification.</summary>
-    [Fact(DisplayName = "Squirix.Server.UnitTests.Cluster.Replication.ReplicaEligibilityTests.StaleReplicaHasNoVotePromotionOrWriteQuorum")]
-    public void StaleReplicaHasNoAuthority()
+    [Test]
+    public async Task StaleReplicaHasNoAuthority()
     {
         var eligibility = new ReplicaEligibility(3);
         var target = Progress(2, 1, 1, 1, 7, 42);
-        Assert.True(eligibility.TryMarkReady(0, in target, in target));
-        Assert.True(eligibility.TryMarkCatchingUp(1, in target));
+        _ = await Assert.That(eligibility.TryMarkReady(0, in target, in target)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in target)).IsTrue();
 
         var quorum = new ReplicaCommitQuorum(3, eligibility: eligibility);
         var mutation = Mutation(1);
         var acknowledgement = Acknowledgement(mutation);
-        Assert.True(quorum.TryRecord(0, in acknowledgement, mutation));
-        Assert.False(quorum.TryRecord(1, in acknowledgement, mutation));
-        Assert.False(eligibility.CanVote(1));
-        Assert.False(eligibility.CanBePromoted(1));
-        Assert.False(eligibility.CanCountInWriteQuorum(1));
-        Assert.Equal(0UL, quorum.FindCommitIndex(0, 1));
+        _ = await Assert.That(quorum.TryRecord(0, in acknowledgement, mutation)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(1, in acknowledgement, mutation)).IsFalse();
+        _ = await Assert.That(eligibility.CanVote(1)).IsFalse();
+        _ = await Assert.That(eligibility.CanBePromoted(1)).IsFalse();
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(1)).IsFalse();
+        _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(0UL);
 
-        Assert.True(eligibility.TryMarkReady(1, in target, in target));
-        Assert.True(quorum.TryRecord(1, in acknowledgement, mutation));
-        Assert.Equal(1UL, quorum.FindCommitIndex(0, 1));
+        _ = await Assert.That(eligibility.TryMarkReady(1, in target, in target)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(1, in acknowledgement, mutation)).IsTrue();
+        _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(1UL);
     }
 
     private static ReplicaDurableAcknowledgement Acknowledgement(PreparedReplicaMutation mutation) => new(

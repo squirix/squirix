@@ -1,7 +1,10 @@
+using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -10,8 +13,8 @@ namespace Squirix.Server.UnitTests.Memory;
 public sealed class PressureStateEvaluatorTests
 {
     /// <summary>Verifies usage above the critical ratio maps to <see cref="PressureLevel.Critical" />.</summary>
-    [Fact]
-    public void CriticalAboveCriticalThreshold()
+    [Test]
+    public async Task CriticalAboveCriticalThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -21,12 +24,12 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.Critical, e.Evaluate(1000));
+        _ = await Assert.That(e.Evaluate(1000)).IsEqualTo(PressureLevel.Critical);
     }
 
     /// <summary>Verifies usage exactly at the critical ratio maps to <see cref="PressureLevel.Critical" />.</summary>
-    [Fact]
-    public void CriticalAtExactCriticalThreshold()
+    [Test]
+    public async Task CriticalAtExactCriticalThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -36,12 +39,12 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.Critical, e.Evaluate(950));
+        _ = await Assert.That(e.Evaluate(950)).IsEqualTo(PressureLevel.Critical);
     }
 
     /// <summary>Verifies usage exactly at the high ratio maps to <see cref="PressureLevel.High" />.</summary>
-    [Fact]
-    public void EvaluateReturnsHighAtExactHighThreshold()
+    [Test]
+    public async Task EvaluateReturnsHighAtExactHighThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -51,12 +54,12 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.High, e.Evaluate(800));
+        _ = await Assert.That(e.Evaluate(800)).IsEqualTo(PressureLevel.High);
     }
 
     /// <summary>Verifies usage between high and critical ratios maps to <see cref="PressureLevel.High" />.</summary>
-    [Fact]
-    public void EvaluateReturnsHighBetweenThresholds()
+    [Test]
+    public async Task EvaluateReturnsHighBetweenThresholds()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -66,12 +69,12 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.High, e.Evaluate(900));
+        _ = await Assert.That(e.Evaluate(900)).IsEqualTo(PressureLevel.High);
     }
 
     /// <summary>Verifies usage below the high ratio maps to <see cref="PressureLevel.Normal" />.</summary>
-    [Fact]
-    public void EvaluateReturnsNormalBelowHighThreshold()
+    [Test]
+    public async Task EvaluateReturnsNormalBelowHighThreshold()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -81,12 +84,12 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.Normal, e.Evaluate(799));
+        _ = await Assert.That(e.Evaluate(799)).IsEqualTo(PressureLevel.Normal);
     }
 
     /// <summary>Verifies zero estimated usage maps to <see cref="PressureLevel.Normal" />.</summary>
-    [Fact]
-    public void EvaluateReturnsNormalForZeroUsage()
+    [Test]
+    public async Task EvaluateReturnsNormalForZeroUsage()
     {
         var e = CreateEvaluator(
             new PressureOptions
@@ -96,7 +99,7 @@ public sealed class PressureStateEvaluatorTests
                 CriticalPressureThresholdPercent = 95,
             });
 
-        Assert.Equal(PressureLevel.Normal, e.Evaluate(0));
+        _ = await Assert.That(e.Evaluate(0)).IsEqualTo(PressureLevel.Normal);
     }
 
     private static StateEvaluator CreateEvaluator(PressureOptions options) => new(new PressureOptionsBinding(options));

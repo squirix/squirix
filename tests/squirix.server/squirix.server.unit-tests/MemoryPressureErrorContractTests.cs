@@ -1,10 +1,11 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -13,8 +14,8 @@ namespace Squirix.Server.UnitTests;
 public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies stable codes across REST and gRPC projections for memory pressure.</summary>
-    [Fact]
-    public void PressureMapsToGrpcResourceExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
+    [Test]
+    public Task PressureMapsToGrpcResourceExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
         ServerOpContract.MemoryPressure(),
         SquirixErrorCode.MemoryPressure,
         "MEMORY_PRESSURE",
@@ -22,13 +23,14 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
         static () => new ResourceExhaustedException().ToRpcException());
 
     /// <summary>Verifies REST JSON matches canonical error shape for memory pressure.</summary>
-    [Fact]
-    public async Task PressureRestPayloadUsesStableFields()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PressureRestPayloadUsesStableFields(CancellationToken cancellationToken)
     {
-        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(ServerOpContract.MemoryPressure().ToHttpResult(), DefaultCancellationToken);
+        var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(ServerOpContract.MemoryPressure().ToHttpResult(), cancellationToken);
         using (payload)
         {
-            ErrorContractTestKit.AssertErrorJsonPayload(
+            await ErrorContractTestKit.AssertErrorJsonPayload(
                 payload,
                 status,
                 StatusCodes.Status429TooManyRequests,

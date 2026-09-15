@@ -3,13 +3,16 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -20,7 +23,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     private static readonly Meter TestMeter = new("Squirix");
 
     /// <summary>Json failures are recorded and rethrown.</summary>
-    [Fact]
+    [Test]
     public void InvalidJsonRethrowsJsonException()
     {
         var serializer = new ServerMetricsSerializer(new ServerJsonSerializer(), TestMeter);
@@ -28,36 +31,36 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     }
 
     /// <summary>Successful serialize/deserialize overloads record without throwing.</summary>
-    [Fact]
-    public void RoundTripOverloadsSucceed()
+    [Test]
+    public async Task RoundTripOverloadsSucceed()
     {
         var serializer = new ServerMetricsSerializer(new ServerJsonSerializer(), TestMeter);
         var original = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 7 };
         const string payload = """{"value":7}""";
 
         var fromString = serializer.Deserialize<Dictionary<string, int>>(payload);
-        Assert.NotNull(fromString);
-        Assert.Equal(7, fromString["value"]);
+        _ = await Assert.That(fromString).IsNotNull();
+        _ = await Assert.That(fromString["value"]).IsEqualTo(7);
 
         var element = serializer.SerializeToElement(original);
         var fromElement = serializer.Deserialize<Dictionary<string, int>>(element);
-        Assert.Equal(7, fromElement!["value"]);
+        _ = await Assert.That(fromElement!["value"]).IsEqualTo(7);
 
         var utf8 = serializer.SerializeToUtf8Bytes(original);
         var fromBytes = serializer.Deserialize<Dictionary<string, int>>(utf8.AsSpan());
-        Assert.Equal(7, fromBytes!["value"]);
+        _ = await Assert.That(fromBytes!["value"]).IsEqualTo(7);
 
-        using var stream = new MemoryStream(utf8);
+        await using var stream = new MemoryStream(utf8);
         var fromStream = serializer.Deserialize<Dictionary<string, int>>(stream);
-        Assert.Equal(7, fromStream!["value"]);
+        _ = await Assert.That(fromStream!["value"]).IsEqualTo(7);
 
-        using var destination = new MemoryStream();
+        await using var destination = new MemoryStream();
         serializer.Serialize(destination, original);
-        Assert.True(destination.Length > 0);
+        _ = await Assert.That(destination.Length > 0).IsTrue();
     }
 
     /// <summary>Inner NotSupportedException failures are recorded and rethrown.</summary>
-    [Fact]
+    [Test]
     public void SerializeFailureFromInnerIsRethrown()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();
@@ -67,7 +70,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     }
 
     /// <summary>IOException failures are recorded and rethrown.</summary>
-    [Fact]
+    [Test]
     public void SerializeIoFailureFromInnerIsRethrown()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();
@@ -77,7 +80,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     }
 
     /// <summary>Unhandled exception types are not filtered by the metrics decorator.</summary>
-    [Fact]
+    [Test]
     public void UnhandledExceptionBypassesFailureFilter()
     {
         var innerExpectations = new IServerSerializerCreateExpectations();

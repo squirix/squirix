@@ -1,10 +1,13 @@
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -13,20 +16,21 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 public sealed class StoreWriteSafetyTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies monotonic manifest writes advance the index when <c language="csharp">CURRENT</c> is valid.</summary>
-    [Fact]
-    public async Task WriteAdvancesIndexForValidCurrent()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteAdvancesIndexForValidCurrent(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);
-        await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
 
         var first = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(1));
-        Assert.True(File.Exists(first));
+        _ = await Assert.That(File.Exists(first)).IsTrue();
 
-        await store.WriteAsync(new State { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 2 }, cancellationToken);
 
         var second = NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2));
-        Assert.True(File.Exists(second));
-        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
+        _ = await Assert.That(File.Exists(second)).IsTrue();
+        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, cancellationToken)).IsEqualTo(2);
     }
 }

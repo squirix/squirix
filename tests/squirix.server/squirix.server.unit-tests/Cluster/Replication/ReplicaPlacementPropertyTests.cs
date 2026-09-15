@@ -1,10 +1,13 @@
 using System;
 using System.Globalization;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -12,9 +15,43 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaPlacementPropertyTests
 {
+    /// <summary>Whitespace-only and duplicate peer ids are filtered before sorting.</summary>
+    [Test]
+    public async Task FiltersWhitespaceAndDuplicates()
+    {
+        var ring = new PhysicalNodeRing(["node-b", "node-a", "node-a", string.Empty, "node-c", "   "]);
+        _ = await Assert.That(ring.Count).IsEqualTo(3);
+        var group = new string[3];
+        ring.WriteReplicaGroup("node-a", 3, group);
+        _ = await Assert.That(group[0]).IsEqualTo("node-a");
+        _ = await Assert.That(group[1]).IsEqualTo("node-b");
+        _ = await Assert.That(group[2]).IsEqualTo("node-c");
+    }
+
+    /// <summary>Group cardinality equals the configured replica count.</summary>
+    [Test]
+    public async Task GroupCardinalityEqualsReplicaCount()
+    {
+        var locator = new ReplicaGroupLocator(new PhysicalNodeRing(["a", "b", "c", "d", "e"]), 4);
+        _ = await Assert.That(locator.ReplicaCount).IsEqualTo(4);
+        var group = new string[4];
+        locator.GetReplicaGroup("a", group);
+        _ = await Assert.That(group.Length).IsEqualTo(4);
+    }
+
+    /// <summary>Original owner appears once in the group.</summary>
+    [Test]
+    public async Task NeverIncludesOriginalOwnerTwice()
+    {
+        var ring = new PhysicalNodeRing(["node-a", "node-b", "node-c", "node-d", "node-e"]);
+        var group = new string[5];
+        ring.WriteReplicaGroup("node-c", 5, group);
+        _ = await Assert.That(CountOccurrences(group, "node-c")).IsEqualTo(1);
+    }
+
     /// <summary>All keys owned by the same original owner share one ordered replica group.</summary>
-    [Fact]
-    public void OwnerRangesShareOrderedReplicaGroup()
+    [Test]
+    public async Task OwnerRangesShareOrderedReplicaGroup()
     {
         var nodes = new[] { "node-a", "node-b", "node-c", "node-d" };
         var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
@@ -40,67 +77,20 @@ public sealed class ReplicaPlacementPropertyTests
             }
             else
             {
-                Assert.Equal(expected0, group[0]);
-                Assert.Equal(expected1, group[1]);
-                Assert.Equal(expected2, group[2]);
+                _ = await Assert.That(group[0]).IsEqualTo(expected0);
+                _ = await Assert.That(group[1]).IsEqualTo(expected1);
+                _ = await Assert.That(group[2]).IsEqualTo(expected2);
             }
 
             matched++;
         }
 
-        Assert.True(matched >= 10, "Expected enough keys owned by node-a.");
-    }
-
-    /// <summary>RF=1/2/3/5 replica groups hold the owner plus ordinal successors with wrap.</summary>
-    [Fact]
-    public void ReplicaGroupMatrixCoversOneTwoThreeFive()
-    {
-        var ring = new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]);
-
-        AssertGroup(ring, "n3", 1, ["n3"]);
-        AssertGroup(ring, "n3", 2, ["n3", "n4"]);
-        AssertGroup(ring, "n3", 3, ["n3", "n4", "n5"]);
-        AssertGroup(ring, "n4", 3, ["n4", "n5", "n1"]);
-        AssertGroup(ring, "n3", 5, ["n3", "n4", "n5", "n1", "n2"]);
-    }
-
-    /// <summary>Whitespace-only and duplicate peer ids are filtered before sorting.</summary>
-    [Fact]
-    public void FiltersWhitespaceAndDuplicates()
-    {
-        var ring = new PhysicalNodeRing(["node-b", "node-a", "node-a", string.Empty, "node-c", "   "]);
-        Assert.Equal(3, ring.Count);
-        var group = new string[3];
-        ring.WriteReplicaGroup("node-a", 3, group);
-        Assert.Equal("node-a", group[0]);
-        Assert.Equal("node-b", group[1]);
-        Assert.Equal("node-c", group[2]);
-    }
-
-    /// <summary>Group cardinality equals the configured replica count.</summary>
-    [Fact]
-    public void GroupCardinalityEqualsReplicaCount()
-    {
-        var locator = new ReplicaGroupLocator(new PhysicalNodeRing(["a", "b", "c", "d", "e"]), 4);
-        Assert.Equal(4, locator.ReplicaCount);
-        var group = new string[4];
-        locator.GetReplicaGroup("a", group);
-        Assert.Equal(4, group.Length);
-    }
-
-    /// <summary>Original owner appears once in the group.</summary>
-    [Fact]
-    public void NeverIncludesOriginalOwnerTwice()
-    {
-        var ring = new PhysicalNodeRing(["node-a", "node-b", "node-c", "node-d", "node-e"]);
-        var group = new string[5];
-        ring.WriteReplicaGroup("node-c", 5, group);
-        Assert.Equal(1, CountOccurrences(group, "node-c"));
+        _ = await Assert.That(matched >= 10).IsTrue().Because("Expected enough keys owned by node-a.");
     }
 
     /// <summary>Peer list permutation does not change ordered replica groups.</summary>
-    [Fact]
-    public void PeerPermutationDoesNotChangeReplicaGroup()
+    [Test]
+    public async Task PeerPermutationDoesNotChangeReplicaGroup()
     {
         var left = new ReplicaGroupLocator(new PhysicalNodeRing(["node-a", "node-b", "node-c"]), 2);
         var right = new ReplicaGroupLocator(new PhysicalNodeRing(["node-c", "node-a", "node-b"]), 2);
@@ -108,28 +98,28 @@ public sealed class ReplicaPlacementPropertyTests
         var b = new string[2];
         left.GetReplicaGroup("node-b", a);
         right.GetReplicaGroup("node-b", b);
-        Assert.Equal(a[0], b[0]);
-        Assert.Equal(a[1], b[1]);
+        _ = await Assert.That(b[0]).IsEqualTo(a[0]);
+        _ = await Assert.That(b[1]).IsEqualTo(a[1]);
     }
 
     /// <summary>Product locator matches the independent ordinal model from the design table.</summary>
-    [Fact]
-    public void ProductLocatorMatchesIndependentModel()
+    [Test]
+    public async Task ProductLocatorMatchesIndependentModel()
     {
         var locator = new ReplicaGroupLocator(new PhysicalNodeRing(["node-a", "node-b", "node-c", "node-d"]), 3);
         var group = new string[3];
         locator.GetReplicaGroup("node-a", group);
-        Assert.Equal("node-a", group[0]);
-        Assert.Equal("node-b", group[1]);
-        Assert.Equal("node-c", group[2]);
+        _ = await Assert.That(group[0]).IsEqualTo("node-a");
+        _ = await Assert.That(group[1]).IsEqualTo("node-b");
+        _ = await Assert.That(group[2]).IsEqualTo("node-c");
         locator.GetReplicaGroup("node-d", group);
-        Assert.Equal("node-d", group[0]);
-        Assert.Equal("node-a", group[1]);
-        Assert.Equal("node-b", group[2]);
+        _ = await Assert.That(group[0]).IsEqualTo("node-d");
+        _ = await Assert.That(group[1]).IsEqualTo("node-a");
+        _ = await Assert.That(group[2]).IsEqualTo("node-b");
     }
 
     /// <summary>Destination length must match replica count.</summary>
-    [Fact]
+    [Test]
     public void RejectsDestinationLengthMismatch()
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
@@ -138,11 +128,11 @@ public sealed class ReplicaPlacementPropertyTests
     }
 
     /// <summary>Empty input is rejected.</summary>
-    [Fact]
+    [Test]
     public void RejectsEmptyNodeList() => _ = NodeExceptionAssert.For<ArgumentException>().Throws<string[]>([], static nodes => _ = new PhysicalNodeRing(nodes));
 
     /// <summary>Replica count must fit the ring and policy max.</summary>
-    [Fact]
+    [Test]
     public void RejectsReplicaCountOutOfRange()
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
@@ -155,7 +145,7 @@ public sealed class ReplicaPlacementPropertyTests
     }
 
     /// <summary>Unknown owners are rejected.</summary>
-    [Fact]
+    [Test]
     public void RejectsUnknownOwner()
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b"]);
@@ -163,53 +153,66 @@ public sealed class ReplicaPlacementPropertyTests
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(ring, group, static (r, g) => r.WriteReplicaGroup("missing", 2, g));
     }
 
+    /// <summary>RF=1/2/3/5 replica groups hold the owner plus ordinal successors with wrap.</summary>
+    [Test]
+    public async Task ReplicaGroupMatrixCoversOneTwoThreeFive()
+    {
+        var ring = new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]);
+
+        await AssertGroup(ring, "n3", 1, ["n3"]);
+        await AssertGroup(ring, "n3", 2, ["n3", "n4"]);
+        await AssertGroup(ring, "n3", 3, ["n3", "n4", "n5"]);
+        await AssertGroup(ring, "n4", 3, ["n4", "n5", "n1"]);
+        await AssertGroup(ring, "n3", 5, ["n3", "n4", "n5", "n1", "n2"]);
+    }
+
     /// <summary>Followers are the next distinct physical nodes after the owner.</summary>
-    [Fact]
-    public void ReturnsNextDistinctPhysicalNodes()
+    [Test]
+    public async Task ReturnsNextDistinctPhysicalNodes()
     {
         var ring = new PhysicalNodeRing(["node-d", "node-b", "node-a", "node-c"]);
         var group = new string[3];
         ring.WriteReplicaGroup("node-a", 3, group);
-        Assert.Equal("node-a", group[0]);
-        Assert.Equal("node-b", group[1]);
-        Assert.Equal("node-c", group[2]);
+        _ = await Assert.That(group[0]).IsEqualTo("node-a");
+        _ = await Assert.That(group[1]).IsEqualTo("node-b");
+        _ = await Assert.That(group[2]).IsEqualTo("node-c");
     }
 
     /// <summary>Vnode ownership remains a single original owner string.</summary>
-    [Fact]
-    public void VnodeRingOnlySelectsOriginalOwner()
+    [Test]
+    public async Task VnodeRingOnlySelectsOriginalOwner()
     {
         var nodes = new[] { "node-a", "node-b", "node-c", "node-d" };
         var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
         for (var i = 0; i < 2_000; i++)
         {
             var owner = locator.GetOwner("cache", "k" + i.ToString(CultureInfo.InvariantCulture));
-            Assert.Contains(owner, nodes, StringComparer.Ordinal);
-            Assert.DoesNotContain(',', owner);
+            _ = await Assert.That(nodes).Contains(owner, StringComparer.Ordinal);
+            _ = await Assert.That(owner).DoesNotContain(',');
         }
     }
 
     /// <summary>Physical selection wraps at the end of the ordinal ring.</summary>
-    [Fact]
-    public void WrapsAtPhysicalRingEnd()
+    [Test]
+    public async Task WrapsAtPhysicalRingEnd()
     {
         var ring = new PhysicalNodeRing(["node-a", "node-b", "node-c", "node-d"]);
         var group = new string[3];
         ring.WriteReplicaGroup("node-c", 3, group);
-        Assert.Equal("node-c", group[0]);
-        Assert.Equal("node-d", group[1]);
-        Assert.Equal("node-a", group[2]);
+        _ = await Assert.That(group[0]).IsEqualTo("node-c");
+        _ = await Assert.That(group[1]).IsEqualTo("node-d");
+        _ = await Assert.That(group[2]).IsEqualTo("node-a");
         ring.WriteReplicaGroup("node-d", 3, group);
-        Assert.Equal("node-d", group[0]);
-        Assert.Equal("node-a", group[1]);
-        Assert.Equal("node-b", group[2]);
+        _ = await Assert.That(group[0]).IsEqualTo("node-d");
+        _ = await Assert.That(group[1]).IsEqualTo("node-a");
+        _ = await Assert.That(group[2]).IsEqualTo("node-b");
     }
 
-    private static void AssertGroup(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
+    private static Task AssertGroup(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
     {
         var group = new string[replicaCount];
         ring.WriteReplicaGroup(owner, replicaCount, group);
-        Assert.Equal(expected, group);
+        return SequenceAssert.Equal(expected, group, StringComparer.Ordinal);
     }
 
     private static int CountOccurrences(ReadOnlySpan<string> values, string expected)

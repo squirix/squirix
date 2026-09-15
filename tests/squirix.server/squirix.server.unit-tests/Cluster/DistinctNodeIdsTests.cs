@@ -1,7 +1,11 @@
+using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -9,51 +13,38 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class DistinctNodeIdsTests : ServerUnitTestBase
 {
-    /// <summary>Leading and trailing whitespace is trimmed from node IDs.</summary>
-    [Fact]
-    public void TrimsLeadingAndTrailingWhitespace()
+    /// <summary>All whitespace values returns empty array.</summary>
+    [Test]
+    public async Task AllWhitespaceReturnsEmpty()
     {
-        var result = DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeB"]);
-        Assert.Equal(["NodeA", "NodeB"], result);
-    }
-
-    /// <summary>Whitespace-only values are rejected after trimming.</summary>
-    [Fact]
-    public void RejectsWhitespaceOnlyValues()
-    {
-        var result = DistinctNodeIds.InInsertionOrder(["   ", "NodeA", "\t\n"]);
-        Assert.Equal(["NodeA"], result);
+        var result = DistinctNodeIds.InInsertionOrder(["  ", "\t", string.Empty]);
+        _ = await Assert.That(result).IsEmpty();
     }
 
     /// <summary>Duplicate values after trimming are deduplicated.</summary>
-    [Fact]
-    public void DeduplicatesAfterTrim()
+    [Test]
+    public Task DeduplicatesAfterTrim() => SequenceAssert.Equal(["NodeA"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeA", "  NodeA  "]), StringComparer.Ordinal);
+
+    /// <summary>Empty input returns empty array.</summary>
+    [Test]
+    public async Task EmptyInputReturnsEmpty()
     {
-        var result = DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeA", "  NodeA  "]);
-        Assert.Single(result, "NodeA");
+        var result = DistinctNodeIds.InInsertionOrder([]);
+        _ = await Assert.That(result).IsEmpty();
     }
 
     /// <summary>Preserves insertion order of first-seen distinct IDs.</summary>
-    [Fact]
-    public void PreservesInsertionOrder()
-    {
-        var result = DistinctNodeIds.InInsertionOrder(["NodeC", " NodeA ", "NodeB", "NodeA"]);
-        Assert.Equal(["NodeC", "NodeA", "NodeB"], result);
-    }
+    [Test]
+    public Task PreservesInsertionOrder() => SequenceAssert.Equal(
+        ["NodeC", "NodeA", "NodeB"],
+        DistinctNodeIds.InInsertionOrder(["NodeC", " NodeA ", "NodeB", "NodeA"]),
+        StringComparer.Ordinal);
 
-    /// <summary>Empty input returns empty array.</summary>
-    [Fact]
-    public void EmptyInputReturnsEmpty()
-    {
-        var result = DistinctNodeIds.InInsertionOrder([]);
-        Assert.Empty(result);
-    }
+    /// <summary>Whitespace-only values are rejected after trimming.</summary>
+    [Test]
+    public Task RejectsWhitespaceOnlyValues() => SequenceAssert.Equal(["NodeA"], DistinctNodeIds.InInsertionOrder(["   ", "NodeA", "\t\n"]), StringComparer.Ordinal);
 
-    /// <summary>All whitespace values returns empty array.</summary>
-    [Fact]
-    public void AllWhitespaceReturnsEmpty()
-    {
-        var result = DistinctNodeIds.InInsertionOrder(["  ", "\t", string.Empty]);
-        Assert.Empty(result);
-    }
+    /// <summary>Leading and trailing whitespace is trimmed from node IDs.</summary>
+    [Test]
+    public Task TrimsLeadingAndTrailingWhitespace() => SequenceAssert.Equal(["NodeA", "NodeB"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeB"]), StringComparer.Ordinal);
 }

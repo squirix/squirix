@@ -4,13 +4,13 @@ using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
-using Xunit;
+using TUnit.Core.Interfaces;
 
 namespace Squirix.E2ETests;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
 [UsedImplicitly]
-public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
+public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncDisposable
 {
     private ISquirixClient? _clientA;
     private ISquirixClient? _clientB;
@@ -44,12 +44,14 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     }
 
     /// <inheritdoc />
-    public async ValueTask InitializeAsync()
+    public async Task InitializeAsync()
     {
-        _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: DefaultCancellationToken);
-        _clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        _clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, DefaultCancellationToken, false);
+        // IAsyncInitializer has no test context to link to, so startup uses its own 30s budget.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: cts.Token);
+        _clientA = await _cluster.ConnectClientAsync("nodeA", cts.Token);
+        _clientB = await _cluster.ConnectClientAsync("nodeB", cts.Token);
+        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, cts.Token, false);
     }
 
     private static TwoNodeNamedCaches<object?> ThrowFixtureNotInitialized() => throw new InvalidOperationException("Fixture is not initialized.");

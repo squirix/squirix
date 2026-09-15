@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -15,9 +18,20 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
+    /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
+    [Test]
+    public async Task ProjectGeneratesNarrowContractSources()
+    {
+        var protobuf = await ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
+
+        _ = await Assert.That(protobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Server;Client");
+        _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");
+        _ = await Assert.That(protobuf.GetAttribute("Access", string.Empty)).IsEqualTo("Internal");
+    }
+
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
-    [Fact]
-    public void ProjectsCompileMappersFromSameSources()
+    [Test]
+    public async Task ProjectsCompileMappersFromSameSources()
     {
         string[] expectedIncludes =
         [
@@ -25,39 +39,28 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         ];
 
         var serverIncludes = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("Compile");
-        Assert.NotNull(serverIncludes);
+        _ = await Assert.That(serverIncludes).IsNotNull();
 
         foreach (var include in expectedIncludes)
-            Assert.Contains(include, serverIncludes, StringComparer.Ordinal);
+            _ = await Assert.That(serverIncludes).Contains(include, StringComparer.Ordinal);
     }
 
     /// <summary>Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.</summary>
-    [Fact]
-    public void ServerGeneratesGrpcIntoSharedNamespace()
+    [Test]
+    public async Task ServerGeneratesGrpcIntoSharedNamespace()
     {
-        Assert.False(typeof(CacheEntryWire).IsPublic);
-        Assert.False(typeof(SquirixCacheService).IsPublic);
-        Assert.False(typeof(SquirixCacheService.SquirixCacheServiceBase).IsPublic);
-    }
-
-    /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
-    [Fact]
-    public void ProjectGeneratesNarrowContractSources()
-    {
-        var protobuf = ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
-
-        Assert.Equal("Server;Client", protobuf.GetAttribute("GrpcServices", string.Empty));
-        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.GetAttribute("ProtoRoot", string.Empty));
-        Assert.Equal("Internal", protobuf.GetAttribute("Access", string.Empty));
+        _ = await Assert.That(typeof(CacheEntryWire).IsPublic).IsFalse();
+        _ = await Assert.That(typeof(SquirixCacheService).IsPublic).IsFalse();
+        _ = await Assert.That(typeof(SquirixCacheService.SquirixCacheServiceBase).IsPublic).IsFalse();
     }
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
-    [Fact]
-    public void ServerOwnsMetricsEndpointMapping() => Assert.False(typeof(EndpointExtensions).IsPublic);
+    [Test]
+    public async Task ServerOwnsMetricsEndpointMapping() => _ = await Assert.That(typeof(EndpointExtensions).IsPublic).IsFalse();
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
-    [Fact]
-    public void StaleOwnerConstantsPresentInServerBuild()
+    [Test]
+    public async Task StaleOwnerConstantsPresentInServerBuild()
     {
         var found = false;
         var entries = GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers();
@@ -70,15 +73,16 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             break;
         }
 
-        Assert.True(found);
+        _ = await Assert.That(found).IsTrue();
     }
 
     /// <summary>Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.</summary>
-    [Fact]
-    public async Task TransportMapperRuntimeTypesStayInternal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransportMapperRuntimeTypesStayInternal(CancellationToken cancellationToken)
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
-        Assert.True(Directory.Exists(mapperDirectory));
+        _ = await Assert.That(Directory.Exists(mapperDirectory)).IsTrue();
 
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
@@ -86,18 +90,19 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         for (var i = 0; i < mapperPaths.Count; i++)
         {
             var path = mapperPaths[i];
-            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
             for (var markerIndex = 0; markerIndex < ServerArchitectureFixtures.ForbiddenGrpcTransportMapperMarkers.Length; markerIndex++)
             {
                 var marker = ServerArchitectureFixtures.ForbiddenGrpcTransportMapperMarkers[markerIndex];
-                Assert.False(text.Contains(marker, StringComparison.Ordinal));
+                _ = await Assert.That(text.Contains(marker, StringComparison.Ordinal)).IsFalse();
             }
         }
     }
 
     /// <summary>Ensures share-sourced gRPC transport mappers use the shared mapper namespace.</summary>
-    [Fact]
-    public async Task TransportMappersUseMappersNamespace()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransportMappersUseMappersNamespace(CancellationToken cancellationToken)
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
@@ -106,8 +111,8 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         for (var i = 0; i < mapperPaths.Count; i++)
         {
             var path = mapperPaths[i];
-            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            Assert.Contains("namespace Squirix.Transport.Grpc.Mappers;", text, StringComparison.Ordinal);
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
+            _ = await Assert.That(text).Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal);
         }
     }
 }
