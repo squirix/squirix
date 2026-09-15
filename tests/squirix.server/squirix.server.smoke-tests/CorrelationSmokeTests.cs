@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
@@ -10,7 +11,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.SmokeTests;
 
@@ -27,8 +30,9 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     /// Starts two nodes (A,B). Sends a gRPC insert to A for a key owned by B with a custom traceparent header.
     /// Verifies that node B's gRPC server received the same traceparent in its request metadata.
     /// </summary>
-    [Fact]
-    public async Task TraceContextFlowsAcrossGrpcNodes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TraceContextFlowsAcrossGrpcNodes(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -38,7 +42,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var capture = new CapturingHeadersInterceptor();
         var servicesConfigure = new CaptureServicesConfigure(capture);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: DefaultCancellationToken);
+        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
         await using var nodeB = await StartNodeAsync(
             uriB,
             peers,
@@ -47,7 +51,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
                 ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
                 ServicesConfigure = servicesConfigure.Apply,
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
 
@@ -71,18 +75,18 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
                 Key = key,
                 Entry = new NodeCacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
             },
-            new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+            new CallOptions(headers, cancellationToken: cancellationToken));
 
-        await Task.Delay(50, DefaultCancellationToken);
+        await Task.Delay(50, cancellationToken);
 
         var last = capture.LastRequestHeaders;
-        Assert.NotNull(last);
+        _ = await Assert.That(last).IsNotNull();
         var gotTp = last.GetValue(TraceParentHeader);
-        Assert.False(string.IsNullOrEmpty(gotTp));
+        _ = await Assert.That(string.IsNullOrEmpty(gotTp)).IsFalse();
 
         var expectedTraceId = TraceIdFromTraceparent(traceparent!);
-        var gotTraceId = TraceIdFromTraceparent(gotTp);
-        Assert.Equal(expectedTraceId, gotTraceId);
+        var gotTraceId = TraceIdFromTraceparent(gotTp!);
+        _ = await Assert.That(gotTraceId).IsEqualTo(expectedTraceId);
     }
 
     private static string TraceIdFromTraceparent(string traceparent)

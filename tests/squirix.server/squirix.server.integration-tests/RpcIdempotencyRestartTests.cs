@@ -11,7 +11,9 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -24,8 +26,9 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
     /// <summary>After compaction and SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
-    [Fact]
-    public async Task KillDuringCompactionReplaysInsert()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task KillDuringCompactionReplaysInsert(CancellationToken cancellationToken)
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
@@ -36,73 +39,39 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var node = await StartNodeAsync(uri, "node-c", new NodeStartOptions { UsePersistence = true, ExtraScope = CompactScope });
+        var node = await StartNodeAsync(uri, "node-c", new NodeStartOptions { UsePersistence = true, ExtraScope = CompactScope }, cancellationToken);
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.True(first.Added);
+            var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(first.Added).IsTrue();
         }
 
         await node.AbruptShutdownAsync();
-        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
+        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         using var manifestStore = new Ledger(persistence);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), cancellationToken);
 
         var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(restartUri, "node-c", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = CompactScope });
+        await using var restarted = await StartNodeAsync(
+            restartUri,
+            "node-c",
+            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = CompactScope },
+            cancellationToken);
         using (var channel = CreateGrpcChannel(restarted.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var retry = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.True(retry.Added);
-        }
-    }
-
-    /// <summary>After SIGKILL-style restart a retry with the same operation id must replay the original Set response.</summary>
-    [Fact]
-    public async Task KillRestartReplaysSetIdempotency()
-    {
-        var uri = GetNextHttpUri();
-        var request = new SetEntryAsyncRequest
-        {
-            OperationId = ValidOperationId,
-            CacheName = "default",
-            Key = "force-kill-set-idempotency",
-            Entry = new NodeCacheEntry<object?> { Value = "set-value", Version = 1 }.MapToProto(),
-        };
-
-        var node = await StartNodeAsync(uri, "node-b", new NodeStartOptions { UsePersistence = true, ExtraScope = SetScope });
-        using (var channel = CreateGrpcChannel(node.Uri))
-        {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var first = await client.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.NotNull(first);
-        }
-
-        await node.AbruptShutdownAsync();
-        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
-
-        var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(restartUri, "node-b", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SetScope });
-        using (var channel = CreateGrpcChannel(restarted.Uri))
-        {
-            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var retry = await client.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.NotNull(retry);
-
-            var get = await client.GetValueAsync(
-                new GetValueAsyncRequest { CacheName = "default", Key = "force-kill-set-idempotency" },
-                cancellationToken: DefaultCancellationToken);
-            Assert.True(get.Found);
+            var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(retry.Added).IsTrue();
         }
     }
 
     /// <summary>After SIGKILL-style restart a retry with the same operation id must replay Added=true even though the key was recovered from the journal.</summary>
-    [Fact]
-    public async Task KillRestartReplaysInsertIdempotency()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task KillRestartReplaysInsertIdempotency(CancellationToken cancellationToken)
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
@@ -113,28 +82,74 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { UsePersistence = true, ExtraScope = Scope });
+        var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.True(first.Added);
+            var first = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(first.Added).IsTrue();
         }
 
         await node.AbruptShutdownAsync();
-        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
+        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
         await JournalHasPutAndIdempotencyRecordsAsync(node.DataDir);
 
         var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(restartUri, "node-a", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope });
+        await using var restarted = await StartNodeAsync(
+            restartUri,
+            "node-a",
+            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope },
+            cancellationToken);
         using (var channel = CreateGrpcChannel(restarted.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-            var retry = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-            Assert.True(retry.Added);
+            var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(retry.Added).IsTrue();
 
-            var get = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "force-kill-idempotency" }, cancellationToken: DefaultCancellationToken);
-            Assert.True(get.Found);
+            var get = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "force-kill-idempotency" }, cancellationToken: cancellationToken);
+            _ = await Assert.That(get.Found).IsTrue();
+        }
+    }
+
+    /// <summary>After SIGKILL-style restart a retry with the same operation id must replay the original Set response.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task KillRestartReplaysSetIdempotency(CancellationToken cancellationToken)
+    {
+        var uri = GetNextHttpUri();
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = ValidOperationId,
+            CacheName = "default",
+            Key = "force-kill-set-idempotency",
+            Entry = new NodeCacheEntry<object?> { Value = "set-value", Version = 1 }.MapToProto(),
+        };
+
+        var node = await StartNodeAsync(uri, "node-b", new NodeStartOptions { UsePersistence = true, ExtraScope = SetScope }, cancellationToken);
+        using (var channel = CreateGrpcChannel(node.Uri))
+        {
+            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var first = await client.SetEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(first).IsNotNull();
+        }
+
+        await node.AbruptShutdownAsync();
+        await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
+
+        var restartUri = GetNextHttpUri();
+        await using var restarted = await StartNodeAsync(
+            restartUri,
+            "node-b",
+            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SetScope },
+            cancellationToken);
+        using (var channel = CreateGrpcChannel(restarted.Uri))
+        {
+            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var retry = await client.SetEntryAsync(request, cancellationToken: cancellationToken);
+            _ = await Assert.That(retry).IsNotNull();
+
+            var get = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "force-kill-set-idempotency" }, cancellationToken: cancellationToken);
+            _ = await Assert.That(get.Found).IsTrue();
         }
     }
 
@@ -155,7 +170,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
                 sawIdempotency = true;
         }
 
-        Assert.True(sawPut);
-        Assert.True(sawIdempotency);
+        _ = await Assert.That(sawPut).IsTrue();
+        _ = await Assert.That(sawIdempotency).IsTrue();
     }
 }

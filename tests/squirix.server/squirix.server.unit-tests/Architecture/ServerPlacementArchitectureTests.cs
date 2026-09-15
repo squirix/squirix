@@ -1,7 +1,8 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -10,33 +11,34 @@ namespace Squirix.Server.UnitTests.Architecture;
 public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
-    [Fact]
-    public async Task MetricsTypesLiveInObservabilityNamespace()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MetricsTypesLiveInObservabilityNamespace(CancellationToken cancellationToken)
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync(
             "Metrics",
             false,
             ["Squirix.Server.Storage.Manifest.NoOpManifestRetentionFailureMetrics"],
-            DefaultCancellationToken);
-        ServerTypeCatalog.AssertResideInNamespace(
-            types,
-            $"{ServerArchitectureNamespaces.Node}.Observability");
+            cancellationToken);
+        await ServerTypeCatalog.AssertResideInNamespace(types, $"{ServerArchitectureNamespaces.Node}.Observability");
     }
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
-    [Fact]
-    public async Task OptionsTypesLiveInApprovedNamespaces()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OptionsTypesLiveInApprovedNamespaces(CancellationToken cancellationToken)
     {
-        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Options", true, cancellationToken: DefaultCancellationToken);
-        ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServerOptionsTypeNamespaces);
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Options", true, cancellationToken: cancellationToken);
+        await ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServerOptionsTypeNamespaces);
     }
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
-    [Fact]
-    public async Task ServiceTypesLiveInApprovedNamespaces()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ServiceTypesLiveInApprovedNamespaces(CancellationToken cancellationToken)
     {
-        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Service", true, cancellationToken: DefaultCancellationToken);
-        ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServiceTypeNamespaces);
+        var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Service", true, cancellationToken: cancellationToken);
+        await ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServiceTypeNamespaces);
     }
 
     /// <summary>Centralized namespace allowlists for naming-convention architecture rules.</summary>

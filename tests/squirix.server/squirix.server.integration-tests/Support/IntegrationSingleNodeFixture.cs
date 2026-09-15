@@ -3,22 +3,23 @@ using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Core.Interfaces;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Shared single-node fixture for integration test classes.
-/// Starts one <see cref="TestNodeHost"/> in <see cref="InitializeAsync"/> and disposes it in <see cref="DisposeAsync"/>.
+/// Starts one <see cref="TestNodeHost" /> in <see cref="InitializeAsync" /> and disposes it in <see cref="DisposeAsync" />.
 /// </summary>
 /// <remarks>
-/// <para><b>CRITICAL: Cache isolation.</b> All tests sharing this fixture see the same in-memory cache.
-/// Every test MUST use unique cache keys to prevent cross-test interference.
-/// If a test writes a key that another test reads or asserts on, the suite becomes order-dependent.
-/// </para>
+///     <para>
+///     <b>CRITICAL: Cache isolation.</b> All tests sharing this fixture see the same in-memory cache.
+///     Every test MUST use unique cache keys to prevent cross-test interference.
+///     If a test writes a key that another test reads or asserts on, the suite becomes order-dependent.
+///     </para>
 /// </remarks>
 [UsedImplicitly]
-public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncLifetime
+public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
     private TestNodeHost? _node;
 
@@ -37,9 +38,5 @@ public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsy
     }
 
     /// <inheritdoc />
-    public async ValueTask InitializeAsync()
-    {
-        var uri = GetNextHttpUri();
-        _node = await StartNodeAsync(uri, "node-a");
-    }
+    public async Task InitializeAsync() => _node = await StartNodeAsync(GetNextHttpUri(), "node-a");
 }

@@ -1,9 +1,12 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -12,32 +15,32 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class JournalMetricsExporterOptionsTests
 {
     /// <summary>Verifies the minimum positive interval remains accepted.</summary>
-    [Fact]
-    public void FieldValidationAcceptsBoundaryInterval()
+    [Test]
+    public async Task FieldValidationAcceptsBoundaryInterval()
     {
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
 
-        Assert.Equal(TimeSpan.FromTicks(1), options.Interval);
+        _ = await Assert.That(options.Interval).IsEqualTo(TimeSpan.FromTicks(1));
     }
 
     /// <summary>Verifies non-positive intervals fail at assignment time.</summary>
-    [Fact]
-    public void FieldValidationRejectsBadInterval()
+    [Test]
+    public async Task FieldValidationRejectsBadInterval()
     {
         var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(TimeSpan.Zero, static value => _ = new JournalMetricsExporterOptions { Interval = value });
 
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);
-        Assert.Contains(TimeSpan.Zero.ToString(), ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.ParamName).IsEqualTo("value");
+        _ = await Assert.That(ex.Message).Contains(nameof(JournalMetricsExporterOptions.Interval), StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains(TimeSpan.Zero.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through setters.</summary>
-    [Fact]
-    public void JsonDeserializeBindsValidatedInterval()
+    [Test]
+    public async Task JsonDeserializeBindsValidatedInterval()
     {
         const string json = """{"interval":"00:00:03"}""";
         var options = new ServerJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
-        Assert.NotNull(options);
-        Assert.Equal(TimeSpan.FromSeconds(3), options.Interval);
+        _ = await Assert.That(options).IsNotNull();
+        _ = await Assert.That(options.Interval).IsEqualTo(TimeSpan.FromSeconds(3));
     }
 }

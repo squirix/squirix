@@ -8,16 +8,17 @@ using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Test-only production trace capture and independent safety projection.</summary>
 internal static class ConformanceTestKit
 {
-    internal static void AssertModelAccepted(IReadOnlyList<TracePoint> trace)
+    internal static async Task AssertModelAccepted(IReadOnlyList<TracePoint> trace)
     {
-        Assert.NotEmpty(trace);
+        _ = await Assert.That(trace).IsNotEmpty();
         var modelTrace = new ModelCommitTracePoint[trace.Count];
         for (var index = 0; index < trace.Count; index++)
         {
@@ -29,7 +30,7 @@ internal static class ConformanceTestKit
                 Convert.ToInt32(current.AppliedIndex));
         }
 
-        Assert.True(ExploreRunner.AcceptsCommitTrace(modelTrace), "The production trace is not accepted by the protocol model transition system.");
+        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(modelTrace)).IsTrue().Because("The production trace is not accepted by the protocol model transition system.");
     }
 
     internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, int maxInFlight = 4, int replicaCount = 3)

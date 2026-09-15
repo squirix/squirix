@@ -1,8 +1,11 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -14,35 +17,35 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 [Immutable]
 public sealed class RefusalMirrorTests : ServerUnitTestBase
 {
-    /// <summary>Stale-term marker matches across both namespaces.</summary>
-    [Fact]
-    public void StaleTermMirrors() => Assert.Equal(RefusalCodes.StaleTerm, FollowerLogRefusal.StaleTerm);
-
-    /// <summary>Log-mismatch marker matches across both namespaces.</summary>
-    [Fact]
-    public void LogMismatchMirrors() => Assert.Equal(RefusalCodes.LogMismatch, FollowerLogRefusal.LogMismatch);
-
-    /// <summary>Not-ready marker matches across both namespaces.</summary>
-    [Fact]
-    public void NotReadyMirrors() => Assert.Equal(RefusalCodes.NotReady, FollowerLogRefusal.NotReady);
+    /// <summary>Already-voted marker matches across both namespaces.</summary>
+    [Test]
+    public async Task AlreadyVotedMirrors() => _ = await Assert.That(FollowerLogRefusal.AlreadyVoted).IsEqualTo(RefusalCodes.AlreadyVoted);
 
     /// <summary>Checksum-mismatch marker matches across both namespaces.</summary>
-    [Fact]
-    public void ChecksumMismatchMirrors() => Assert.Equal(RefusalCodes.ChecksumMismatch, FollowerLogRefusal.ChecksumMismatch);
+    [Test]
+    public async Task ChecksumMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.ChecksumMismatch).IsEqualTo(RefusalCodes.ChecksumMismatch);
 
-    /// <summary>Topology-mismatch marker matches across both namespaces.</summary>
-    [Fact]
-    public void TopologyMismatchMirrors() => Assert.Equal(RefusalCodes.TopologyMismatch, FollowerLogRefusal.TopologyMismatch);
+    /// <summary>Log-mismatch marker matches across both namespaces.</summary>
+    [Test]
+    public async Task LogMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.LogMismatch).IsEqualTo(RefusalCodes.LogMismatch);
 
     /// <summary>Not-member marker matches across both namespaces.</summary>
-    [Fact]
-    public void NotMemberMirrors() => Assert.Equal(RefusalCodes.NotMember, FollowerLogRefusal.NotMember);
+    [Test]
+    public async Task NotMemberMirrors() => _ = await Assert.That(FollowerLogRefusal.NotMember).IsEqualTo(RefusalCodes.NotMember);
 
-    /// <summary>Already-voted marker matches across both namespaces.</summary>
-    [Fact]
-    public void AlreadyVotedMirrors() => Assert.Equal(RefusalCodes.AlreadyVoted, FollowerLogRefusal.AlreadyVoted);
+    /// <summary>Not-ready marker matches across both namespaces.</summary>
+    [Test]
+    public async Task NotReadyMirrors() => _ = await Assert.That(FollowerLogRefusal.NotReady).IsEqualTo(RefusalCodes.NotReady);
 
     /// <summary>Stale-log marker matches across both namespaces.</summary>
-    [Fact]
-    public void StaleLogMirrors() => Assert.Equal(RefusalCodes.StaleLog, FollowerLogRefusal.StaleLog);
+    [Test]
+    public async Task StaleLogMirrors() => _ = await Assert.That(FollowerLogRefusal.StaleLog).IsEqualTo(RefusalCodes.StaleLog);
+
+    /// <summary>Stale-term marker matches across both namespaces.</summary>
+    [Test]
+    public async Task StaleTermMirrors() => _ = await Assert.That(FollowerLogRefusal.StaleTerm).IsEqualTo(RefusalCodes.StaleTerm);
+
+    /// <summary>Topology-mismatch marker matches across both namespaces.</summary>
+    [Test]
+    public async Task TopologyMismatchMirrors() => _ = await Assert.That(FollowerLogRefusal.TopologyMismatch).IsEqualTo(RefusalCodes.TopologyMismatch);
 }

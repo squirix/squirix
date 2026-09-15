@@ -1,8 +1,11 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -13,58 +16,58 @@ public sealed class JournalWriteBatchBufferTests
     private static readonly byte[] TwoTabFrame = [0x09, 0x09];
 
     /// <summary>Clearing resets staged bytes and pending appends for reuse.</summary>
-    [Fact]
-    public void ClearResetsBuffer()
+    [Test]
+    public async Task ClearResetsBuffer()
     {
         var buffer = new JournalWriteBatchBuffer(64);
         _ = buffer.TryStageAppend(MakeItem(TwoTabFrame));
 
         buffer.Clear();
 
-        Assert.True(buffer.IsEmpty);
-        Assert.Equal(0, buffer.StagedByteLength);
-        Assert.Empty(buffer.PendingAppends);
+        _ = await Assert.That(buffer.IsEmpty).IsTrue();
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(0);
+        _ = await Assert.That(buffer.PendingAppends).IsEmpty();
     }
 
     /// <summary>A freshly constructed buffer is empty and exposes no staged bytes.</summary>
-    [Fact]
-    public void NewBufferIsEmpty()
+    [Test]
+    public async Task NewBufferIsEmpty()
     {
         var buffer = new JournalWriteBatchBuffer();
 
-        Assert.True(buffer.IsEmpty);
-        Assert.Equal(0, buffer.StagedByteLength);
-        Assert.True(buffer.ActiveSpan.IsEmpty);
-        Assert.Empty(buffer.PendingAppends);
+        _ = await Assert.That(buffer.IsEmpty).IsTrue();
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(0);
+        _ = await Assert.That(buffer.ActiveSpan.IsEmpty).IsTrue();
+        _ = await Assert.That(buffer.PendingAppends).IsEmpty();
     }
 
     /// <summary>A non-positive capacity is rejected.</summary>
-    [Fact]
+    [Test]
     public void NonPositiveCapacityThrows() => _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static value => _ = new JournalWriteBatchBuffer(value));
 
     /// <summary>Staging copies the frame into the buffer and tracks the pending append.</summary>
-    [Fact]
-    public void StageAppendCopiesFrameAndTracksPending()
+    [Test]
+    public async Task StageAppendCopiesFrameAndTracksPending()
     {
         var buffer = new JournalWriteBatchBuffer(64);
         byte[] frame = [1, 2, 3, 4];
 
-        Assert.True(buffer.TryStageAppend(MakeItem(frame)));
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(frame))).IsTrue();
 
-        Assert.False(buffer.IsEmpty);
-        Assert.Equal(4, buffer.StagedByteLength);
-        Assert.True(buffer.ActiveSpan.SequenceEqual(frame));
-        _ = Assert.Single(buffer.PendingAppends);
+        _ = await Assert.That(buffer.IsEmpty).IsFalse();
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(4);
+        _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(frame)).IsTrue();
+        _ = await Assert.That(buffer.PendingAppends).HasSingleItem();
     }
 
     /// <summary>A frame larger than the configured capacity is rejected so callers fall back to a direct write.</summary>
-    [Fact]
-    public void StageAppendRejectsOversizedFrame()
+    [Test]
+    public async Task StageAppendRejectsOversizedFrame()
     {
         var buffer = new JournalWriteBatchBuffer(8);
 
-        Assert.False(buffer.TryStageAppend(MakeItem(new byte[16])));
-        Assert.True(buffer.IsEmpty);
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(new byte[16]))).IsFalse();
+        _ = await Assert.That(buffer.IsEmpty).IsTrue();
     }
 
     private static JournalWorkItem MakeItem(byte[] frame) => JournalWorkItem.Append(frame, frame.Length);

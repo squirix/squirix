@@ -9,7 +9,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -24,9 +26,10 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
     /// final cached/allocator state (not the overlapping read's captured result, which is timing-dependent): without
     /// the fix, the load would overwrite the newer cached state with index 5 and rewind the allocator.
     /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
-    [Fact]
-    public async Task ColdReadDoesNotRewindCacheOrAllocator()
+    [Test]
+    public async Task ColdReadDoesNotRewindCacheOrAllocator(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("manifest-cache-rewind");
         var options = new PersistenceOptions
@@ -47,11 +50,11 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
                     NextSequence = Convert.ToUInt64(i),
                     LastSnapshot = i == 5 ? new SnapshotRef { CreatedUtc = DateTime.UtcNow, Path = new string('x', 65000) } : null,
                 };
-                await seeder.WriteAsync(state, DefaultCancellationToken);
+                await seeder.WriteAsync(state, cancellationToken);
             }
         }
 
-        var read = store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var read = store.ReadCurrentOrDefaultAsync(cancellationToken);
         var rollError = new StrongBox<Exception?>(null);
 
         for (var i = 6; i <= 20; i++)
@@ -62,15 +65,15 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
             TimeSpan.FromSeconds(30),
-            DefaultCancellationToken);
+            cancellationToken);
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
         _ = await read;
 
-        var finalState = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        Assert.Equal(20, finalState.CurrentJournal);
-        Assert.Equal(20, await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, DefaultCancellationToken));
+        var finalState = await store.ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(finalState.CurrentJournal).IsEqualTo(20);
+        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, cancellationToken)).IsEqualTo(20);
         return;
 
         void OnRollFailed(Exception ex)
@@ -80,9 +83,10 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
     }
 
     /// <summary>Rapid publishes retain the latest manifest file and pointer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown if the background retention worker does not drain the burst within 30s.</exception>
-    [Fact]
-    public async Task RapidPublishBurstKeepsCurrentManifest()
+    [Test]
+    public async Task RapidPublishBurstKeepsCurrentManifest(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("manifest-burst");
         var options = new PersistenceOptions
@@ -101,11 +105,11 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         await store.WaitUntilValueAsync(
             static async (s, ct) => (await s.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false)).CurrentJournal == 20,
             TimeSpan.FromSeconds(30),
-            DefaultCancellationToken);
+            cancellationToken);
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
-        Assert.True(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20))));
+        _ = await Assert.That(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20)))).IsTrue();
         return;
 
         void OnRollFailed(Exception ex)

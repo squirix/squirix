@@ -11,7 +11,9 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -20,8 +22,9 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 {
     /// <summary>Disposal stops admission and waits until an active key-gate lease is released.</summary>
-    [Fact]
-    public async Task DisposalDrainsActiveKeyLease()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposalDrainsActiveKeyLease(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(true);
         await using var commit = CreateCommit(pipeline);
@@ -31,29 +34,30 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var touch = expiration.SerializeTouchAsync(
             "default",
             "key-a",
-            async cancellationToken =>
+            async touchToken =>
             {
                 touchEntered.SetResult();
-                await releaseTouch.Task.WaitAsync(cancellationToken);
+                await releaseTouch.Task.WaitAsync(touchToken);
                 return true;
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
-        await touchEntered.Task.WaitAsync(DefaultCancellationToken);
+        await touchEntered.Task.WaitAsync(cancellationToken);
         var disposal = expiration.DisposeAsync().AsTask();
-        Assert.False(disposal.IsCompleted);
+        _ = await Assert.That(disposal.IsCompleted).IsFalse();
 
-        var rejected = expiration.SerializeTouchAsync("default", "key-b", static _ => ValueTask.FromResult(true), DefaultCancellationToken);
+        var rejected = expiration.SerializeTouchAsync("default", "key-b", static _ => ValueTask.FromResult(true), cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, bool>(rejected);
 
         releaseTouch.SetResult();
-        Assert.True(await touch);
+        _ = await Assert.That(await touch).IsTrue();
         await disposal;
     }
 
     /// <summary>A post-append expiration failure uses the common stable ambiguity result.</summary>
-    [Fact]
-    public async Task ExpirationAfterAppendIsCommitUnknown()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpirationAfterAppendIsCommitUnknown(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(false);
         var commit = CreateCommit(pipeline);
@@ -72,11 +76,11 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                     ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(7, expiresUtc)),
                     PrepareTombstone = static (_, operationId) => CreateMutation(operationId),
                     Timeout = TimeSpan.FromSeconds(2),
-                    CancellationToken = DefaultCancellationToken,
+                    CancellationToken = cancellationToken,
                 });
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, bool>(operation);
 
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
         finally
         {
@@ -85,25 +89,26 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     }
 
     /// <summary>Operation ids are stable, domain-separated, lowercase 32-hex values.</summary>
-    [Fact]
-    public void ExpirationIdIsStableAndSeparated()
+    [Test]
+    public async Task ExpirationIdIsStableAndSeparated()
     {
         var expiresUtc = new DateTime(638900000000000000, DateTimeKind.Utc);
         var first = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var repeated = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var boundary = ReplicaExpirationOperationId.Create("group-a", "defaul", "tkey-a", 7, expiresUtc);
 
-        Assert.Equal(first, repeated);
-        Assert.Equal("f6e3fa560b869c4cfa8a26062a016ee9", first);
-        Assert.NotEqual(first, boundary, StringComparer.Ordinal);
-        Assert.Equal(32, first.Length);
-        Assert.Matches("^[0-9a-f]{32}$", first);
-        Assert.Equal("replicated-expiration", ReplicaExpirationOperationId.OperationScope);
+        _ = await Assert.That(repeated).IsEqualTo(first);
+        _ = await Assert.That(first).IsEqualTo("f6e3fa560b869c4cfa8a26062a016ee9");
+        _ = await Assert.That(boundary).IsNotEqualTo(first, StringComparer.Ordinal);
+        _ = await Assert.That(first.Length).IsEqualTo(32);
+        _ = await Assert.That(first).Matches("^[0-9a-f]{32}$");
+        _ = await Assert.That(ReplicaExpirationOperationId.OperationScope).IsEqualTo("replicated-expiration");
     }
 
     /// <summary>An expired read becomes a miss only after the tombstone is durably applied.</summary>
-    [Fact]
-    public async Task ExpiredReadCommitsTombstoneBeforeMiss()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredReadCommitsTombstoneBeforeMiss(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(true);
         await using var commit = CreateCommit(pipeline);
@@ -120,18 +125,19 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                 ReadRaw = _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(new ReplicaExpirationCandidate(7, expiresUtc)),
                 PrepareTombstone = static (_, operationId) => CreateMutation(operationId),
                 Timeout = TimeSpan.FromSeconds(2),
-                CancellationToken = DefaultCancellationToken,
+                CancellationToken = cancellationToken,
             });
 
         pipeline.Trace.Add("miss");
-        Assert.True(missed);
-        Assert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace);
-        Assert.Equal(ReplicaExpirationOperationId.OperationScope, pipeline.Mutation!.OperationScope);
+        _ = await Assert.That(missed).IsTrue();
+        await SequenceAssert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
+        _ = await Assert.That(pipeline.Mutation!.OperationScope).IsEqualTo(ReplicaExpirationOperationId.OperationScope);
     }
 
     /// <summary>Follower mode never evaluates or deletes an expired entry independently.</summary>
-    [Fact]
-    public async Task FollowerDoesNotExpireIndependently()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerDoesNotExpireIndependently(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(true);
         await using var commit = CreateCommit(pipeline);
@@ -152,33 +158,35 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                 },
                 PrepareTombstone = static (_, _) => throw new InvalidOperationException("Follower must not prepare expiration."),
                 Timeout = TimeSpan.FromSeconds(2),
-                CancellationToken = DefaultCancellationToken,
+                CancellationToken = cancellationToken,
             });
 
-        Assert.False(missed);
-        Assert.Equal(0, readCount);
-        Assert.Empty(pipeline.Trace);
+        _ = await Assert.That(missed).IsFalse();
+        _ = await Assert.That(readCount).IsEqualTo(0);
+        _ = await Assert.That(pipeline.Trace).IsEmpty();
     }
 
     /// <summary>A raw read observes expiry without triggering local deletion.</summary>
-    [Fact]
-    public async Task RawReadDoesNotDeleteExpiredEntry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RawReadDoesNotDeleteExpiredEntry(CancellationToken cancellationToken)
     {
         var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var cache = new PhysicalCache<string>(time);
         var key = new CacheKey("default", "key-a");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), DefaultCancellationToken);
+        await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
         time.Advance(TimeSpan.FromSeconds(2));
 
-        var raw = await cache.RawReader.GetEntryRawAsync(key, DefaultCancellationToken);
-        Assert.NotNull(raw);
-        Assert.Null(await cache.GetEntryAsync(key, DefaultCancellationToken));
-        Assert.Null(await cache.RawReader.GetEntryRawAsync(key, DefaultCancellationToken));
+        var raw = await cache.RawReader.GetEntryRawAsync(key, cancellationToken);
+        _ = await Assert.That(raw).IsNotNull();
+        _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
+        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(key, cancellationToken)).IsNull();
     }
 
     /// <summary>Expiration requests require identifiers, a UTC timestamp, and a positive timeout.</summary>
-    [Fact]
-    public async Task RejectsInvalidRequestContract()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectsInvalidRequestContract(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(false);
         await using var commit = CreateCommit(pipeline);
@@ -194,7 +202,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentException, bool>(expiration.CommitExpiredMissAsync(CreateRequest(expiresUtc, TimeSpan.FromSeconds(2), key: string.Empty)));
         return;
 
-        static ReplicaExpirationRequest CreateRequest(DateTime utcNow, TimeSpan timeout, string groupId = "group-a", string cacheName = "default", string key = "key-a")
+        ReplicaExpirationRequest CreateRequest(DateTime utcNow, TimeSpan timeout, string groupId = "group-a", string cacheName = "default", string key = "key-a")
         {
             return new ReplicaExpirationRequest
             {
@@ -205,14 +213,15 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                 ReadRaw = static _ => ValueTask.FromResult<ReplicaExpirationCandidate?>(null),
                 PrepareTombstone = static (_, _) => throw new InvalidOperationException("Unreachable."),
                 Timeout = timeout,
-                CancellationToken = DefaultCancellationToken,
+                CancellationToken = cancellationToken,
             };
         }
     }
 
     /// <summary>Touch and expiration callbacks for one key execute in a single observable order.</summary>
-    [Fact]
-    public async Task TouchAndExpirationShareKeyGate()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TouchAndExpirationShareKeyGate(CancellationToken cancellationToken)
     {
         var pipeline = new ExpirationPipeline(true);
         await using var commit = CreateCommit(pipeline);
@@ -224,14 +233,14 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var touch = expiration.SerializeTouchAsync(
             "default",
             "key-a",
-            async cancellationToken =>
+            async touchToken =>
             {
                 touchEntered.SetResult();
-                await releaseTouch.Task.WaitAsync(cancellationToken);
+                await releaseTouch.Task.WaitAsync(touchToken);
                 return true;
             },
-            DefaultCancellationToken);
-        await touchEntered.Task.WaitAsync(DefaultCancellationToken);
+            cancellationToken);
+        await touchEntered.Task.WaitAsync(cancellationToken);
 
         var miss = expiration.CommitExpiredMissAsync(
             new ReplicaExpirationRequest
@@ -247,14 +256,14 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
                 },
                 PrepareTombstone = static (_, _) => throw new InvalidOperationException("No tombstone expected."),
                 Timeout = TimeSpan.FromSeconds(2),
-                CancellationToken = DefaultCancellationToken,
+                CancellationToken = cancellationToken,
             });
 
-        Assert.False(expirationRead.Task.IsCompleted);
+        _ = await Assert.That(expirationRead.Task.IsCompleted).IsFalse();
         releaseTouch.SetResult();
-        Assert.True(await touch);
-        Assert.False(await miss);
-        Assert.True(expirationRead.Task.IsCompleted);
+        _ = await Assert.That(await touch).IsTrue();
+        _ = await Assert.That(await miss).IsFalse();
+        _ = await Assert.That(expirationRead.Task.IsCompleted).IsTrue();
     }
 
     private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline)

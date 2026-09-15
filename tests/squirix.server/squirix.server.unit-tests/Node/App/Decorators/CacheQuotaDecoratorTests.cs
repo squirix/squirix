@@ -11,7 +11,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -22,27 +22,29 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Metrics decorator rethrows journal capacity from void and result operations.</summary>
-    [Fact]
-    public async Task MetricsDecoratorRethrowsQuotaFault()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MetricsDecoratorRethrowsQuotaFault(CancellationToken cancellationToken)
     {
         var inner = CreateThrowingInner();
         var cache = new MetricsCacheDecorator<string>(inner, new CacheMetrics(_testMeter));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
         _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
     }
 
     /// <summary>Tracing decorator rethrows journal capacity from void and result operations.</summary>
-    [Fact]
-    public async Task TracingDecoratorRethrowsQuotaFault()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TracingDecoratorRethrowsQuotaFault(CancellationToken cancellationToken)
     {
         var inner = CreateThrowingInner();
         var cache = new TracingCacheDecorator<string>(inner, "node-a");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
         _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
     }
 
     /// <inheritdoc />
@@ -53,16 +55,24 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
     private static ILogicalNamespacedCache<string> CreateThrowingInner()
     {
         var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = expectations.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
 #pragma warning disable CA2012 // Test double: Task-backed faulted ValueTask is awaited exactly once per test.
-        _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException(new JournalCapacityExceededException()));
+        _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException(new JournalCapacityExceededException()));
 #pragma warning restore CA2012
-        _ = expectations.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         return expectations.Instance();
     }
 }

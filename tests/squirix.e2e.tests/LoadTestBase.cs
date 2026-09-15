@@ -19,15 +19,16 @@ public abstract class LoadTestBase : EndToEndTestBase
     /// <param name="writers">Number of concurrent writer tasks.</param>
     /// <param name="writerBody">Per-writer body keyed by writer index.</param>
     /// <param name="budget">Maximum time allowed for all writers.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when all writers finish or the budget is exceeded.</returns>
-    protected static Task RunWritersAsync(int writers, Func<int, Task> writerBody, TimeSpan budget)
+    protected static Task RunWritersAsync(int writers, Func<int, Task> writerBody, TimeSpan budget, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(writerBody);
         var tasks = new Task[writers];
         for (var w = 0; w < writers; w++)
             tasks[w] = writerBody(w);
 
-        return Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
+        return Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, cancellationToken);
     }
 
     private protected static async Task<IReadOnlyList<ISquirixClient>> ConnectClientsAsync(HostedCluster cluster, int count, string nodeId, CancellationToken cancellationToken)
@@ -44,10 +45,11 @@ public abstract class LoadTestBase : EndToEndTestBase
     /// instead of consuming the scheduled job budget.
     /// </summary>
     /// <param name="profile">The active workload profile providing the budget.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A linked cancellation token source that cancels after the profile budget.</returns>
-    private protected static CancellationTokenSource CreateDeadline(LoadProfile profile)
+    private protected static CancellationTokenSource CreateDeadline(LoadProfile profile, CancellationToken cancellationToken)
     {
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(DefaultCancellationToken);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(profile.Budget);
         return cts;
     }

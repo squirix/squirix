@@ -1,7 +1,10 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.App.Decorators;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Core;
 
@@ -10,6 +13,6 @@ namespace Squirix.Server.UnitTests.Core;
 public sealed class TracingCacheDecoratorLifetimeTests
 {
     /// <summary>Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.</summary>
-    [Fact]
-    public void TracingDecoratorDeclaresNoDispose() => Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>)));
+    [Test]
+    public async Task TracingDecoratorDeclaresNoDispose() => _ = await Assert.That(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>))).IsFalse();
 }

@@ -1,13 +1,7 @@
-using System.Threading;
 using Squirix.Attributes;
-using Xunit;
 
 namespace Squirix.E2ETests;
 
-/// <summary>Base class for shared cluster xUnit class fixtures.</summary>
+/// <summary>Base class for shared cluster TUnit class data sources.</summary>
 [Immutable]
-public abstract class NodeFixtureBase
-{
-    /// <summary>Gets the default cancellation token.</summary>
-    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
-}
+public abstract class NodeFixtureBase;

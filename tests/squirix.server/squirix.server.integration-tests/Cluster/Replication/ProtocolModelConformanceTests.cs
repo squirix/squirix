@@ -1,14 +1,18 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -16,68 +20,65 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 {
     /// <summary>A production commit trace follows a path accepted by the protocol model.</summary>
-    [Fact]
-    public async Task ProductionCommitTraceMatchesModel()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProductionCommitTraceMatchesModel(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
 
-        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
-        Assert.Equal(
-        [
-            new ConformanceTestKit.TracePoint(1, 1, 0, 0),
-            new ConformanceTestKit.TracePoint(1, 1, 1, 0),
-            new ConformanceTestKit.TracePoint(1, 1, 1, 1),
-        ],
-        pipeline.Trace);
-        ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        await SequenceAssert.Equal(
+            [
+                new ConformanceTestKit.TracePoint(1, 1, 0, 0),
+                new ConformanceTestKit.TracePoint(1, 1, 1, 0),
+                new ConformanceTestKit.TracePoint(1, 1, 1, 1),
+            ],
+            pipeline.Trace);
+        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
     }
 
     /// <summary>Production election vote and commit trace follow the model safety path.</summary>
-    [Fact]
-    public async Task ProductionElectionTraceMatchesModel()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProductionElectionTraceMatchesModel(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-trace");
         await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"));
-        await log.OpenAsync(DefaultCancellationToken);
+        await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(
-            new FollowerLogAppendRequest(
-                "leader-1",
-                1UL,
-                0UL,
-                0UL,
-                0UL,
-                new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
-            DefaultCancellationToken);
+            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
+            cancellationToken);
 
-        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
-        Assert.True(granted.Granted);
+        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(granted.Granted).IsTrue();
 
-        var preVote = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
-        Assert.True(preVote.Granted);
+        var preVote = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(preVote.Granted).IsTrue();
 
         var eligible = FailoverActivationGate.CheckElection(3, true, true, true, granted.CurrentTerm, granted.CurrentTerm);
-        Assert.True(eligible.Eligible);
+        _ = await Assert.That(eligible.Eligible).IsTrue();
 
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
-        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-        ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
+        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
     }
 
     /// <summary>Production quorum-read gate and commit trace follow the model read path.</summary>
-    [Fact]
-    public async Task ProductionQuorumReadTraceMatchesModel()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProductionQuorumReadTraceMatchesModel(CancellationToken cancellationToken)
     {
         var allowed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
-        Assert.True(allowed.Allowed);
+        _ = await Assert.That(allowed.Allowed).IsTrue();
 
         // The barrier parks on the fake clock below the read index, then serves once applied.
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var applied = new StrongBox<ulong>(4);
-        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 9UL, time, TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
-        Assert.False(wait.IsCompleted);
+        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 9UL, time, TimeSpan.FromMilliseconds(10), cancellationToken);
+        _ = await Assert.That(wait.IsCompleted).IsFalse();
 
         applied.Value = 9UL;
         time.Advance(TimeSpan.FromMilliseconds(10));
@@ -85,8 +86,8 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
-        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-        ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
+        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
     }
 
     /// <summary>Production conformance pins the protocol model version it was verified against.</summary>
@@ -94,6 +95,6 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     /// Update the pinned hash only together with a model transition or invariant change;
     /// a silent drift between the verified model and production is a conformance failure.
     /// </remarks>
-    [Fact]
-    public void ProtocolVersionMatchesModelManifest() => Assert.Equal("f0e518fc4db3ce67", ExploreRunner.ModelVersionHash);
+    [Test]
+    public async Task ProtocolVersionMatchesModelManifest() => _ = await Assert.That(ExploreRunner.ModelVersionHash).IsEqualTo("f0e518fc4db3ce67");
 }

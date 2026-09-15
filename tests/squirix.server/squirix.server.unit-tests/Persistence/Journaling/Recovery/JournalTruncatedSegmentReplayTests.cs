@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -8,7 +9,9 @@ using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 
@@ -17,57 +20,63 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.</summary>
-    [Fact]
-    public async Task MalformedFrameLeavesSegmentFileIntact()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MalformedFrameLeavesSegmentFileIntact(CancellationToken cancellationToken)
     {
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
-        var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var original = await File.ReadAllBytesAsync(path, cancellationToken);
         var bytes = new byte[original.Length];
         original.CopyTo(bytes);
         bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
-        var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+        var mutatedBeforeRead = await File.ReadAllBytesAsync(path, cancellationToken);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
             Dir.Path,
-            static dataDirectory =>
+            cancellationToken,
+            static (dataDirectory, token) =>
             {
-                using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
+                using var records = JournalReadPath.ReadAll(dataDirectory, 1, token);
                 while (records.MoveNext())
                     _ = records.Current;
             });
-        Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
+        var pathBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        await SequenceAssert.Equal(mutatedBeforeRead, pathBytes);
     }
 
     /// <summary>CRC mismatch throws <see cref="InvalidDataException" /> to surface corruption.</summary>
-    [Fact]
-    public async Task ReadAllThrowsOnCrcMismatch()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadAllThrowsOnCrcMismatch(CancellationToken cancellationToken)
     {
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
-        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
             Dir.Path,
-            static dataDirectory =>
+            cancellationToken,
+            static (dataDirectory, token) =>
             {
-                using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
+                using var records = JournalReadPath.ReadAll(dataDirectory, 1, token);
                 while (records.MoveNext())
                     _ = records.Current;
             });
-        Assert.Contains("corruption", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(ex.Message).Contains("corruption", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>
-    [Fact]
-    public void TruncatedSecondCrcYieldsFirstOnly()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TruncatedSecondCrcYieldsFirstOnly(CancellationToken cancellationToken)
     {
         var first = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k1", "a");
         var second = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "k2", "b");
@@ -78,12 +87,12 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
             RandomAccess.SetLength(handle, RandomAccess.GetLength(handle) - 1);
 
         var list = new List<JournalRecord>(2);
-        using var records = JournalReadPath.ReadAll(Dir, 1, DefaultCancellationToken);
+        using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
             list.Add(records.Current);
 
-        _ = Assert.Single(list);
-        Assert.Equal(JournalOperationKind.Put, list[0].Operation);
-        Assert.Equal("k1", list[0].Key.Key);
+        _ = await Assert.That(list).HasSingleItem();
+        _ = await Assert.That(list[0].Operation).IsEqualTo(JournalOperationKind.Put);
+        _ = await Assert.That(list[0].Key.Key).IsEqualTo("k1");
     }
 }

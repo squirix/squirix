@@ -48,7 +48,7 @@ runs:
       if: runner.os != 'Windows'
       shell: bash
       run: |
-        # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
+        # Artifact download drops +x; TUnit launches the apphost and needs execute bits on Linux/macOS.
         chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
         chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
         chmod +x tests/squirix.e2e.tests/bin/Release/${{ inputs.framework }}/Squirix.E2ETests || true
@@ -81,35 +81,30 @@ runs:
             # Single-node e2e, excluding the scheduled/manual stress suite. Mirrors the prior
             # VSTest filter:
             #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
-            # Translated to the MTP query-filter language: each --filter-query is OR-ed; the
-            # segment match replaces the old FullyQualifiedName~ substring test, so the method
-            # filters use contains-style segments (*Client*/*Persistence*) to preserve legacy
-            # ~ substring membership.
-            # MTP cannot combine a name/query filter with a trait exclusion, so the Suite!=Stress
-            # exclusion is encoded via class-name negation (!*Stress*), keyed on the stress class
-            # naming convention (e.g. MixedMutationStressTests, which carries Trait("Suite","Stress")).
+            # Translated to the TUnit treenode-filter language (only --treenode-filter exists;
+            # --filter/--filter-query/--filter-class do not, and multiple flags AND together,
+            # so the whole suite must fit one expression). The legacy Client/Persistence
+            # substring matched 3 MultiNode-owned methods
+            # (ExternalClientMutationsOwnedByNodeB, ExternalClientCannotSpoofOwnerHeader,
+            # NodeAClientForwardsToOwnerOverMtls), all still covered by e2e-multi-node below;
+            # no legacy Persistence-only test exists outside Cache.SingleNode. Net delta: 72
+            # tests here instead of 75, with zero coverage loss across both suites.
             FILTER_ARGS=(
-              --filter-query "/*/*Cache.SingleNode*/!*Stress*/*"
-              --filter-query "/*/*/!*Stress*/*Client*"
-              --filter-query "/*/*/!*Stress*/*Persistence*"
+              --treenode-filter "/*/Squirix.E2ETests.Cache.SingleNode*/*/*"
             )
             ;;
           e2e-multi-node)
             PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
             # Multi-node e2e, excluding stress. Mirrors:
             #   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
-            # Same MTP translation; method filters use contains-style segments (*Security*) to
-            # preserve legacy ~ substring membership; class-name negation (!*Stress*) excludes
-            # the stress suite.
+            # plus the HA release classes below. Translated to one TUnit treenode-filter with
+            # class-name alternation (multiple flags AND together, so OR must live in a single
+            # segment). No legacy Security-only test exists outside these classes, and the
+            # stress class (MixedMutationStressTests, carrying Property("Suite","Stress")) is
+            # simply absent from the alternation. Selects the same 61 tests as before.
             # HA release classes (M8 replica sets) stay visible here alongside Cache.MultiNode.
             FILTER_ARGS=(
-              --filter-query "/*/*Cache.MultiNode*/!*Stress*/*"
-              --filter-query "/*/*/!*Stress*/*Security*"
-              --filter-query "/*/*ReplicaSetsReleaseE2ETests*/!*Stress*/*"
-              --filter-query "/*/*FailoverE2ETests*/!*Stress*/*"
-              --filter-query "/*/*ClusterPackageVersionE2ETests*/!*Stress*/*"
-              --filter-query "/*/*ReplicaBootstrapE2ETests*/!*Stress*/*"
-              --filter-query "/*/*TopologyActivationE2ETests*/!*Stress*/*"
+              --treenode-filter "/*/*/(CrossNodeCrudTests)|(CrossNodeExpirationTests)|(CrossNodeTypedValueTests)|(InterNodeMtlsTests)|(ReplicaSetsReleaseE2ETests)|(FailoverE2ETests)|(ClusterPackageVersionE2ETests)|(ReplicaBootstrapE2ETests)|(TopologyActivationE2ETests)/*"
             )
             ;;
           protocol-model)
@@ -125,17 +120,23 @@ runs:
           mkdir -p "coverage/${{ inputs.suite }}"
           dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \
-            --long-running 300 \
-            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
+            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
             --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
             --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
             --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
         else
           dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \
-            --long-running 300 \
-            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
+            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
             --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+        fi
+
+    - name: Fail On Empty Test Selection
+      shell: bash
+      run: |
+        if grep -q "Zero tests ran" "test-output-${{ inputs.suite }}.log"; then
+          echo "Suite '${{ inputs.suite }}' matched zero tests. Failing the build." >&2
+          exit 1
         fi
 
     - name: Verify Suite Coverage Was Collected

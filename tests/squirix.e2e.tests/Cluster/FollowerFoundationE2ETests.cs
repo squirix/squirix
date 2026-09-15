@@ -6,7 +6,9 @@ using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cluster;
 
@@ -14,44 +16,47 @@ namespace Squirix.E2ETests.Cluster;
 public sealed class FollowerFoundationE2ETests : EndToEndTestBase
 {
     /// <summary>Committed entries remain visible after a restart of the persistent node.</summary>
-    [Fact]
-    public async Task CommittedEntryRemainsVisibleAfterRestart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedEntryRemainsVisibleAfterRestart(CancellationToken cancellationToken)
     {
-        await using var node = await PersistentSingleNode.StartAsync(nameof(CommittedEntryRemainsVisibleAfterRestart), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<string>("committed-prefix", DefaultCancellationToken);
-        await cache.SetAsync("committed", "visible", cancellationToken: DefaultCancellationToken);
+        await using var node = await PersistentSingleNode.StartAsync(nameof(CommittedEntryRemainsVisibleAfterRestart), cancellationToken);
+        var cache = await node.GetCacheAsync<string>("committed-prefix", cancellationToken);
+        await cache.SetAsync("committed", "visible", cancellationToken: cancellationToken);
 
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<string>("committed-prefix", DefaultCancellationToken);
-        var result = await restartedCache.GetValueAsync("committed", DefaultCancellationToken);
+        await node.RestartAsync(cancellationToken);
+        var restartedCache = await node.GetCacheAsync<string>("committed-prefix", cancellationToken);
+        var result = await restartedCache.GetValueAsync("committed", cancellationToken);
 
-        Assert.True(result.Found, "The committed entry was not visible after the restart.");
-        Assert.Equal("visible", result.Value);
+        _ = await Assert.That(result.Found).IsTrue().Because("The committed entry was not visible after the restart.");
+        _ = await Assert.That(result.Value).IsEqualTo("visible");
     }
 
     /// <summary>A node restart restores committed cache entries and their journal tail records.</summary>
-    [Fact]
-    public async Task RestartRestoresEntriesAndTail()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRestoresEntriesAndTail(CancellationToken cancellationToken)
     {
-        await using var node = await PersistentSingleNode.StartAsync(nameof(RestartRestoresEntriesAndTail), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<string>("snapshot-journal", DefaultCancellationToken);
-        await cache.SetAsync("committed", "baseline", cancellationToken: DefaultCancellationToken);
-        await cache.SetAsync("tail", "journal", cancellationToken: DefaultCancellationToken);
+        await using var node = await PersistentSingleNode.StartAsync(nameof(RestartRestoresEntriesAndTail), cancellationToken);
+        var cache = await node.GetCacheAsync<string>("snapshot-journal", cancellationToken);
+        await cache.SetAsync("committed", "baseline", cancellationToken: cancellationToken);
+        await cache.SetAsync("tail", "journal", cancellationToken: cancellationToken);
 
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<string>("snapshot-journal", DefaultCancellationToken);
-        var committed = await restartedCache.GetValueAsync("committed", DefaultCancellationToken);
-        var tail = await restartedCache.GetValueAsync("tail", DefaultCancellationToken);
+        await node.RestartAsync(cancellationToken);
+        var restartedCache = await node.GetCacheAsync<string>("snapshot-journal", cancellationToken);
+        var committed = await restartedCache.GetValueAsync("committed", cancellationToken);
+        var tail = await restartedCache.GetValueAsync("tail", cancellationToken);
 
-        Assert.True(committed.Found, "The committed baseline was not restored after the restart.");
-        Assert.Equal("baseline", committed.Value);
-        Assert.True(tail.Found, "The journal tail was not restored after the restart.");
-        Assert.Equal("journal", tail.Value);
+        _ = await Assert.That(committed.Found).IsTrue().Because("The committed baseline was not restored after the restart.");
+        _ = await Assert.That(committed.Value).IsEqualTo("baseline");
+        _ = await Assert.That(tail.Found).IsTrue().Because("The journal tail was not restored after the restart.");
+        _ = await Assert.That(tail.Value).IsEqualTo("journal");
     }
 
     /// <summary>RF=2 starts when the closed follower foundation is available with prerequisites.</summary>
-    [Fact]
-    public async Task RfTwoStartsWithFoundation()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfTwoStartsWithFoundation(CancellationToken cancellationToken)
     {
         var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
         var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
@@ -63,9 +68,9 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
             [("nodeA", uriA), ("nodeB", uriB)],
             new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path },
             mtls,
-            DefaultCancellationToken);
+            cancellationToken);
 
-        Assert.True(host.HasInterNodeMtlsListener);
+        _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }
 
     /// <summary>Single persistent node that can be stopped and restarted on the same data directory.</summary>

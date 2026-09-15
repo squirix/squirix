@@ -11,7 +11,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -20,7 +22,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 public sealed class JournalBackendContractTests
 {
     /// <summary>Append and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
+    [Test]
     public async Task AppendPutReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
@@ -30,27 +32,12 @@ public sealed class JournalBackendContractTests
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.Put, last.Operation);
-        Assert.Equal(key.Key, last.Key.Key);
-    }
-
-    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
-    public async Task RemoveExpiryReplayRoundTripAsync()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "remove-exp-key");
-        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.RemoveExpiration, last.Operation);
-        Assert.Equal(key.Namespace, last.Key.Namespace);
-        Assert.Equal(key.Key, last.Key.Key);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.Put);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
     }
 
     /// <summary>Append remove and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
+    [Test]
     public async Task AppendRemoveReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
@@ -59,13 +46,28 @@ public sealed class JournalBackendContractTests
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.Remove, last.Operation);
-        Assert.Equal(key.Namespace, last.Key.Namespace);
-        Assert.Equal(key.Key, last.Key.Key);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.Remove);
+        _ = await Assert.That(last.Key.Namespace).IsEqualTo(key.Namespace);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
+    }
+
+    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
+    [Test]
+    public async Task RemoveExpiryReplayRoundTripAsync()
+    {
+        await using var context = await CreateCoordinatorAsync();
+        var key = new CacheKey("ns", "remove-exp-key");
+        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+
+        var last = await ReadLastRecordAsync(context);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.RemoveExpiration);
+        _ = await Assert.That(last.Key.Namespace).IsEqualTo(key.Namespace);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
     }
 
     /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
+    [Test]
     public async Task TouchExpiryReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
@@ -75,9 +77,9 @@ public sealed class JournalBackendContractTests
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.TouchExpiration, last.Operation);
-        Assert.Equal(key.Key, last.Key.Key);
-        Assert.Equal(expiresUtc, last.TouchExpirationUtc);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.TouchExpiration);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
+        _ = await Assert.That(last.TouchExpirationUtc).IsEqualTo(expiresUtc);
     }
 
     private static async Task<CoordinatorContext> CreateCoordinatorAsync()
@@ -99,8 +101,8 @@ public sealed class JournalBackendContractTests
         while (records.MoveNext())
             last = records.Current;
 
-        Assert.NotNull(last);
-        return last;
+        _ = await Assert.That(last).IsNotNull();
+        return last!;
     }
 
     [Immutable]

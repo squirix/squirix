@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
@@ -8,7 +9,9 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -19,8 +22,9 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
     /// Fills a 1 MiB journal cap until durable appends are rejected without crashing the node,
     /// and verifies readiness plus <c language="csharp">journalDisk</c> pressure details remain available.
     /// </summary>
-    [Fact]
-    public async Task WriteAtCapFailsReadyStaysHealthy()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteAtCapFailsReadyStaysHealthy(CancellationToken cancellationToken)
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(
@@ -33,35 +37,35 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
                     JournalMaxTotalBytesMb = 1,
                     JournalMaxSegmentMb = 1,
                 },
-            });
+            },
+            cancellationToken);
 
         var journal = node.Services.GetRequiredService<IJournalCoordinator>();
-        Assert.Equal(1024L * 1024L, journal.MaxBytes);
+        _ = await Assert.That(journal.MaxBytes).IsEqualTo(1024L * 1024L);
 
-        var rejection = await FillUntilJournalQuotaAsync(journal);
-        Assert.True(rejection is JournalCapacityExceededException);
+        var rejection = await FillUntilJournalQuotaAsync(journal, cancellationToken);
+        _ = await Assert.That(rejection is JournalCapacityExceededException).IsTrue();
 
-        using (var live = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken))
+        using (var live = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken))
             _ = live.EnsureSuccessStatusCode();
 
-        await AssertJournalDiskPressureAsync(uri);
+        await AssertJournalDiskPressureAsync(uri, cancellationToken);
 
         // Node remains usable for another capacity-miss after the first rejection (pipeline not failed).
         var cacheKey = new CacheKey(ServerCacheNames.DefaultNamespace, "quota:again");
         var second = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.AppendPutAndAwaitDurabilityAsync(cacheKey, new byte[200 * 1024], DefaultCancellationToken));
-        Assert.NotNull(second);
+            journal.AppendPutAndAwaitDurabilityAsync(cacheKey, new byte[200 * 1024], cancellationToken));
+        _ = await Assert.That(second).IsNotNull();
     }
 
-    private static async Task<Exception> FillUntilJournalQuotaAsync(IJournalCoordinator journal)
+    private static async Task<Exception> FillUntilJournalQuotaAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         var bytes = new byte[200 * 1024];
         for (var i = 0; i < 32; i++)
         {
             try
             {
-                await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
-                             .ConfigureAwait(false);
+                await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, cancellationToken).ConfigureAwait(false);
             }
             catch (JournalCapacityExceededException ex)
             {
@@ -77,14 +81,14 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         throw new InvalidOperationException("unreachable");
     }
 
-    private async Task AssertJournalDiskPressureAsync(Uri uri)
+    private async Task AssertJournalDiskPressureAsync(Uri uri, CancellationToken cancellationToken)
     {
-        var text = await HttpClient.GetStringAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
+        var text = await HttpClient.GetStringAsync(new Uri(uri, "/health/ready/details"), cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(text);
         var details = document.RootElement.Clone();
-        Assert.True(details.TryGetProperty("journalDisk", out var journalDisk));
+        _ = await Assert.That(details.TryGetProperty("journalDisk", out var journalDisk)).IsTrue();
         var state = journalDisk.GetProperty("state").GetString();
-        Assert.True(string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal));
-        Assert.True(journalDisk.GetProperty("usedBytes").GetInt64() >= journalDisk.GetProperty("highWaterBytes").GetInt64());
+        _ = await Assert.That(string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(journalDisk.GetProperty("usedBytes").GetInt64() >= journalDisk.GetProperty("highWaterBytes").GetInt64()).IsTrue();
     }
 }

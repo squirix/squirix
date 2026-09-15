@@ -4,7 +4,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 {
     /// <summary>Verifies that the gateway requires a client pool.</summary>
-    [Fact]
+    [Test]
     public void GatewayRequiresPool()
     {
         IServerClientPool? pool = null;

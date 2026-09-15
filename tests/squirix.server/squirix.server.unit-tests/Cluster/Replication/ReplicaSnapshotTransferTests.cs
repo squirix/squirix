@@ -1,10 +1,13 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -14,31 +17,9 @@ public sealed class ReplicaSnapshotTransferTests : ServerUnitTestBase
 {
     private const string GroupId = "transfer-group";
 
-    /// <summary>A payload above the configured bound fails validation instead of renting.</summary>
-    [Fact]
-    public void OversizedPayloadFailsValidation()
-    {
-        var snapshot = Snapshot();
-        var transfer = ReplicaSnapshotTransfer.Create(in snapshot);
-
-        Assert.True(transfer.IsValidFor(GroupId));
-        Assert.False(transfer.IsValidFor(GroupId, transfer.PayloadLength - 1));
-    }
-
-    /// <summary>Creating a transfer above the configured bound throws before renting.</summary>
-    [Fact]
-    public void OversizedPayloadRejectsCreation()
-    {
-        var snapshot = Snapshot();
-
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
-            (Snapshot: snapshot, MaxBytes: 100),
-            static state => _ = ReplicaSnapshotTransfer.Create(in state.Snapshot, state.MaxBytes));
-    }
-
     /// <summary>Later caller buffer mutations cannot alter the transfer checksum-protected content.</summary>
-    [Fact]
-    public void CreateDetachesPayloadBuffers()
+    [Test]
+    public async Task CreateDetachesPayloadBuffers()
     {
         var fingerprint = new byte[] { 1 };
         var outcome = new byte[] { 2 };
@@ -48,7 +29,29 @@ public sealed class ReplicaSnapshotTransferTests : ServerUnitTestBase
         fingerprint[0] = 9;
         outcome[0] = 9;
 
-        Assert.True(transfer.IsValidFor(GroupId));
+        _ = await Assert.That(transfer.IsValidFor(GroupId)).IsTrue();
+    }
+
+    /// <summary>A payload above the configured bound fails validation instead of renting.</summary>
+    [Test]
+    public async Task OversizedPayloadFailsValidation()
+    {
+        var snapshot = Snapshot();
+        var transfer = ReplicaSnapshotTransfer.Create(in snapshot);
+
+        _ = await Assert.That(transfer.IsValidFor(GroupId)).IsTrue();
+        _ = await Assert.That(transfer.IsValidFor(GroupId, transfer.PayloadLength - 1)).IsFalse();
+    }
+
+    /// <summary>Creating a transfer above the configured bound throws before renting.</summary>
+    [Test]
+    public void OversizedPayloadRejectsCreation()
+    {
+        var snapshot = Snapshot();
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            (Snapshot: snapshot, MaxBytes: 100),
+            static state => _ = ReplicaSnapshotTransfer.Create(in state.Snapshot, state.MaxBytes));
     }
 
     private static GroupSnapshot Snapshot() => Snapshot([4, 8, 15], [2]);

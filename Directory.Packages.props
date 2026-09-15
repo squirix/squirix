@@ -22,10 +22,7 @@
         <PackageVersion Include="NsDepCop" Version="3.1.0"/>
         <PackageVersion Include="squirix.analyzers" Version="0.1.8"/>
     </ItemGroup>
-    <!-- Library-specific analyzers (see Directory.Build.props / TestAnalyzers). -->
-    <ItemGroup Label="TestAnalyzers">
-        <PackageVersion Include="xunit.analyzers" Version="2.1.0"/>
-    </ItemGroup>
+    <!-- Library-specific analyzers (see Directory.Build.props / TestAnalyzers): none remain. -->
     <ItemGroup Label="Grpc">
         <PackageVersion Include="Google.Protobuf" Version="3.36.1"/>
         <PackageVersion Include="Grpc.AspNetCore" Version="2.83.0"/>
@@ -42,13 +39,10 @@
         <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0"/>
     </ItemGroup>
     <ItemGroup Label="Testing">
-        <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0"/>
-        <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2"/>
-        <PackageVersion Include="xunit.v3.aot" Version="4.0.1"/>
-        <PackageVersion Include="xunit.v3.assert.aot" Version="4.0.1"/>
-        <PackageVersion Include="xunit.v3.extensibility.core.aot" Version="4.0.1"/>
-        <PackageVersion Include="xunit.v3.common.aot" Version="4.0.1"/>
-        <PackageVersion Include="xunit.v3.core.aot.mtp-v2" Version="4.0.1"/>
+        <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
+        <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2" />
+        <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
+        <PackageVersion Include="TUnit" Version="1.67.0" />
     </ItemGroup>
     <ItemGroup Label="Benchmarks">
         <PackageVersion Include="BenchmarkDotNet" Version="0.15.8"/>

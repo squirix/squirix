@@ -1,11 +1,14 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
@@ -16,23 +19,25 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     private const string NodeId = "node-oidc-auth";
 
     /// <summary>Verifies startup fails when an OIDC authority is configured without an audience.</summary>
-    [Fact]
-    public async Task AuthorityWithoutAudienceFailsStartup()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AuthorityWithoutAudienceFailsStartup(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }));
-        Assert.Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", ex.Message, StringComparison.Ordinal);
+            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken));
+        _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies gRPC rejects expired bearer tokens from the mock authority.</summary>
-    [Fact]
-    public async Task GrpcExpiredOidcJwtIsRejected()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrpcExpiredOidcJwtIsRejected(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -40,54 +45,57 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
 
         var req = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" };
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(req, new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(req, new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
 
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     /// <summary>Verifies gRPC rejects malformed bearer tokens when OIDC JWT auth is enabled.</summary>
-    [Fact]
-    public async Task GrpcInvalidOidcJwtIsRejected()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrpcInvalidOidcJwtIsRejected(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken))
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" }, new CallOptions(headers, cancellationToken: cancellationToken))
                   .ResponseAsync);
 
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     /// <summary>Verifies gRPC rejects requests without credentials when OIDC JWT auth is enabled.</summary>
-    [Fact]
-    public async Task GrpcMissingOidcJwtIsRejected()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrpcMissingOidcJwtIsRejected(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: cancellationToken).ResponseAsync);
 
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     /// <summary>Verifies gRPC accepts a bearer token signed by the mock authority's JWKS.</summary>
-    [Fact]
-    public async Task GrpcValidOidcJwtSucceeds()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrpcValidOidcJwtSucceeds(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -95,27 +103,28 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 
         var response = await client.GetValueAsync(
             new GetValueAsyncRequest { CacheName = "default", Key = "oidc-jwt-ok" },
-            new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+            new CallOptions(headers, cancellationToken: cancellationToken));
 
-        Assert.False(response.Found);
+        _ = await Assert.That(response.Found).IsFalse();
     }
 
     /// <summary>Verifies gRPC rejects bearer tokens with an unexpected audience claim.</summary>
-    [Fact]
-    public async Task GrpcWrongAudienceOidcJwtIsRejected()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrpcWrongAudienceOidcJwtIsRejected(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken("wrong-audience")}" } };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken))
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" }, new CallOptions(headers, cancellationToken: cancellationToken))
                   .ResponseAsync);
 
-        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 }

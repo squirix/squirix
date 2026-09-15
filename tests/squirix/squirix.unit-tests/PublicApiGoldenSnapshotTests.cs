@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
@@ -18,16 +21,17 @@ namespace Squirix.UnitTests;
 public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
-    [Fact]
-    public async Task SnapshotMatchesMainAssemblyExportsAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotMatchesMainAssemblyExportsAsync(CancellationToken cancellationToken)
     {
         // Compare the live exported-type identity set against the committed golden file.
         var assemblyPath = PathKit.Combine(AppContext.BaseDirectory, "Squirix.dll");
         var actual = ExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixPublicTypes.golden.txt");
-        Assert.True(File.Exists(path));
+        _ = await Assert.That(File.Exists(path)).IsTrue();
 
-        var expected = await LoadIdentityLinesAsync(path);
+        var expected = await LoadIdentityLinesAsync(path, cancellationToken);
         if (actual.SetEquals(expected))
             return;
 
@@ -70,10 +74,13 @@ public sealed class PublicApiGoldenSnapshotTests : UnitTestBase
         return sb.ToString();
     }
 
-    private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)
+    /// <summary>Loads the golden identity lines from the snapshot file.</summary>
+    /// <param name="path">The golden snapshot file path.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path, CancellationToken cancellationToken)
     {
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];

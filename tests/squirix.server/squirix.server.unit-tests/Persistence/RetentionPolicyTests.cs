@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -7,7 +8,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -15,8 +18,9 @@ namespace Squirix.Server.UnitTests.Persistence;
 public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
-    [Fact]
-    public async Task WritesPruneSegmentsBeforeReplayPoint()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WritesPruneSegmentsBeforeReplayPoint(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new Ledger(options);
@@ -39,25 +43,23 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
                     ReplayFromJournalSegment = 3,
                 },
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
 
         // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
         // tests use under parallel CI load.
-        await staleJournalPaths.WaitUntilAsync(
-            static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
-            TimeSpan.FromSeconds(30),
-            DefaultCancellationToken);
+        await staleJournalPaths.WaitUntilAsync(static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), TimeSpan.FromSeconds(30), cancellationToken);
 
-        Assert.False(FileKit.Exists(JournalPath(1)));
-        Assert.False(FileKit.Exists(JournalPath(2)));
-        Assert.True(FileKit.Exists(JournalPath(3)));
+        _ = await Assert.That(FileKit.Exists(JournalPath(1))).IsFalse();
+        _ = await Assert.That(FileKit.Exists(JournalPath(2))).IsFalse();
+        _ = await Assert.That(FileKit.Exists(JournalPath(3))).IsTrue();
     }
 
     /// <summary>Verifies only the newest configured snapshot files are kept after manifest persistence.</summary>
-    [Fact]
-    public async Task WritesPruneSnapshotsPastRetention()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WritesPruneSnapshotsPastRetention(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -82,17 +84,17 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
                     ReplayFromJournalSegment = 3,
                 },
             },
-            DefaultCancellationToken);
+            cancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
 
         // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
         // tests use under parallel CI load.
-        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), DefaultCancellationToken);
+        await staleSnapshotPath.WaitUntilAsync(static path => !FileKit.Exists(path), TimeSpan.FromSeconds(30), cancellationToken);
 
-        Assert.False(FileKit.Exists(SnapshotPath(1)));
-        Assert.True(FileKit.Exists(SnapshotPath(2)));
-        Assert.True(FileKit.Exists(SnapshotPath(3)));
+        _ = await Assert.That(FileKit.Exists(SnapshotPath(1))).IsFalse();
+        _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();
+        _ = await Assert.That(FileKit.Exists(SnapshotPath(3))).IsTrue();
     }
 
     private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{NodeInvariantIndexStrings.Format(index)}");

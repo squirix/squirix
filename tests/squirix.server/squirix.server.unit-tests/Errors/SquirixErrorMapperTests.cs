@@ -1,9 +1,12 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Errors;
 
@@ -12,36 +15,36 @@ namespace Squirix.Server.UnitTests.Errors;
 public sealed class SquirixErrorMapperTests : ServerUnitTestBase
 {
     /// <summary>Maps each known code to its stable public token and gRPC status.</summary>
-    [Fact]
-    public void MapsEveryKnownErrorCode()
+    [Test]
+    public async Task MapsEveryKnownErrorCode()
     {
-        AssertMapping(SquirixErrorCode.None, "INTERNAL_ERROR", StatusCode.Internal);
-        AssertMapping(SquirixErrorCode.InvalidCacheKey, "INVALID_CACHE_KEY", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.PayloadTooLarge, "PAYLOAD_TOO_LARGE", StatusCode.ResourceExhausted);
-        AssertMapping(SquirixErrorCode.TooManyRequests, "TOO_MANY_REQUESTS", StatusCode.ResourceExhausted);
-        AssertMapping(SquirixErrorCode.MemoryPressure, "MEMORY_PRESSURE", StatusCode.ResourceExhausted);
-        AssertMapping(SquirixErrorCode.JournalDiskQuota, "JOURNAL_DISK_QUOTA", StatusCode.ResourceExhausted);
-        AssertMapping(SquirixErrorCode.OperationIdRequired, "OPERATION_ID_REQUIRED", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.OperationIdInvalidFormat, "OPERATION_ID_INVALID_FORMAT", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.OperationIdTooLong, "OPERATION_ID_TOO_LONG", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.OperationIdReuseMismatch, "OPERATION_ID_REUSE_MISMATCH", StatusCode.FailedPrecondition);
-        AssertMapping(SquirixErrorCode.InvalidEntryTags, "INVALID_ENTRY_TAGS", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.CommitOutcomeUnknown, "COMMIT_OUTCOME_UNKNOWN", StatusCode.Unavailable);
+        await AssertMapping(SquirixErrorCode.None, "INTERNAL_ERROR", StatusCode.Internal);
+        await AssertMapping(SquirixErrorCode.InvalidCacheKey, "INVALID_CACHE_KEY", StatusCode.InvalidArgument);
+        await AssertMapping(SquirixErrorCode.PayloadTooLarge, "PAYLOAD_TOO_LARGE", StatusCode.ResourceExhausted);
+        await AssertMapping(SquirixErrorCode.TooManyRequests, "TOO_MANY_REQUESTS", StatusCode.ResourceExhausted);
+        await AssertMapping(SquirixErrorCode.MemoryPressure, "MEMORY_PRESSURE", StatusCode.ResourceExhausted);
+        await AssertMapping(SquirixErrorCode.JournalDiskQuota, "JOURNAL_DISK_QUOTA", StatusCode.ResourceExhausted);
+        await AssertMapping(SquirixErrorCode.OperationIdRequired, "OPERATION_ID_REQUIRED", StatusCode.InvalidArgument);
+        await AssertMapping(SquirixErrorCode.OperationIdInvalidFormat, "OPERATION_ID_INVALID_FORMAT", StatusCode.InvalidArgument);
+        await AssertMapping(SquirixErrorCode.OperationIdTooLong, "OPERATION_ID_TOO_LONG", StatusCode.InvalidArgument);
+        await AssertMapping(SquirixErrorCode.OperationIdReuseMismatch, "OPERATION_ID_REUSE_MISMATCH", StatusCode.FailedPrecondition);
+        await AssertMapping(SquirixErrorCode.InvalidEntryTags, "INVALID_ENTRY_TAGS", StatusCode.InvalidArgument);
+        await AssertMapping(SquirixErrorCode.CommitOutcomeUnknown, "COMMIT_OUTCOME_UNKNOWN", StatusCode.Unavailable);
     }
 
     /// <summary>Unknown codes fall back to internal error projections.</summary>
-    [Fact]
-    public void MapsUnknownCodeToInternalFallback()
+    [Test]
+    public async Task MapsUnknownCodeToInternalFallback()
     {
         var raw = 999;
         var unknown = Unsafe.As<int, SquirixErrorCode>(ref raw);
-        Assert.Equal("INTERNAL_ERROR", SquirixErrorMapper.ToPublicCode(unknown));
-        Assert.Equal(StatusCode.Internal, SquirixErrorMapper.ToGrpcStatusCode(unknown));
+        _ = await Assert.That(SquirixErrorMapper.ToPublicCode(unknown)).IsEqualTo("INTERNAL_ERROR");
+        _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(unknown)).IsEqualTo(StatusCode.Internal);
     }
 
-    private static void AssertMapping(SquirixErrorCode code, string publicCode, StatusCode grpcStatus)
+    private static async Task AssertMapping(SquirixErrorCode code, string publicCode, StatusCode grpcStatus)
     {
-        Assert.Equal(publicCode, SquirixErrorMapper.ToPublicCode(code));
-        Assert.Equal(grpcStatus, SquirixErrorMapper.ToGrpcStatusCode(code));
+        _ = await Assert.That(SquirixErrorMapper.ToPublicCode(code)).IsEqualTo(publicCode);
+        _ = await Assert.That(SquirixErrorMapper.ToGrpcStatusCode(code)).IsEqualTo(grpcStatus);
     }
 }

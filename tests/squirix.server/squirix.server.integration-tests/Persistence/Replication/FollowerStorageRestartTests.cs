@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.IntegrationTests.Support;
@@ -8,7 +9,9 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
@@ -19,84 +22,88 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
     private const string GroupId = "grp-1";
 
     /// <summary>A committed entry survives a process restart.</summary>
-    [Fact]
-    public async Task CommittedEntrySurvivesProcessRestart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedEntrySurvivesProcessRestart(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-committed");
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        Assert.Equal(FollowerLogReadiness.Ready, reopened.Readiness);
-        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("a");
     }
 
     /// <summary>Corruption in the committed prefix fails readiness on restart.</summary>
-    [Fact]
-    public async Task CommittedPrefixCorruptionFailsReadiness()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommittedPrefixCorruptionFailsReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-corruption");
         var logPath = GroupStoragePaths.GetLogPath(dir, GroupId);
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, DefaultCancellationToken);
+        await FollowerLogTestKit.CorruptByteAsync(logPath, 8, cancellationToken);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(DefaultCancellationToken));
-        Assert.Contains("committed log frame", ex.Message, StringComparison.Ordinal);
-        Assert.Equal(FollowerLogReadiness.Failed, reopened.Readiness);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        _ = await Assert.That(ex.Message).Contains("committed log frame", StringComparison.Ordinal);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
     /// <summary>A crash during commit advance recovers deterministically to the advanced commit index.</summary>
-    [Fact]
-    public async Task CrashMidCommitAdvanceRecoversCleanly()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CrashMidCommitAdvanceRecoversCleanly(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-crash-commit");
         var crashFaults = new CommitAdvanceFaults();
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AdvanceCommitAsync(1UL, DefaultCancellationToken));
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AdvanceCommitAsync(1UL, cancellationToken));
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        Assert.Equal(1UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).CommitIndex);
-        Assert.Equal("a", FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken)));
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(1UL);
+        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("a");
     }
 
     /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
-    [Fact]
-    public async Task UncommittedEntryInvisibleAfterRestart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UncommittedEntryInvisibleAfterRestart(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-uncommitted");
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, DefaultCancellationToken);
+            await log.OpenAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        _ = Assert.Single(await reopened.GetCommittedEntriesAsync(DefaultCancellationToken));
-        Assert.Equal(2UL, (await reopened.GetStatusAsync(DefaultCancellationToken)).LastLogIndex);
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).HasSingleItem();
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(

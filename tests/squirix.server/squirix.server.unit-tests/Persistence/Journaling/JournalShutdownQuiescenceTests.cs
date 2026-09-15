@@ -13,7 +13,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -27,8 +29,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 {
     /// <summary>Appends issued after disposal fail explicitly instead of hanging or vanishing.</summary>
-    [Fact]
-    public async Task AppendAfterDisposeThrowsObjectDisposed()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendAfterDisposeThrowsObjectDisposed(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -39,21 +42,22 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
+        await journal.WaitForStartupAsync(cancellationToken);
 
         // ReSharper disable once DisposeOnUsingVariable
         await journal.DisposeAsync();
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(journal.AppendPutAsync(CacheKey.Default("late"), payload, DefaultCancellationToken));
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(journal, static j => _ = j.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(journal.AppendPutAsync(CacheKey.Default("late"), payload, cancellationToken));
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 
     /// <summary>Canceling a flush before its checkpoint enters the ring must not leak the ack into the registry.</summary>
-    [Fact]
-    public async Task CanceledFlushLeavesRegistryEmpty()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledFlushLeavesRegistryEmpty(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -65,21 +69,22 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+        await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token));
 
-        Assert.Empty(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator))));
+        _ = await Assert.That(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)))).IsEmpty();
     }
 
-    /// <summary>A marker wait with no budget left aborts disposal loudly instead of hanging.</summary>
-    [Fact]
-    public async Task MarkerTimeoutAbortsDisposalLoudly()
+    /// <summary>A join with no budget left records the timeout instead of hanging disposal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JoinTimeoutRecordsFailure(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -90,73 +95,77 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         };
 
         using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+        await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
+
+        var failures = new List<Exception>();
+        await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
+
+        var failure = await Assert.That(failures).HasSingleItem();
+        _ = await Assert.That(failure).IsTypeOf<TimeoutException>();
+    }
+
+    /// <summary>A zero-budget join attempt reports the live thread without waiting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JoinTimeoutReturnsFalse(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
+
+        _ = await Assert.That(await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(TimeSpan.Zero)).IsFalse();
+    }
+
+    /// <summary>A marker wait with no budget left aborts disposal loudly instead of hanging.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MarkerTimeoutAbortsDisposalLoudly(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+        };
+
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
         var failures = new List<Exception>();
         _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(coordinator.DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, cts.Token));
 
-        var failure = Assert.Single(failures);
-        _ = Assert.IsType<TimeoutException>(failure);
-    }
-
-    /// <summary>A join with no budget left records the timeout instead of hanging disposal.</summary>
-    [Fact]
-    public async Task JoinTimeoutRecordsFailure()
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
-        };
-
-        using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
-
-        var failures = new List<Exception>();
-        await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
-
-        var failure = Assert.Single(failures);
-        _ = Assert.IsType<TimeoutException>(failure);
-    }
-
-    /// <summary>A zero-budget join attempt reports the live thread without waiting.</summary>
-    [Fact]
-    public async Task JoinTimeoutReturnsFalse()
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
-        };
-
-        using var manifestStore = new Ledger(options);
-        var state = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
-
-        Assert.False(await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(TimeSpan.Zero));
+        var failure = await Assert.That(failures).HasSingleItem();
+        _ = await Assert.That(failure).IsTypeOf<TimeoutException>();
     }
 
     /// <summary>Appends racing disposal on the group-commit path settle explicitly without loss.</summary>
-    [Fact]
-    public Task ShutdownRaceSettlesAppendsGroupCommit() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.FromMilliseconds(2), DefaultCancellationToken);
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task ShutdownRaceSettlesAppendsGroupCommit(CancellationToken cancellationToken) => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.FromMilliseconds(2), cancellationToken);
 
     /// <summary>Appends racing disposal on the strict fsync path settle explicitly without loss.</summary>
-    [Fact]
-    public Task ShutdownRaceSettlesAppendsStrict() => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.Zero, DefaultCancellationToken);
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public Task ShutdownRaceSettlesAppendsStrict(CancellationToken cancellationToken) => RaceAppendsAgainstShutdownAsync(Dir, TimeSpan.Zero, cancellationToken);
 
     private static async Task AppendLoopAsync(IJournalCoordinator journal, byte[] payload, int writer, int ops, HashSet<string> successes, Lock gate)
     {
@@ -222,7 +231,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         // guard, so this test does exercise the overlap it asserts.
         await journal.WaitUntilAsync(static j => j.AppendedOps > 0, TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
 
-        Assert.True(journal.AppendedOps > 0);
+        _ = await Assert.That(journal.AppendedOps > 0).IsTrue();
 
         // ReSharper disable once DisposeOnUsingVariable
         await journal.DisposeAsync();
@@ -239,12 +248,12 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         }
 
         foreach (var key in successes)
-            Assert.True(found.Contains(key), $"acknowledged append '{key}' is missing from the journal.");
+            _ = await Assert.That(found.Contains(key)).IsTrue().Because($"acknowledged append '{key}' is missing from the journal.");
 
         // Self-check, not luck: polling above guarantees at least one admitted append, and an
         // admitted append always completes (or trips the hang guard), so zero successes would mean
         // the shutdown overlap never happened rather than a passing test.
-        Assert.True(successes.Count > 0, "the race admitted no appends; the shutdown overlap was not exercised.");
+        _ = await Assert.That(successes.Count > 0).IsTrue().Because("the race admitted no appends; the shutdown overlap was not exercised.");
     }
 
     private static Task StartAppendTrafficAsync(IJournalCoordinator journal, byte[] payload, int writers, int opsPerWriter, HashSet<string> successes, Lock gate)

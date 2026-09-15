@@ -15,7 +15,9 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -24,20 +26,21 @@ namespace Squirix.Server.UnitTests.Hosting;
 public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 {
     /// <summary>Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.</summary>
-    [Fact]
-    public async Task OutboundMtlsHandshakesInternalListener()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OutboundMtlsHandshakesInternalListener(CancellationToken cancellationToken)
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
-        await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", DefaultCancellationToken);
+        await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", cancellationToken);
 
         using var tcpClient = new TcpClient();
-        await tcpClient.ConnectAsync("127.0.0.1", internalPort, DefaultCancellationToken);
+        await tcpClient.ConnectAsync("127.0.0.1", internalPort, cancellationToken);
         await using var sslStream = new SslStream(tcpClient.GetStream(), false);
-        await host.AuthenticateClientAsync(sslStream, DefaultCancellationToken);
+        await host.AuthenticateClientAsync(sslStream, cancellationToken);
 
-        Assert.True(sslStream.IsAuthenticated);
-        Assert.NotNull(sslStream.RemoteCertificate);
+        _ = await Assert.That(sslStream.IsAuthenticated).IsTrue();
+        _ = await Assert.That(sslStream.RemoteCertificate).IsNotNull();
     }
 
     private sealed class MtlsInternalListenerHost : IAsyncDisposable

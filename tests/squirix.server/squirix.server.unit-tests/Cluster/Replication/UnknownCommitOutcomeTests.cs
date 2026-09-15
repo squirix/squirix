@@ -7,7 +7,9 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -16,41 +18,44 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
 {
     /// <summary>A duplicate that joins after local durability shares the original append boundary.</summary>
-    [Fact]
-    public async Task DuplicateRetryKeepsAppendBoundary()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DuplicateRetryKeepsAppendBoundary(CancellationToken cancellationToken)
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(blockFollowers: true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
         var mutation = ReplicaCommitTestKit.CreateMutation();
-        var first = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), DefaultCancellationToken);
-        await pipeline.LocalAppended.WaitAsync(DefaultCancellationToken);
-        var duplicate = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), DefaultCancellationToken);
+        var first = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
+        await pipeline.LocalAppended.WaitAsync(cancellationToken);
+        var duplicate = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
 
         pipeline.FailBlockedFollowers();
 
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
         var duplicateError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(duplicate);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, duplicateError.Message, StringComparison.Ordinal);
-        Assert.Equal(1, pipeline.LocalAppendCount);
+        _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(duplicateError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
     }
 
     /// <summary>A follower failure after local durability returns the stable ambiguous result.</summary>
-    [Fact(DisplayName = "FailureAfterLocalAppendReturnsCommitUnknown")]
-    public async Task FailureAfterAppendIsCommitUnknown()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailureAfterAppendIsCommitUnknown(CancellationToken cancellationToken)
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        var operation = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(1), DefaultCancellationToken);
+        var operation = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken);
 
         var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
-        Assert.Equal(1, pipeline.LocalAppendCount);
+        _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
     }
 
     /// <summary>A definite local-append failure leaves the same index available to a later operation.</summary>
-    [Fact]
-    public async Task PreAppendFailureAllowsSameIndexRetry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreAppendFailureAllowsSameIndexRetry(CancellationToken cancellationToken)
     {
         var pipeline = new RetryLocalPipeline();
         var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
@@ -63,13 +68,13 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
             new GroupIdempotencyState(16, TimeSpan.MaxValue));
         try
         {
-            var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
 
-            var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
 
-            Assert.Equal([7], outcome.ToArray());
-            Assert.Equal(2, pipeline.LocalAppendCount);
+            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(2);
         }
         finally
         {
@@ -78,18 +83,18 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     }
 
     /// <summary>A definite pre-append failure can release its unresolved reservation.</summary>
-    [Fact]
-    public void PreAppendFailureReleasesReservation()
+    [Test]
+    public async Task PreAppendFailureReleasesReservation()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
-        Assert.True(state.TryReleaseUnresolved("client", "op-a", 1, 1));
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1));
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>The stable internal ambiguity code is available after local append.</summary>
-    [Fact]
-    public void UnknownOutcomeUsesStableCode() => Assert.Equal("COMMIT_OUTCOME_UNKNOWN", ReplicaCommitCoordinator.CommitOutcomeUnknownCode);
+    [Test]
+    public async Task UnknownOutcomeUsesStableCode() => _ = await Assert.That(ReplicaCommitCoordinator.CommitOutcomeUnknownCode).IsEqualTo("COMMIT_OUTCOME_UNKNOWN");
 
     private static PreparedReplicaMutation CreateMutation(string operationId) => new(
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1 }),

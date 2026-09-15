@@ -21,7 +21,9 @@ using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -32,18 +34,15 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
-    [Fact]
-    public async Task ShutdownClearsSnapshotCompactionFlight()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownClearsSnapshotCompactionFlight(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var store = new Ledger(persistence);
-        await using var journal = JournalCoordinatorFactory.Create(
-            persistence,
-            await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            store,
-            new AsyncManualResetEvent(true));
-        await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await using var journal = JournalCoordinatorFactory.Create(persistence, await store.ReadCurrentOrDefaultAsync(cancellationToken), store, new AsyncManualResetEvent(true));
+        await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
         var maintenance = new BlockingMaintenanceExecutor();
@@ -65,14 +64,14 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
             new JournalCompactionDependencies(snapshots, maintenance, store, StoreFactory.CreateReader(persistence), persistence, cluster),
             new CompactionMetrics(_testMeter));
 
-        await compaction.StartAsync(DefaultCancellationToken);
-        await snapshots.SnapshotAsync(journal, DefaultCancellationToken);
-        await maintenance.Entered.WaitAsync(DefaultCancellationToken);
-        Assert.True(compaction.IsInFlight);
+        await compaction.StartAsync(cancellationToken);
+        await snapshots.SnapshotAsync(journal, cancellationToken);
+        await maintenance.Entered.WaitAsync(cancellationToken);
+        _ = await Assert.That(compaction.IsInFlight).IsTrue();
 
-        await compaction.StopAsync(DefaultCancellationToken);
+        await compaction.StopAsync(cancellationToken);
 
-        Assert.False(compaction.IsInFlight);
+        _ = await Assert.That(compaction.IsInFlight).IsFalse();
     }
 
     /// <inheritdoc />

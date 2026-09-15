@@ -9,7 +9,9 @@ using Squirix.E2ETests.Fixtures.TypedValues;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
@@ -18,50 +20,53 @@ namespace Squirix.E2ETests;
 public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
     /// <summary>Verifies RestartRestoresCustomRecordFromJournal.</summary>
-    [Fact]
-    public async Task RestartRestoresCustomRecordFromJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRestoresCustomRecordFromJournal(CancellationToken cancellationToken)
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresCustomRecordFromJournal), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresCustomRecordFromJournal), cancellationToken);
+        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken);
         var expected = TypedValueFactory.CreateProfile("journal-record");
-        await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
-        var result = await restartedCache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.True(result.Found);
-        TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
+        await node.RestartAsync(cancellationToken);
+        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken);
+        var result = await restartedCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartRestoresMutableClassFromJournal.</summary>
-    [Fact]
-    public async Task RestartRestoresMutableClassFromJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRestoresMutableClassFromJournal(CancellationToken cancellationToken)
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresMutableClassFromJournal), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresMutableClassFromJournal), cancellationToken);
+        var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken);
         var expected = TypedValueFactory.CreateCart("journal-cart");
-        await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
-        var result = await restartedCache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.True(result.Found);
-        TypedValueAssertions.AssertCartEquals(expected, result.Value!);
+        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
+        await node.RestartAsync(cancellationToken);
+        var restartedCache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken);
+        var result = await restartedCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        await TypedValueAssertions.AssertCartEquals(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartSkipsExpiredCustomRecord.</summary>
-    [Fact]
-    public async Task RestartSkipsExpiredCustomRecord()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartSkipsExpiredCustomRecord(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartSkipsExpiredCustomRecord), clock, DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
-        await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), Expiry.In(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartSkipsExpiredCustomRecord), clock, cancellationToken);
+        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", cancellationToken);
+        await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
 
         // Advance the fake node clock past the TTL so the in-memory entry is deterministically expired before restart.
         clock.Advance(TimeSpan.FromMilliseconds(1800));
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
-        Assert.False((await restartedCache.GetValueAsync("k", DefaultCancellationToken)).Found);
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+        await node.RestartAsync(cancellationToken);
+        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", cancellationToken);
+        _ = await Assert.That((await restartedCache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
     private sealed class RestartableSingleNode : IAsyncDisposable

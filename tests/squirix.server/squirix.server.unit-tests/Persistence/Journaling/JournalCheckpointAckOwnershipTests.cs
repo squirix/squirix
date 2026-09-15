@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
@@ -7,7 +8,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -21,8 +24,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
 {
     /// <summary>A foreign checkpoint flush completes only its own ack and leaves earlier registered acks pending.</summary>
-    [Fact]
-    public async Task ForeignFlushLeavesAckPending()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForeignFlushLeavesAckPending(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -35,27 +39,27 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         using var manifestStore = new Ledger(options);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
-        var coordinator = Assert.IsType<JournalCoordinator>(journal);
+        await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var registered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         coordinator.DurabilityAcks.Add(registered);
 
         // A later caller registers and enqueues its own checkpoint; processing it must not touch
         // the ack registered above.
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        Assert.False(registered.Task.IsCompleted);
+        _ = await Assert.That(registered.Task.IsCompleted).IsFalse();
 
         _ = coordinator.DurabilityAcks.Remove(registered);
     }
 
     /// <summary>Ensures a failure drain closes the registry: pending acks drain once, late registrations fail with the recorded reason.</summary>
-    [Fact]
-    public void TakeAllClosesRegistryForAdds()
+    [Test]
+    public async Task TakeAllClosesRegistryForAdds()
     {
         var registry = new DurabilityAckRegistry();
         var reason = new ObjectDisposedException(nameof(JournalCoordinator));
@@ -64,11 +68,12 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         registry.Add(pending);
 
         var drained = registry.TakeAll(reason);
-        Assert.Same(pending, Assert.Single(drained));
+        var singleAck = await Assert.That(drained).HasSingleItem();
+        _ = await Assert.That(singleAck).IsSameReferenceAs(pending);
 
         var thrown = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
             registry,
             static r => r.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)));
-        Assert.Same(reason, thrown);
+        _ = await Assert.That(thrown).IsSameReferenceAs(reason);
     }
 }

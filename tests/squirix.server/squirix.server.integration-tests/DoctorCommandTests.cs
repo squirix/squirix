@@ -9,36 +9,38 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>Verifies the standalone server host doctor command reports replica diagnostics.</summary>
 public sealed class DoctorCommandTests : NodeIntegrationTestBase
 {
-    /// <summary>Verifies doctor reports inactive replication when persistence is disabled.</summary>
-    [Fact]
-    public async Task DoctorReportsInactiveReplication()
+    /// <summary>Verifies doctor honors the replication opt-in passed on the command line.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorHonorsReplicationOptInFlag(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-doctor-cmd-inactive");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 1, DefaultCancellationToken);
+        using var dir = new TempDirectory("squirix-doctor-cmd-optin");
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken, false);
 
-        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, false, DefaultCancellationToken);
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("[Squirix.Server] Doctor", output, StringComparison.Ordinal);
-        Assert.Contains("Replication: not activated (persistence disabled)", output, StringComparison.Ordinal);
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken, true);
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("[Squirix.Server] Doctor", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies doctor reports a stamped fingerprint disagreeing with settings.</summary>
-    [Fact]
-    public async Task DoctorReportsFingerprintMismatch()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsFingerprintMismatch(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-mismatch");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken);
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken);
         var dataDir = Path.Join(dir.Path, "data");
         _ = Directory.CreateDirectory(dataDir);
-        var options = await Configurator.LoadAsync(settingsPath, DefaultCancellationToken);
+        var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
         var expectedHex = expected.ToString();
         var wrong = new byte[expected.Bytes.Length];
@@ -46,79 +48,85 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         wrong[0] ^= 0xFF;
         await new ActivatedTopologyStampStore(dataDir).PublishAsync(
             new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(wrong), ReplicaCount = 2 },
-            DefaultCancellationToken);
+            cancellationToken);
 
-        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, DefaultCancellationToken);
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains("topology stamp: fingerprint MISMATCH", output, StringComparison.Ordinal);
-        Assert.Contains(Convert.ToHexString(wrong), output, StringComparison.Ordinal);
-        Assert.Contains(expectedHex, output, StringComparison.Ordinal);
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("topology stamp: fingerprint MISMATCH", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(Convert.ToHexString(wrong), StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains(expectedHex, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies doctor reports durable group term, commit, and apply lag.</summary>
-    [Fact]
-    public async Task DoctorReportsGroupCommitLag()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsGroupCommitLag(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-lag");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken);
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken);
         var dataDir = Path.Join(dir.Path, "data");
         _ = Directory.CreateDirectory(dataDir);
-        var options = await Configurator.LoadAsync(settingsPath, DefaultCancellationToken);
+        var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
         var expectedBytes = new byte[expected.Bytes.Length];
         expected.Bytes.CopyTo(expectedBytes);
         await new ActivatedTopologyStampStore(dataDir).PublishAsync(
             new ActivatedTopologyStamp { Generation = 5, Fingerprint = new ReadOnlyMemory<byte>(expectedBytes), ReplicaCount = 2 },
-            DefaultCancellationToken);
+            cancellationToken);
         var meta = new GroupLogMetadata("n1", new ReadOnlyMemory<byte>(expectedBytes), 5, 9, string.Empty, 12, 10, 7);
         var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(meta)];
         GroupLogCodec.EncodeMeta(meta, buffer);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dataDir, "n1"));
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dataDir, "n1"), buffer, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dataDir, "n1"), buffer, cancellationToken);
 
-        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, DefaultCancellationToken);
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken);
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", output, StringComparison.Ordinal);
-        Assert.Contains("fingerprint match", output, StringComparison.Ordinal);
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("fingerprint match", StringComparison.Ordinal);
     }
 
-    /// <summary>Verifies run refuses RF&gt;1 without the opt-in.</summary>
-    [Fact]
-    public async Task RunRefusesWithoutOptIn()
+    /// <summary>Verifies doctor reports inactive replication when persistence is disabled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DoctorReportsInactiveReplication(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-run-nooptin");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken, false);
-        _ = Directory.CreateDirectory(Path.Join(dir.Path, "data"));
+        using var dir = new TempDirectory("squirix-doctor-cmd-inactive");
+        var settingsPath = await WriteSettingsAsync(dir.Path, 1, cancellationToken);
 
-        var (exitCode, output) = await RunHostAsync($"exec \"{FindHostDll()}\" run --settings \"{settingsPath}\"", DefaultCancellationToken);
-        Assert.NotEqual(0, exitCode);
-        Assert.Contains("replication opt-in", output, StringComparison.OrdinalIgnoreCase);
-    }
+        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, false, cancellationToken);
 
-    /// <summary>Verifies doctor honors the replication opt-in passed on the command line.</summary>
-    [Fact]
-    public async Task DoctorHonorsReplicationOptInFlag()
-    {
-        using var dir = new TempDirectory("squirix-doctor-cmd-optin");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, DefaultCancellationToken, false);
-
-        var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, DefaultCancellationToken, true);
-        Assert.Equal(0, exitCode);
-        Assert.Contains("[Squirix.Server] Doctor", output, StringComparison.Ordinal);
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("[Squirix.Server] Doctor", StringComparison.Ordinal);
+        _ = await Assert.That(output).Contains("Replication: not activated (persistence disabled)", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies the host help lists the replication opt-in switch.</summary>
-    [Fact]
-    public async Task HelpListsReplicationOptInSwitch()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HelpListsReplicationOptInSwitch(CancellationToken cancellationToken)
     {
-        var (exitCode, output) = await RunHostAsync($"exec \"{FindHostDll()}\" help", DefaultCancellationToken);
-        Assert.Equal(0, exitCode);
-        Assert.Contains("--enable-replication", output, StringComparison.Ordinal);
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDll()}\" help", cancellationToken);
+        _ = await Assert.That(exitCode).IsEqualTo(0);
+        _ = await Assert.That(output).Contains("--enable-replication", StringComparison.Ordinal);
     }
 
-    private static string FindHostDll()
+    /// <summary>Verifies run refuses RF&gt;1 without the opt-in.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RunRefusesWithoutOptIn(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-run-nooptin");
+        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken, false);
+        _ = Directory.CreateDirectory(Path.Join(dir.Path, "data"));
+
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDll()}\" run --settings \"{settingsPath}\"", cancellationToken);
+        _ = await Assert.That(exitCode).IsNotEqualTo(0);
+        _ = await Assert.That(output).Contains("replication opt-in", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> FindHostDll()
     {
         var directory = AppContext.BaseDirectory;
         while (directory != null)
@@ -134,25 +142,26 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
 
         var config = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
         var hostDll = Path.Join(directory, "src", "squirix.server.host", "bin", config, "net10.0", "Squirix.Server.Host.dll");
-        Assert.True(File.Exists(hostDll), $"Server host binary was not found at '{hostDll}'.");
+        _ = await Assert.That(File.Exists(hostDll)).IsTrue().Because($"Server host binary was not found at '{hostDll}'.");
         return hostDll;
     }
 
-    private static Task<(int ExitCode, string Output)> RunDoctorAsync(
+    private static async Task<(int ExitCode, string Output)> RunDoctorAsync(
         string settingsPath,
         string? dataDir,
         bool persist,
         CancellationToken cancellationToken,
         bool enableReplication = false)
     {
-        var arguments = $"exec \"{FindHostDll()}\" doctor --settings \"{settingsPath}\"";
+        var hostDll = await FindHostDll();
+        var arguments = $"exec \"{hostDll}\" doctor --settings \"{settingsPath}\"";
         if (dataDir != null)
             arguments += $" --data-dir \"{dataDir}\"";
         if (persist)
             arguments += " --persist";
         if (enableReplication)
             arguments += " --enable-replication";
-        return RunHostAsync(arguments, cancellationToken);
+        return await RunHostAsync(arguments, cancellationToken);
     }
 
     private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken)
@@ -164,8 +173,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
             UseShellExecute = false,
         };
         var started = Process.Start(info);
-        Assert.NotNull(started);
-        using var process = started;
+        using var process = await Assert.That(started).IsNotNull();
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorsTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);

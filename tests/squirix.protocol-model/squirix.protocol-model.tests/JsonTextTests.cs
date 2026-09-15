@@ -1,17 +1,20 @@
 using System.Text;
-using Xunit;
+using System.Threading.Tasks;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.ProtocolModel.Tests;
 
 /// <summary>Covers protocol-model JSON string escaping helpers.</summary>
-public static class JsonTextTests
+public sealed class JsonTextTests
 {
     /// <summary>Control characters below space are escaped as \\uXXXX.</summary>
-    [Fact]
-    public static void AppendStringEscapesControlCharacters()
+    [Test]
+    public async Task AppendStringEscapesControlCharacters()
     {
         var sb = new StringBuilder();
         JsonText.AppendString(sb, "a\u0001b\"c\\d");
-        Assert.Equal("\"a\\u0001b\\\"c\\\\d\"", sb.ToString());
+        _ = await Assert.That(sb.ToString()).IsEqualTo("\"a\\u0001b\\\"c\\\\d\"");
     }
 }

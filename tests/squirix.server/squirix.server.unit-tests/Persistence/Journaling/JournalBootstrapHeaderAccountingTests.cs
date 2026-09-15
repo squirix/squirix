@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -8,7 +9,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -19,8 +22,9 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
     private static readonly byte[] SamplePayload = [1, 2, 3];
 
     /// <summary>First append on a fresh journal includes the segment file header in UsedBytes.</summary>
-    [Fact]
-    public async Task FirstAppendCountsFileHeaderInUsedBytes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FirstAppendCountsFileHeaderInUsedBytes(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-journal-header-bytes");
         var options = new PersistenceOptions
@@ -34,13 +38,13 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
         using var manifestStore = new Ledger(options);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
 
-        await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, cancellationToken);
 
-        Assert.True(journal.UsedBytes >= JournalFraming.FileHeaderSize);
-        Assert.True(journal.UsedBytes > JournalFraming.FileHeaderSize);
+        _ = await Assert.That(journal.UsedBytes >= JournalFraming.FileHeaderSize).IsTrue();
+        _ = await Assert.That(journal.UsedBytes > JournalFraming.FileHeaderSize).IsTrue();
     }
 }

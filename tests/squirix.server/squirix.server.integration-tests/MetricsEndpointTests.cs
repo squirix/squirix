@@ -1,8 +1,11 @@
 using System;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -10,25 +13,30 @@ namespace Squirix.Server.IntegrationTests;
 public sealed class MetricsEndpointTests : NodeIntegrationTestBase
 {
     /// <summary>Verifies a readiness probe feeds replication gauges visible on the metrics endpoint.</summary>
-    [Fact]
-    public async Task MetricsEndpointServesReplicationGauges()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MetricsEndpointServesReplicationGauges(CancellationToken cancellationToken)
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-metrics-a", uriA), ("node-metrics-b", uriB)]);
-        await using var node = await StartNodeAsync(uriA, peers, new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" });
+        await using var node = await StartNodeAsync(
+            uriA,
+            peers,
+            new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" },
+            cancellationToken);
 
-        using (var ready = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), DefaultCancellationToken))
-            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        using (var ready = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken))
+            _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
-        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/metrics"), DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/metrics"), cancellationToken);
+        _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
-        var body = await response.Content.ReadAsStringAsync(DefaultCancellationToken);
-        Assert.Contains("squirix_replication_term{", body, StringComparison.Ordinal);
-        Assert.Contains("squirix_replication_commit_index{", body, StringComparison.Ordinal);
-        Assert.Contains("squirix_replication_topology_match{", body, StringComparison.Ordinal);
-        Assert.Contains("squirix_replication_status_reports_total{", body, StringComparison.Ordinal);
-        Assert.Contains("scope=\"replication\"", body, StringComparison.Ordinal);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        _ = await Assert.That(body).Contains("squirix_replication_term{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_commit_index{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_topology_match{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("squirix_replication_status_reports_total{", StringComparison.Ordinal);
+        _ = await Assert.That(body).Contains("scope=\"replication\"", StringComparison.Ordinal);
     }
 }
