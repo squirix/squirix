@@ -119,7 +119,26 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
 
         var cache = nodeA.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("quorum-read");
         var key = FindKeyOwnedBy(nodeA, "quorum-read", "nodeA");
-        await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
+
+        // The seed write races leader election: under parallel CI load the fixed commit budget can
+        // expire after the local append, surfacing an ambiguous outcome for a fresh operation id.
+        // Retry the seed with a fresh identity until it commits; the read assertions below still
+        // verify the test's contract, and a stall past the bound fails loudly instead of hanging.
+        using var seedBound = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var seedLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, seedBound.Token);
+        while (true)
+        {
+            try
+            {
+                await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, seedLinked.Token);
+                break;
+            }
+            catch (InvalidOperationException error) when (IsCommitOutcomeUnknown(error) && !cancellationToken.IsCancellationRequested)
+            {
+                if (seedBound.IsCancellationRequested)
+                    throw new InvalidOperationException("Seed write did not reach a majority before the bound.", error);
+            }
+        }
 
         // ReSharper disable once DisposeOnUsingVariable — intentional follower stop: the test covers reads staying local without a quorum gate.
         await nodeC.DisposeAsync();
@@ -147,4 +166,7 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
 
         throw new InvalidOperationException($"No key owned by '{owner}' was found.");
     }
+
+    private static bool IsCommitOutcomeUnknown(InvalidOperationException error) =>
+        error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 }
