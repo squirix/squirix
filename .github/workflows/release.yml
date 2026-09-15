@@ -175,8 +175,8 @@ jobs:
             prev_tag="$(git tag --sort=-creatordate | grep -v "^${new_tag}$" | head -n 1)"
           fi
           if [ -z "${prev_tag}" ]; then
-            echo "No previous tag found." >&2
-            exit 1
+            echo "No previous tag found; using ${new_tag} as the range start." >&2
+            prev_tag="${new_tag}"
           fi
           echo "Requesting draft release notes for ${prev_tag}...${new_tag}"
           notes="out/release-notes-${version}.md"

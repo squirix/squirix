@@ -71,7 +71,7 @@ def fallback_body(args: argparse.Namespace) -> str:
             "",
             "## Links",
             "",
-            f"- [Release notes](https://github.com/{args.source_repo}/blob/main/docs/release-notes/v0.1.0.md)",
+            f"- [Release notes](https://github.com/{args.source_repo}/blob/main/docs/release-notes/{args.new_tag}.md)",
             "- [NuGet profile](https://www.nuget.org/profiles/squirix)",
         ]
     else:
