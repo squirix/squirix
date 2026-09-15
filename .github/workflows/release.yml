@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
             persist-credentials: false
+            fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -79,7 +80,7 @@ jobs:
           dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/packages -p:SquirixPackageVersion="$version"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nuget-package
           path: |
@@ -148,13 +149,55 @@ jobs:
 
           dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/server-host -p:SquirixPackageVersion="$version"
           cd out/server-host
-          zip -r ../Squirix.Server.Host.zip .
+          zip -r "../squirix.server.host-${version}.zip" .
 
       - name: Upload standalone server host
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: squirix-server-host
-          path: out/Squirix.Server.Host.zip
+          path: out/squirix.server.host-*.zip
+
+      - name: Request draft release notes
+        id: release-notes
+        env:
+          RELEASE_NOTES_TOKEN: ${{ secrets.RELEASE_NOTES_TOKEN }}
+          PACKAGE_VERSION: ${{ inputs.packageVersion }}
+          REPO: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${PACKAGE_VERSION#v}"
+          fi
+          new_tag="v${version}"
+          prev_tag="$(git describe --tags --abbrev=0 "${new_tag}^" 2>/dev/null || true)"
+          if [ -z "${prev_tag}" ]; then
+            prev_tag="$(git tag --sort=-creatordate | grep -v "^${new_tag}$" | head -n 1)"
+          fi
+          if [ -z "${prev_tag}" ]; then
+            echo "No previous tag found." >&2
+            exit 1
+          fi
+          echo "Requesting draft release notes for ${prev_tag}...${new_tag}"
+          notes="out/release-notes-${version}.md"
+          python3 tools/ci/request_release_notes.py \
+            --notes-repo squirix/release-notes \
+            --project "${REPO#*/}" \
+            --source-repo "${REPO}" \
+            --base-branch develop \
+            --new-tag "${new_tag}" \
+            --prev-tag "${prev_tag}" \
+            --version "${version}" \
+            --workflow generate.yml \
+            --client-run "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --output "${notes}"
+          echo "file=${notes}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload draft release notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-draft
+          path: out/release-notes-*.md
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
@@ -162,8 +205,11 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: true
-          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: false
+          body_path: ${{ steps.release-notes.outputs.file }}
           files: |
             out/packages/*.nupkg
             out/packages/*.snupkg
-            out/Squirix.Server.Host.zip
+            out/squirix.server.host-*.zip
+            out/release-notes-*.md
