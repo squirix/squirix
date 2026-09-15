@@ -30,10 +30,11 @@ public sealed class BarrierContentionDiagnosticTests : NodeIntegrationTestBase
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var scope = $"barrier-spans-{Guid.NewGuid():N}";
         var recorderA = new JournalBarrierRecorder();
         var recorderB = new JournalBarrierRecorder();
-        var optionsA = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "barrier-spans", ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderA) };
-        var optionsB = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "barrier-spans", ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderB) };
+        var optionsA = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderA) };
+        var optionsB = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderB) };
 
         await using var nodeA = await StartNodeAsync(uriA, peers, optionsA, cancellationToken);
         await using var nodeB = await StartNodeAsync(uriB, peers, optionsB, cancellationToken);
