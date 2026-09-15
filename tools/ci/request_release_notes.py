@@ -62,14 +62,27 @@ def fallback_body(args: argparse.Namespace) -> str:
         "",
         "## Install",
         "",
-        f"dotnet add package squirix --version {args.version}",
-        f"dotnet add package squirix.server --version {args.version}",
-        f"dotnet tool install --global squirix.server.tool --version {args.version}",
-        "",
-        "## Links",
-        "",
-        f"- [Release notes](https://github.com/{args.source_repo}/blob/main/docs/release-notes/v0.1.0.md)",
-        "- [NuGet profile](https://www.nuget.org/profiles/squirix)",
+    ]
+    if args.project == "squirix":
+        lines += [
+            f"dotnet add package squirix --version {args.version}",
+            f"dotnet add package squirix.server --version {args.version}",
+            f"dotnet tool install --global squirix.server.tool --version {args.version}",
+            "",
+            "## Links",
+            "",
+            f"- [Release notes](https://github.com/{args.source_repo}/blob/main/docs/release-notes/v0.1.0.md)",
+            "- [NuGet profile](https://www.nuget.org/profiles/squirix)",
+        ]
+    else:
+        lines += [
+            f"- TODO: add install instructions for {args.project} {args.version}",
+            "",
+            "## Links",
+            "",
+            f"- TODO: add release notes link for {args.project} {args.new_tag}",
+        ]
+    lines += [
         f"- Full changelog: [{args.prev_tag}...{args.new_tag}]"
         f"(https://github.com/{args.source_repo}/compare/{args.prev_tag}...{args.new_tag})",
         "",
@@ -149,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         return write_fallback(args, "RELEASE_NOTES_TOKEN is not configured")
     env = {**os.environ, "GH_TOKEN": token}
+    start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         run_gh(
@@ -167,7 +181,6 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         return write_fallback(args, "Could not dispatch the notes workflow")
 
-    start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     deadline = time.monotonic() + args.timeout_secs
     run_id: int | None = None
     while time.monotonic() < deadline:
