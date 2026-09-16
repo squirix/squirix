@@ -13,6 +13,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// an isolated cluster and clock, so parallel tests never observe each other's time advances.
 /// </summary>
 [Immutable]
+[ParallelLimiter<ClusterStartupLimit>]
 public abstract class CrossNodeClockTestBase : EndToEndTestBase
 {
     private HostedCluster? _cluster;

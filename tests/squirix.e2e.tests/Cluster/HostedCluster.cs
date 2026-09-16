@@ -18,6 +18,8 @@ namespace Squirix.E2ETests.Cluster;
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private static readonly string[] SingleNodeIds = ["nodeA"];
+
+    private static readonly SemaphoreSlim StartupGate = new(ClusterStartupLimit.MaxConcurrentStartups, ClusterStartupLimit.MaxConcurrentStartups);
     private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
@@ -131,6 +133,28 @@ internal sealed class HostedCluster : IAsyncDisposable
         string? testName,
         bool usePersistence,
         CancellationToken cancellationToken = default)
+    {
+        // Cap concurrent cluster startups process-wide: cold Debug host builds and RSA key
+        // generation are CPU-heavy, and a thundering herd at session start pushes single
+        // startups past the fixture budgets. Queued starters observe cancellation, and tests
+        // themselves stay fully parallel once their cluster is up.
+        await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await StartCoreAsync(nodeIds, startOptions, testName, usePersistence, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = StartupGate.Release();
+        }
+    }
+
+    private static async ValueTask<HostedCluster> StartCoreAsync(
+        string[] nodeIds,
+        MultiNodeStartOptions? startOptions,
+        string? testName,
+        bool usePersistence,
+        CancellationToken cancellationToken)
     {
         startOptions ??= new MultiNodeStartOptions();
 

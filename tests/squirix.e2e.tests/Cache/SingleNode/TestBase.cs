@@ -6,6 +6,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Shared fixtures for single-node v0.1 public <see cref="ICache{T}" /> integration tests.</summary>
 [Immutable]
+[ParallelLimiter<ClusterStartupLimit>]
 public abstract class TestBase : EndToEndTestBase
 {
     /// <summary>Gets the shared single-node cluster fixture injected once per test class.</summary>
