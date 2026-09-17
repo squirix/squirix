@@ -3,10 +3,15 @@ using System;
 namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>Sequential, equal-sized port regions for in-process test hosts and auxiliary listeners.</summary>
-/// <remarks>Each region spans <see cref="RegionSize" /> consecutive ports starting at <see cref="Origin" />.</remarks>
+/// <remarks>
+/// Each region spans <see cref="RegionSize" /> consecutive ports starting at <see cref="Origin" />.
+/// The whole block must stay clear of OS ephemeral ranges (Linux defaults to 32768–60999): the OS
+/// can otherwise assign one of our ports to an outgoing connection between our probe and our bind.
+/// Well-known service ports inside the block are harmless — bind probing skips busy ones.
+/// </remarks>
 internal static class HostPortRegions
 {
-    private const int Origin = 20_000;
+    private const int Origin = 8_000;
     private const int RegionSize = 3_000;
 
     internal static int EndExclusive(HostPortRegion region) => StartInclusive(region) + RegionSize;

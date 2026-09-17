@@ -13,7 +13,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -32,7 +31,7 @@ public abstract class SmokeTestBase : IDisposable
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
-    private ClusterTls? _mtls;
+    private ClusterIdentity? _identity;
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
@@ -50,7 +49,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(topology, ref _mtls);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
 
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
@@ -73,31 +72,40 @@ public abstract class SmokeTestBase : IDisposable
             VirtualNodes = 128,
         };
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
-        var app = await NodeHost.StartAsync(
-            clusterConfig,
-            new NodeHostStartOptions
-            {
-                ConfigureLogging = static b =>
+        try
+        {
+            (_identity, var mtlsOptions, var mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_identity, clusterConfig, cancellationToken).ConfigureAwait(false);
+            ListenPortPool.SmokeTests.ReleasePort(canonicalUri.Port);
+            var app = await NodeHost.StartAsync(
+                clusterConfig,
+                new NodeHostStartOptions
                 {
-                    _ = b.ClearProviders();
-                    _ = b.SetMinimumLevel(LogLevel.Debug);
-                    _ = b.AddFilter("Grpc", LogLevel.Debug);
-                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                    _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = b.AddConsole().AddDebug();
+                    ConfigureLogging = static b =>
+                    {
+                        _ = b.ClearProviders();
+                        _ = b.SetMinimumLevel(LogLevel.Debug);
+                        _ = b.AddFilter("Grpc", LogLevel.Debug);
+                        _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
+                        _ = b.AddFilter("Squirix", LogLevel.Debug);
+                        _ = b.AddConsole().AddDebug();
+                    },
+                    ConfigureGrpc = options.ConfigureGrpc,
+                    ServicesConfigure = options.ServicesConfigure,
+                    BackpressureOptions = options.BackpressureOptions,
+                    MemoryPressureOptions = options.MemoryPressureOptions,
+                    SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
+                    MtlsOptions = mtlsOptions,
+                    MtlsMaterial = mtlsMaterial,
                 },
-                ConfigureGrpc = options.ConfigureGrpc,
-                ServicesConfigure = options.ServicesConfigure,
-                BackpressureOptions = options.BackpressureOptions,
-                MemoryPressureOptions = options.MemoryPressureOptions,
-                SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
-                MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
-            },
-            cancellationToken);
+                cancellationToken);
 
-        return new TestNodeHost(app, canonicalUri, string.Empty);
+            return new TestNodeHost(app, canonicalUri, string.Empty);
+        }
+        catch
+        {
+            ListenPortPool.SmokeTests.ReleasePort(canonicalUri.Port);
+            throw;
+        }
     }
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
@@ -112,17 +120,9 @@ public abstract class SmokeTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.</summary>
-    /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
-    protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
-    {
-        var port = ListenPortPool.SmokeTests.AllocatePort();
-        return (NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
-    }
-
-    /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
-    protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.NextHttpUri();
+    protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.HoldHttpUri();
 
     /// <summary>Disposes managed resources owned by the test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
@@ -132,7 +132,7 @@ public abstract class SmokeTestBase : IDisposable
         if (!disposing)
             return;
 
-        _mtls?.Dispose();
+        _identity?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
     }
@@ -188,7 +188,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
     /// <returns>A one-element peer array.</returns>
-    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(nodeId, uri, ref _mtls);
+    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {

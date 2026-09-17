@@ -63,7 +63,7 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        var uri = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
+        var uri = ListenPortPool.EndToEndBenchmarks.HoldHttpUri();
         _dataDir = new TempDirectory("squirix-e2e-authority");
         try
         {

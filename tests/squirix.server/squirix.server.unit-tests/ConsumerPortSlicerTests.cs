@@ -12,11 +12,11 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Protects the per-test-process disjoint port-slice invariant that keeps cross-assembly parallelism safe.</summary>
 public sealed class ConsumerPortSlicerTests
 {
-    /// <summary>Distinct slices must be non-overlapping so parallel processes never collide on OIDC authority ports.</summary>
+    /// <summary>Distinct slices must be non-overlapping, so parallel processes never collide on OIDC authority ports.</summary>
     [Test]
     public Task MockOidcAuthoritySlicesAreDisjoint() => AssertSlicesDisjoint(HostPortRegion.MockOidcAuthority);
 
-    /// <summary>Distinct slices must be non-overlapping so parallel processes never collide on mTLS internal ports.</summary>
+    /// <summary>Distinct slices must be non-overlapping, so parallel processes never collide on mTLS internal ports.</summary>
     [Test]
     public Task MtlsInternalSlicesAreDisjoint() => AssertSlicesDisjoint(HostPortRegion.MtlsInternal);
 
@@ -78,6 +78,26 @@ public sealed class ConsumerPortSlicerTests
         {
             File.Delete(lockPath);
         }
+    }
+
+    /// <summary>Slice claims must prefer long-idle ranges, so a new process does not reuse ports whose sockets may still linger.</summary>
+    [Test]
+    public async Task SliceClaimsPreferLeastRecentlyClaimed()
+    {
+        var order = ConsumerPortSlicer.OrderByLastClaim(
+            [0, 1, 2, 3],
+            static index => index switch
+            {
+                0 => 300L,
+                1 => null,
+                2 => 100L,
+                _ => 200L,
+            });
+
+        int[] expected = [1, 2, 3, 0];
+        _ = await Assert.That(order.Length).IsEqualTo(expected.Length);
+        for (var i = 0; i < expected.Length; i++)
+            _ = await Assert.That(order[i]).IsEqualTo(expected[i]).Because($"Position {i} should hold slice {expected[i]}.");
     }
 
     private static async Task AssertSlicesDisjoint(HostPortRegion region)

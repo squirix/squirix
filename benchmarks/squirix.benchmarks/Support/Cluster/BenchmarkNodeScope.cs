@@ -40,7 +40,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral)
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
-        var uri = ListenPortPool.ServerBenchmarks.NextHttpUri();
+        var uri = ListenPortPool.ServerBenchmarks.HoldHttpUri();
         return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
     }
 

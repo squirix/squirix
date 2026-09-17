@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -55,7 +54,7 @@ public sealed class WriterEncodeBufferTests : IsolatedStorageTestBase
 
     private static async Task<Dictionary<string, object?>> LoadEntriesAsync(string path)
     {
-        var reader = StoreFactory.CreateReader(new PersistenceOptions { DataDir = Path.GetDirectoryName(path)! });
+        var reader = StoreFactory.CreateReader();
         var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
         var entries = new Dictionary<string, object?>(loaded.Entries.Count, StringComparer.Ordinal);
         foreach (var (key, entry) in loaded.Entries)

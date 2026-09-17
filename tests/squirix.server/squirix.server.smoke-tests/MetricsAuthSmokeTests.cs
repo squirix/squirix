@@ -28,9 +28,10 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
-        var port = new Uri(bindUrl).Port;
-        var remoteMetricsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, port, "/metrics");
+        using var held = ListenPortPool.SmokeTests.HoldPort();
+        var bindUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
+        var remoteMetricsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/metrics");
         var loopbackMetricsUrl = $"{loopbackUrl}/metrics";
 
         await using var node = await StartNodeAsync(

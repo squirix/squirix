@@ -41,7 +41,7 @@ internal sealed class RestartableNode : IAsyncDisposable
     internal static async ValueTask<RestartableNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
         var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-        var node = new RestartableNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri());
+        var node = new RestartableNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri());
         try
         {
             await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);

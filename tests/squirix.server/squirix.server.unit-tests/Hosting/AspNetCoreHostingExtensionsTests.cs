@@ -43,30 +43,39 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     [Test]
     public async Task CustomAspNetCoreHostStartsMappedServer(CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
+        var held = ListenPortPool.ServerUnitTests.HoldPort();
+        try
+        {
+            var builder = WebApplication.CreateBuilder(
+                new WebApplicationOptions
+                {
+                    EnvironmentName = "Development",
+                });
 
-        _ = await builder.AddSquirixServerAsync(
-            static options =>
-            {
-                options.NodeId = "aspnet-test";
-                options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
-            },
-            loadDiscoveredSettings: false,
-            cancellationToken: cancellationToken);
+            _ = await builder.AddSquirixServerAsync(
+                options =>
+                {
+                    options.NodeId = "aspnet-test";
+                    options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
+                },
+                loadDiscoveredSettings: false,
+                cancellationToken: cancellationToken);
 
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
+            await using var app = builder.Build();
+            _ = app.MapSquirixServer();
 
-        var endpoints = GetMappedEndpoints(app);
-        _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
-        _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
+            var endpoints = GetMappedEndpoints(app);
+            _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
+            _ = await Assert.That(endpoints).Contains(static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
 
-        await app.StartAsync(cancellationToken);
-        await app.StopAsync(cancellationToken);
+            held.Dispose();
+            await app.StartAsync(cancellationToken);
+            await app.StopAsync(cancellationToken);
+        }
+        finally
+        {
+            held.Dispose();
+        }
     }
 
     /// <summary>Ensures a configured data directory keeps the server's default strict fsync persistence mode.</summary>
@@ -151,29 +160,37 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     [Test]
     public async Task MapSquirixServerMapsQuotaToHttp429(CancellationToken cancellationToken)
     {
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", port));
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var optionsConfigurer = new FixedUriOptionsConfigurer(uri);
+        var held = ListenPortPool.ServerUnitTests.HoldPort();
+        try
+        {
+            var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", held.Port));
+            var builder = WebApplication.CreateBuilder(
+                new WebApplicationOptions
+                {
+                    EnvironmentName = "Development",
+                });
+            var optionsConfigurer = new FixedUriOptionsConfigurer(uri);
 
-        _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
-            loadDiscoveredSettings: false,
-            configureExtensions: ConfigureJournalQuotaExtensions,
-            cancellationToken: cancellationToken);
+            _ = await builder.AddSquirixServerAsync(
+                optionsConfigurer.Apply,
+                loadDiscoveredSettings: false,
+                configureExtensions: ConfigureJournalQuotaExtensions,
+                cancellationToken: cancellationToken);
 
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-        await app.StartAsync(cancellationToken);
+            await using var app = builder.Build();
+            _ = app.MapSquirixServer();
+            held.Dispose();
+            await app.StartAsync(cancellationToken);
 
-        using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), cancellationToken);
+            using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), cancellationToken);
 
-        _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.TooManyRequests);
-        await app.StopAsync(cancellationToken);
+            _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.TooManyRequests);
+            await app.StopAsync(cancellationToken);
+        }
+        finally
+        {
+            held.Dispose();
+        }
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>

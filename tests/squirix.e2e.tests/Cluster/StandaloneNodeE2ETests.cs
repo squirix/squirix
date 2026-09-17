@@ -18,14 +18,14 @@ public sealed class StandaloneNodeE2ETests : EndToEndTestBase
     [Test]
     public async Task StandaloneNodeServesTraffic(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        var uriA = ListenPortPool.EndToEndTests.HoldHttpUri();
+        using var identity = new ClusterIdentity();
         using var dataDir = new TempDirectory("squirix-e2e-standalone-node");
         var peers = new[] { ("nodeA", uriA) };
         var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
 
         var options = new TestNodeHostStartOptions { ReplicaCount = 1, DataDir = dirA, EnableReplication = false };
-        await using var host = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, options, mtls, cancellationToken);
+        await using var host = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, options, identity, cancellationToken);
 
         await using var client = await LoopbackConnect.ConnectAsync(uriA, cancellationToken);
         var cache = await client.GetCacheAsync<string>("optout", cancellationToken);

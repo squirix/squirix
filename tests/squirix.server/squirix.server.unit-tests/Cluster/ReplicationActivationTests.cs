@@ -25,7 +25,7 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
     [Test]
     public async Task RfOneDoesNotRegisterReplicationServices(CancellationToken cancellationToken)
     {
-        var uri = ListenPortPool.ServerUnitTests.NextHttpUri();
+        var uri = ListenPortPool.ServerUnitTests.HoldHttpUri();
         await using var host = await TestNodeHostFactory.StartNodeAsync("n1", uri, cancellationToken);
         var featureState = host.Services.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();

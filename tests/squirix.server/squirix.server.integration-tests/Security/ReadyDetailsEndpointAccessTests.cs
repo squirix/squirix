@@ -26,12 +26,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     public async Task LoopbackReadyDetailsScrapeWithAuth(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/health/ready/details")), cancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details")), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -41,12 +41,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     public async Task ReadyDetailsScrapeWithListenerAuth(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/health/ready/details"));
+        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details"));
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
@@ -64,12 +64,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        var response = await GetReadyDetailsViaLocalIpAsync(localIp!, mainPort, cancellationToken);
+        var response = await GetReadyDetailsViaLocalIpAsync(localIp!, held.Port, cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
     }
 

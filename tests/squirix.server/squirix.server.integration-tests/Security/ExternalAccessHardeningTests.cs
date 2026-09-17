@@ -36,8 +36,8 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     [Test]
     public async Task NonLoopbackListenWithJwtSucceeds(CancellationToken cancellationToken)
     {
-        var mainPort = AllocateDedicatedPort();
-        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        using var held = AllocateDedicatedPort();
+        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
         await using var node = await StartNodeAsync(
             uri,
@@ -45,7 +45,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
             new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()) },
             cancellationToken);
 
-        var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
+        var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", held.Port).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -58,8 +58,8 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     [Test]
     public async Task ProductionUrlRequiresAuthentication(CancellationToken cancellationToken)
     {
-        var mainPort = AllocateDedicatedPort();
-        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        using var held = AllocateDedicatedPort();
+        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
             StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken));

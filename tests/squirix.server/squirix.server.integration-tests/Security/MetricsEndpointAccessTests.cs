@@ -26,12 +26,12 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
     public async Task LoopbackMetricsScrapeWithAuth(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics")), cancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics")), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -41,12 +41,12 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
     public async Task MetricsScrapeWithListenerAuthEnabled(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics"));
+        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics"));
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
@@ -64,12 +64,12 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var mainPort = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
+        using var held = AllocateDedicatedPort();
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        var response = await GetMetricsViaLocalIpAsync(localIp!, mainPort, cancellationToken);
+        var response = await GetMetricsViaLocalIpAsync(localIp!, held.Port, cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
     }
 

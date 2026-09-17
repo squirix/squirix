@@ -48,7 +48,7 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
 
         internal static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
         {
-            var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpUri());
+            var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.HoldHttpUri());
             await node.StartNodeAsync(cancellationToken);
             return node;
         }

@@ -49,18 +49,58 @@ public sealed class ListenPortPool : IDisposable
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
 
-    /// <summary>Reserves a contiguous range of free ports and holds them all open to eliminate TOCTOU races between the probe and the actual bind.</summary>
-    /// <param name="count">Number of consecutive free ports to reserve.</param>
-    /// <returns>The reserved port numbers, all bound and held open until released via <see cref="ReleasePort" />.</returns>
-    public int[] AllocateRange(int count) => _allocator.ReserveRange(count);
+    /// <summary>Reserves the next free port and holds it bound until the returned handle is disposed of.</summary>
+    /// <returns>A held loopback port; disposing it releases the hold for the real bind.</returns>
+    public HeldPort HoldPort()
+    {
+        var port = _allocator.ReserveRange(1)[0];
+        return new HeldPort(this, port, new Uri(FormatLoopbackHttps(port), UriKind.Absolute));
+    }
 
-    /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
-    /// <returns>A URI of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
+    /// <summary>Reserves a contiguous range of free ports and holds them all bound until each handle is disposed of.</summary>
+    /// <param name="count">Number of consecutive free ports to reserve.</param>
+    /// <returns>The reserved ports, each bound and held open until its handle is disposed of.</returns>
+    public HeldPort[] HoldPorts(int count)
+    {
+        var ports = _allocator.ReserveRange(count);
+        var held = new HeldPort[ports.Length];
+        for (var i = 0; i < ports.Length; i++)
+            held[i] = new HeldPort(this, ports[i], new Uri(FormatLoopbackHttps(ports[i]), UriKind.Absolute));
+
+        return held;
+    }
+
+    /// <summary>Reserves the next free port, holds it bound, and returns a loopback HTTPS listen URI.</summary>
+    /// <returns>A URI of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>, held open until released via <see cref="ReleasePort" />.</returns>
+    public Uri HoldHttpUri() => new(FormatLoopbackHttps(_allocator.ReserveRange(1)[0]), UriKind.Absolute);
 
     /// <summary>Releases a previously reserved port so the actual server can bind to it.</summary>
     /// <param name="port">The port number to release.</param>
     public void ReleasePort(int port) => _allocator.ReleasePort(port);
+
+    /// <summary>Releases a held primary port on whichever pool owns it; ignores foreign ports.</summary>
+    /// <param name="uri">The listen URI whose port to release.</param>
+    /// <remarks>
+    /// TestNodeHostFactory serves tests and benchmarks from different pools without knowing which one
+    /// issued the URI. Pool ranges are disjoint per process, so at most one pool matches; anything else
+    /// (hardcoded ports, other regions) is a no-op, exactly like <see cref="ReleasePort" /> for unheld ports.
+    /// </remarks>
+    public static void ReleaseHeldPrimary(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        if (EndToEndTests.Owns(uri.Port))
+            EndToEndTests.ReleasePort(uri.Port);
+        else if (EndToEndBenchmarks.Owns(uri.Port))
+            EndToEndBenchmarks.ReleasePort(uri.Port);
+        else if (IntegrationTests.Owns(uri.Port))
+            IntegrationTests.ReleasePort(uri.Port);
+        else if (SmokeTests.Owns(uri.Port))
+            SmokeTests.ReleasePort(uri.Port);
+        else if (ServerBenchmarks.Owns(uri.Port))
+            ServerBenchmarks.ReleasePort(uri.Port);
+        else if (ServerUnitTests.Owns(uri.Port))
+            ServerUnitTests.ReleasePort(uri.Port);
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -77,9 +117,13 @@ public sealed class ListenPortPool : IDisposable
     /// <returns>A port pool backed by the given range.</returns>
     internal static ListenPortPool ForRange(int startInclusive, int endInclusive) => new(startInclusive, endInclusive);
 
-    private static string FormatLoopbackHttps(int port) => string.Create(CultureInfo.InvariantCulture, $"https://127.0.0.1:{port}");
+    /// <summary>Binds and holds a specific port previously allocated from this pool.</summary>
+    /// <param name="port">The port number to hold.</param>
+    /// <returns>The held port when the bind succeeds; otherwise <see langword="null" />.</returns>
+    internal HeldPort? HoldSpecificPort(int port) =>
+        _allocator.TryHoldSpecific(port) ? new HeldPort(this, port, new Uri(FormatLoopbackHttps(port), UriKind.Absolute)) : null;
 
-    /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
-    /// <returns>A URL of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    private string NextHttpAddress() => FormatLoopbackHttps(AllocatePort());
+    private bool Owns(int port) => _allocator.Contains(port);
+
+    private static string FormatLoopbackHttps(int port) => string.Create(CultureInfo.InvariantCulture, $"https://127.0.0.1:{port}");
 }

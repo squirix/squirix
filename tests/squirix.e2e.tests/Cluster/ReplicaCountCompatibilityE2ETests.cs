@@ -21,7 +21,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
     [Test]
     public async Task RfOneDoesNotOpenReplicationListener(CancellationToken cancellationToken)
     {
-        var uri = ListenPortPool.EndToEndTests.NextHttpUri();
+        var uri = ListenPortPool.EndToEndTests.HoldHttpUri();
         await using var host = await TestNodeHostFactory.StartNodeAsync("nodeA", uri, cancellationToken);
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsFalse();
     }
@@ -49,20 +49,20 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
     [Test]
     public async Task RfTwoStartsWithPrerequisites(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var identity = new ClusterIdentity();
         using var dataDir = new TempDirectory("squirix-e2e-rf2");
         await using var host = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
-            uriA,
-            [("nodeA", uriA), ("nodeB", uriB)],
+            heldA.HttpUri,
+            [("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri)],
             new TestNodeHostStartOptions
             {
                 ReplicaCount = 2,
                 DataDir = dataDir.Path,
             },
-            mtls,
+            identity,
             cancellationToken);
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }

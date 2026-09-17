@@ -14,6 +14,7 @@ using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -39,7 +40,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
-    private ClusterTls? _mtls;
+    private ClusterIdentity? _mtls;
 
     static NodeIntegrationTestBase()
     {
@@ -49,7 +50,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
-    /// <summary>Cleans up sockets handler and HTTP client.</summary>
+    /// <summary>Cleans up socket handler and HTTP client.</summary>
     public void Dispose()
     {
         Dispose(true);
@@ -59,7 +60,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(topology, ref _mtls);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterIdentity.CreatePeers(topology, ref _mtls);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -76,12 +77,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
+        (_mtls, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
     }
 
-    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.</summary>
+    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for internode gRPC.</summary>
     /// <param name="callerNodeId">Configured node identifier for the presenting peer.</param>
     /// <param name="callerPrimaryUrl">Primary listen URL for the presenting peer.</param>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -104,7 +105,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = callerPrimaryUrl,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, callerPrimaryUrl, cancellationToken).ConfigureAwait(false);
+        (_mtls, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
@@ -146,48 +147,34 @@ public abstract class NodeIntegrationTestBase : IDisposable
             ConfigurationGeneration = options.ConfigurationGeneration,
         };
 
-        var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
-        PersistenceOptions? persistenceOptionsOverride = null;
-        var dir = string.Empty;
-        if (options.UsePersistence || options.PersistenceOptions != null)
+        try
         {
-            persistenceOptionsOverride = await GetPersistenceOptionsAsync(
-                options.PersistenceOptions,
-                selfNodeId,
-                BuildTestScope(scopeName, options.ExtraScope),
-                options.CleanTestDir,
-                cancellationToken);
-            dir = persistenceOptionsOverride.DataDir;
-        }
-
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, config, canonicalUri, cancellationToken);
-
-        var startOptions = new NodeHostStartOptions
-        {
-            ConfigureLogging = static b =>
+            var name = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
+            PersistenceOptions? po = null;
+            var dir = string.Empty;
+            if (options.UsePersistence || options.PersistenceOptions != null)
             {
-                _ = b.ClearProviders();
-                _ = b.SetMinimumLevel(LogLevel.Debug);
-                _ = b.AddFilter("Grpc", LogLevel.Debug);
-                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                _ = b.AddFilter("Squirix", LogLevel.Debug);
-                _ = b.AddConsole().AddDebug();
-            },
-            WaitForRecovery = options.WaitForRecovery,
-            ServicesConfigure = options.ServicesConfigure,
-            PersistenceOptions = persistenceOptionsOverride,
-            SecurityOptions = options.Security?.ToServerOptions(),
-            MtlsOptions = mtlsOptions,
-            MtlsMaterial = mtlsMaterial,
-            FoundationOnly = options.FoundationOnly,
-        };
-        var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
-        return new TestNodeHost(application, canonicalUri, dir, persistenceOptionsOverride != null);
+                po = await GetPersistenceOptionsAsync(options.PersistenceOptions, selfNodeId, BuildTestScope(name, options.ExtraScope), options.CleanTestDir, cancellationToken);
+                dir = po.DataDir;
+            }
+
+            (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_mtls, config, cancellationToken);
+
+            var startOptions = CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
+            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
+            var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
+            return new TestNodeHost(application, canonicalUri, dir, po != null);
+        }
+        catch
+        {
+            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
+            throw;
+        }
     }
 
-    /// <summary>Allocates a dedicated port reserved for the lifetime of the test process.</summary>
-    /// <returns>A port number reserved from the shared in-process pool.</returns>
-    protected static int AllocateDedicatedPort() => ListenPortPool.IntegrationTests.AllocatePort();
+    /// <summary>Allocates a dedicated port, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
+    /// <returns>A held loopback port; the hold is released by node startup, disposing it earlier releases it manually.</returns>
+    protected static HeldPort AllocateDedicatedPort() => ListenPortPool.IntegrationTests.HoldPort();
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
@@ -201,9 +188,9 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
-    protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.NextHttpUri();
+    protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.HoldHttpUri();
 
     /// <summary>Cleans up managed resources owned by the integration test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
@@ -273,11 +260,38 @@ public abstract class NodeIntegrationTestBase : IDisposable
         return null;
     }
 
+    private static NodeHostStartOptions CreateStartOptions(
+        NodeStartOptions options,
+        PersistenceOptions? persistenceOptions,
+        MtlsOptions? mtlsOptions,
+        MtlsCertificateMaterial? mtlsMaterial)
+    {
+        return new NodeHostStartOptions
+        {
+            ConfigureLogging = static b =>
+            {
+                _ = b.ClearProviders();
+                _ = b.SetMinimumLevel(LogLevel.Debug);
+                _ = b.AddFilter("Grpc", LogLevel.Debug);
+                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
+                _ = b.AddFilter("Squirix", LogLevel.Debug);
+                _ = b.AddConsole().AddDebug();
+            },
+            WaitForRecovery = options.WaitForRecovery,
+            ServicesConfigure = options.ServicesConfigure,
+            PersistenceOptions = persistenceOptions,
+            SecurityOptions = options.Security?.ToServerOptions(),
+            MtlsOptions = mtlsOptions,
+            MtlsMaterial = mtlsMaterial,
+            FoundationOnly = options.FoundationOnly,
+        };
+    }
+
     /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="uri">Primary listen URL.</param>
     /// <returns>A one-element peer array.</returns>
-    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(nodeId, uri, ref _mtls);
+    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {

@@ -55,7 +55,7 @@ public sealed class ServiceJournalOnlyReplayTests : DisposableServerUnitTestBase
                 scenario.Cache,
                 gate,
                 new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter)),
-                StoreFactory.CreateReader(persistence)));
+                StoreFactory.CreateReader()));
         await recovery.StartAsync(cancellationToken);
 
         _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), cancellationToken)).Found).IsTrue();

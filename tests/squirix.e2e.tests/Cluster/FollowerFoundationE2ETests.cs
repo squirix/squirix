@@ -58,22 +58,23 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
     [Test]
     public async Task RfTwoStartsWithFoundation(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var identity = new ClusterIdentity();
         using var dataDirectory = new TempDirectory("squirix-e2e-follower-foundation");
+        var options = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path };
         await using var host = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
-            uriA,
-            [("nodeA", uriA), ("nodeB", uriB)],
-            new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path },
-            mtls,
+            heldA.HttpUri,
+            [("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri)],
+            options,
+            identity,
             cancellationToken);
 
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }
 
-    /// <summary>Single persistent node that can be stopped and restarted on the same data directory.</summary>
+    /// <summary>Single persistent node that can be stopped and restarted in the same data directory.</summary>
     private sealed class PersistentSingleNode : IAsyncDisposable
     {
         private readonly TempDirectory _dataDir;
@@ -99,7 +100,7 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
         internal static async ValueTask<PersistentSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
         {
             var dataDir = new TempDirectory("squirix-e2e-follower-foundation", testName);
-            var node = new PersistentSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri());
+            var node = new PersistentSingleNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri());
             try
             {
                 await node.StartNodeAsync(cancellationToken);
@@ -122,7 +123,7 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
 
         internal async ValueTask RestartAsync(CancellationToken cancellationToken)
         {
-            // The stop must complete before the restart: a cancelled wait would leave the previous host
+            // The stop must complete before the restart: a canceled wait would leave the previous host
             // shutting down while the new one binds the same URI and data directory.
             await StopNodeAsync();
             cancellationToken.ThrowIfCancellationRequested();
