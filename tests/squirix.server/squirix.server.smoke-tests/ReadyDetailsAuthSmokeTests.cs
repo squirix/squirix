@@ -28,9 +28,10 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
-        var port = new Uri(bindUrl).Port;
-        var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, port, "/health/ready/details");
+        using var held = ListenPortPool.SmokeTests.HoldPort();
+        var bindUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
+        var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/health/ready/details");
         var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
 
         await using var node = await StartNodeAsync(

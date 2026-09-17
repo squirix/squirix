@@ -45,35 +45,49 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     /// <returns>A started mock authority.</returns>
     public static async Task<MockOidcAuthority> StartAsync(CancellationToken cancellationToken = default)
     {
-        var port = PortPool.AllocatePort();
-        var authorityUrl = NodeInvariantIndexStrings.FormatOrigin("http", "127.0.0.1", port);
-        var signingKey = RSA.Create(2048);
-        const string keyId = "mock-oidc-key";
-
-        var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(signingKey.ExportParameters(true)) { KeyId = keyId });
-        jwk.Use = "sig";
-        jwk.Alg = SecurityAlgorithms.RsaSha256;
-
-        var discovery = new OidcDiscoveryDocument
+        var held = PortPool.HoldPort();
+        RSA? signingKey = null;
+        WebApplication? builtApp = null;
+        try
         {
-            Issuer = authorityUrl,
-            JwksEndpoint = $"{authorityUrl}/.well-known/jwks",
-        };
+            var authorityUrl = NodeInvariantIndexStrings.FormatOrigin("http", "127.0.0.1", held.Port);
+            signingKey = RSA.Create(2048);
+            const string keyId = "mock-oidc-key";
 
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
+            var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(new RsaSecurityKey(signingKey.ExportParameters(true)) { KeyId = keyId });
+            jwk.Use = "sig";
+            jwk.Alg = SecurityAlgorithms.RsaSha256;
+
+            var discovery = new OidcDiscoveryDocument
             {
-                EnvironmentName = Environments.Development,
-            });
-        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, authorityUrl);
+                Issuer = authorityUrl,
+                JwksEndpoint = $"{authorityUrl}/.well-known/jwks",
+            };
 
-        var app = builder.Build();
-        var jwks = new JsonWebKeySet();
-        jwks.Keys.Add(jwk);
-        MapDiscoveryEndpoint(app, discovery);
-        MapJwksEndpoint(app, jwks);
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return new MockOidcAuthority(app, authorityUrl, authorityUrl, signingKey, keyId);
+            var builder = WebApplication.CreateBuilder(
+                new WebApplicationOptions
+                {
+                    EnvironmentName = Environments.Development,
+                });
+            _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, authorityUrl);
+
+            builtApp = builder.Build();
+            var jwks = new JsonWebKeySet();
+            jwks.Keys.Add(jwk);
+            MapDiscoveryEndpoint(builtApp, discovery);
+            MapJwksEndpoint(builtApp, jwks);
+            held.Dispose();
+            await builtApp.StartAsync(cancellationToken).ConfigureAwait(false);
+            return new MockOidcAuthority(builtApp, authorityUrl, authorityUrl, signingKey, keyId);
+        }
+        catch
+        {
+            if (builtApp != null)
+                await builtApp.DisposeAsync().ConfigureAwait(false);
+            signingKey?.Dispose();
+            held.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Issues a bearer token signed with the authority's RSA key.</summary>

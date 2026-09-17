@@ -31,16 +31,23 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
     public async Task OutboundMtlsHandshakesInternalListener(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
-        await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", cancellationToken);
+        var held = ListenPortPool.ServerUnitTests.HoldPort();
+        try
+        {
+            await using var host = await MtlsInternalListenerHost.StartAsync(bundle, held.Port, "node-b", "node-a", cancellationToken);
 
-        using var tcpClient = new TcpClient();
-        await tcpClient.ConnectAsync("127.0.0.1", internalPort, cancellationToken);
-        await using var sslStream = new SslStream(tcpClient.GetStream(), false);
-        await host.AuthenticateClientAsync(sslStream, cancellationToken);
+            using var tcpClient = new TcpClient();
+            await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
+            await using var sslStream = new SslStream(tcpClient.GetStream(), false);
+            await host.AuthenticateClientAsync(sslStream, cancellationToken);
 
-        _ = await Assert.That(sslStream.IsAuthenticated).IsTrue();
-        _ = await Assert.That(sslStream.RemoteCertificate).IsNotNull();
+            _ = await Assert.That(sslStream.IsAuthenticated).IsTrue();
+            _ = await Assert.That(sslStream.RemoteCertificate).IsNotNull();
+        }
+        finally
+        {
+            held.Dispose();
+        }
     }
 
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
@@ -107,9 +114,19 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
             var builder = WebApplication.CreateBuilder();
             _ = builder.WebHost.ConfigureKestrel(kestrelConfigurer.Apply);
             var application = builder.Build();
-            await application.StartAsync(cancellationToken);
-            host._application = application;
-            return host;
+            try
+            {
+                ListenPortPool.ServerUnitTests.ReleasePort(internalPort);
+                await application.StartAsync(cancellationToken);
+                host._application = application;
+                return host;
+            }
+            catch
+            {
+                await application.DisposeAsync().ConfigureAwait(false);
+                await host.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
 
             static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate)
             {

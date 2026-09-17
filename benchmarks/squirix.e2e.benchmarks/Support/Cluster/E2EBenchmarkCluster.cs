@@ -47,10 +47,16 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     {
         var nodeIds = topology is BenchmarkTopology.SingleNode ? SingleNodeIds : DualNodeIds;
         var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
+        var heldPorts = new List<HeldPort>(nodeIds.Length);
 
         // Allocate listener URIs up front so every node advertises the same peer topology during startup.
+        // Handles stay alive until each node binds (released by the factory) or startup fails.
         foreach (var nodeId in nodeIds)
-            addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
+        {
+            var held = ListenPortPool.EndToEndBenchmarks.HoldPort();
+            heldPorts.Add(held);
+            addresses[nodeId] = held.HttpUri;
+        }
 
         var peers = new (string NodeId, Uri Uri)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)
@@ -76,6 +82,9 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             // Partial startup and IO failures during spin-up share this rollback path.
+            // HeldPort.Dispose is a no-op for ports the factory already released for binding.
+            for (var i = 0; i < heldPorts.Count; i++)
+                heldPorts[i].Dispose();
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
             dataDir?.Dispose();

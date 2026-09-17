@@ -1,11 +1,14 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -45,7 +48,7 @@ public static class TestNodeHostFactory
         Uri uri,
         ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         TestNodeHostStartOptions? options,
-        ClusterTls? sharedMtls,
+        ClusterIdentity? sharedMtls,
         CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, CopyTopology(topology), options, sharedMtls, cancellationToken);
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
@@ -106,7 +109,7 @@ public static class TestNodeHostFactory
         Uri uri,
         (string NodeId, Uri Uri)[] topology,
         TestNodeHostStartOptions? options,
-        ClusterTls? sharedMtls,
+        ClusterIdentity? sharedMtls,
         CancellationToken cancellationToken)
     {
         PersistenceOptions? persistenceOptions = null;
@@ -119,24 +122,48 @@ public static class TestNodeHostFactory
             persistenceOptions = new PersistenceOptions { DataDir = dataDir };
         }
 
-        var peers = ClusterTls.CreatePeers(topology, ref sharedMtls);
-
-        var clusterConfig = new TopologyOptions(peers)
+        var callerOwnedIdentity = sharedMtls != null;
+        try
         {
-            NodeId = nodeId,
-            Uri = uri,
-            VirtualNodes = 128,
-            ReplicaCount = options?.ReplicaCount ?? 1,
-            ReplicationEnabled = options?.EnableReplication ?? true,
-            ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
-        };
+            var peers = ClusterIdentity.CreatePeers(topology, ref sharedMtls);
 
-        var primaryUri = clusterConfig.Uri;
-        var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
-        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls == null ? (null, null, null)
-            : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
+            var clusterConfig = new TopologyOptions(peers)
+            {
+                NodeId = nodeId,
+                Uri = uri,
+                VirtualNodes = 128,
+                ReplicaCount = options?.ReplicaCount ?? 1,
+                ReplicationEnabled = options?.EnableReplication ?? true,
+                ConfigurationGeneration = options?.ConfigurationGeneration ?? 1,
+            };
 
-        var nodeHostStartOptions = new NodeHostStartOptions
+            var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
+            var (mtlsOptions, material, factory) = sharedMtls == null ? new NodeMtlsStartup(null, null, null)
+                : await sharedMtls.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, cancellationToken).ConfigureAwait(false);
+
+            var nodeHostStartOptions = CreateNodeHostStartOptions(options, persistenceOptions, factory, mtlsOptions, material);
+            ListenPortPool.ReleaseHeldPrimary(uri);
+            var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
+
+            return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null, callerOwnedIdentity ? null : sharedMtls);
+        }
+        catch
+        {
+            if (!callerOwnedIdentity)
+                sharedMtls?.Dispose();
+            ListenPortPool.ReleaseHeldPrimary(uri);
+            throw;
+        }
+    }
+
+    private static NodeHostStartOptions CreateNodeHostStartOptions(
+        TestNodeHostStartOptions? options,
+        PersistenceOptions? persistenceOptions,
+        Func<string, HttpMessageHandler>? factory,
+        MtlsOptions? mtlsOptions,
+        MtlsCertificateMaterial? mtlsMaterial)
+    {
+        return new NodeHostStartOptions
         {
             ConfigureLogging = static b =>
             {
@@ -147,14 +174,11 @@ public static class TestNodeHostFactory
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
             PersistenceOptions = persistenceOptions,
-            PeerHandlerFactory = peerHandlerFactory,
+            PeerHandlerFactory = factory,
             SecurityOptions = options?.Security?.ToServerOptions(),
             MtlsOptions = mtlsOptions,
             MtlsMaterial = mtlsMaterial,
             TimeProvider = options?.TimeProvider,
         };
-        var app = await NodeHost.StartAsync(clusterConfig, nodeHostStartOptions, cancellationToken).ConfigureAwait(false);
-
-        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions != null);
     }
 }

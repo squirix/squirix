@@ -15,7 +15,8 @@ public sealed class PortAllocator : IDisposable
     /// <summary>Process-wide reservation to avoid duplicates between allocators inside one process.</summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
 
-    private readonly ConcurrentBag<int> _allocatedPorts = [];
+    /// <summary>Ports this allocator currently reserves in <see cref="Reserved" />; entries are removed wherever the reservation is dropped, so no stale data survives failed attempts.</summary>
+    private readonly ConcurrentDictionary<int, byte> _allocatedPorts = new();
     private readonly ConcurrentDictionary<int, TcpListener> _heldPorts = new();
     private readonly int _rangeSize;
     private readonly int _start;
@@ -90,7 +91,7 @@ public sealed class PortAllocator : IDisposable
             if (ProbeBind(candidate))
             {
                 // Port appears free (bind succeeded and released)
-                _allocatedPorts.Add(candidate);
+                _ = _allocatedPorts.TryAdd(candidate, 0);
                 return candidate;
             }
 
@@ -116,6 +117,32 @@ public sealed class PortAllocator : IDisposable
         listener.Dispose();
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        foreach (var (port, listener) in _heldPorts)
+        {
+            listener.Stop();
+            listener.Dispose();
+            _ = Reserved.TryRemove(port, out _);
+        }
+
+        _heldPorts.Clear();
+
+        foreach (var port in _allocatedPorts.Keys)
+            _ = Reserved.TryRemove(port, out _);
+
+        _allocatedPorts.Clear();
+    }
+
+    /// <summary>Determines whether the port falls inside this allocator's range.</summary>
+    /// <param name="port">The port number to locate.</param>
+    /// <returns><see langword="true" /> when the port belongs to this allocator's range.</returns>
+    internal bool Contains(int port) => port >= _start && port - _start < _rangeSize;
+
     /// <summary>
     /// Reserves a contiguous range of <paramref name="count" /> free ports and holds them all bound
     /// simultaneously so the pool does not hand the same port to overlapping callers.
@@ -131,7 +158,7 @@ public sealed class PortAllocator : IDisposable
     /// these ports to another caller. A released port stays reserved in-process; the caller should bind it
     /// quickly, because an unrelated third-party process could still grab it in the brief gap before the real bind.
     /// </remarks>
-    public int[] ReserveRange(int count, int maxAttempts = 3_000)
+    internal int[] ReserveRange(int count, int maxAttempts = 3_000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -150,25 +177,36 @@ public sealed class PortAllocator : IDisposable
         throw new InvalidOperationException($"Failed to reserve a contiguous range of {count} free listen ports.");
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    /// <summary>Attempts to bind and hold a specific port that was previously allocated from this allocator's range.</summary>
+    /// <param name="port">The port number to hold.</param>
+    /// <returns><see langword="true" /> when the port is held bound (including when it was already held); <see langword="false" /> when it is out of range or currently unbindable.</returns>
+    /// <remarks>
+    /// Used to reacquire a live hold for a previously released port (for example, a restarted node's
+    /// internal mTLS port) while preserving its assigned number. The in-process reservation is kept,
+    /// so the pool still never reissues the port to another caller.
+    /// </remarks>
+    internal bool TryHoldSpecific(int port)
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
+        if (!Contains(port))
+            return false;
+        if (_heldPorts.ContainsKey(port))
+            return true;
 
-        foreach (var (port, listener) in _heldPorts)
+        var addedReservation = Reserved.TryAdd(port, 0);
+        try
         {
-            listener.Stop();
-            listener.Dispose();
-            _ = Reserved.TryRemove(port, out _);
+            _heldPorts[port] = BindPort(port);
+            _ = _allocatedPorts.TryAdd(port, 0);
+            return true;
         }
-
-        _heldPorts.Clear();
-
-        foreach (var port in _allocatedPorts)
+        catch (SocketException)
+        {
+            if (!addedReservation)
+                return false;
             _ = Reserved.TryRemove(port, out _);
-
-        _allocatedPorts.Clear();
+            _ = _allocatedPorts.TryRemove(port, out _);
+            return false;
+        }
     }
 
     private static TcpListener BindPort(int port)
@@ -262,7 +300,7 @@ public sealed class PortAllocator : IDisposable
                     ports[i] = port;
                     reservedCount++;
                     _heldPorts[port] = listeners[i];
-                    _allocatedPorts.Add(port);
+                    _ = _allocatedPorts.TryAdd(port, 0);
                 }
                 catch (SocketException)
                 {
@@ -285,6 +323,7 @@ public sealed class PortAllocator : IDisposable
                     listener?.Stop();
                     listener?.Dispose();
                     _ = Reserved.TryRemove(port, out _);
+                    _ = _allocatedPorts.TryRemove(port, out _);
                 }
             }
         }

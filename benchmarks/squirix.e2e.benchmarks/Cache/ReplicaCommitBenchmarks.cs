@@ -20,7 +20,7 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
     private TempDirectory? _dataDir;
-    private ClusterTls? _mtls;
+    private ClusterIdentity? _identity;
     private TestNodeHost? _nodeA;
     private TestNodeHost? _nodeB;
     private int _offset;
@@ -50,29 +50,29 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        var uriA = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        _mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndBenchmarks.HoldPort();
+        using var heldB = ListenPortPool.EndToEndBenchmarks.HoldPort();
+        _identity = new ClusterIdentity();
         _dataDir = new TempDirectory("squirix-e2e-replica-commit");
-        var topology = new[] { ("nodeA", uriA), ("nodeB", uriB) };
+        var topology = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
         try
         {
             _nodeA = await TestNodeHostFactory.StartNodeAsync(
                 "nodeA",
-                uriA,
+                heldA.HttpUri,
                 topology,
                 new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
-                _mtls,
+                _identity,
                 CancellationToken.None).ConfigureAwait(false);
             _nodeB = await TestNodeHostFactory.StartNodeAsync(
                 "nodeB",
-                uriB,
+                heldB.HttpUri,
                 topology,
                 new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
-                _mtls,
+                _identity,
                 CancellationToken.None).ConfigureAwait(false);
 
-            _client = await E2EBenchmarkClientLease.ConnectAsync(uriA, CancellationToken.None).ConfigureAwait(false);
+            _client = await E2EBenchmarkClientLease.ConnectAsync(heldA.HttpUri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("replica-commit", CancellationToken.None).ConfigureAwait(false);
         }
         catch
@@ -104,8 +104,8 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
             await _nodeB.DisposeAsync().ConfigureAwait(false);
         _nodeB = null;
 
-        _mtls?.Dispose();
-        _mtls = null;
+        _identity?.Dispose();
+        _identity = null;
         _dataDir?.Dispose();
         _dataDir = null;
     }

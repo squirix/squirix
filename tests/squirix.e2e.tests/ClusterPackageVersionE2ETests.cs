@@ -29,41 +29,41 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
     [Test]
     public async Task MismatchedPackageVersionFailsReadiness(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriLegacy = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldLegacy = ListenPortPool.EndToEndTests.HoldPort();
+        using var identity = new ClusterIdentity();
         using var dataDir = new TempDirectory("squirix-e2e-package-version");
-        var peers = new[] { ("nodeA", uriA), ("nodeB", uriB) };
+        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
         var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
         var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
 
         // Control case: homogeneous peers activate the RF=2 topology and serve traffic.
         await using var hostA = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
-            uriA,
+            heldA.HttpUri,
             peers,
             new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA },
-            mtls,
+            identity,
             cancellationToken);
 
         // Control case: homogeneous peers activate the RF=2 topology and serve traffic.
         // hostB is disposed when the helper returns, freeing dirB for the legacy restart below.
         _ = await Assert.That(hostA.HasInterNodeMtlsListener).IsTrue();
-        await ProveHomogeneousTrafficAsync(uriA, uriB, peers, dirB, mtls, cancellationToken);
+        await ProveHomogeneousTrafficAsync(heldA.HttpUri, heldB.HttpUri, peers, dirB, identity, cancellationToken);
 
         // A peer built from an older package embeds that version in its topology fingerprint, so it
         // necessarily presents a divergent identity. Restarting on the stopped node's directory with such
         // an identity is refused by the activated-stamp comparison before storage opens, so the peer
         // never reaches readiness on the activated topology.
-        var divergentPeers = new[] { ("nodeLegacy", uriLegacy), ("nodeB", uriB) };
+        var divergentPeers = new[] { ("nodeLegacy", heldLegacy.HttpUri), ("nodeB", heldB.HttpUri) };
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
             TestNodeHostFactory.StartNodeAsync(
                 "nodeLegacy",
-                uriLegacy,
+                heldLegacy.HttpUri,
                 divergentPeers,
                 new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB },
-                mtls,
+                identity,
                 cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
@@ -76,7 +76,7 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
     /// <param name="dirB">Persistence directory of the second node.</param>
     /// <param name="mtls">Caller-owned shared mTLS context.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    private static async Task ProveHomogeneousTrafficAsync(Uri uriA, Uri uriB, (string NodeId, Uri Uri)[] peers, string dirB, ClusterTls mtls, CancellationToken cancellationToken)
+    private static async Task ProveHomogeneousTrafficAsync(Uri uriA, Uri uriB, (string NodeId, Uri Uri)[] peers, string dirB, ClusterIdentity mtls, CancellationToken cancellationToken)
     {
         await using var hostB = await TestNodeHostFactory.StartNodeAsync(
             "nodeB",

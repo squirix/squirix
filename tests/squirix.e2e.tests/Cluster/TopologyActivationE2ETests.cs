@@ -20,25 +20,25 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
     [Test]
     public async Task LiveActivatedRfTopologyChangeIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriC = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldC = ListenPortPool.EndToEndTests.HoldPort();
+        using var identity = new ClusterIdentity();
         using var dataDir = new TempDirectory("squirix-e2e-topology-live");
-        var peers = new[] { ("nodeA", uriA), ("nodeB", uriB) };
+        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
         var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
         var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
         var optionsA = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA };
         var optionsB = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB };
 
-        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, optionsA, mtls, cancellationToken);
-        await using var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, peers, optionsB, mtls, cancellationToken);
+        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, optionsA, identity, cancellationToken);
+        await using var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, optionsB, identity, cancellationToken);
         await hostA.DisposeAsync();
 
         // NodeB stays live while nodeA restarts with a peer set that was never bootstrapped.
-        var changedPeers = new[] { ("nodeA", uriA), ("nodeC", uriC) };
+        var changedPeers = new[] { ("nodeA", heldA.HttpUri), ("nodeC", heldC.HttpUri) };
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync("nodeA", uriA, changedPeers, optionsA, mtls, cancellationToken));
+            TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, changedPeers, optionsA, identity, cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
     }
@@ -52,16 +52,16 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
     [Test]
     public async Task StoppedActivatedRfTopologyIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var identity = new ClusterIdentity();
         using var dataDir = new TempDirectory("squirix-e2e-topology-stopped");
-        var peers = new[] { ("nodeA", uriA), ("nodeB", uriB) };
+        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
         var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
         var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
 
-        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA }, mtls, cancellationToken);
-        var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB }, mtls, cancellationToken);
+        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA }, identity, cancellationToken);
+        var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB }, identity, cancellationToken);
         await hostA.DisposeAsync();
         await hostB.DisposeAsync();
 
@@ -69,10 +69,10 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
             TestNodeHostFactory.StartNodeAsync(
                 "nodeA",
-                uriA,
+                heldA.HttpUri,
                 peers,
                 new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 },
-                mtls,
+                identity,
                 cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);

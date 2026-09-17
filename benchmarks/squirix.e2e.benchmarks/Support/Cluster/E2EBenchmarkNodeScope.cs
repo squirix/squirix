@@ -45,7 +45,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     private static Task<E2EBenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{scopeId}";
-        var uri = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
+        var uri = ListenPortPool.EndToEndBenchmarks.HoldHttpUri();
         return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
     }
 

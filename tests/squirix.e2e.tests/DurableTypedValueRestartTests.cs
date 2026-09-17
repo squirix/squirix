@@ -98,7 +98,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, FakeTimeProvider? clock, CancellationToken cancellationToken)
         {
             var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-            var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri(), clock);
+            var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri(), clock);
             await node.StartNodeAsync(cancellationToken);
             return node;
         }

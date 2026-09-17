@@ -25,7 +25,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TempDirectory? _dataDir;
-    private readonly ClusterTls? _mtls;
+    private readonly ClusterIdentity? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
     private readonly MultiNodeStartOptions _startOptions;
     private readonly FrozenDictionary<string, Uri> _uris;
@@ -34,7 +34,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private HostedCluster(
         Dictionary<string, TestNode> nodes,
-        ClusterTls? mtls,
+        ClusterIdentity? mtls,
         TempDirectory? dataDir,
         MultiNodeStartOptions startOptions,
         FrozenDictionary<string, Uri> uris,
@@ -161,10 +161,10 @@ internal sealed class HostedCluster : IAsyncDisposable
         var pool = ListenPortPool.EndToEndTests;
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
 
-        // Multi-node topologies share one ClusterTls material so peer trust anchors stay consistent.
-        var mtls = nodeIds.Length > 1 ? new ClusterTls() : null;
+        // Multi-node topologies share one ClusterIdentity material so peer trust anchors stay consistent.
+        var identity = nodeIds.Length > 1 ? new ClusterIdentity() : null;
         var dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
-        var reserved = Array.Empty<int>();
+        var reserved = Array.Empty<HeldPort>();
         try
         {
             // Reserve one loopback port per node and keep them bound until each node binds. Because the
@@ -172,22 +172,22 @@ internal sealed class HostedCluster : IAsyncDisposable
             // the pool will not hand the same port to a later caller, and cross-process slices are disjoint.
             // This closes the pool-level TOCTOU race; an unrelated third-party process could still grab a
             // briefly released port, which upstream probes already guard against.
-            reserved = pool.AllocateRange(nodeIds.Length);
+            reserved = pool.HoldPorts(nodeIds.Length);
             var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
             for (var i = 0; i < nodeIds.Length; i++)
-                uris[nodeIds[i]] = new Uri($"https://127.0.0.1:{reserved[i]}", UriKind.Absolute);
+                uris[nodeIds[i]] = reserved[i].HttpUri;
 
             var topology = new (string NodeId, Uri Uri)[nodeIds.Length];
             for (var i = 0; i < nodeIds.Length; i++)
                 topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
-            var cluster = new HostedCluster(nodes, mtls, dataDir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
+            var cluster = new HostedCluster(nodes, identity, dataDir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
 
                 // Release this node's held port so Kestrel can bind it, then start the node immediately.
-                pool.ReleasePort(reserved[i]);
+                reserved[i].Dispose();
                 nodes[nodeId] = new TestNode(await cluster.StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
             }
 
@@ -199,12 +199,12 @@ internal sealed class HostedCluster : IAsyncDisposable
             // already-started nodes before rethrowing. This runs for every failure, including startup
             // exceptions and cancellation, so held ports never leak for the process lifetime.
             for (var i = nodes.Count; i < reserved.Length; i++)
-                pool.ReleasePort(reserved[i]);
+                reserved[i].Dispose();
 
             foreach (var node in nodes.Values)
                 await node.DisposeAsync();
 
-            mtls?.Dispose();
+            identity?.Dispose();
             dataDir?.Dispose();
             throw;
         }

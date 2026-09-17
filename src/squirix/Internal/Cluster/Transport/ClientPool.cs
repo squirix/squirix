@@ -158,7 +158,7 @@ internal sealed class ClientPool : IClientPool
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
             var connectOptions = primaryNodeId == null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-            var failure = await WarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
+            var failure = await WarmPeerAsync(channel, connectOptions, cancellationToken).ConfigureAwait(false);
             if (failure == null)
             {
                 primaryNodeId ??= id;
@@ -194,11 +194,11 @@ internal sealed class ClientPool : IClientPool
             _policies[_nodeIds[i]].BeginDrain();
     }
 
-    private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, string id, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
+    private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
     {
         try
         {
-            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
             ClientPoolMetrics.AddWarmup();
             return null;
         }
@@ -212,13 +212,11 @@ internal sealed class ClientPool : IClientPool
     {
         internal static async ValueTask ConnectWithRetryAsync(
             GrpcChannel channel,
-            string endpointName,
             BootstrapConnectOptions options,
             CancellationToken cancellationToken,
             TimeProvider? timeProvider = null)
         {
             ArgumentNullException.ThrowIfNull(channel);
-            ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
 
             var time = timeProvider ?? TimeProvider.System;
             var deadlineUtc = time.GetUtcNow() + options.OverallDeadline;
@@ -249,7 +247,7 @@ internal sealed class ClientPool : IClientPool
                 if (backoff > remaining)
                     backoff = remaining;
 
-                // Never sleep past the overall connect deadline.
+                // Never sleep past the overall connection deadline.
                 await Task.Delay(backoff, time, cancellationToken).ConfigureAwait(false);
             }
 
