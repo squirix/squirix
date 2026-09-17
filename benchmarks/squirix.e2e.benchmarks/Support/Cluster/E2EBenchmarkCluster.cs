@@ -48,27 +48,26 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         var nodeIds = topology is BenchmarkTopology.SingleNode ? SingleNodeIds : DualNodeIds;
         var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
         var heldPorts = new List<HeldPort>(nodeIds.Length);
-
-        // Allocate listener URIs up front so every node advertises the same peer topology during startup.
-        // Handles stay alive until each node binds (released by the factory) or startup fails.
-        foreach (var nodeId in nodeIds)
-        {
-            var held = ListenPortPool.EndToEndBenchmarks.HoldPort();
-            heldPorts.Add(held);
-            addresses[nodeId] = held.HttpUri;
-        }
-
-        var peers = new (string NodeId, Uri Uri)[nodeIds.Length];
-        for (var i = 0; i < nodeIds.Length; i++)
-            peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
-
-        var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
-        var dataDir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
-
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
-
+        TempDirectory? dataDir = null;
         try
         {
+            // Allocate listener URIs up front so every node advertises the same peer topology during startup.
+            // Handles stay alive until each node binds (released by the factory) or startup fails.
+            foreach (var nodeId in nodeIds)
+            {
+                var held = ListenPortPool.EndToEndBenchmarks.HoldPort();
+                heldPorts.Add(held);
+                addresses[nodeId] = held.HttpUri;
+            }
+
+            var peers = new (string NodeId, Uri Uri)[nodeIds.Length];
+            for (var i = 0; i < nodeIds.Length; i++)
+                peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
+
+            var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
+            dataDir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
+
             // Each node receives an isolated data directory when persistence benchmarks are enabled.
             foreach (var nodeId in nodeIds)
             {
@@ -79,10 +78,10 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
             return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        catch
         {
-            // Partial startup and IO failures during spin-up share this rollback path.
-            // HeldPort.Dispose is a no-op for ports the factory already released for binding.
+            // Roll back every setup failure, including cancellation: HeldPort.Dispose is
+            // a no-op for ports the factory already released for binding.
             for (var i = 0; i < heldPorts.Count; i++)
                 heldPorts[i].Dispose();
             foreach (var node in nodes.Values)
