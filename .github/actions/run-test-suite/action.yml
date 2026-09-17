@@ -58,63 +58,31 @@ runs:
       shell: bash
       run: bash tools/ci/ensure-dev-https-cert.sh
 
-    - name: Run Test Suite
+    - name: Shim python3 On Windows
+      if: runner.os == 'Windows'
       shell: bash
       run: |
+        python="$(type -p python)"
+        cp "$python" "$(dirname "$python")"/python3
+
+    - name: Select Test Suite
+      id: select
+      shell: bash
+      run: |
+        python3 tools/ci/select-test-suite.py "${{ inputs.suite }}" >> "$GITHUB_OUTPUT"
+
+    - name: Run Test Suite
+      shell: bash
+      env:
+        PROJECT: ${{ steps.select.outputs.project }}
+        FILTER: ${{ steps.select.outputs.filter }}
+      run: |
         set -o pipefail
+        echo "Suite '${{ inputs.suite }}': project '$PROJECT', filter '${FILTER:-<none>}'."
         FILTER_ARGS=()
-        case "${{ inputs.suite }}" in
-          unit)
-            PROJECT="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"
-            ;;
-          client-integration)
-            PROJECT="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"
-            ;;
-          server-unit)
-            PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
-            ;;
-          server-integration)
-            PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
-            ;;
-          e2e-single-node)
-            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Single-node e2e, excluding the scheduled/manual stress suite. Mirrors the prior
-            # VSTest filter:
-            #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
-            # Translated to the TUnit treenode-filter language (only --treenode-filter exists;
-            # --filter/--filter-query/--filter-class do not, and multiple flags AND together,
-            # so the whole suite must fit one expression). The legacy Client/Persistence
-            # substring matched 3 MultiNode-owned methods
-            # (ExternalClientMutationsOwnedByNodeB, ExternalClientCannotSpoofOwnerHeader,
-            # NodeAClientForwardsToOwnerOverMtls), all still covered by e2e-multi-node below;
-            # no legacy Persistence-only test exists outside Cache.SingleNode. Net delta: 72
-            # tests here instead of 75, with zero coverage loss across both suites.
-            FILTER_ARGS=(
-              --treenode-filter "/*/Squirix.E2ETests.Cache.SingleNode*/*/*"
-            )
-            ;;
-          e2e-multi-node)
-            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Multi-node e2e, excluding stress. Mirrors:
-            #   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
-            # plus the HA release classes below. Translated to one TUnit treenode-filter with
-            # class-name alternation (multiple flags AND together, so OR must live in a single
-            # segment). No legacy Security-only test exists outside these classes, and the
-            # stress class (MixedMutationStressTests, carrying Property("Suite","Stress")) is
-            # simply absent from the alternation. Selects the same 61 tests as before.
-            # HA release classes (M8 replica sets) stay visible here alongside Cache.MultiNode.
-            FILTER_ARGS=(
-              --treenode-filter "/*/*/(CrossNodeCrudTests)|(CrossNodeExpirationTests)|(CrossNodeTypedValueTests)|(InterNodeMtlsTests)|(ReplicaSetsReleaseE2ETests)|(FailoverE2ETests)|(ClusterPackageVersionE2ETests)|(ReplicaBootstrapE2ETests)|(TopologyActivationE2ETests)/*"
-            )
-            ;;
-          protocol-model)
-            PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
-            ;;
-          *)
-            echo "Unsupported suite: ${{ inputs.suite }}" >&2
-            exit 1
-            ;;
-        esac
+        if [ -n "$FILTER" ]; then
+          FILTER_ARGS=(--treenode-filter "$FILTER")
+        fi
 
         if [ "${{ inputs.collect-coverage }}" = "true" ]; then
           mkdir -p "coverage/${{ inputs.suite }}"
