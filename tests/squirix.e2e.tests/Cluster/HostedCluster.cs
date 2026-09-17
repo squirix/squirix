@@ -186,8 +186,8 @@ internal sealed class HostedCluster : IAsyncDisposable
             {
                 var nodeId = nodeIds[i];
 
-                // Release this node's held port so Kestrel can bind it, then start the node immediately.
-                reserved[i].Dispose();
+                // The reservation stays held until TestNodeHostFactory releases it immediately
+                // before Kestrel binds, so certificate generation stays protected from races.
                 nodes[nodeId] = new TestNode(await cluster.StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
             }
 
