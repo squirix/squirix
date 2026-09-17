@@ -12,6 +12,8 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
+using TUnit.Core;
 
 [assembly: Rock(typeof(INodeLocator), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryBudgetProvider), BuildType.Create)]
@@ -38,3 +40,4 @@ using Squirix.Server.Storage.Snapshot;
 [assembly: Rock(typeof(IManifestRetentionFailureMetrics), BuildType.Create)]
 [assembly: Rock(typeof(IRetentionCleanupReadinessStatus), BuildType.Create)]
 [assembly: Rock(typeof(IHttpContextAccessor), BuildType.Create)]
+[assembly: ParallelLimiter<ServerProcessorCountLimit>]

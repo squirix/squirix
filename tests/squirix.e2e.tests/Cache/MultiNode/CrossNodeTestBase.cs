@@ -8,6 +8,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.</summary>
 [Immutable]
+[ParallelLimiter<ClusterStartupLimit>]
 public abstract class CrossNodeTestBase : EndToEndTestBase
 {
     /// <summary>Gets the shared two-node cluster fixture injected once per test class.</summary>
