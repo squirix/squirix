@@ -94,7 +94,7 @@ gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
+In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over internode gRPC
 instead of minting a new id. Idempotency records are per-node in memory (durable nodes also persist outcomes through the
 journal/snapshot path); when a retry lands on a different entry node (bootstrap endpoint switch or transport failover),
 the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not applied

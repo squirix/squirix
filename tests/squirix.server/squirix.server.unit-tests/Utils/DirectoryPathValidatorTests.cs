@@ -51,18 +51,18 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     [Test]
     public async Task ResolveDirAcceptsRelativeBase()
     {
-        using var root = new TempDirectory("squirix-dirpath-rel");
-        var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", root.Path, true);
+        using var dir = new TempDirectory("squirix-dirpath-rel");
+        var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", dir, true);
         _ = await Assert.That(Path.IsPathRooted(full)).IsTrue();
-        _ = await Assert.That(full).StartsWith(root.Path, StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(full).StartsWith(dir, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Creates a missing base directory when provided.</summary>
     [Test]
     public async Task ResolveDirCreatesMissingBase()
     {
-        using var root = new TempDirectory("squirix-dirpath-base-create");
-        var baseDir = Path.Join(root.Path, "missing-base");
+        using var dir = new TempDirectory("squirix-dirpath-base-create");
+        var baseDir = Path.Join(dir, "missing-base");
         var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", baseDir, false);
         _ = await Assert.That(Directory.Exists(baseDir)).IsTrue();
         _ = await Assert.That(full).StartsWith(baseDir, StringComparison.OrdinalIgnoreCase);
@@ -72,13 +72,13 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     [Test]
     public async Task ResolveDirRejectsBaseEscape()
     {
-        using var root = new TempDirectory("squirix-dirpath-escape");
-        var parent = Directory.GetParent(root.Path);
+        using var dir = new TempDirectory("squirix-dirpath-escape");
+        var parent = Directory.GetParent(dir);
         _ = await Assert.That(parent).IsNotNull();
         var outside = Path.Join(parent.FullName, NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(
             outside,
-            root.Path,
+            dir,
             static (path, basePath) => DirectoryPathValidator.ResolveValidatedDirectoryPath(path, basePath, true));
     }
 
@@ -92,9 +92,9 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
     [Test]
     public void ResolveDirRejectsExistingFile()
     {
-        using var root = new TempDirectory("squirix-dirpath-file");
-        var target = Path.Join(root.Path, "blocked");
+        using var dir = new TempDirectory("squirix-dirpath-file");
+        var target = Path.Join(dir, "blocked");
         File.WriteAllText(target, "x");
-        _ = NodeExceptionAssert.For<IOException>().Throws(root.Path, static basePath => DirectoryPathValidator.ResolveValidatedDirectoryPath("blocked", basePath, true));
+        _ = NodeExceptionAssert.For<IOException>().Throws(dir, static basePath => DirectoryPathValidator.ResolveValidatedDirectoryPath("blocked", basePath, true));
     }
 }

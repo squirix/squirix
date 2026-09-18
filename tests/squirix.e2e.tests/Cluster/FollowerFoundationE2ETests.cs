@@ -61,8 +61,8 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDirectory = new TempDirectory("squirix-e2e-follower-foundation");
-        var options = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dataDirectory.Path };
+        using var dir = new TempDirectory("squirix-e2e-follower-foundation");
+        var options = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dir };
         await using var host = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
             heldA.HttpUri,
@@ -77,30 +77,30 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
     /// <summary>Single persistent node that can be stopped and restarted in the same data directory.</summary>
     private sealed class PersistentSingleNode : IAsyncDisposable
     {
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
         private ISquirixClient? _client;
         private TestNodeHost? _host;
 
-        private PersistentSingleNode(TempDirectory dataDir, Uri uri)
+        private PersistentSingleNode(TempDirectory dir, Uri uri)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             Uri = uri;
         }
 
-        private string DataDir => _dataDir.Path;
+        private string DataDir => _dir;
 
         private Uri Uri { get; }
 
         public async ValueTask DisposeAsync()
         {
             await StopNodeAsync().ConfigureAwait(false);
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         internal static async ValueTask<PersistentSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
         {
-            var dataDir = new TempDirectory("squirix-e2e-follower-foundation", testName);
-            var node = new PersistentSingleNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri());
+            var dir = new TempDirectory("squirix-e2e-follower-foundation", testName);
+            var node = new PersistentSingleNode(dir, ListenPortPool.EndToEndTests.HoldHttpUri());
             try
             {
                 await node.StartNodeAsync(cancellationToken);

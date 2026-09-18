@@ -105,7 +105,7 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var peerHandler = interNodeMtlsEnabled switch
         {
-            true when mtlsMaterial is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport."),
+            true when mtlsMaterial is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport."),
             true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId),
             _ => null,
         };
@@ -162,7 +162,7 @@ internal sealed class ServerClientPool : IServerClientPool
                 return uri;
 
             if (options.InternalListenPort <= 0)
-                throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for inter-node transport.");
+                throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for internode transport.");
 
             const string message = "Cluster peer URI is invalid.";
             var primaryUri = peer.Uri;

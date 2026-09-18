@@ -73,9 +73,9 @@ There is no opt-out that allows unauthenticated cache access on non-loopback int
 [diagnostics.md — metrics route](diagnostics.md#metrics-route).
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
-`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for inter-node gRPC with mutual TLS. External clients continue to use the primary
+`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode gRPC with mutual TLS. External clients continue to use the primary
 port with JWT/OIDC; cluster forwarding uses the internal port and per-node certificates (`CN` = `NodeId`). See
-[security/inter-node-mtls.md](security/inter-node-mtls.md).
+[security/internode-mtls.md](security/internode-mtls.md).
 
 Explicit settings path:
 

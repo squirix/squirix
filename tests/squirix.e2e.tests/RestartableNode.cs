@@ -12,18 +12,18 @@ namespace Squirix.E2ETests;
 /// <summary>Single persistent node that can be stopped and restarted on the same data directory.</summary>
 internal sealed class RestartableNode : IAsyncDisposable
 {
-    private readonly TempDirectory _dataDir;
+    private readonly TempDirectory _dir;
     private ISquirixClient? _client;
     private TestNodeHost? _host;
 
-    private RestartableNode(TempDirectory dataDir, Uri uri)
+    private RestartableNode(TempDirectory dir, Uri uri)
     {
-        _dataDir = dataDir;
+        _dir = dir;
         Uri = uri;
     }
 
     /// <summary>Gets the node data directory path.</summary>
-    internal string DataDir => _dataDir.Path;
+    internal string DataDir => _dir;
 
     private Uri Uri { get; }
 
@@ -31,7 +31,7 @@ internal sealed class RestartableNode : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
-        _dataDir.Dispose();
+        _dir.Dispose();
     }
 
     /// <summary>Starts a persistent node for the calling test.</summary>
@@ -40,8 +40,8 @@ internal sealed class RestartableNode : IAsyncDisposable
     /// <returns>The started node.</returns>
     internal static async ValueTask<RestartableNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
-        var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-        var node = new RestartableNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri());
+        var dir = new TempDirectory("squirix-e2e-restartable", testName);
+        var node = new RestartableNode(dir, ListenPortPool.EndToEndTests.HoldHttpUri());
         try
         {
             await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);

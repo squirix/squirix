@@ -33,10 +33,10 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var heldLegacy = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-package-version");
+        using var dir = new TempDirectory("squirix-e2e-package-version");
         var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
-        var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
+        var dirA = NodePathKit.Combine(dir, "nodeA");
+        var dirB = NodePathKit.Combine(dir, "nodeB");
 
         // Control case: homogeneous peers activate the RF=2 topology and serve traffic.
         await using var hostA = await TestNodeHostFactory.StartNodeAsync(

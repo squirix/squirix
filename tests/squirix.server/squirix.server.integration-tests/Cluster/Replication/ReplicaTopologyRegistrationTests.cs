@@ -34,7 +34,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         _ = await Assert.That(fingerprintBa).IsEqualTo(fingerprintAb);
     }
 
-    /// <summary>RF=1 keeps network replication disabled and does not enable inter-node mTLS on a standalone node.</summary>
+    /// <summary>RF=1 keeps network replication disabled and does not enable internode mTLS on a standalone node.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfOneSkipsReplicationTransport(CancellationToken cancellationToken)

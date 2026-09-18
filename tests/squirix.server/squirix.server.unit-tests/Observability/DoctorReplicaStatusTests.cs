@@ -28,7 +28,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-doctor-facade");
 
-        var report = await ReplicaDoctor.BuildReportAsync(CreateOptions(), dir.Path, cancellationToken);
+        var report = await ReplicaDoctor.BuildReportAsync(CreateOptions(), dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsFalse();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("not activated", StringComparison.Ordinal);
@@ -42,8 +42,8 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-guards");
         const string? missingHex = null;
         const IReadOnlyList<string>? missingGroups = null;
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(missingHex!, 5, 2, ["n1"], dir.Path, cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(ExpectedHex(), 5, 2, missingGroups!, dir.Path, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken));
     }
 
     /// <summary>Verifies an aligned stamp and generation report a match without mismatch.</summary>
@@ -54,9 +54,9 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-match");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsFalse();
         var text = string.Join('\n', report.Lines);
@@ -71,10 +71,10 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     public async Task ReportsCorruptStampAsMismatch(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-corrupt");
-        var store = new ActivatedTopologyStampStore(dir.Path);
+        var store = new ActivatedTopologyStampStore(dir);
         await File.WriteAllTextAsync(store.StampPath, "corrupt", cancellationToken);
 
-        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir.Path, cancellationToken);
+        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("UNREADABLE", StringComparison.Ordinal);
@@ -88,9 +88,9 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-mismatch");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, WrongFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        await PublishStampAsync(dir, WrongFingerprintBytes(options, mtls), 5, 2, cancellationToken);
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("fingerprint MISMATCH", StringComparison.Ordinal);
@@ -106,9 +106,9 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-generation");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 6, 2, cancellationToken);
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 6, 2, cancellationToken);
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("generation MISMATCH", StringComparison.Ordinal);
@@ -122,16 +122,16 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-group");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
-        await WriteGroupMetadataAsync(dir.Path, "n1", new ReadOnlyMemory<byte>(WrongFingerprintBytes(options, mtls)), 5, cancellationToken);
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        await WriteGroupMetadataAsync(dir, "n1", new ReadOnlyMemory<byte>(WrongFingerprintBytes(options, mtls)), 5, cancellationToken);
 
-        var beforePaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
+        var beforePaths = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
         Array.Sort(beforePaths, StringComparer.Ordinal);
         var beforeContents = new string[beforePaths.Length];
         for (var i = 0; i < beforePaths.Length; i++)
             beforeContents[i] = Convert.ToHexString(await File.ReadAllBytesAsync(beforePaths[i], cancellationToken));
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         var text = string.Join('\n', report.Lines);
@@ -141,7 +141,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(text).Contains("group 'n2': no durable state", StringComparison.Ordinal);
 
         // Diagnostics are read-only: the durable file set and contents are unchanged.
-        var afterPaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
+        var afterPaths = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
         Array.Sort(afterPaths, StringComparer.Ordinal);
         _ = await Assert.That(afterPaths.Length).IsEqualTo(beforePaths.Length);
         for (var i = 0; i < afterPaths.Length; i++)
@@ -159,7 +159,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-inactive");
         var options = CreateOptions();
 
-        var report = await BuildReportAsync(options, new MtlsOptions(), dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, new MtlsOptions(), dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsFalse();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("not activated", StringComparison.Ordinal);
@@ -173,9 +173,9 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-count");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 3, cancellationToken);
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 3, cancellationToken);
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("replica count MISMATCH", StringComparison.Ordinal);
@@ -189,11 +189,11 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-unreadable");
         var options = CreateOptions();
         var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir.Path, "n1"));
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir.Path, "n1"), [1, 2, 3], cancellationToken);
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, "n1"));
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, "n1"), [1, 2, 3], cancellationToken);
 
-        var report = await BuildReportAsync(options, mtls, dir.Path, cancellationToken);
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 
         _ = await Assert.That(report.HasMismatch).IsTrue();
         _ = await Assert.That(string.Join('\n', report.Lines)).Contains("group 'n1': metadata UNREADABLE", StringComparison.Ordinal);

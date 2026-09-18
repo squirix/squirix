@@ -21,7 +21,7 @@ internal enum HostPortRegion
     /// <summary>In-process mock OIDC authority listeners.</summary>
     MockOidcAuthority = 5,
 
-    /// <summary>Inter-node mTLS internal listener ports.</summary>
+    /// <summary>Internode mTLS internal listener ports.</summary>
     MtlsInternal = 6,
 
     /// <summary>Server unit tests that bind HTTPS listeners.</summary>

@@ -7,7 +7,7 @@
     Adapters (REST/gRPC transport)
       → Node.Hosting (DI composition, Kestrel, options)
         → Node.Services / Node.App / Node.Bootstrap / Node.Context (runtime orchestration & decorators)
-          → Cluster (routing, membership, inter-node transport)
+          → Cluster (routing, membership, internode transport)
           → LocalCache (in-memory owner cache)
           → Node.Backpressure / Node.MemoryPressure / Node.Observability / Serialization
             → Storage (journal, snapshot, manifest)
@@ -175,7 +175,7 @@
       From="/^Squirix\.Server\.LocalCache(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
-  <!-- ═══ Cluster (distributed routing & inter-node transport) ═══ -->
+  <!-- ═══ Cluster (distributed routing & internode transport) ═══ -->
 
   <!-- Cluster runtime must not depend on REST/gRPC adapters. -->
   <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Adapters.*" />

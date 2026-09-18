@@ -51,11 +51,11 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
-    /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
-    /// <param name="localNodeId">Configured cluster node identifier; required when inter-node mTLS is enabled.</param>
-    /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
+    /// <param name="requiresInterNodeMtls">Whether internode mTLS is required for the configured cluster topology.</param>
+    /// <param name="localNodeId">Configured cluster node identifier; required when internode mTLS is enabled.</param>
+    /// <returns>Loaded certificate material, or <see cref="Disabled" /> when internode mTLS is not required.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is required but configuration or certificate material is invalid.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when internode mTLS is required but configuration or certificate material is invalid.</exception>
     internal static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -65,7 +65,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
             return Disabled;
 
         if (string.IsNullOrWhiteSpace(localNodeId))
-            throw new InvalidOperationException("Cluster NodeId is required to load inter-node mTLS certificate material.");
+            throw new InvalidOperationException("Cluster NodeId is required to load internode mTLS certificate material.");
 
         var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
         var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);

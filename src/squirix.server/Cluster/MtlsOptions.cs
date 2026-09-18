@@ -5,7 +5,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.</summary>
+/// <summary>Cluster-scoped internode mTLS configuration. Does not affect external client authentication.</summary>
 [Immutable]
 internal sealed record MtlsOptions
 {
@@ -21,7 +21,7 @@ internal sealed record MtlsOptions
     /// <summary>Gets the path to the node certificate PFX/PKCS#12 file.</summary>
     internal string? CertPfxPath { get; init; }
 
-    /// <summary>Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.</summary>
+    /// <summary>Gets the dedicated cluster/internal HTTPS listener port for internode mTLS.</summary>
     internal int InternalListenPort { get; init; }
 
     /// <summary>Gets the path to the PEM-encoded node private key.</summary>
@@ -29,7 +29,7 @@ internal sealed record MtlsOptions
 
     /// <summary>Validates configuration shape and file presence without loading certificates.</summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
-    /// <param name="requiresInterNodeMtls">Whether cluster topology requires inter-node mTLS.</param>
+    /// <param name="requiresInterNodeMtls">Whether cluster topology requires internode mTLS.</param>
     /// <exception cref="InvalidOperationException">Thrown when configuration is incomplete or inconsistent.</exception>
     internal void Validate(int? primaryListenPort, bool requiresInterNodeMtls)
     {

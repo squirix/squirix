@@ -24,7 +24,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     public async Task DoctorHonorsReplicationOptInFlag(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-optin");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken, false);
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken, false);
 
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, true, cancellationToken, true);
         _ = await Assert.That(exitCode).IsEqualTo(0);
@@ -37,8 +37,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     public async Task DoctorReportsFingerprintMismatch(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-mismatch");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken);
-        var dataDir = Path.Join(dir.Path, "data");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken);
+        var dataDir = Path.Join(dir, "data");
         _ = Directory.CreateDirectory(dataDir);
         var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
@@ -64,8 +64,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     public async Task DoctorReportsGroupCommitLag(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-lag");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken);
-        var dataDir = Path.Join(dir.Path, "data");
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken);
+        var dataDir = Path.Join(dir, "data");
         _ = Directory.CreateDirectory(dataDir);
         var options = await Configurator.LoadAsync(settingsPath, cancellationToken);
         var expected = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), MtlsOptionsResolver.ResolveFromEnvironment());
@@ -93,7 +93,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     public async Task DoctorReportsInactiveReplication(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-cmd-inactive");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 1, cancellationToken);
+        var settingsPath = await WriteSettingsAsync(dir, 1, cancellationToken);
 
         var (exitCode, output) = await RunDoctorAsync(settingsPath, null, false, cancellationToken);
 
@@ -118,8 +118,8 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     public async Task RunRefusesWithoutOptIn(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-run-nooptin");
-        var settingsPath = await WriteSettingsAsync(dir.Path, 2, cancellationToken, false);
-        _ = Directory.CreateDirectory(Path.Join(dir.Path, "data"));
+        var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken, false);
+        _ = Directory.CreateDirectory(Path.Join(dir, "data"));
 
         var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDll()}\" run --settings \"{settingsPath}\"", cancellationToken);
         _ = await Assert.That(exitCode).IsNotEqualTo(0);

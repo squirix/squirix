@@ -79,11 +79,11 @@ public class ManifestPublishBenchmarks
     [Immutable]
     private sealed class Host : IDisposable
     {
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
 
-        private Host(TempDirectory dataDir, Ledger manifestStore)
+        private Host(TempDirectory dir, Ledger manifestStore)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             Ledger = manifestStore;
         }
 
@@ -92,7 +92,7 @@ public class ManifestPublishBenchmarks
         public void Dispose()
         {
             Ledger.Dispose();
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         internal static Task<Host> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)
@@ -100,10 +100,10 @@ public class ManifestPublishBenchmarks
             ArgumentException.ThrowIfNullOrEmpty(tempDirectoryPrefix);
             ArgumentNullException.ThrowIfNull(options);
 
-            var dataDir = new TempDirectory(tempDirectoryPrefix);
-            var persistence = options with { DataDir = dataDir.Path };
+            var dir = new TempDirectory(tempDirectoryPrefix);
+            var persistence = options with { DataDir = dir };
             var manifestStore = new Ledger(persistence);
-            return Task.FromResult(new Host(dataDir, manifestStore));
+            return Task.FromResult(new Host(dir, manifestStore));
         }
     }
 }

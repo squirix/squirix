@@ -57,7 +57,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var heldC = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-rejoin");
+        using var dir = new TempDirectory("squirix-e2e-rejoin");
         var topology = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri), ("nodeC", heldC.HttpUri) };
         var options = new Func<string, string, TestNodeHostStartOptions>(static (node, dataDirPath) => new TestNodeHostStartOptions
         {
@@ -65,9 +65,9 @@ public sealed class FailoverE2ETests : EndToEndTestBase
             DataDir = NodePathKit.Combine(dataDirPath, node),
         });
 
-        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, topology, options("nodeA", dataDir.Path), identity, cancellationToken);
-        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, topology, options("nodeB", dataDir.Path), identity, cancellationToken);
-        var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, topology, options("nodeC", dataDir.Path), identity, cancellationToken);
+        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, topology, options("nodeA", dir), identity, cancellationToken);
+        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, topology, options("nodeB", dir), identity, cancellationToken);
+        var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, topology, options("nodeC", dir), identity, cancellationToken);
 
         await using var client = await LoopbackConnect.ConnectAsync(heldA.HttpUri, cancellationToken);
         var cache = await client.GetCacheAsync<string>("rejoin-catchup", cancellationToken);
@@ -78,7 +78,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
 
         await cache.SetAsync(key, "after-stop", cancellationToken: cancellationToken);
 
-        nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, topology, options("nodeC", dataDir.Path), identity, cancellationToken);
+        nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, topology, options("nodeC", dir), identity, cancellationToken);
         await using var rejoined = nodeC;
 
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));

@@ -36,7 +36,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
         var mutatedBeforeRead = await File.ReadAllBytesAsync(path, cancellationToken);
 
         _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            Dir.Path,
+            Dir,
             cancellationToken,
             static (dataDirectory, token) =>
             {
@@ -62,7 +62,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            Dir.Path,
+            Dir,
             cancellationToken,
             static (dataDirectory, token) =>
             {

@@ -283,7 +283,7 @@ id** resolved for each cache operation:
 | ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, internal owner RPCs without JWT, authenticated token missing `sub`) |
 | In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
 
-v0.1 external auth is JWT-only; there is no API-key principal. Inter-node cluster forwarding uses mTLS on the internal
+v0.1 external auth is JWT-only; there is no API-key principal. Internode cluster forwarding uses mTLS on the internal
 listener and typically lands in the `conn:` or `runtime` bucket rather than a shared external JWT subject.
 
 | Field                         | Type            | Default        | Validation                                    |
@@ -428,7 +428,7 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for inter-node gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Uri` port.                                    |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for internode gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Uri` port.                                     |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Certificate CN must equal `Cluster.NodeId`. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                           |
@@ -466,18 +466,18 @@ startup; the process refuses to start without them.
   rejected).
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
-  inter-node mTLS is required at startup. Inter-node gRPC is served on the dedicated internal HTTPS listener
+  internode mTLS is required at startup. Internode gRPC is served on the dedicated internal HTTPS listener
   (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
   its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
   expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
   identity checks to peer server certificates. Standalone nodes without remote peers do not require cluster mTLS
   material. The primary listener keeps external client behavior unchanged.
-- Deployment, rotation, and dev certificate generation for **inter-node mTLS** are documented in
-  [security/inter-node-mtls.md](security/inter-node-mtls.md). Squirix consumes externally managed cluster certificates;
-  it does not act as a production CA. Inter-node trust requires the PEM cluster CA at
+- Deployment, rotation, and dev certificate generation for **internode mTLS** are documented in
+  [security/internode-mtls.md](security/internode-mtls.md). Squirix consumes externally managed cluster certificates;
+  it does not act as a production CA. Internode trust requires the PEM cluster CA at
   `SQUIRIX_CLUSTER_MTLS_CA_PATH` and certificate CN equal to the expected cluster `NodeId`.
 - **External JWT** signing, blast radius, and rotation (symmetric vs OIDC) are documented in
-  [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Inter-node forwarding does not use JWT when mTLS is
+  [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Internode forwarding does not use JWT when mTLS is
   enforced.
 
 ## Sample `appsettings.json`

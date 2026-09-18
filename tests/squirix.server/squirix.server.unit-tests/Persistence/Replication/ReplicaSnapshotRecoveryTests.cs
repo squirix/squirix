@@ -136,22 +136,22 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task HigherTermSnapshotClearsPreviousVote(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-replica-snapshot-vote-source");
-        using var targetDir = new TempDirectory("squirix-replica-snapshot-vote-target");
+        using var dir = new TempDirectory("squirix-replica-snapshot-vote-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-vote-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition);
+        await using var source = new FollowerLog(dir, GroupId, composition);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, 3UL, "snapshot"), cancellationToken);
         _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
         var snapshot = await source.CreateSnapshotAsync(1UL, cancellationToken);
 
-        await using (var initialTarget = new FollowerLog(targetDir, GroupId, composition))
+        await using (var initialTarget = new FollowerLog(dir2, GroupId, composition))
             await initialTarget.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(targetDir, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
         {
             await target.OpenAsync(cancellationToken);
             _ = await Assert.That((await target.GetStatusAsync(cancellationToken)).VotedFor).IsEqualTo("node-1");
@@ -164,7 +164,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
         }
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
         var persistedStatus = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(persistedStatus.CurrentTerm).IsEqualTo(3UL);
@@ -176,11 +176,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task InstalledSnapshotDiscardsDivergentSuffix(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-replica-snapshot-divergent-source");
-        using var targetDir = new TempDirectory("squirix-replica-snapshot-divergent-target");
+        using var dir = new TempDirectory("squirix-replica-snapshot-divergent-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-divergent-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition);
+        await using var source = new FollowerLog(dir, GroupId, composition);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "source-1"), cancellationToken);
         _ = await source.AppendAsync(
@@ -189,7 +189,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
         var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
         {
             await target.OpenAsync(cancellationToken);
             _ = await target.AppendAsync(Append(1UL, "target-1"), cancellationToken);
@@ -202,7 +202,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await Assert.That(await target.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
         }
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
         var reopenedStatus = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(reopenedStatus.LastLogIndex).IsEqualTo(2UL);
@@ -214,11 +214,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task InstalledSnapshotRestoresState(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-replica-snapshot-source");
-        using var targetDir = new TempDirectory("squirix-replica-snapshot-target");
+        using var dir = new TempDirectory("squirix-replica-snapshot-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition);
+        await using var source = new FollowerLog(dir, GroupId, composition);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -229,7 +229,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
 
-        await using var target = new FollowerLog(targetDir, GroupId, composition);
+        await using var target = new FollowerLog(dir2, GroupId, composition);
         await target.OpenAsync(cancellationToken);
         _ = await target.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await target.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -260,11 +260,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task InstalledSnapshotSurvivesCrashAndReopen(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-replica-snapshot-crash-source");
-        using var targetDir = new TempDirectory("squirix-replica-snapshot-crash-target");
+        using var dir = new TempDirectory("squirix-replica-snapshot-crash-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-crash-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition);
+        await using var source = new FollowerLog(dir, GroupId, composition);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -273,14 +273,14 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
         var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
         {
             await target.OpenAsync(cancellationToken);
             var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
             _ = await Assert.That(result.Success).IsTrue();
         }
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -343,17 +343,17 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task RecoveryAdoptsHigherSnapshotTerm(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-snapshot-higher-term-source");
-        using var targetDir = new TempDirectory("squirix-snapshot-higher-term-target");
+        using var dir = new TempDirectory("squirix-snapshot-higher-term-source");
+        using var dir2 = new TempDirectory("squirix-snapshot-higher-term-target");
         var composition = GroupComposition.Create(GroupId);
         var fingerprint = new byte[] { 1, 2, 3, 4 };
 
-        await using (var seed = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var seed = new FollowerLog(dir, GroupId, composition))
             await seed.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(sourceDir, new GroupLogMetadata(GroupId, fingerprint, 5UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 5UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
 
-        await using (var source = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var source = new FollowerLog(dir, GroupId, composition))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 3UL, "snapshot"), cancellationToken);
@@ -361,14 +361,14 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
         }
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
             await target.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(targetDir, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, "node-1", 0UL, 0UL, 0UL), cancellationToken);
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(targetDir, GroupId));
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -390,11 +390,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task RecoveryDiscardsDivergentSuffix(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-replica-snapshot-divergent-crash-source");
-        using var targetDir = new TempDirectory("squirix-replica-snapshot-divergent-crash-target");
+        using var dir = new TempDirectory("squirix-replica-snapshot-divergent-crash-source");
+        using var dir2 = new TempDirectory("squirix-replica-snapshot-divergent-crash-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var source = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var source = new FollowerLog(dir, GroupId, composition))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "source-1"), cancellationToken);
@@ -411,7 +411,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(2UL, cancellationToken);
         }
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
         {
             await target.OpenAsync(cancellationToken);
             _ = await target.AppendAsync(Append(1UL, "target-1"), cancellationToken);
@@ -419,11 +419,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(3UL, "target-tail"), cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(targetDir, GroupId));
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await WriteMetadataAsync(targetDir, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 3UL, 2UL, 2UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 2UL, string.Empty, 3UL, 2UL, 2UL), cancellationToken);
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
@@ -451,11 +451,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task RecoveryReconcilesSnapshotWatermarks(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-snapshot-watermarks-source");
-        using var targetDir = new TempDirectory("squirix-snapshot-watermarks-target");
+        using var dir = new TempDirectory("squirix-snapshot-watermarks-source");
+        using var dir2 = new TempDirectory("squirix-snapshot-watermarks-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using (var source = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var source = new FollowerLog(dir, GroupId, composition))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -464,7 +464,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(2UL, cancellationToken);
         }
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
         {
             await target.OpenAsync(cancellationToken);
 
@@ -481,9 +481,9 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await target.AppendAsync(Append(3UL, "z"), cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(targetDir, GroupId));
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -627,14 +627,14 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task StartupRejectsForeignGroupSnapshot(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-snapshot-only-source");
-        using var targetDir = new TempDirectory("squirix-snapshot-only-target");
+        using var dir = new TempDirectory("squirix-snapshot-only-source");
+        using var dir2 = new TempDirectory("squirix-snapshot-only-target");
         const string sourceGroupId = "grp-snapshot-source";
         var targetComposition = GroupComposition.Create(GroupId);
 
-        Directory.CreateDirectory(targetDir.Path);
+        Directory.CreateDirectory(dir2);
 
-        await using (var source = new FollowerLog(sourceDir, sourceGroupId, GroupComposition.Create(sourceGroupId)))
+        await using (var source = new FollowerLog(dir, sourceGroupId, GroupComposition.Create(sourceGroupId)))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 1UL, "snapshot"), cancellationToken);
@@ -642,10 +642,10 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(GroupStoragePaths.GetSnapshotPath(targetDir, GroupId))!);
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, sourceGroupId), GroupStoragePaths.GetSnapshotPath(targetDir, GroupId));
+        Directory.CreateDirectory(Path.GetDirectoryName(GroupStoragePaths.GetSnapshotPath(dir2, GroupId))!);
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, sourceGroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, targetComposition);
+        await using var reopened = new FollowerLog(dir2, GroupId, targetComposition);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -684,17 +684,17 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task TopologyConflictFailsReadiness(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-conflicting-topology-source");
-        using var targetDir = new TempDirectory("squirix-conflicting-topology-target");
+        using var dir = new TempDirectory("squirix-conflicting-topology-source");
+        using var dir2 = new TempDirectory("squirix-conflicting-topology-target");
         var composition = GroupComposition.Create(GroupId);
         var fingerprint = new byte[] { 1, 2, 3, 4 };
 
-        await using (var seed = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var seed = new FollowerLog(dir, GroupId, composition))
             await seed.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(sourceDir, new GroupLogMetadata(GroupId, fingerprint, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir, new GroupLogMetadata(GroupId, fingerprint, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
 
-        await using (var source = new FollowerLog(sourceDir, GroupId, composition))
+        await using (var source = new FollowerLog(dir, GroupId, composition))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 1UL, "snapshot"), cancellationToken);
@@ -704,14 +704,14 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
         }
 
-        await using (var target = new FollowerLog(targetDir, GroupId, composition))
+        await using (var target = new FollowerLog(dir2, GroupId, composition))
             await target.OpenAsync(cancellationToken);
 
-        await WriteMetadataAsync(targetDir, new GroupLogMetadata(GroupId, new byte[] { 5, 6, 7, 8 }, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
+        await WriteMetadataAsync(dir2, new GroupLogMetadata(GroupId, new byte[] { 5, 6, 7, 8 }, 2UL, 0UL, string.Empty, 0UL, 0UL, 0UL), cancellationToken);
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, GroupId), GroupStoragePaths.GetSnapshotPath(targetDir, GroupId));
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, GroupId), GroupStoragePaths.GetSnapshotPath(dir2, GroupId));
 
-        await using var reopened = new FollowerLog(targetDir, GroupId, composition);
+        await using var reopened = new FollowerLog(dir2, GroupId, composition);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -855,11 +855,11 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     public async Task WrongGroupSnapshotFailsReadiness(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-wrong-group-source");
-        using var targetDir = new TempDirectory("squirix-wrong-group-target");
+        using var dir = new TempDirectory("squirix-wrong-group-source");
+        using var dir2 = new TempDirectory("squirix-wrong-group-target");
         var composition = GroupComposition.Create("grp-a");
 
-        await using (var source = new FollowerLog(sourceDir, "grp-a", composition))
+        await using (var source = new FollowerLog(dir, "grp-a", composition))
         {
             await source.OpenAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
@@ -867,16 +867,16 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await source.CreateSnapshotAsync(1UL, cancellationToken);
         }
 
-        await using (var target = new FollowerLog(targetDir, "grp-b", GroupComposition.Create("grp-b")))
+        await using (var target = new FollowerLog(dir2, "grp-b", GroupComposition.Create("grp-b")))
         {
             await target.OpenAsync(cancellationToken);
             _ = await target.AppendAsync(Append(1UL, "b"), cancellationToken);
             _ = await target.AdvanceCommitAsync(1UL, cancellationToken);
         }
 
-        File.Copy(GroupStoragePaths.GetSnapshotPath(sourceDir, "grp-a"), GroupStoragePaths.GetSnapshotPath(targetDir, "grp-b"));
+        File.Copy(GroupStoragePaths.GetSnapshotPath(dir, "grp-a"), GroupStoragePaths.GetSnapshotPath(dir2, "grp-b"));
 
-        await using var reopened = new FollowerLog(targetDir, "grp-b", GroupComposition.Create("grp-b"));
+        await using var reopened = new FollowerLog(dir2, "grp-b", GroupComposition.Create("grp-b"));
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }

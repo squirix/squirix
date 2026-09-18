@@ -72,33 +72,33 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
     private sealed class RestartableSingleNode : IAsyncDisposable
     {
         private readonly FakeTimeProvider? _clock;
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
         private ISquirixClient? _client;
         private TestNodeHost? _host;
 
-        private RestartableSingleNode(TempDirectory dataDir, Uri uri, FakeTimeProvider? clock)
+        private RestartableSingleNode(TempDirectory dir, Uri uri, FakeTimeProvider? clock)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             Uri = uri;
             _clock = clock;
         }
 
-        private string DataDir => _dataDir.Path;
+        private string DataDir => _dir;
 
         private Uri Uri { get; }
 
         public async ValueTask DisposeAsync()
         {
             await StopNodeAsync().ConfigureAwait(false);
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         internal static ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken) => StartAsync(testName, null, cancellationToken);
 
         internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, FakeTimeProvider? clock, CancellationToken cancellationToken)
         {
-            var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-            var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri(), clock);
+            var dir = new TempDirectory("squirix-e2e-restartable", testName);
+            var node = new RestartableSingleNode(dir, ListenPortPool.EndToEndTests.HoldHttpUri(), clock);
             await node.StartNodeAsync(cancellationToken);
             return node;
         }

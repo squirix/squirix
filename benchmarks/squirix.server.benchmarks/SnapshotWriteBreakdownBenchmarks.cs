@@ -73,7 +73,7 @@ public class SnapshotWriteBreakdownBenchmarks
     /// <summary>Hosts warmed binary snapshot items for write-path breakdown benchmarks.</summary>
     private sealed class Session : IDisposable
     {
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
         private readonly byte[] _encodeBuffer;
         private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
         private readonly Ledger _manifestStore;
@@ -81,9 +81,9 @@ public class SnapshotWriteBreakdownBenchmarks
         private int _nextFileIndex = 10_000;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
+        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             _items = items;
             _encodeBuffer = encodeBuffer;
             _writer = writer;
@@ -93,7 +93,7 @@ public class SnapshotWriteBreakdownBenchmarks
         public void Dispose()
         {
             _manifestStore.Dispose();
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
@@ -101,7 +101,7 @@ public class SnapshotWriteBreakdownBenchmarks
         /// <returns>A session ready for breakdown benchmarks.</returns>
         internal static async Task<Session> CreateAsync(int entryCount)
         {
-            var dataDir = new TempDirectory("snapshot-breakdown");
+            var dir = new TempDirectory("snapshot-breakdown");
             var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
             for (var i = 0; i < entryCount; i++)
             {
@@ -115,11 +115,11 @@ public class SnapshotWriteBreakdownBenchmarks
             }
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
-            var writer = new SnapshotWriter(dataDir);
+            var writer = new SnapshotWriter(dir);
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
             var options = new PersistenceOptions
             {
-                DataDir = dataDir.Path,
+                DataDir = dir,
                 ManifestRetentionCount = retention,
                 SnapshotRetentionCount = retention,
             };
@@ -127,7 +127,7 @@ public class SnapshotWriteBreakdownBenchmarks
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);
-            return new Session(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
+            return new Session(dir, items, new byte[maxRecordLength], writer, manifestStore);
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
@@ -169,8 +169,8 @@ public class SnapshotWriteBreakdownBenchmarks
         }
 
         private string BuildSnapshotPath(int index) =>
-            PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+            PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
-        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
+        private string BuildTempPath(int index) => PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
     }
 }

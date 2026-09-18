@@ -185,7 +185,7 @@ Mixed workloads:
 Compare only rows for the same benchmark method when diagnosing topology, value shape, or durability impact.
 
 - Single-node vs two-node shows client/server and routing overhead.
-- Local-owner vs remote-owner shows the routing and inter-node forwarding cost.
+- Local-owner vs remote-owner shows the routing and internode forwarding cost.
 - Uniform keys show normal distributed ownership behavior.
 - Hot keys highlight lock, contention, and routing pressure around a small keyset.
 - Primitive vs custom type rows show serializer and payload-shape cost.

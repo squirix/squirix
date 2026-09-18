@@ -104,7 +104,7 @@ public sealed class ClusterIdentityInternalPortTests
     {
         ArgumentNullException.ThrowIfNull(peer);
         var interNodeUri = peer.InterNodeUri;
-        return interNodeUri == null ? throw new InvalidOperationException("Expected an inter-node mTLS URL for a multi-node topology.") : interNodeUri.Port;
+        return interNodeUri == null ? throw new InvalidOperationException("Expected an internode mTLS URL for a multi-node topology.") : interNodeUri.Port;
     }
 
     private static void BindExclusively(int port)

@@ -22,11 +22,11 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
     public async Task ReplaceCleansUpTempWhenPublicationFails(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-publish-fail");
-        var finalPath = Path.Join(dir.Path, "existing-directory");
+        var finalPath = Path.Join(dir, "existing-directory");
         Directory.CreateDirectory(finalPath);
-        var tempPath = Path.Join(dir.Path, "group.log.tmp");
+        var tempPath = Path.Join(dir, "group.log.tmp");
         await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
-        var oldPath = Path.Join(dir.Path, "old-group.log");
+        var oldPath = Path.Join(dir, "old-group.log");
 
         using var durability = new GroupLogDurability();
 
@@ -46,8 +46,8 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
     public async Task ReplacePublishesAndReopensTheReplacement(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-replace");
-        var finalPath = Path.Join(dir.Path, "group.log");
-        var tempPath = Path.Join(dir.Path, "group.log.tmp");
+        var finalPath = Path.Join(dir, "group.log");
+        var tempPath = Path.Join(dir, "group.log.tmp");
         await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
 
         using var durability = new GroupLogDurability();
@@ -70,7 +70,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
     public async Task ReplaceRefusesPathWithoutDirectory(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-durability-no-dir");
-        var tempPath = Path.Join(dir.Path, "group.log.tmp");
+        var tempPath = Path.Join(dir, "group.log.tmp");
         await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
 
         using var durability = new GroupLogDurability();

@@ -31,7 +31,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
     [Test]
     public async Task IdempotencyAppendWaitsForMutationGate(CancellationToken cancellationToken)
     {
-        var persistence = CreatePersistence(Dir.Path);
+        var persistence = CreatePersistence(Dir);
         using var ledger = new Ledger(persistence);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true));
