@@ -76,7 +76,7 @@ internal static class NodeOptionsRegistration
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
             var options = provider.GetRequiredService<MtlsOptions>();
             var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
-            return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+            return MtlsCertificate.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
         });
     }
 

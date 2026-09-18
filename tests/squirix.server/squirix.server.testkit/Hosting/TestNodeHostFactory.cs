@@ -161,7 +161,7 @@ public static class TestNodeHostFactory
         PersistenceOptions? persistenceOptions,
         Func<string, HttpMessageHandler>? factory,
         MtlsOptions? mtlsOptions,
-        MtlsCertificateMaterial? mtlsMaterial)
+        MtlsCertificate? mtlsMaterial)
     {
         return new NodeHostStartOptions
         {

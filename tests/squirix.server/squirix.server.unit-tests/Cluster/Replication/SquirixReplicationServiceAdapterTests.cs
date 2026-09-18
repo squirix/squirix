@@ -44,7 +44,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public void ConstructorRequiresCluster()
     {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
+        var material = MtlsCertificate.Load(new MtlsOptions(), null, false);
         TopologyOptions? cluster = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(material, cluster, static (m, c) => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), m));
@@ -54,7 +54,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public void ConstructorRequiresMtlsMaterial()
     {
-        MtlsCertificateMaterial? material = null;
+        MtlsCertificate? material = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
             material,
@@ -65,7 +65,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public void ConstructorRequiresMtlsOptions()
     {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), null, false);
+        var material = MtlsCertificate.Load(new MtlsOptions(), null, false);
         MtlsOptions? mtlsOptions = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
@@ -81,7 +81,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var adapter = new SquirixReplicationServiceAdapter(
             CreateTopology(),
             new MtlsOptions { InternalListenPort = 6001 },
-            MtlsCertificateMaterial.Load(new MtlsOptions(), null, false));
+            MtlsCertificate.Load(new MtlsOptions(), null, false));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));
@@ -99,7 +99,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
-        using var mtlsMaterial = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
+        using var mtlsMaterial = MtlsCertificate.Create(peerCertificate, bundle.Ca);
 
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, mtlsMaterial);
 
@@ -206,7 +206,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
-        using var mtlsMaterial = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
+        using var mtlsMaterial = MtlsCertificate.Create(peerCertificate, bundle.Ca);
 
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, mtlsMaterial);
 
@@ -307,7 +307,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var unknownCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-unknown");
-        using var material = MtlsCertificateMaterial.Create(unknownCertificate, bundle.Ca);
+        using var material = MtlsCertificate.Create(unknownCertificate, bundle.Ca);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-unknown") };
         var httpContext = new DefaultHttpContext
@@ -372,7 +372,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             MtlsOptions mtls,
             MtlsTestCertificateBundle bundle,
             X509Certificate2 peerCertificate,
-            MtlsCertificateMaterial material)
+            MtlsCertificate material)
         {
             Adapter = adapter;
             Mtls = mtls;

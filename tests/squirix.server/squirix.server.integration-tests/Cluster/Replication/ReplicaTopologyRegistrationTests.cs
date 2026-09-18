@@ -44,7 +44,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         var featureState = host.Services.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsFalse();
-        var material = host.Services.GetRequiredService<MtlsCertificateMaterial>();
+        var material = host.Services.GetRequiredService<MtlsCertificate>();
         _ = await Assert.That(material.Enabled).IsFalse();
     }
 }

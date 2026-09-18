@@ -41,7 +41,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
             InternalListenPort = 6103,
         };
 
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => _ = MtlsCertificateMaterial.Load(value, 6001, true, "untrusted-node"));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => _ = MtlsCertificate.Load(value, 6001, true, "untrusted-node"));
         _ = await Assert.That(ex.Message).Contains("does not chain", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -59,7 +59,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
             InternalListenPort = 6102,
         };
 
-        using var material = MtlsCertificateMaterial.Load(options, 6001, true, "node-a");
+        using var material = MtlsCertificate.Load(options, 6001, true, "node-a");
 
         _ = await Assert.That(material.Enabled).IsTrue();
         _ = await Assert.That(material.NodeCertificate!.HasPrivateKey).IsTrue();
@@ -78,7 +78,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
             InternalListenPort = 6101,
         };
 
-        using var material = MtlsCertificateMaterial.Load(options, 6001, true, "node-a");
+        using var material = MtlsCertificate.Load(options, 6001, true, "node-a");
 
         _ = await Assert.That(material.Enabled).IsTrue();
         _ = await Assert.That(material.NodeCertificate).IsNotNull();
@@ -90,7 +90,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     [Test]
     public async Task ReturnsDisabledWhenMaterialMissing()
     {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
+        var material = MtlsCertificate.Load(new MtlsOptions(), 6001, false);
 
         _ = await Assert.That(material.Enabled).IsFalse();
     }
