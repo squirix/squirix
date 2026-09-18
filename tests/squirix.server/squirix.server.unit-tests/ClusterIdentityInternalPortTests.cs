@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -94,17 +95,14 @@ public sealed class ClusterIdentityInternalPortTests
         BindExclusively(firstPort);
     }
 
-    private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity mtls, Uri[] primaries)
-    {
-        var shared = mtls;
-        return ClusterIdentity.CreatePeers([("nodeA", primaries[0]), ("nodeB", primaries[1])], ref shared);
-    }
+    private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity? identity, Uri[] primaries) =>
+        ClusterIdentity.CreatePeers([new ClusterNode("nodeA", primaries[0]), new ClusterNode("nodeB", primaries[1])], ref identity);
 
     private static int GetInterNodePort(ServerPeer peer)
     {
         ArgumentNullException.ThrowIfNull(peer);
         var interNodeUri = peer.InterNodeUri;
-        return interNodeUri == null ? throw new InvalidOperationException("Expected an inter-node mTLS URL for a multi-node topology.") : interNodeUri.Port;
+        return interNodeUri == null ? throw new InvalidOperationException("Expected an internode mTLS URL for a multi-node topology.") : interNodeUri.Port;
     }
 
     private static void BindExclusively(int port)

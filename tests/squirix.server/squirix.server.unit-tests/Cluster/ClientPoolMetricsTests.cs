@@ -36,7 +36,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         _ = await Assert.That(pool.PolicyFor("NODE-A")).IsNotSameReferenceAs(pool.PolicyFor("node-a"));
     }
 
-    /// <summary>Inter-node address rewrite rejects a non-absolute primary peer URI.</summary>
+    /// <summary>internode address rewrite rejects a non-absolute primary peer URI.</summary>
     [Test]
     public async Task ConstructorRejectsRelativePeerUri()
     {

@@ -6,7 +6,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
-/// <summary>Pins pool-agnostic release routing used by TestNodeHostFactory, which serves pools it cannot name.</summary>
+/// <summary>Pins pool-agnostic release routing used by in-process node startup, which serves pools it cannot name.</summary>
 public sealed class ListenPortPoolHoldTests
 {
     /// <summary>A held port must become bindable after fan-out release, and re-release must stay a no-op.</summary>
