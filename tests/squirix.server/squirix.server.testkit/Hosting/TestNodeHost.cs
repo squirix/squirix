@@ -20,7 +20,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <see cref="DisposeAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
 [Immutable]
-public sealed class TestNodeHost : IAsyncDisposable
+public sealed class TestNodeHost : ITestNodeHost
 {
     private readonly WebApplication _app;
     private readonly IDisposable? _scope;
@@ -82,6 +82,9 @@ public sealed class TestNodeHost : IAsyncDisposable
 
         _scope?.Dispose();
     }
+
+    /// <summary>Gracefully stops the node and releases its resources. Safe to call multiple times.</summary>
+    public ValueTask ShutdownAsync() => DisposeAsync();
 
     private static async ValueTask SuppressObjectDisposedAsync(ValueTask task)
     {

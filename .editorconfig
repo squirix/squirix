@@ -573,6 +573,8 @@ resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Ride
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
 resharper_try_statements_can_be_merged_highlighting = warning # flag nested try that can be flattened into one try with combined handlers
+resharper_unused_member_global_highlighting = warning # flag non-private members (methods, properties, fields) that are never used
+resharper_unused_member_local_highlighting = warning # flag private members (methods, properties, fields) that are never used
 resharper_use_argument_exception_throw_if_method_highlighting = error # prefer ArgumentException.ThrowIfNullOrEmpty/ThrowIfNullOrWhiteSpace over manual if+throw
 resharper_use_throw_if_null_method_highlighting = error # prefer ArgumentNullException.ThrowIfNull over manual if+throw
 resharper_use_utf8_string_literal_highlighting = none # do not suggest utf8 literals
@@ -649,6 +651,15 @@ dotnet_diagnostic.CA1001.severity = none # test-class disposables are released b
 dotnet_diagnostic.MA0004.severity = none # Meziantou twin of CA2007; same rationale
 dotnet_diagnostic.MA0137.severity = none # test method names are stable identifiers (filters, test lists); Async suffix would churn them
 dotnet_diagnostic.ZA0302.severity = none # tests may use plain arrays for clarity over ArrayPool
+
+[tests/squirix.server/squirix.server.testkit/**]
+dotnet_diagnostic.MA0182.severity = none # internal testkit members are consumed through InternalsVisibleTo; MA0182 only sees same-assembly usages
+
+[tests/squirix.server/squirix.server.testkit/Hosting/ClusterStartOptions.cs]
+dotnet_diagnostic.ZA0901.severity = none # intentional cross-assembly base for per-project options; deriving types live in dependent test projects
+
+[tests/squirix.server/squirix.server.testkit/Mtls/ClusterIdentity.cs]
+dotnet_diagnostic.SQR0002.severity = none # temporary tuple-topology compatibility overloads; removed with the legacy factory in the cleanup commit
 
 [benchmarks/**]
 dotnet_diagnostic.CA1515.severity = none # benchmark types must stay public for BenchmarkDotNet discovery

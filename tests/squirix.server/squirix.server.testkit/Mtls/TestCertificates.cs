@@ -17,7 +17,7 @@ public static class TestCertificates
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
+    /// <returns>A handler for negative internode mTLS client-auth tests.</returns>
     public static SocketsHttpHandler CreateCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
@@ -44,7 +44,7 @@ public static class TestCertificates
     /// <param name="clientCertificates">Client certificates presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for inter-node mutual TLS.</returns>
+    /// <returns>A handler configured for internode mutual TLS.</returns>
     public static SocketsHttpHandler CreateMtlsHandler(X509CertificateCollection clientCertificates, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(clientCertificates);
@@ -69,7 +69,7 @@ public static class TestCertificates
     /// <param name="clientCertificate">Client certificate presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for inter-node mutual TLS.</returns>
+    /// <returns>A handler configured for internode mutual TLS.</returns>
     public static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(clientCertificate);
@@ -114,7 +114,7 @@ public static class TestCertificates
     /// <param name="serverCertificate">The presented peer server certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
+    /// <returns><see langword="true" /> when the certificate is trusted for internode traffic.</returns>
     public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         if (serverCertificate == null)
