@@ -54,10 +54,10 @@ The Docker Compose HA example runs three nodes with RF=3, persistence, and mTLS:
 RF=2 is documented as a synchronous mirror only; the HA demo uses RF=3. RF>1 topologies require a homogeneous
 cluster package version; mixed versions fail readiness through the topology fingerprint.
 
-Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate with `CN` equal to `NodeId`, internal
+Remote peers require internode mTLS at startup (cluster CA, per-node certificate with `CN` equal to `NodeId`, internal
 listener port). External
 application clients still authenticate with JWT on the primary listener. Full guidance:
-[security/inter-node-mtls.md](security/inter-node-mtls.md).
+[security/internode-mtls.md](security/internode-mtls.md).
 
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
 `https://localhost:5002`, `https://localhost:5003`) with the compose JWT settings. Inside the Docker network, nodes use

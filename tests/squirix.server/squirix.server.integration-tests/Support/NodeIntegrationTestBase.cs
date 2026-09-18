@@ -57,7 +57,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
+    /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterIdentity.CreatePeers(topology, ref _mtls);
@@ -66,7 +66,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
+    /// <returns>A handler for negative mTLS internode auth tests.</returns>
     internal async Task<SocketsHttpHandler> CreateCaTrustingHandlerAsync(string targetPeerNodeId, ServerPeer[] peers, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
@@ -88,7 +88,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A handler for trusted inter-node mTLS tests.</returns>
+    /// <returns>A handler for trusted internode mTLS tests.</returns>
     internal async Task<SocketsHttpHandler> CreateTrustedInterNodeClientHandlerAsync(
         string callerNodeId,
         Uri callerPrimaryUrl,

@@ -6,7 +6,7 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// <remarks>
 /// Bootstrap channel connect uses <see cref="Transport.BootstrapConnectOptions" /> because TLS/handshake
 /// and endpoint probing need a longer budget. Cache RPCs share the same per-attempt budget as the
-/// server cluster inter-node call policy.
+/// server cluster internode call policy.
 /// </remarks>
 internal static class CallPolicyDefaults
 {

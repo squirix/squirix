@@ -9,7 +9,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>Unit tests for topology-driven inter-node mTLS requirements.</summary>
+/// <summary>Unit tests for topology-driven internode mTLS requirements.</summary>
 [Immutable]
 public sealed class MtlsTopologyTests
 {
@@ -33,7 +33,7 @@ public sealed class MtlsTopologyTests
         return SequenceAssert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster), StringComparer.Ordinal);
     }
 
-    /// <summary>Ensures a multi-node topology with remote peers requires inter-node mTLS.</summary>
+    /// <summary>Ensures a multi-node topology with remote peers requires internode mTLS.</summary>
     [Test]
     public async Task RemotePeersRequireInterNodeMtls()
     {
@@ -48,7 +48,7 @@ public sealed class MtlsTopologyTests
         _ = await Assert.That(MtlsTopology.RequiresInterNodeMtls(cluster)).IsTrue();
     }
 
-    /// <summary>Ensures a standalone node with only the local peer does not require inter-node mTLS.</summary>
+    /// <summary>Ensures a standalone node with only the local peer does not require internode mTLS.</summary>
     [Test]
     public async Task StandaloneTopologyNeedsNoInterNodeMtls()
     {

@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cluster;
 [Immutable]
 public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
 {
-    /// <summary>Standalone RF=1 does not open an inter-node mTLS listener.</summary>
+    /// <summary>Standalone RF=1 does not open an internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfOneDoesNotOpenReplicationListener(CancellationToken cancellationToken)
@@ -44,7 +44,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         _ = await Assert.That(read.Value).IsEqualTo("v1");
     }
 
-    /// <summary>RF=2 starts with prerequisites and opens its inter-node mTLS listener.</summary>
+    /// <summary>RF=2 starts with prerequisites and opens its internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfTwoStartsWithPrerequisites(CancellationToken cancellationToken)

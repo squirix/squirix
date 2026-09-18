@@ -44,7 +44,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
 
-    /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
+    /// <summary>Gets a value indicating whether the internode mTLS listener is enabled for this host.</summary>
     public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificateMaterial>() is { Enabled: true };
 
     /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>

@@ -59,7 +59,7 @@ Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.
 - [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md) · [Configuration](docs/configuration.md)
 - [Persistence](docs/persistence.md) · [Clustering](docs/clustering.md) · [Observability](docs/observability.md)
 - [API](docs/api.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md)
-- [Operational runbook](docs/operational-runbook.md) · [Security (inter-node mTLS)](docs/security/inter-node-mtls.md)
+- [Operational runbook](docs/operational-runbook.md) · [Security (internode mTLS)](docs/security/internode-mtls.md)
 
 ## Contributing
 
