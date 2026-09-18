@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -72,58 +73,18 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
     private sealed class RestartableSingleNode : IAsyncDisposable
     {
         private readonly FakeTimeProvider? _clock;
+        private readonly TestCluster<ClusterStartOptions> _cluster;
         private readonly TempDirectory _dataDir;
         private ISquirixClient? _client;
-        private TestNodeHost? _host;
 
-        private RestartableSingleNode(TempDirectory dataDir, Uri uri, FakeTimeProvider? clock)
+        private RestartableSingleNode(TestCluster<ClusterStartOptions> cluster, TempDirectory dataDir, FakeTimeProvider? clock)
         {
+            _cluster = cluster;
             _dataDir = dataDir;
-            Uri = uri;
             _clock = clock;
         }
 
-        private string DataDir => _dataDir.Path;
-
-        private Uri Uri { get; }
-
         public async ValueTask DisposeAsync()
-        {
-            await StopNodeAsync().ConfigureAwait(false);
-            _dataDir.Dispose();
-        }
-
-        internal static ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken) => StartAsync(testName, null, cancellationToken);
-
-        internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, FakeTimeProvider? clock, CancellationToken cancellationToken)
-        {
-            var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-            var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.HoldHttpUri(), clock);
-            await node.StartNodeAsync(cancellationToken);
-            return node;
-        }
-
-        internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
-        {
-            _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
-            return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
-        }
-
-        internal async ValueTask RestartAsync(CancellationToken cancellationToken)
-        {
-            await StopNodeAsync();
-            await StartNodeAsync(cancellationToken);
-        }
-
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync(
-            "nodeA",
-            Uri,
-            [("nodeA", Uri)],
-            new TestNodeHostStartOptions { DataDir = DataDir, TimeProvider = _clock },
-            null,
-            cancellationToken);
-
-        private async ValueTask StopNodeAsync()
         {
             if (_client != null)
             {
@@ -131,11 +92,46 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
                 _client = null;
             }
 
-            if (_host != null)
-            {
-                await _host.DisposeAsync();
-                _host = null;
-            }
+            await _cluster.DisposeAsync();
+            _dataDir.Dispose();
         }
+
+        internal static ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken) => StartAsync(testName, null, cancellationToken);
+
+        [SuppressMessage(
+            "Reliability",
+            "CA2000:Dispose objects before losing scope",
+            Justification = "Ownership of the data directory transfers to the returned node, which disposes it.")]
+        internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, FakeTimeProvider? clock, CancellationToken cancellationToken)
+        {
+            var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
+            var uri = ListenPortPool.EndToEndTests.HoldHttpUri();
+            var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+            var node = new RestartableSingleNode(cluster, dataDir, clock);
+            _ = await node.StartNodeAsync(cancellationToken);
+            return node;
+        }
+
+        internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
+        {
+            _client ??= await LoopbackConnect.ConnectAsync(_cluster["nodeA"].Uri, cancellationToken);
+            return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
+        }
+
+        internal async ValueTask RestartAsync(CancellationToken cancellationToken)
+        {
+            if (_client != null)
+            {
+                await _client.DisposeAsync();
+                _client = null;
+            }
+
+            _ = await _cluster.RestartNodeAsync("nodeA", new ClusterStartOptions { DataDir = _dataDir.Path, TimeProvider = _clock }, cancellationToken);
+        }
+
+        private ValueTask<ITestNodeHost> StartNodeAsync(CancellationToken cancellationToken) => _cluster.StartNodeAsync(
+            "nodeA",
+            new ClusterStartOptions { DataDir = _dataDir.Path, TimeProvider = _clock },
+            cancellationToken);
     }
 }
