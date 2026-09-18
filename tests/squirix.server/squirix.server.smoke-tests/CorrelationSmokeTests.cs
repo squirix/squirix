@@ -34,23 +34,19 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     [Test]
     public async Task TraceContextFlowsAcrossGrpcNodes(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-
-        var peers = BuildClusterPeers([("A", uriA), ("B", uriB)]);
-
         var capture = new CapturingHeadersInterceptor();
         var servicesConfigure = new CaptureServicesConfigure(capture);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(
-            uriB,
-            peers,
-            new SmokeNodeStartOptions
-            {
-                ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
-                ServicesConfigure = servicesConfigure.Apply,
-            },
+        await using var cluster = await StartClusterAsync(
+            "A",
+            "B",
+            node => string.Equals(node, "B", StringComparison.Ordinal)
+                ? new SmokeStartOptions
+                {
+                    ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
+                    ServicesConfigure = servicesConfigure.Apply,
+                }
+                : new SmokeStartOptions(),
             cancellationToken);
 
         var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
@@ -61,7 +57,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var traceparent = activity.Id;
         var tracestate = activity.TraceStateString;
 
-        using var channel = CreateGrpcChannel(nodeA.Uri);
+        using var channel = CreateGrpcChannel(cluster["A"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { TraceParentHeader, traceparent! } };
         if (!string.IsNullOrEmpty(tracestate))

@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,15 +30,14 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         using var held = ListenPortPool.SmokeTests.HoldPort();
-        var bindUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
         var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
         var remoteMetricsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/metrics");
         var loopbackMetricsUrl = $"{loopbackUrl}/metrics";
 
-        await using var node = await StartNodeAsync(
-            bindUrl,
-            "node-metrics-auth",
-            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode("node-metrics-auth", uri),
+            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
             cancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackMetricsUrl), cancellationToken);
