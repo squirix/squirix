@@ -4,7 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>Validates inbound and outbound inter-node certificates against the cluster trust root and node identity.</summary>
+/// <summary>Validates inbound and outbound internode certificates against the cluster trust root and node identity.</summary>
 internal static class MtlsClientCertificateValidator
 {
     /// <summary>Validates a peer certificate against the cluster CA and one of the configured remote peer node identifiers.</summary>

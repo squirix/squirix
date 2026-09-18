@@ -34,7 +34,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     public async Task MtlsHandlerAttachesLocalNodeCert(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var material = MtlsCertificateMaterial.Load(
+        using var material = MtlsCertificate.Load(
             new MtlsOptions
             {
                 CaPath = bundle.CaPath,
@@ -60,7 +60,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     public async Task MtlsHandlerRejectsUntrustedPeerCert(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var material = MtlsCertificateMaterial.Load(
+        using var material = MtlsCertificate.Load(
             new MtlsOptions
             {
                 CaPath = bundle.CaPath,

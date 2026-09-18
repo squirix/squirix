@@ -21,18 +21,18 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 {
     private readonly ulong _configurationGeneration;
     private readonly ReplicaFollower? _follower;
-    private readonly MtlsCertificateMaterial _mtlsMaterial;
+    private readonly MtlsCertificate _mtls;
     private readonly MtlsOptions _mtlsOptions;
     private readonly string[] _remotePeerNodeIds;
     private readonly TopologyFingerprint _topologyFingerprint;
 
-    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial, ReplicaGroupRegistry? groups = null)
+    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls, ReplicaGroupRegistry? groups = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
-        ArgumentNullException.ThrowIfNull(mtlsMaterial);
+        ArgumentNullException.ThrowIfNull(mtls);
         _mtlsOptions = mtlsOptions;
-        _mtlsMaterial = mtlsMaterial;
+        _mtls = mtls;
         _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         _follower = groups == null ? null : new ReplicaFollower(groups);
 
@@ -306,7 +306,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (requireLeader && string.IsNullOrWhiteSpace(header.LeaderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with leader_node_id is required."));
 
-        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
+        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtls, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
         const string m = "Unsupported replication envelope schema version.";
         return header.SchemaVersion != EnvelopeCodec.SchemaVersion ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
@@ -323,7 +323,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         /// </summary>
         /// <param name="context">gRPC server call context.</param>
         /// <param name="options">Cluster mTLS options.</param>
-        /// <param name="mtlsMaterial">Loaded cluster mTLS material.</param>
+        /// <param name="mtls">Loaded cluster mTLS material.</param>
         /// <param name="remotePeerNodeIds">Configured remote peer node identifiers for inbound certificate checks.</param>
         /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
         /// <param name="claimedLeaderNodeId">Leader node id claimed by the request envelope; null when the operation is not leader-authorized.</param>
@@ -332,18 +332,18 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         internal static string EnsureTrustedPeer(
             ServerCallContext context,
             MtlsOptions options,
-            MtlsCertificateMaterial mtlsMaterial,
+            MtlsCertificate mtls,
             string[] remotePeerNodeIds,
             string claimedSenderNodeId,
             string? claimedLeaderNodeId = null)
         {
             ArgumentNullException.ThrowIfNull(context);
             ArgumentNullException.ThrowIfNull(options);
-            ArgumentNullException.ThrowIfNull(mtlsMaterial);
+            ArgumentNullException.ThrowIfNull(mtls);
             ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
             ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
 
-            if (!mtlsMaterial.Enabled || options.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor == null)
+            if (!mtls.Enabled || options.InternalListenPort <= 0 || mtls.TrustAnchor == null)
                 throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
 
             var httpContext = context.GetHttpContext();
@@ -353,7 +353,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
                 new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate.")));
 
-            if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
+            if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtls.TrustAnchor, remotePeerNodeIds))
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
 
             if (!MtlsCertificateIdentity.TryGetNodeId(certificate, out var certificateNodeId))

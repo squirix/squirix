@@ -3,7 +3,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Metrics for the server-side inter-node client pool.</summary>
+/// <summary>Metrics for the server-side internode client pool.</summary>
 [Immutable]
 internal sealed class ServerClientPoolMetrics
 {

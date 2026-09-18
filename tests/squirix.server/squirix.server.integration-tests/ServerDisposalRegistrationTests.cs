@@ -35,7 +35,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         const string nodeId = "node-disposal";
 
         var mtlsOptions = new MtlsOptions();
-        var mtlsMaterial = MtlsCertificateMaterial.Load(mtlsOptions, null, false);
+        var mtlsMaterial = MtlsCertificate.Load(mtlsOptions, null, false);
         var persistenceOptions = new PersistenceOptions { DataDir = dir.Path };
         var cluster = new TopologyOptions(new ServerPeer { NodeId = nodeId, Uri = uri })
         {
@@ -56,7 +56,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 
     private static async Task<List<string>> ScanAsync(
         TopologyOptions cluster,
-        MtlsCertificateMaterial mtls,
+        MtlsCertificate mtls,
         MtlsOptions options,
         PersistenceOptions persistence,
         Action<ICompositionArgs>? extra,

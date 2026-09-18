@@ -45,7 +45,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     public string DataDir { get; }
 
     /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
-    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificateMaterial>() is { Enabled: true };
+    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificate>() is { Enabled: true };
 
     /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
     public bool PersistenceEnabled { get; }

@@ -25,7 +25,7 @@ internal interface ICompositionArgs
 
     PressureOptions? MemoryPressureOptions { get; set; }
 
-    MtlsCertificateMaterial? MtlsMaterial { get; set; }
+    MtlsCertificate? MtlsMaterial { get; set; }
 
     MtlsOptions? MtlsOptions { get; set; }
 

@@ -6,12 +6,12 @@ using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>Transport-owned DI registrations for inter-node gRPC client pooling.</summary>
+/// <summary>Transport-owned DI registrations for internode gRPC client pooling.</summary>
 internal static class ServiceRegistration
 {
     extension(IServiceCollection services)
     {
-        /// <summary>Registers inter-node client pool and ownership interceptors.</summary>
+        /// <summary>Registers internode client pool and ownership interceptors.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory.</param>
         /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory.</param>
@@ -27,7 +27,7 @@ internal static class ServiceRegistration
 
             _ = services.AddSingleton<IServerClientPool>(sp =>
             {
-                var material = sp.GetRequiredService<MtlsCertificateMaterial>();
+                var material = sp.GetRequiredService<MtlsCertificate>();
                 var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
                 var interNodeMtlsEnabled = material.Enabled;
                 return new ServerClientPool(

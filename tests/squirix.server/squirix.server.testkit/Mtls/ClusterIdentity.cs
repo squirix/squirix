@@ -80,7 +80,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForBindAsync(
+    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForBindAsync(
         ClusterIdentity? shared,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
@@ -90,7 +90,7 @@ public sealed class ClusterIdentity : IDisposable
         return result;
     }
 
-    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForNodeAsync(
+    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForNodeAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
@@ -174,7 +174,7 @@ public sealed class ClusterIdentity : IDisposable
         return peers;
     }
 
-    private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificateMaterial material)
+    private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
     {
         var clusterCa = _bundle!.GetClusterCertificateAuthority();
         var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
@@ -188,16 +188,16 @@ public sealed class ClusterIdentity : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Ownership of the created material transfers to the caller through the returned carrier and is disposed with the node host.")]
-    private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificateMaterial material)
+    private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedServerCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
         var serverCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(untrustedServerCertificate));
         var trustAnchor = material.TrustAnchor!;
-        return new NodeMtlsStartup(options, MtlsCertificateMaterial.Create(serverCertificate, trustAnchor), null);
+        return new NodeMtlsStartup(options, MtlsCertificate.Create(serverCertificate, trustAnchor), null);
     }
 
-    private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificateMaterial material)
+    private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedClientCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
@@ -243,7 +243,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(TopologyOptions cluster, CancellationToken cancellationToken)
+    private async Task<(MtlsOptions? Options, MtlsCertificate? Material)> ResolveAsync(TopologyOptions cluster, CancellationToken cancellationToken)
     {
         var (options, material, _) = await ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         return (options, material);
@@ -259,7 +259,7 @@ public sealed class ClusterIdentity : IDisposable
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
-        Justification = "MtlsCertificateMaterial created for the UntrustedInboundServer profile transfers to the caller through the returned carrier and is disposed with the node host.")]
+        Justification = "MtlsCertificate created for the UntrustedInboundServer profile transfers to the caller through the returned carrier and is disposed with the node host.")]
     private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(TopologyOptions cluster, TestNodeProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
@@ -377,7 +377,7 @@ public sealed class ClusterIdentity : IDisposable
         /// <param name="port">Dedicated internal HTTPS listener port.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>Options and material suitable for host startup overrides.</returns>
-        internal async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeAsync(string nodeId, int port, CancellationToken cancellationToken = default)
+        internal async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeAsync(string nodeId, int port, CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
             PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
@@ -414,7 +414,7 @@ public sealed class ClusterIdentity : IDisposable
             return nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
         }
 
-        private async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeFromCertificateAsync(
+        private async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeFromCertificateAsync(
             string nodeId,
             int port,
             string nodeDirectory,
@@ -432,7 +432,7 @@ public sealed class ClusterIdentity : IDisposable
                 InternalListenPort = port,
             };
 
-            var material = MtlsCertificateMaterial.Load(options, null, true, nodeId);
+            var material = MtlsCertificate.Load(options, null, true, nodeId);
             return (options, material);
         }
 

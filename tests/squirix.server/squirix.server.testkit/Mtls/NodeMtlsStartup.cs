@@ -11,4 +11,4 @@ namespace Squirix.Server.TestKit.Mtls;
 /// <param name="Material">Loaded certificate material backing the options.</param>
 /// <param name="PeerHandlerFactory">Per-peer outbound handler factory, or <see langword="null" /> for default wiring.</param>
 [Immutable]
-internal readonly record struct NodeMtlsStartup(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory);
+internal readonly record struct NodeMtlsStartup(MtlsOptions? Options, MtlsCertificate? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory);

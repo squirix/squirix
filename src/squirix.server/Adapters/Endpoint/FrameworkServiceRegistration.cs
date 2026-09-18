@@ -31,7 +31,7 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<MtlsCertificateMaterial>()));
+            sp.GetRequiredService<MtlsCertificate>()));
         _ = services.AddSingleton<ResourceExhaustedExceptionInterceptor>();
 
         return services;
@@ -40,20 +40,20 @@ internal static class FrameworkServiceRegistration
     private sealed class InvocationContextInterceptor : Interceptor
     {
         private readonly TopologyOptions _cluster;
-        private readonly MtlsCertificateMaterial _mtlsMaterial;
+        private readonly MtlsCertificate _mtls;
         private readonly MtlsOptions _mtlsOptions;
         private readonly IRemoteInvocationScopeFactory _scopeFactory;
 
-        internal InvocationContextInterceptor(IRemoteInvocationScopeFactory scopeFactory, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+        internal InvocationContextInterceptor(IRemoteInvocationScopeFactory scopeFactory, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
         {
             ArgumentNullException.ThrowIfNull(scopeFactory);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
-            ArgumentNullException.ThrowIfNull(mtlsMaterial);
+            ArgumentNullException.ThrowIfNull(mtls);
             _scopeFactory = scopeFactory;
             _cluster = cluster;
             _mtlsOptions = mtlsOptions;
-            _mtlsMaterial = mtlsMaterial;
+            _mtls = mtls;
         }
 
         public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
@@ -77,36 +77,36 @@ internal static class FrameworkServiceRegistration
 
         private bool ResolveInternalOwnerInvocation(ServerCallContext context)
         {
-            SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _cluster, _mtlsOptions, _mtlsMaterial);
-            return SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _cluster, _mtlsOptions, _mtlsMaterial);
+            SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _cluster, _mtlsOptions, _mtls);
+            return SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _cluster, _mtlsOptions, _mtls);
         }
 
         /// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
         private static class SquirixClusterConnectionSecurity
         {
-            internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+            internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
             {
                 ArgumentNullException.ThrowIfNull(context);
                 ArgumentNullException.ThrowIfNull(cluster);
                 ArgumentNullException.ThrowIfNull(mtlsOptions);
-                ArgumentNullException.ThrowIfNull(mtlsMaterial);
+                ArgumentNullException.ThrowIfNull(mtls);
 
-                if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
+                if (!mtls.Enabled || mtlsOptions.InternalListenPort <= 0)
                     return false;
 
                 var httpContext = context.GetHttpContext();
                 return httpContext.Connection.LocalPort == mtlsOptions.InternalListenPort && IsInternalOwnerHeaderPresent(context) &&
-                       IsTrustedClusterPeer(httpContext, cluster, mtlsMaterial);
+                       IsTrustedClusterPeer(httpContext, cluster, mtls);
             }
 
-            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
             {
                 ArgumentNullException.ThrowIfNull(context);
                 ArgumentNullException.ThrowIfNull(cluster);
                 ArgumentNullException.ThrowIfNull(mtlsOptions);
-                ArgumentNullException.ThrowIfNull(mtlsMaterial);
+                ArgumentNullException.ThrowIfNull(mtls);
 
-                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, cluster, mtlsOptions, mtlsMaterial))
+                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, cluster, mtlsOptions, mtls))
                     return;
 
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
@@ -118,13 +118,13 @@ internal static class FrameworkServiceRegistration
                 return string.Equals(value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
             }
 
-            private static bool IsTrustedClusterPeer(HttpContext httpContext, TopologyOptions cluster, MtlsCertificateMaterial mtlsMaterial)
+            private static bool IsTrustedClusterPeer(HttpContext httpContext, TopologyOptions cluster, MtlsCertificate mtls)
             {
-                if (!mtlsMaterial.Enabled || mtlsMaterial.TrustAnchor == null)
+                if (!mtls.Enabled || mtls.TrustAnchor == null)
                     return false;
 
                 var certificate = httpContext.Connection.ClientCertificate;
-                return MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster));
+                return MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtls.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster));
             }
         }
     }

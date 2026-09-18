@@ -31,7 +31,7 @@ internal static class SquirixEndpointMapping
             app.MapSquirixMetrics(metricsOptions.Path);
 
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
-        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
+        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificate>();
         var featureState = app.Services.GetRequiredService<FeatureState>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)

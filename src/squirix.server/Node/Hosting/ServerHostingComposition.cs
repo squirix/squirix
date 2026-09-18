@@ -163,7 +163,7 @@ internal static class ServerHostingComposition
     }
 
     /// <summary>
-    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Registers cluster locator, internode transport, and replication planning services.
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
     /// <remarks>
@@ -187,7 +187,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<MtlsCertificateMaterial>(),
+            sp.GetRequiredService<MtlsCertificate>(),
             sp.GetService<ReplicaGroupRegistry>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
@@ -341,7 +341,7 @@ internal static class ServerHostingComposition
         "Microsoft.Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
-    private static (MtlsOptions Options, MtlsCertificateMaterial Material) ResolveClusterTransportSecurity(
+    private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
         WebApplicationBuilder builder,
         TopologyOptions cluster,
         ICompositionArgs args,
@@ -353,7 +353,7 @@ internal static class ServerHostingComposition
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
-        var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
+        var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
         return (mtlsOptions, mtlsMaterial);
     }
@@ -372,16 +372,16 @@ internal static class ServerHostingComposition
         /// <param name="uri">The primary HTTPS listen URI.</param>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="mtlsOptions">Cluster mTLS options.</param>
-        /// <param name="mtlsMaterial">Loaded cluster mTLS certificate material.</param>
-        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+        /// <param name="mtls">Loaded cluster mTLS certificate material.</param>
+        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(uri);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
-            ArgumentNullException.ThrowIfNull(mtlsMaterial);
+            ArgumentNullException.ThrowIfNull(mtls);
 
-            var mtlsEnabled = mtlsMaterial.Enabled;
+            var mtlsEnabled = mtls.Enabled;
             var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
             var isLoopbackHost = ExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
@@ -398,9 +398,9 @@ internal static class ServerHostingComposition
                 if (!mtlsEnabled)
                     return;
                 if (isLoopbackHost)
-                    kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial, remotePeerNodeIds));
+                    kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtls, remotePeerNodeIds));
                 else
-                    kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial, remotePeerNodeIds));
+                    kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtls, remotePeerNodeIds));
             });
         }
 
@@ -414,13 +414,13 @@ internal static class ServerHostingComposition
                 throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext 'http://' is not supported.");
         }
 
-        private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] nodeIds)
+        private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
         {
             listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
             _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, nodeIds));
         }
 
-        private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificateMaterial material, string[] remotePeerNodeIds)
+        private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificate material, string[] remotePeerNodeIds)
         {
             https.ServerCertificate = material.NodeCertificate;
             https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
@@ -475,7 +475,7 @@ internal static class ServerHostingComposition
 
         public PressureOptions? MemoryPressureOptions { get; set; }
 
-        public MtlsCertificateMaterial? MtlsMaterial { get; set; }
+        public MtlsCertificate? MtlsMaterial { get; set; }
 
         public MtlsOptions? MtlsOptions { get; set; }
 
