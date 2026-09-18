@@ -55,7 +55,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             new ServerPeer { NodeId = "n1", Uri = uri },
             new ServerPeer { NodeId = "n2", Uri = GetNextHttpUri() },
         };
-        using var dataDir = new TempDirectory("squirix-rf2-mtls");
+        using var dir = new TempDirectory("squirix-rf2-mtls");
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             NodeHost.StartAsync(
                 new TopologyOptions(peers)
@@ -67,7 +67,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
                 },
                 new NodeHostStartOptions
                 {
-                    PersistenceOptions = new PersistenceOptions { DataDir = dataDir.Path },
+                    PersistenceOptions = new PersistenceOptions { DataDir = dir },
                     MtlsOptions = new MtlsOptions(),
                 },
                 cancellationToken));
@@ -103,7 +103,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task SettingsRoundTripReplicaCountGeneration(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-rf-settings-roundtrip");
-        var path = Path.Join(dir.Path, "Squirix.settings.json");
+        var path = Path.Join(dir, "Squirix.settings.json");
         const string json =
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":1,\"ConfigurationGeneration\":7,\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"},{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003\"}]}}}";
         await File.WriteAllTextAsync(path, json, cancellationToken);

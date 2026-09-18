@@ -20,7 +20,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public async Task EnsureRegularAcceptsOrdinaryDir()
     {
-        var path = Dir.Path;
+        string path = Dir;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, false, true);
         _ = await Assert.That(Directory.Exists(path)).IsTrue();
     }
@@ -30,9 +30,9 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public async Task EnsureRegularRejectsSymlinkTarget()
     {
-        var real = Path.Join(Dir.Path, "real");
+        var real = Path.Join(Dir, "real");
         _ = Directory.CreateDirectory(real);
-        var link = Path.Join(Dir.Path, "link");
+        var link = Path.Join(Dir, "link");
         if (!TryCreateDirectoryLink(link, real))
             throw new SkipTestException("Directory symlink/junction creation is not available in this environment.");
 
@@ -48,7 +48,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public async Task EnsureRegularSkipsWhenAllowed()
     {
-        var path = Dir.Path;
+        string path = Dir;
         DirectorySymlinkGuard.EnsureRegularDirectory(path, true, false);
         _ = await Assert.That(Directory.Exists(path)).IsTrue();
     }
@@ -57,7 +57,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public async Task GuardFlagsMissingChainSegments()
     {
-        var basePath = Dir.Path;
+        string basePath = Dir;
         var target = Path.Join(basePath, "missing", "child");
         DirectorySymlinkGuard.EnsureNoSymlinksInChain(target, basePath);
         _ = await Assert.That(Directory.Exists(target)).IsFalse();
@@ -77,7 +77,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
     [Test]
     public void GuardRejectsIntermediateSymlink()
     {
-        var basePath = Dir.Path;
+        string basePath = Dir;
         var real = Path.Join(basePath, "real");
         _ = Directory.CreateDirectory(real);
         var link = Path.Join(basePath, "link");
@@ -90,7 +90,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
 
     /// <summary>IsSymlink returns false for ordinary directories.</summary>
     [Test]
-    public async Task IsSymlinkFalseForOrdinaryDir() => _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir.Path))).IsFalse();
+    public async Task IsSymlinkFalseForOrdinaryDir() => _ = await Assert.That(DirectorySymlinkGuard.IsSymlink(new DirectoryInfo(Dir))).IsFalse();
 
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {

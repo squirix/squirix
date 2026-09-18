@@ -20,14 +20,14 @@ public sealed class TempDirectory : IDisposable
     }
 
     /// <summary>Gets the absolute path to the created directory.</summary>
-    public string Path { get; }
+    private string Path { get; }
 
-    /// <summary>Gets the directory path for <paramref name="directory" />.</summary>
-    /// <param name="directory">The temp directory handle.</param>
-    public static implicit operator string(TempDirectory directory)
+    /// <summary>Gets the directory path for <paramref name="dir" />.</summary>
+    /// <param name="dir">The temp directory handle.</param>
+    public static implicit operator string(TempDirectory dir)
     {
-        ArgumentNullException.ThrowIfNull(directory);
-        return directory.Path;
+        ArgumentNullException.ThrowIfNull(dir);
+        return dir.Path;
     }
 
     /// <inheritdoc />

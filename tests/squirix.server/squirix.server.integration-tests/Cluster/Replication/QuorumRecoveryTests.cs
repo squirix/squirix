@@ -22,15 +22,15 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
     [Test]
     public async Task CommittedNotAppliedReplaysOnce(CancellationToken cancellationToken)
     {
-        using var directory = new TempDirectory("squirix-quorum-recovery");
-        await using (var log = Open(directory))
+        using var dir = new TempDirectory("squirix-quorum-recovery");
+        await using (var log = Open(dir))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(AppendOne(), cancellationToken);
             _ = await log.AdvanceCommitAsync(1, cancellationToken);
         }
 
-        await using (var recovered = Open(directory))
+        await using (var recovered = Open(dir))
         {
             await recovered.OpenAsync(cancellationToken);
             var status = await recovered.GetStatusAsync(cancellationToken);
@@ -39,7 +39,7 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
             _ = await recovered.AdvanceAppliedAsync(1, cancellationToken);
         }
 
-        await using var reopened = Open(directory);
+        await using var reopened = Open(dir);
         await reopened.OpenAsync(cancellationToken);
         var reopenedStatus = await reopened.GetStatusAsync(cancellationToken);
         var reopenedCommitted = await reopened.GetCommittedEntriesAsync(cancellationToken);
@@ -68,5 +68,5 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
         return count;
     }
 
-    private static FollowerLog Open(TempDirectory directory) => new(directory, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog Open(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 }

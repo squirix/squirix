@@ -3,7 +3,7 @@
 Squirix authenticates **external clients** (application SDKs, operators, remote `/metrics` scrapes) on the **primary
 HTTPS listener** with JWT bearer tokens when auth is enabled. This document covers **JWT signing and rotation** only.
 
-Inter-node cluster forwarding uses **mTLS**, not JWT. See [inter-node-mtls.md](inter-node-mtls.md).
+Internode cluster forwarding uses **mTLS**, not JWT. See [internode-mtls.md](internode-mtls.md).
 
 ```text
 External client  --HTTPS + JWT/OIDC-->  primary listener
@@ -29,7 +29,7 @@ Implementation (symmetric mode): `SquirixSecurityServiceRegistration` accepts **
 configured with the same key will accept on the primary listener.
 
 A compromised symmetric signing key allows forgery of **external** API access (cache gRPC, remote metrics / readiness
-details when JWT is required). It does **not** bypass inter-node mTLS: cluster forwarding still requires valid node
+details when JWT is required). It does **not** bypass internode mTLS: cluster forwarding still requires valid node
 certificates on the internal listener.
 
 Nodes that share the same symmetric key share the same blast radius. Use distinct keys per environment (dev/staging/prod)
@@ -62,7 +62,7 @@ Store production values in a secret manager. Set the same key on every validatin
 (clients, scrapers, CI). Pair with environment-specific `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE`.
 
 Cluster mTLS material is separate — generate per-environment node certificates as described in
-[inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl)
+[internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl)
 and [containerization.md](../containerization.md#generate-per-environment-secrets).
 
 ## Rotating symmetric keys
@@ -110,15 +110,15 @@ Multi-node clusters configure **two independent trust domains**:
 | Secret / material | Purpose |
 | --- | --- |
 | `SQUIRIX_JWT_*` | External client authentication on the primary listener |
-| `SQUIRIX_CLUSTER_MTLS_*` | Inter-node machine identity on the internal listener |
+| `SQUIRIX_CLUSTER_MTLS_*` | Internode machine identity on the internal listener |
 
 Rotating JWT signing material does not rotate node certificates, and vice versa. Document and operate them separately.
-Cluster certificate rotation: [inter-node-mtls.md#certificate-rotation-high-level](inter-node-mtls.md#certificate-rotation-high-level).
+Cluster certificate rotation: [internode-mtls.md#certificate-rotation-high-level](internode-mtls.md#certificate-rotation-high-level).
 
 ## Related documentation
 
 - [configuration.md](../configuration.md) — JWT environment variables
 - [containerization.md](../containerization.md#security) — Docker dev keys
-- [inter-node-mtls.md](inter-node-mtls.md) — inter-node trust (not JWT)
+- [internode-mtls.md](internode-mtls.md) — internode trust (not JWT)
 - [diagnostics.md](../diagnostics.md) — remote `/metrics` JWT requirements
 - [operational-runbook.md](../operational-runbook.md) — security checks during triage

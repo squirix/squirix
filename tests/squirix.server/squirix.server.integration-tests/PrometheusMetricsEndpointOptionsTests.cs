@@ -21,7 +21,7 @@ public sealed class PrometheusMetricsEndpointOptionsTests
     /// and options validation all compose correctly with mutable setters.
     /// </summary>
     [Test]
-    public async Task FullPipelineComposesBothConfigurers()
+    public async Task FullPipelineComposesBothConfigurators()
     {
         var services = new ServiceCollection();
         _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o =>

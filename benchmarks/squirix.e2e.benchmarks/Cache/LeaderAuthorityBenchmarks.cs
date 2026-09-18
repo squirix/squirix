@@ -19,7 +19,7 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
-    private TempDirectory? _dataDir;
+    private TempDirectory? _dir;
     private TestNodeHost? _node;
     private int _offset;
 
@@ -64,10 +64,10 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
     public async Task SetupAsync()
     {
         var uri = ListenPortPool.EndToEndBenchmarks.HoldHttpUri();
-        _dataDir = new TempDirectory("squirix-e2e-authority");
+        _dir = new TempDirectory("squirix-e2e-authority");
         try
         {
-            _node = await TestNodeHostFactory.StartNodeAsync("nodeA", uri, _dataDir.Path, CancellationToken.None).ConfigureAwait(false);
+            _node = await TestNodeHostFactory.StartNodeAsync("nodeA", uri, _dir, CancellationToken.None).ConfigureAwait(false);
             _client = await E2EBenchmarkClientLease.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("authority", CancellationToken.None).ConfigureAwait(false);
             for (var i = 0; i < Seeded; i++)
@@ -101,7 +101,7 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
             await _node.DisposeAsync().ConfigureAwait(false);
         _node = null;
 
-        _dataDir?.Dispose();
-        _dataDir = null;
+        _dir?.Dispose();
+        _dir = null;
     }
 }

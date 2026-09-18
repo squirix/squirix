@@ -138,9 +138,9 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     public async Task InstallSnapshotUploadAccepted(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-upload");
-        using var sourceDir = new TempDirectory("squirix-follower-upload-source");
+        using var dir2 = new TempDirectory("squirix-follower-upload-source");
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
-        var fileBytes = await PublishAsync(sourceDir, snapshot, cancellationToken);
+        var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
 
@@ -159,9 +159,9 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     public async Task InstallSnapshotUploadCorruptRefused(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-upload-corrupt");
-        using var sourceDir = new TempDirectory("squirix-follower-upload-corrupt-source");
+        using var dir2 = new TempDirectory("squirix-follower-upload-corrupt-source");
         var snapshot = new GroupSnapshot(GroupId, Fingerprint, 1UL, 1UL, 1UL, 1UL, Array.Empty<GroupIdempotencyRecord>());
-        var fileBytes = await PublishAsync(sourceDir, snapshot, cancellationToken);
+        var fileBytes = await PublishAsync(dir2, snapshot, cancellationToken);
         fileBytes[^1] ^= 0xFF;
         await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
         var service = new ReplicaFollower(registry);
@@ -207,16 +207,16 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
     {
-        var registry = new ReplicaGroupRegistry(dir.Path, [groupId], 1, Fingerprint, 1UL);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, Fingerprint, 1UL);
         await registry.OpenAsync(cancellationToken);
         return registry;
     }
 
     private static async Task<byte[]> PublishAsync(TempDirectory dir, GroupSnapshot snapshot, CancellationToken cancellationToken)
     {
-        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir.Path, snapshot.GroupId);
+        var snapshotPath = GroupStoragePaths.GetSnapshotPath(dir, snapshot.GroupId);
         Directory.CreateDirectory(Path.GetDirectoryName(snapshotPath)!);
-        var store = new GroupSnapshotStore(dir.Path, snapshot.GroupId);
+        var store = new GroupSnapshotStore(dir, snapshot.GroupId);
         await store.PublishAsync(snapshot, cancellationToken);
         return await File.ReadAllBytesAsync(snapshotPath, cancellationToken);
     }

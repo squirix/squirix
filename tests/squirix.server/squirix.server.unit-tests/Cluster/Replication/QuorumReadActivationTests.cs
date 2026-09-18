@@ -106,16 +106,16 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         using var heldC = ListenPortPool.ServerUnitTests.HoldPort();
         var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri), ("nodeC", heldC.HttpUri) };
         using var identity = new ClusterIdentity();
-        using var root = new TempDirectory("squirix-quorum-read");
+        using var dir = new TempDirectory("squirix-quorum-read");
         var options = new Func<string, string, TestNodeHostStartOptions>(static (node, dataDirPath) => new TestNodeHostStartOptions
         {
             ReplicaCount = 3,
             DataDir = NodePathKit.Combine(dataDirPath, node),
         });
 
-        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, options("nodeA", root.Path), identity, cancellationToken);
-        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, options("nodeB", root.Path), identity, cancellationToken);
-        await using var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, peers, options("nodeC", root.Path), identity, cancellationToken);
+        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, options("nodeA", dir), identity, cancellationToken);
+        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, options("nodeB", dir), identity, cancellationToken);
+        await using var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, peers, options("nodeC", dir), identity, cancellationToken);
 
         var cache = nodeA.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("quorum-read");
         var key = FindKeyOwnedBy(nodeA, "quorum-read", "nodeA");

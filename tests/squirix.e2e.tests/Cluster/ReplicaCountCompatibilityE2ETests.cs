@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cluster;
 [Immutable]
 public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
 {
-    /// <summary>Standalone RF=1 does not open an inter-node mTLS listener.</summary>
+    /// <summary>Standalone RF=1 does not open an internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfOneDoesNotOpenReplicationListener(CancellationToken cancellationToken)
@@ -44,7 +44,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         _ = await Assert.That(read.Value).IsEqualTo("v1");
     }
 
-    /// <summary>RF=2 starts with prerequisites and opens its inter-node mTLS listener.</summary>
+    /// <summary>RF=2 starts with prerequisites and opens its internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RfTwoStartsWithPrerequisites(CancellationToken cancellationToken)
@@ -52,7 +52,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-rf2");
+        using var dir = new TempDirectory("squirix-e2e-rf2");
         await using var host = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
             heldA.HttpUri,
@@ -60,7 +60,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
             new TestNodeHostStartOptions
             {
                 ReplicaCount = 2,
-                DataDir = dataDir.Path,
+                DataDir = dir,
             },
             identity,
             cancellationToken);

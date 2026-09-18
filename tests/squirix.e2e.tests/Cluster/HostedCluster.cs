@@ -24,7 +24,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
     private readonly List<ISquirixClient> _clients = [];
-    private readonly TempDirectory? _dataDir;
+    private readonly TempDirectory? _dir;
     private readonly ClusterIdentity? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
     private readonly MultiNodeStartOptions _startOptions;
@@ -35,14 +35,14 @@ internal sealed class HostedCluster : IAsyncDisposable
     private HostedCluster(
         Dictionary<string, TestNode> nodes,
         ClusterIdentity? mtls,
-        TempDirectory? dataDir,
+        TempDirectory? dir,
         MultiNodeStartOptions startOptions,
         FrozenDictionary<string, Uri> uris,
         bool usePersistence)
     {
         _nodes = nodes;
         _mtls = mtls;
-        _dataDir = dataDir;
+        _dir = dir;
         _startOptions = startOptions;
         _uris = uris;
         _usePersistence = usePersistence;
@@ -60,7 +60,7 @@ internal sealed class HostedCluster : IAsyncDisposable
             await node.DisposeAsync();
 
         _mtls?.Dispose();
-        _dataDir?.Dispose();
+        _dir?.Dispose();
     }
 
     internal static ValueTask<HostedCluster> StartSingleNodeAsync(
@@ -113,9 +113,9 @@ internal sealed class HostedCluster : IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="id" /> is not a running node.</exception>
     internal ValueTask StopNodeAsync(string id) => _nodes.Remove(id, out var node) ? node.DisposeAsync() : throw new InvalidOperationException("Requested node is not running.");
 
-    private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
+    private static string BuildDataDir(TempDirectory dir, string nodeId)
     {
-        var path = NodePathKit.Combine(clusterRoot.Path, nodeId);
+        var path = NodePathKit.Combine(dir, nodeId);
         Directory.CreateDirectory(path);
         return path;
     }
@@ -163,7 +163,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
         // Multi-node topologies share one ClusterIdentity material so peer trust anchors stay consistent.
         var identity = nodeIds.Length > 1 ? new ClusterIdentity() : null;
-        var dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
+        var dir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
         var reserved = Array.Empty<HeldPort>();
         try
         {
@@ -181,7 +181,7 @@ internal sealed class HostedCluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
                 topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
-            var cluster = new HostedCluster(nodes, identity, dataDir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
+            var cluster = new HostedCluster(nodes, identity, dir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
@@ -205,7 +205,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                 await node.DisposeAsync();
 
             identity?.Dispose();
-            dataDir?.Dispose();
+            dir?.Dispose();
             throw;
         }
     }
@@ -214,7 +214,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     {
         var hostOptions = new TestNodeHostStartOptions
         {
-            DataDir = _usePersistence ? BuildDataDir(_dataDir!, nodeId) : null,
+            DataDir = _usePersistence ? BuildDataDir(_dir!, nodeId) : null,
             ReplicaCount = _startOptions.ReplicaCount,
             Security = _startOptions.Security,
             MtlsProfile = _startOptions.GetProfile(nodeId),

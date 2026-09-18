@@ -158,7 +158,7 @@ public sealed class ReplicaCountValidationTests : IsolatedStorageTestBase
     [Test]
     public async Task SettingsJsonLoadsCountAndGeneration(CancellationToken cancellationToken)
     {
-        var path = Path.Join(Dir.Path, "Squirix.settings.json");
+        var path = Path.Join(Dir, "Squirix.settings.json");
         const string json =
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":1,\"ConfigurationGeneration\":4,\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"}]}}}";
         await File.WriteAllTextAsync(path, json, cancellationToken);

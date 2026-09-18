@@ -14,14 +14,14 @@ namespace Squirix.Benchmarks.Support.Cluster;
 [Immutable]
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
-    private readonly TempDirectory? _dataDir;
+    private readonly TempDirectory? _dir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
+    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dir)
     {
         Host = host;
         Uri = uri;
-        _dataDir = dataDir;
+        _dir = dir;
     }
 
     internal TestNodeHost Host { get; }
@@ -34,7 +34,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
             return;
 
         await Host.DisposeAsync().ConfigureAwait(false);
-        _dataDir?.Dispose();
+        _dir?.Dispose();
     }
 
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral)
@@ -53,13 +53,13 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         CancellationToken cancellationToken,
         bool warmUpClient = false)
     {
-        TempDirectory? dataDir = null;
+        TempDirectory? dir = null;
 
         TestNodeHost host;
         if (durabilityMode is BenchmarkDurabilityMode.Persistence)
         {
-            dataDir = new TempDirectory("squirix-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
+            dir = new TempDirectory("squirix-bench");
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -69,17 +69,17 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Uri, dataDir);
+                return new BenchmarkNodeScope(host, host.Uri, dir);
 
             var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Uri, dataDir);
+            return new BenchmarkNodeScope(host, host.Uri, dir);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            dir?.Dispose();
             throw;
         }
     }

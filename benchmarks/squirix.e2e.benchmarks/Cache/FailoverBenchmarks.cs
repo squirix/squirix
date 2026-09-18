@@ -19,7 +19,7 @@ public class FailoverBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
-    private TempDirectory? _dataDir;
+    private TempDirectory? _dir;
     private ClusterIdentity? _identity;
     private TestNodeHost? _nodeA;
     private TestNodeHost? _nodeB;
@@ -55,7 +55,7 @@ public class FailoverBenchmarks : IAsyncDisposable
         using var heldB = ListenPortPool.EndToEndBenchmarks.HoldPort();
         using var heldC = ListenPortPool.EndToEndBenchmarks.HoldPort();
         _identity = new ClusterIdentity();
-        _dataDir = new TempDirectory("squirix-e2e-failover");
+        _dir = new TempDirectory("squirix-e2e-failover");
         var topology = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri), ("nodeC", heldC.HttpUri) };
         try
         {
@@ -63,21 +63,21 @@ public class FailoverBenchmarks : IAsyncDisposable
                 "nodeA",
                 heldA.HttpUri,
                 topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dir, "nodeA") },
                 _identity,
                 CancellationToken.None).ConfigureAwait(false);
             _nodeB = await TestNodeHostFactory.StartNodeAsync(
                 "nodeB",
                 heldB.HttpUri,
                 topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dir, "nodeB") },
                 _identity,
                 CancellationToken.None).ConfigureAwait(false);
             _nodeC = await TestNodeHostFactory.StartNodeAsync(
                 "nodeC",
                 heldC.HttpUri,
                 topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeC") },
+                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dir, "nodeC") },
                 _identity,
                 CancellationToken.None).ConfigureAwait(false);
 
@@ -119,7 +119,7 @@ public class FailoverBenchmarks : IAsyncDisposable
 
         _identity?.Dispose();
         _identity = null;
-        _dataDir?.Dispose();
-        _dataDir = null;
+        _dir?.Dispose();
+        _dir = null;
     }
 }

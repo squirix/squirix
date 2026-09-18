@@ -9,11 +9,11 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Covers TopologyFingerprint creation and inter-node URI resolution.</summary>
+/// <summary>Covers TopologyFingerprint creation and internode URI resolution.</summary>
 [Immutable]
 public sealed class TopologyOptionsFingerprintTests
 {
-    /// <summary>Multi-node fingerprints rewrite inter-node URIs from InternalListenPort when unset.</summary>
+    /// <summary>Multi-node fingerprints rewrite internode URIs from InternalListenPort when unset.</summary>
     [Test]
     public async Task CreateFingerprintRewritesInterNodePort()
     {

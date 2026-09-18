@@ -355,12 +355,12 @@ public sealed class ClusterIdentity : IDisposable
     private sealed class TestBundle : IDisposable
     {
         private readonly X509Certificate2 _ca;
-        private readonly TempDirectory _rootDirectory;
+        private readonly TempDirectory _dir;
 
         /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
         internal TestBundle()
         {
-            _rootDirectory = new TempDirectory("squirix-cluster-mtls-cluster");
+            _dir = new TempDirectory("squirix-cluster-mtls-cluster");
             _ca = CreateCertificateAuthority();
             FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
         }
@@ -369,7 +369,7 @@ public sealed class ClusterIdentity : IDisposable
         public void Dispose()
         {
             _ca.Dispose();
-            _rootDirectory.Dispose();
+            _dir.Dispose();
         }
 
         /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
@@ -382,7 +382,7 @@ public sealed class ClusterIdentity : IDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
             PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
 
-            var nodeDirectory = NodePathKit.Combine(_rootDirectory, nodeId);
+            var nodeDirectory = NodePathKit.Combine(_dir, nodeId);
             Directory.CreateDirectory(nodeDirectory);
 
             using var nodeCertificate = CreateNodeCertificate(nodeId);
@@ -436,6 +436,6 @@ public sealed class ClusterIdentity : IDisposable
             return (options, material);
         }
 
-        private string GetClusterCertificateAuthorityPath() => NodePathKit.Combine(_rootDirectory, "cluster-ca.crt");
+        private string GetClusterCertificateAuthorityPath() => NodePathKit.Combine(_dir, "cluster-ca.crt");
     }
 }

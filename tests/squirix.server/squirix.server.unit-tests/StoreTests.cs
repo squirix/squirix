@@ -24,7 +24,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     [Test]
     public async Task EnqueueRollAdvancesPointerSequentially(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir.Path };
+        var options = new PersistenceOptions { DataDir = Dir };
         await RollAsync();
         using var reloaded = new Ledger(options);
         _ = await Assert.That((await reloaded.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
@@ -53,17 +53,17 @@ public sealed class StoreTests : IsolatedStorageTestBase
     [Test]
     public async Task WriteCreatesPointerAndManifestFile(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir.Path };
+        var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
+        var currentPath = NodePathKit.Combine(Dir, "man-current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken);
         _ = await Assert.That(pointerBytes.Length).IsEqualTo(12);
         _ = await Assert.That(Pointer.Read(pointerBytes)).IsEqualTo(1);
 
-        var manifestPath = NodePathKit.Combine(Dir.Path, "man-000001.bmqx");
+        var manifestPath = NodePathKit.Combine(Dir, "man-000001.bmqx");
         _ = await Assert.That(File.Exists(manifestPath)).IsTrue();
         var manifest = FileCodec.Decode(await File.ReadAllBytesAsync(manifestPath, cancellationToken));
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(1);
@@ -75,12 +75,12 @@ public sealed class StoreTests : IsolatedStorageTestBase
     [Test]
     public async Task WriteUpdatesPointerViaTempFile(CancellationToken cancellationToken)
     {
-        var options = new PersistenceOptions { DataDir = Dir.Path };
+        var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        _ = await Assert.That(File.Exists(NodePathKit.Combine(Dir.Path, "man-current.tmp"))).IsFalse();
-        _ = await Assert.That((await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), cancellationToken)).Length).IsEqualTo(12);
+        _ = await Assert.That(File.Exists(NodePathKit.Combine(Dir, "man-current.tmp"))).IsFalse();
+        _ = await Assert.That((await File.ReadAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), cancellationToken)).Length).IsEqualTo(12);
     }
 }

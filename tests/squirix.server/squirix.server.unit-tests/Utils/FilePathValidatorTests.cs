@@ -19,11 +19,11 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
     [Test]
     public async Task CombineAcceptsMultipleSegments()
     {
-        var combined = PathEx.Combine(Dir.Path, "a", "b");
-        _ = await Assert.That(combined).IsEqualTo(Path.GetFullPath(Path.Join(Dir.Path, "a", "b")));
+        var combined = PathEx.Combine(Dir, "a", "b");
+        _ = await Assert.That(combined).IsEqualTo(Path.GetFullPath(Path.Join(Dir, "a", "b")));
 
-        var triple = PathEx.Combine(Dir.Path, "a", "b", "c");
-        _ = await Assert.That(triple).IsEqualTo(Path.GetFullPath(Path.Join(Dir.Path, "a", "b", "c")));
+        var triple = PathEx.Combine(Dir, "a", "b", "c");
+        _ = await Assert.That(triple).IsEqualTo(Path.GetFullPath(Path.Join(Dir, "a", "b", "c")));
     }
 
     /// <summary>FileEx.TryDeleteFile treats traversal paths as skipped successes.</summary>

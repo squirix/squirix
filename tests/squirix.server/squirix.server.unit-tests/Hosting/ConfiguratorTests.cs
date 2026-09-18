@@ -30,8 +30,8 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
             ],
         };
 
-        Configurator.ApplyCommandLineOverrides(options, null, Dir.Path, true);
-        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir.Path));
+        Configurator.ApplyCommandLineOverrides(options, null, Dir, true);
+        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir));
     }
 
     /// <summary>Command-line overrides enable the replication opt-in.</summary>
@@ -111,7 +111,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task LoadFromFileErrorsWhenFileMissing(CancellationToken cancellationToken)
     {
-        var (success, _, error) = await Configurator.LoadFromFileAsync(Path.Join(Dir.Path, "missing.json"), cancellationToken);
+        var (success, _, error) = await Configurator.LoadFromFileAsync(Path.Join(Dir, "missing.json"), cancellationToken);
         _ = await Assert.That(success).IsFalse();
         _ = await Assert.That(error).Contains("does not exist", StringComparison.OrdinalIgnoreCase);
     }
@@ -152,9 +152,9 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task RuntimeDefaultsCanonicalizeDataDir()
     {
-        var options = new SquirixServerOptions { DataDirectory = Dir.Path };
+        var options = new SquirixServerOptions { DataDirectory = Dir };
         Configurator.ApplyRuntimeDefaults(options);
-        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir.Path));
+        _ = await Assert.That(options.DataDirectory).IsEqualTo(Path.GetFullPath(Dir));
     }
 
     /// <summary>ResolveSettingsPath validates an explicit settings path.</summary>
@@ -162,7 +162,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task SettingsPathCanonicalizesExplicitInput(CancellationToken cancellationToken)
     {
-        var path = Path.Join(Dir.Path, "Squirix.settings.json");
+        var path = Path.Join(Dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, "{}", cancellationToken);
         var resolved = Configurator.ResolveSettingsPath(path);
         _ = await Assert.That(resolved).IsEqualTo(Path.GetFullPath(path));

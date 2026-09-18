@@ -50,21 +50,21 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
                 EnvironmentName = "Development",
             });
 
-        var optionsConfigurer = new PersistenceOptionsConfigurer(port, Dir.Path);
-        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
+        var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
+        _ = await builder.AddSquirixServerAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
-        _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir.Path);
+        _ = await Assert.That(persistence.DataDir).IsEqualTo(Dir);
     }
 
     [Immutable]
-    private sealed class PersistenceOptionsConfigurer
+    private sealed class PersistenceOptionsConfigurator
     {
         private readonly string _dataDirectory;
         private readonly int _port;
 
-        internal PersistenceOptionsConfigurer(int port, string dataDirectory)
+        internal PersistenceOptionsConfigurator(int port, string dataDirectory)
         {
             _port = port;
             _dataDirectory = dataDirectory;

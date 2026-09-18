@@ -63,11 +63,11 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
     [Test]
     public async Task InstallAdoptsBoundaryAsApplied(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-install-boundary-source");
-        using var targetDir = new TempDirectory("squirix-install-boundary-target");
+        using var dir = new TempDirectory("squirix-install-boundary-source");
+        using var dir2 = new TempDirectory("squirix-install-boundary-target");
         var composition = GroupComposition.Create(GroupId);
 
-        await using var source = new FollowerLog(sourceDir, GroupId, composition);
+        await using var source = new FollowerLog(dir, GroupId, composition);
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
@@ -75,7 +75,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await source.AdvanceCommitAsync(3UL, cancellationToken);
         var snapshot = await source.CreateSnapshotAsync(3UL, cancellationToken);
 
-        await using var target = new FollowerLog(targetDir, GroupId, composition);
+        await using var target = new FollowerLog(dir2, GroupId, composition);
         await target.OpenAsync(cancellationToken);
         var result = await target.InstallSnapshotAsync(snapshot, 1UL, cancellationToken);
 

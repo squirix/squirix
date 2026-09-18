@@ -1,6 +1,6 @@
-# Inter-node mTLS
+# Internode mTLS
 
-Squirix separates **external client authentication** from **inter-node cluster authentication**. Applications connect
+Squirix separates **external client authentication** from **internode cluster authentication**. Applications connect
 to the primary HTTPS listener with JWT/OIDC (or loopback-only unauthenticated access in development). Cluster nodes
 forward owner operations to peers over a **dedicated internal HTTPS listener** that requires **mutual TLS** signed by a
 shared cluster trust root.
@@ -15,17 +15,17 @@ certificates and must not be treated as a cluster certificate authority.
 
 Environment variable reference: [configuration.md](../configuration.md#environment-variables).
 
-## Why external auth and inter-node auth are separate
+## Why external auth and internode auth are separate
 
 | Surface | Listener | Client identity | Typical caller |
 | --- | --- | --- | --- |
 | External cache API | Primary `Cluster.Uri` port | JWT bearer (when auth is enabled) | Application SDK, operators |
-| Inter-node forwarding | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | mTLS client certificate (`CN` = peer `NodeId`, cluster CA) | Other Squirix nodes |
+| Internode forwarding | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | mTLS client certificate (`CN` = peer `NodeId`, cluster CA) | Other Squirix nodes |
 
 Reasons for the split:
 
 - Application credentials must not be forwarded hop-by-hop inside the cluster.
-- Inter-node calls are machine-to-machine; trust is established with node certificates, not end-user JWTs.
+- Internode calls are machine-to-machine; trust is established with node certificates, not end-user JWTs.
 - Operational routes (`/health`, `/metrics`) stay on the primary listener with the existing auth model.
 - Spoofing internal owner-routing metadata on the primary listener is rejected unless the call arrives on the internal
   mTLS listener with a trusted peer certificate.
@@ -33,9 +33,9 @@ Reasons for the split:
 External **client mTLS** (presenting a client certificate to the primary listener) is a separate, optional TLS concern.
 The default application auth path is **JWT via `BearerTokenProvider`**, not client certificates.
 
-## When inter-node mTLS is required
+## When internode mTLS is required
 
-Inter-node mTLS is **mandatory at startup** when the cluster topology includes at least one **remote peer** (a peer
+Internode mTLS is **mandatory at startup** when the cluster topology includes at least one **remote peer** (a peer
 entry whose `NodeId` differs from the local `Cluster.NodeId`). Standalone nodes with no remote peers do not load cluster
 mTLS material.
 
@@ -53,7 +53,7 @@ Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://`
 4. Configure **JWT/OIDC** for external clients on the primary listener using the existing `SQUIRIX_JWT_*` variables.
 5. Rotate node certificates before expiry using your PKI workflow (see [Certificate rotation](#certificate-rotation-high-level)).
 
-Squirix validates inter-node certificates in two steps:
+Squirix validates internode certificates in two steps:
 
 1. **Trust** — build a chain to the configured cluster CA (`CustomRootTrust`), independent of the machine trust store.
 2. **Identity** — require the certificate **CN** to match the expected cluster `NodeId` (ordinal string comparison).
@@ -65,7 +65,7 @@ CA and its CN must equal the target peer's `NodeId`. A valid cluster CA signatur
 does not match the expected node identity.
 
 Squirix reads certificate identity from the **subject CN** (`X509NameType.SimpleName`). SANs and other name forms are
-not used for inter-node peer binding in v0.1.
+not used for internode peer binding in v0.1.
 
 ### What Squirix does not support
 
@@ -85,7 +85,7 @@ Cluster mTLS is configured only through environment variables (also used by cont
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` | Optional PFX password |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH` | PEM node certificate (requires key path) |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH` | PEM node private key |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for inter-node gRPC mTLS |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for internode gRPC mTLS |
 
 Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing, when
 the internal port equals the primary port, or when the loaded node certificate CN does not match `Cluster.NodeId`.
@@ -95,16 +95,16 @@ in containers, or your ingress TLS termination) is **independent** from cluster 
 
 Outbound peer connections use `https://<peer-host>:<internal-port>`, where `<peer-host>` comes from each
 `Peers[].Uri` and `<internal-port>` is `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`. There is no public settings field to
-override the inter-node URI per peer in v0.1.
+override the internode URI per peer in v0.1.
 
-## Inter-node JWT (not used)
+## Internode JWT (not used)
 
-Inter-node JWT propagation is **not** part of the product model. Cluster forwarding uses **mTLS on the internal
+Internode JWT propagation is **not** part of the product model. Cluster forwarding uses **mTLS on the internal
 listener** instead:
 
 - Forwarding nodes present a **trusted client certificate** on the internal transport.
 - The internal gRPC surface allows anonymous authorization policy because **TLS client authentication** is the gate.
-- External JWTs are **not** required for peer-to-peer forwarding when inter-node mTLS is enforced.
+- External JWTs are **not** required for peer-to-peer forwarding when internode mTLS is enforced.
 - External callers still need JWT (when auth is enabled) on the **primary** listener; they cannot satisfy internal
   forwarding checks with JWT alone.
 
@@ -180,7 +180,7 @@ export SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT="5101"
 ```
 
 Mount the same files in containers at stable paths (for example `/mtls/cluster-ca.crt`, `/mtls/node.pfx`) and set the
-`SQUIRIX_CLUSTER_MTLS_*` variables accordingly. See [containerization.md](../containerization.md#multi-node-inter-node-mtls).
+`SQUIRIX_CLUSTER_MTLS_*` variables accordingly. See [containerization.md](../containerization.md#multi-node-internode-mtls).
 
 ### In-process and automated tests
 

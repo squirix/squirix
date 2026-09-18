@@ -10,14 +10,14 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Owns common recovery test infrastructure for focused journal and manifest scenarios.</summary>
 internal sealed class RecoveryScenarioBuilder : IDisposable
 {
-    private readonly TempDirectory _dataDirectory;
+    private readonly TempDirectory _dir;
     private int _disposed;
 
-    private RecoveryScenarioBuilder(TempDirectory dataDirectory)
+    private RecoveryScenarioBuilder(TempDirectory dir)
     {
-        _dataDirectory = dataDirectory;
-        DataDir = dataDirectory.Path;
-        Persistence = new PersistenceOptions { DataDir = dataDirectory.Path, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+        _dir = dir;
+        DataDir = dir;
+        Persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
         Ledger = new Ledger(Persistence);
         Cache = new PhysicalCache<object?>();
     }
@@ -41,7 +41,7 @@ internal sealed class RecoveryScenarioBuilder : IDisposable
             return;
 
         Ledger.Dispose();
-        _dataDirectory.Dispose();
+        _dir.Dispose();
     }
 
     /// <summary>Creates a recovery scenario with an owned temporary data directory.</summary>

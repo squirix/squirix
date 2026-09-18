@@ -163,7 +163,7 @@ internal static class ServerHostingComposition
     }
 
     /// <summary>
-    /// Registers cluster locator, inter-node transport, and replication planning services.
+    /// Registers cluster locator, internode transport, and replication planning services.
     /// Composition root for Cluster child namespaces (parent Cluster must not reference them).
     /// </summary>
     /// <remarks>

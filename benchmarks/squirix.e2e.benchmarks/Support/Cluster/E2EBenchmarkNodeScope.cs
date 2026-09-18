@@ -15,15 +15,15 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 [Immutable]
 internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
 {
-    private readonly TempDirectory? _dataDir;
+    private readonly TempDirectory? _dir;
     private readonly TestNodeHost _host;
     private int _disposed;
 
-    private E2EBenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
+    private E2EBenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dir)
     {
         _host = host;
         Uri = uri;
-        _dataDir = dataDir;
+        _dir = dir;
     }
 
     private Uri Uri { get; }
@@ -34,7 +34,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
             return;
 
         await _host.DisposeAsync().ConfigureAwait(false);
-        _dataDir?.Dispose();
+        _dir?.Dispose();
     }
 
     internal static Task<E2EBenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, E2EBenchmarkDurabilityMode durabilityMode = E2EBenchmarkDurabilityMode.Ephemeral) =>
@@ -56,13 +56,13 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
         CancellationToken cancellationToken,
         bool warmUpClient = false)
     {
-        TempDirectory? dataDir = null;
+        TempDirectory? dir = null;
 
         TestNodeHost host;
         if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
         {
-            dataDir = new TempDirectory("squirix-e2e-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
+            dir = new TempDirectory("squirix-e2e-bench");
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -72,17 +72,17 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
         try
         {
             if (!warmUpClient)
-                return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
+                return new E2EBenchmarkNodeScope(host, host.Uri, dir);
 
             var unused = await E2EBenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
+            return new E2EBenchmarkNodeScope(host, host.Uri, dir);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            dir?.Dispose();
             throw;
         }
     }

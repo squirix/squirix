@@ -21,8 +21,8 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Test]
     public async Task FinalTargetFalseForOrdinaryDir()
     {
-        using var root = new TempDirectory("squirix-macos-resolve");
-        _ = await Assert.That(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(root.Path), out var target)).IsFalse();
+        using var dir = new TempDirectory("squirix-macos-resolve");
+        _ = await Assert.That(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(dir), out var target)).IsFalse();
         _ = await Assert.That(target).IsEqualTo(string.Empty);
     }
 
@@ -50,8 +50,8 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Test]
     public async Task FollowFalseForNonRootChild()
     {
-        using var root = new TempDirectory("squirix-macos-follow-nested");
-        _ = await Assert.That(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), true, out var resolved)).IsFalse();
+        using var dir = new TempDirectory("squirix-macos-follow-nested");
+        _ = await Assert.That(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(dir), true, out var resolved)).IsFalse();
         _ = await Assert.That(resolved).IsEqualTo(string.Empty);
     }
 
@@ -59,8 +59,8 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Test]
     public async Task FollowReturnsFalseWhenNotAppleHost()
     {
-        using var root = new TempDirectory("squirix-macos-follow-off");
-        _ = await Assert.That(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), false, out var resolved)).IsFalse();
+        using var dir = new TempDirectory("squirix-macos-follow-off");
+        _ = await Assert.That(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(dir), false, out var resolved)).IsFalse();
         _ = await Assert.That(resolved).IsEqualTo(string.Empty);
     }
 
@@ -113,8 +113,8 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Test]
     public async Task RootLinkIdentityRejectsNestedName()
     {
-        using var root = new TempDirectory("squirix-macos-identity-nested");
-        var nested = Path.Join(root.Path, "var");
+        using var dir = new TempDirectory("squirix-macos-identity-nested");
+        var nested = Path.Join(dir, "var");
         _ = await Assert.That(MacOsCompatibilitySymlink.TryGetRootLinkIdentity(new DirectoryInfo(nested), out _, out _)).IsFalse();
     }
 }

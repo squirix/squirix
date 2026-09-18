@@ -46,7 +46,7 @@ public abstract class SmokeTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
+    /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
