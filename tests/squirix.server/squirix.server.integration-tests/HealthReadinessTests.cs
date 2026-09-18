@@ -42,9 +42,8 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     [Test]
     public async Task ReadyDetailsReportsReadinessSignals(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-
-        await using var node = await StartNodeAsync(uri, "node_health_A", new NodeStartOptions { UsePersistence = true }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node_health_A", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
+        var node = cluster["node_health_A"];
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), cancellationToken);

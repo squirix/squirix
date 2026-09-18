@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -24,11 +23,11 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfOneStartsWithoutReplicationServices(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var host = await StartNodeAsync(uri, "n1", cancellationToken: cancellationToken);
-        var featureState = host.Services.GetRequiredService<FeatureState>();
+        await using var cluster = await StartClusterAsync("n1", cancellationToken: cancellationToken);
+        var host = cluster["n1"];
+        var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
-        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
+        _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
     /// <summary>RF=2 without persistence reports the persistence prerequisite first.</summary>
@@ -38,9 +37,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uriA, peers, new NodeStartOptions { ReplicaCount = 2 }, cancellationToken));
+        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            StartClusterNodeAsync(uriA, peers, new IntegrationStartOptions { ReplicaCount = 2 }, cancellationToken));
         _ = await Assert.That(ex.Message).Contains(ReplicationActivationGuard.PersistenceRequired, StringComparison.Ordinal);
     }
 
@@ -81,20 +80,20 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        await using var host = await StartNodeAsync(
+        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        await using var host = await StartClusterNodeAsync(
             uriA,
             peers,
-            new NodeStartOptions
+            new IntegrationStartOptions
             {
                 ReplicaCount = 2,
                 UsePersistence = true,
                 ExtraScope = "rf2-activation",
             },
             cancellationToken);
-        var featureState = host.Services.GetRequiredService<FeatureState>();
+        var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsTrue();
-        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
+        _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
     /// <summary>Settings JSON round-trips ReplicaCount and ConfigurationGeneration.</summary>

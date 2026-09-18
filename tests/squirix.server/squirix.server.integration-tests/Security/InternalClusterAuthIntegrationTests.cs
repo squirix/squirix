@@ -26,11 +26,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     public async Task ExternalClientCannotSpoofOwnerHeader(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
@@ -46,22 +45,17 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
-    /// <summary>Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.</summary>
+    /// <summary>Verifies cluster forwarding over trusted internode mTLS succeeds without propagating external JWT.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ForwardingAcceptsJwtOnInternalTransport(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward");
         const string value = "cluster-forwarded-value";
 
-        using var channelA = CreateGrpcChannel(uriA);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
@@ -75,7 +69,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
 
         _ = await Assert.That(setResponse.Added).IsTrue();
 
-        using var channelB = CreateGrpcChannel(uriB);
+        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
 
@@ -83,19 +77,15 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     }
 
     /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task InternalListenerNeedsTrustedPeerCert(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var peers = cluster.Peers;
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, cancellationToken: cancellationToken);
-
-        var interNodeUrl = ThrowHelper.Required(FindPeer(peers, "node-b").InterNodeUri, "Expected inter-node URL for node-b.");
+        var interNodeUrl = ThrowHelper.Required(FindPeer(peers, "node-b").InterNodeUri, "Expected internode URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrl,
@@ -118,23 +108,18 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                         .IsTrue();
     }
 
-    /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to inter-node forwarding.</summary>
+    /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to internode forwarding.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task JwtAuthForwardingUsesInternalMtls(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-forward");
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
         const string value = "cluster-forwarded-with-jwt";
 
-        using var channelA = CreateGrpcChannel(uriA);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var setResponse = await clientA.TryAddEntryAsync(
@@ -150,22 +135,18 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(setResponse.Added).IsTrue();
     }
 
-    /// <summary>Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
+    /// <summary>Verifies trusted internode mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer internode URL is missing.</exception>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OwnerRpcWrongNodeReturnsStaleOwner(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
+        var peers = cluster.Peers;
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
         var nodeBUrl = FindPeer(peers, "node-b").Uri;
-        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected inter-node URL for node-a.");
+        var interNodeUrlA = ThrowHelper.Required(FindPeer(peers, "node-a").InterNodeUri, "Expected internode URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,
@@ -200,14 +181,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     public async Task SpoofedInternalOwnerHeaderRejected(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
-
-        using var channel = CreateGrpcChannel(uriB);
+        using var channel = CreateGrpcChannel(cluster["node-b"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {

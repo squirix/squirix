@@ -9,7 +9,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Shared two-node fixture for integration test classes.
-/// Starts two <see cref="TestNodeHost" /> instances in <see cref="InitializeAsync" /> and disposes them in <see cref="DisposeAsync" />.
+/// Starts two <see cref="ITestNodeHost" /> instances in <see cref="InitializeAsync" /> and disposes them in <see cref="DisposeAsync" />.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -22,8 +22,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 [UsedImplicitly]
 public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
-    private TestNodeHost? _nodeA;
-    private TestNodeHost? _nodeB;
+    private TestCluster<IntegrationStartOptions>? _cluster;
 
     /// <summary>Gets the listen URI of the first node.</summary>
     public Uri UriA => NodeA.Uri;
@@ -33,29 +32,19 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncI
 
     /// <summary>Gets the first node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private TestNodeHost NodeA => ThrowHelper.Required(_nodeA, "Fixture is not initialized.");
+    private ITestNodeHost NodeA => ThrowHelper.Required(_cluster, "Fixture is not initialized.")["node-a"];
 
     /// <summary>Gets the second node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private TestNodeHost NodeB => ThrowHelper.Required(_nodeB, "Fixture is not initialized.");
+    private ITestNodeHost NodeB => ThrowHelper.Required(_cluster, "Fixture is not initialized.")["node-b"];
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_nodeB != null)
-            await _nodeB.DisposeAsync();
-        if (_nodeA != null)
-            await _nodeA.DisposeAsync();
+        if (_cluster != null)
+            await _cluster.DisposeAsync();
     }
 
     /// <inheritdoc />
-    public async Task InitializeAsync()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        _nodeA = await StartNodeAsync(uriA, peers);
-        _nodeB = await StartNodeAsync(uriB, peers);
-    }
+    public async Task InitializeAsync() => _cluster = await StartClusterAsync("node-a", "node-b");
 }

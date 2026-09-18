@@ -9,7 +9,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Shared single-node fixture for integration test classes.
-/// Starts one <see cref="TestNodeHost" /> in <see cref="InitializeAsync" /> and disposes it in <see cref="DisposeAsync" />.
+/// Starts one <see cref="ITestNodeHost" /> in <see cref="InitializeAsync" /> and disposes it in <see cref="DisposeAsync" />.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -21,11 +21,11 @@ namespace Squirix.Server.IntegrationTests.Support;
 [UsedImplicitly]
 public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
-    private TestNodeHost? _node;
+    private TestCluster<IntegrationStartOptions>? _cluster;
 
     /// <summary>Gets the started test node host.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    public TestNodeHost Node => ThrowHelper.Required(_node, "Fixture is not initialized.");
+    public ITestNodeHost Node => ThrowHelper.Required(_cluster, "Fixture is not initialized.")["node-a"];
 
     /// <summary>Gets the listen URI of the started node.</summary>
     public Uri Uri => Node.Uri;
@@ -33,10 +33,10 @@ public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsy
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_node != null)
-            await _node.DisposeAsync();
+        if (_cluster != null)
+            await _cluster.DisposeAsync();
     }
 
     /// <inheritdoc />
-    public async Task InitializeAsync() => _node = await StartNodeAsync(GetNextHttpUri(), "node-a");
+    public async Task InitializeAsync() => _cluster = await StartClusterAsync("node-a");
 }
