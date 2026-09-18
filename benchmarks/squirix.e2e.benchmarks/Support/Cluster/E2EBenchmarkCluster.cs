@@ -1,6 +1,5 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,15 +17,13 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     private static readonly string[] DualNodeIds = ["nodeA", "nodeB"];
     private static readonly string[] SingleNodeIds = ["nodeA"];
 
-    private readonly TempDirectory? _dataDir;
-    private readonly FrozenDictionary<string, TestNodeHost> _nodes;
+    private readonly TestCluster<ClusterStartOptions> _cluster;
     private E2EBenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
+    private E2EBenchmarkCluster(TestCluster<ClusterStartOptions> cluster)
     {
-        _nodes = nodes;
-        _dataDir = dataDir;
+        _cluster = cluster;
     }
 
     public async ValueTask DisposeAsync()
@@ -37,63 +34,62 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        foreach (var node in _nodes.Values)
-            await node.DisposeAsync().ConfigureAwait(false);
-
-        _dataDir?.Dispose();
+        await _cluster.DisposeAsync().ConfigureAwait(false);
     }
 
-    internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
+    /// <summary>Starts the nodes for the requested topology and durability mode.</summary>
+    /// <param name="topology">Single- or dual-node topology.</param>
+    /// <param name="durabilityMode">Ephemeral or persistent node durability.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started benchmark cluster owning the nodes.</returns>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership of the data directory transfers to the cluster, which disposes it.")]
+    internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, DurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeIds = topology is BenchmarkTopology.SingleNode ? SingleNodeIds : DualNodeIds;
-        var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
-        var heldPorts = new List<HeldPort>(nodeIds.Length);
-        var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
+        var usePersistence = durabilityMode is DurabilityMode.Persistence;
+        var reserved = Array.Empty<HeldPort>();
         TempDirectory? dataDir = null;
+        TestCluster<ClusterStartOptions>? cluster = null;
         try
         {
             // Allocate listener URIs up front so every node advertises the same peer topology during startup.
             // Handles stay alive until each node binds (released by the factory) or startup fails.
-            foreach (var nodeId in nodeIds)
-            {
-                var held = ListenPortPool.EndToEndBenchmarks.HoldPort();
-                heldPorts.Add(held);
-                addresses[nodeId] = held.HttpUri;
-            }
-
-            var peers = new (string NodeId, Uri Uri)[nodeIds.Length];
+            reserved = ListenPortPool.EndToEndBenchmarks.HoldPorts(nodeIds.Length);
+            var peers = new ClusterNode[nodeIds.Length];
             for (var i = 0; i < nodeIds.Length; i++)
-                peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
+                peers[i] = new ClusterNode(nodeIds[i], reserved[i].HttpUri);
 
-            var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
             dataDir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
+            cluster = TestCluster<ClusterStartOptions>.Create(peers, dataDir: dataDir);
 
             // Each node receives an isolated data directory when persistence benchmarks are enabled.
-            foreach (var nodeId in nodeIds)
+            for (var i = 0; i < nodeIds.Length; i++)
             {
-                nodes[nodeId] = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Join(dataDir!.Path, nodeId), cancellationToken).ConfigureAwait(false)
-                    : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
+                var options = usePersistence ? new ClusterStartOptions { DataDir = Path.Join(dataDir!.Path, nodeIds[i]) } : null;
+                _ = await cluster.StartNodeAsync(nodeIds[i], options, cancellationToken).ConfigureAwait(false);
             }
 
-            return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
+            return new E2EBenchmarkCluster(cluster);
         }
         catch
         {
             // Roll back every setup failure, including cancellation: HeldPort.Dispose is
             // a no-op for ports the factory already released for binding.
-            for (var i = 0; i < heldPorts.Count; i++)
-                heldPorts[i].Dispose();
-            foreach (var node in nodes.Values)
-                await node.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            if (cluster == null)
+                dataDir?.Dispose();
+            else
+                await cluster.DisposeAsync().ConfigureAwait(false);
+
+            for (var i = 0; i < reserved.Length; i++)
+                reserved[i].Dispose();
+
             throw;
         }
     }
 
     internal async Task<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await E2EBenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
+        _client ??= await E2EBenchmarkClientLease.ConnectAsync(_cluster["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
         return await _client.Client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
     }
 }

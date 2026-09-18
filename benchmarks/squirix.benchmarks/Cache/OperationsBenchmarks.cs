@@ -63,7 +63,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     [GlobalSetup]
     public async Task StartCacheSessionAsync()
     {
-        await StartNodeAsync().ConfigureAwait(false);
+        await StartClusterAsync().ConfigureAwait(false);
         await StartSharedCacheAsync("bench").ConfigureAwait(false);
         await SharedCache.SetAsync(ExistingKey, "value", cancellationToken: CancellationToken.None).ConfigureAwait(false);
         _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
@@ -75,6 +75,6 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     public async Task StopCacheSessionAsync()
     {
         await StopSharedCacheAsync().ConfigureAwait(false);
-        await StopNodeAsync().ConfigureAwait(false);
+        await StopClusterAsync().ConfigureAwait(false);
     }
 }

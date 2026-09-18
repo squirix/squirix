@@ -16,54 +16,53 @@ namespace Squirix.Server.TestKit.Hosting;
 /// and disposes the underlying app when the host is disposed.
 /// </summary>
 /// <remarks>
-/// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will dispose it via
-/// <see cref="DisposeAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
+/// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will shut it down via
+/// <see cref="ITestNodeHost.ShutdownAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
 [Immutable]
-public sealed class TestNodeHost : ITestNodeHost
+internal sealed class TestNodeHost : ITestNodeHost
 {
     private readonly WebApplication _app;
+    private readonly string _dataDir;
+    private readonly bool _persistenceEnabled;
     private readonly IDisposable? _scope;
+    private readonly Uri _uri;
     private int _disposed;
+    private int _scopeDisposed;
 
     /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
     /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
-    /// <param name="scope">Optional disposable scope that will be disposed alongside the host.</param>
+    /// <param name="scope">Optional disposable scope that will be disposed of alongside the host.</param>
     public TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
-        Uri = uri;
-        DataDir = dataDir;
-        PersistenceEnabled = persistenceEnabled;
+        _uri = uri;
+        _dataDir = dataDir;
+        _persistenceEnabled = persistenceEnabled;
         _scope = scope;
     }
 
-    /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
-    public string DataDir { get; }
+    string ITestNodeHost.DataDir => _dataDir;
 
-    /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
-    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificate>() is { Enabled: true };
+    bool ITestNodeHost.HasInterNodeMtlsListener => _app.Services.GetService<MtlsCertificate>() is { Enabled: true };
 
-    /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
-    public bool PersistenceEnabled { get; }
+    bool ITestNodeHost.PersistenceEnabled => _persistenceEnabled;
 
-    /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
-    public IServiceProvider Services => _app.Services;
+    IServiceProvider ITestNodeHost.Services => _app.Services;
 
-    /// <summary>Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).</summary>
-    public Uri Uri { get; }
+    Uri ITestNodeHost.Uri => _uri;
 
     /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
-    public async ValueTask AbruptShutdownAsync()
+    async ValueTask ITestNodeHost.AbruptShutdownAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-        _scope?.Dispose();
+        DisposeScope();
 
         // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
         // Offline compact and restart paths open those files immediately; wait until they are shareable.
@@ -71,7 +70,12 @@ public sealed class TestNodeHost : ITestNodeHost
     }
 
     /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
-    public async ValueTask DisposeAsync()
+    ValueTask IAsyncDisposable.DisposeAsync() => ShutdownCoreAsync();
+
+    /// <inheritdoc />
+    ValueTask ITestNodeHost.ShutdownAsync() => ShutdownCoreAsync();
+
+    private async ValueTask ShutdownCoreAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
@@ -79,12 +83,14 @@ public sealed class TestNodeHost : ITestNodeHost
         await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
         await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
         await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
-
-        _scope?.Dispose();
+        DisposeScope();
     }
 
-    /// <summary>Gracefully stops the node and releases its resources. Safe to call multiple times.</summary>
-    public ValueTask ShutdownAsync() => DisposeAsync();
+    private void DisposeScope()
+    {
+        if (Interlocked.Exchange(ref _scopeDisposed, 1) == 0)
+            _scope?.Dispose();
+    }
 
     private static async ValueTask SuppressObjectDisposedAsync(ValueTask task)
     {
@@ -106,12 +112,12 @@ public sealed class TestNodeHost : ITestNodeHost
 
     private async ValueTask WaitForPersistenceReleaseBestEffortAsync()
     {
-        if (!PersistenceEnabled || string.IsNullOrWhiteSpace(DataDir))
+        if (!_persistenceEnabled || string.IsNullOrWhiteSpace(_dataDir))
             return;
 
         try
         {
-            await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
+            await JournalSegmentLeaseWait.WaitForReleasedAsync(_dataDir, CancellationToken.None).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {

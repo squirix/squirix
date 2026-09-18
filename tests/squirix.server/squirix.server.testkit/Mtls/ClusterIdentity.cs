@@ -42,30 +42,6 @@ public sealed class ClusterIdentity : IDisposable
         _internalPorts.Clear();
     }
 
-    /// <summary>Builds a standalone single-peer topology without allocating a temporary topology span array.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    internal static ServerPeer[] CreatePeer(string nodeId, Uri uri)
-    {
-        ClusterIdentity? identity = null;
-        return CreatePeers([new ClusterNode(nodeId, uri)], ref identity);
-    }
-
-    /// <summary>Builds peer entries for a tuple topology by delegating to the cluster-node overload.</summary>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <param name="identity">Shared context for the current test case.</param>
-    /// <returns>ServerPeer entries for host startup.</returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty.</exception>
-    internal static ServerPeer[] CreatePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology, ref ClusterIdentity? identity)
-    {
-        var nodes = new ClusterNode[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            nodes[i] = new ClusterNode(topology[i].NodeId, topology[i].Uri);
-
-        return CreatePeers(nodes, ref identity);
-    }
-
     /// <summary>Builds peer entries for a multi-node topology, including dedicated internode URLs.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="identity">Shared context for the current test case.</param>

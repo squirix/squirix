@@ -382,7 +382,7 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 ## In-process test hosts
 
 Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
-In-process test hosts (`TestNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
+In-process test hosts also accept an optional **per-node security override**
 so parallel tests do not share process-wide environment state.
 
 Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit` when starting a node in tests. When provided, the override

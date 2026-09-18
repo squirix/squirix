@@ -658,9 +658,6 @@ dotnet_diagnostic.MA0182.severity = none # internal testkit members are consumed
 [tests/squirix.server/squirix.server.testkit/Hosting/ClusterStartOptions.cs]
 dotnet_diagnostic.ZA0901.severity = none # intentional cross-assembly base for per-project options; deriving types live in dependent test projects
 
-[tests/squirix.server/squirix.server.testkit/Mtls/ClusterIdentity.cs]
-dotnet_diagnostic.SQR0002.severity = none # temporary tuple-topology compatibility overloads; removed with the legacy factory in the cleanup commit
-
 [benchmarks/**]
 dotnet_diagnostic.CA1515.severity = none # benchmark types must stay public for BenchmarkDotNet discovery
 dotnet_diagnostic.CA1822.severity = none # benchmark methods must stay instance members for per-iteration invocation

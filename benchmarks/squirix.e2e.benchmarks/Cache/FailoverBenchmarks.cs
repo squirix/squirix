@@ -6,7 +6,6 @@ using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Cache;
@@ -19,11 +18,8 @@ public class FailoverBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
+    private TestCluster<ClusterStartOptions>? _cluster;
     private TempDirectory? _dataDir;
-    private ClusterIdentity? _identity;
-    private TestNodeHost? _nodeA;
-    private TestNodeHost? _nodeB;
-    private TestNodeHost? _nodeC;
     private int _offset;
 
     /// <summary>Stops the benchmark cluster.</summary>
@@ -54,32 +50,14 @@ public class FailoverBenchmarks : IAsyncDisposable
         using var heldA = ListenPortPool.EndToEndBenchmarks.HoldPort();
         using var heldB = ListenPortPool.EndToEndBenchmarks.HoldPort();
         using var heldC = ListenPortPool.EndToEndBenchmarks.HoldPort();
-        _identity = new ClusterIdentity();
         _dataDir = new TempDirectory("squirix-e2e-failover");
-        var topology = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri), ("nodeC", heldC.HttpUri) };
+        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri), new("nodeC", heldC.HttpUri)];
         try
         {
-            _nodeA = await TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                heldA.HttpUri,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
-                _identity,
-                CancellationToken.None).ConfigureAwait(false);
-            _nodeB = await TestNodeHostFactory.StartNodeAsync(
-                "nodeB",
-                heldB.HttpUri,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
-                _identity,
-                CancellationToken.None).ConfigureAwait(false);
-            _nodeC = await TestNodeHostFactory.StartNodeAsync(
-                "nodeC",
-                heldC.HttpUri,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeC") },
-                _identity,
-                CancellationToken.None).ConfigureAwait(false);
+            _cluster = TestCluster<ClusterStartOptions>.Create(topology);
+            _ = await _cluster.StartNodeAsync("nodeA", StartOptions("nodeA"), CancellationToken.None).ConfigureAwait(false);
+            _ = await _cluster.StartNodeAsync("nodeB", StartOptions("nodeB"), CancellationToken.None).ConfigureAwait(false);
+            _ = await _cluster.StartNodeAsync("nodeC", StartOptions("nodeC"), CancellationToken.None).ConfigureAwait(false);
 
             _client = await E2EBenchmarkClientLease.ConnectAsync(heldA.HttpUri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("failover", CancellationToken.None).ConfigureAwait(false);
@@ -105,21 +83,17 @@ public class FailoverBenchmarks : IAsyncDisposable
         _client = null;
         _cache = null;
 
-        if (_nodeA != null)
-            await _nodeA.DisposeAsync().ConfigureAwait(false);
-        _nodeA = null;
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
+        _cluster = null;
 
-        if (_nodeB != null)
-            await _nodeB.DisposeAsync().ConfigureAwait(false);
-        _nodeB = null;
-
-        if (_nodeC != null)
-            await _nodeC.DisposeAsync().ConfigureAwait(false);
-        _nodeC = null;
-
-        _identity?.Dispose();
-        _identity = null;
         _dataDir?.Dispose();
         _dataDir = null;
     }
+
+    private ClusterStartOptions StartOptions(string node) => new()
+    {
+        ReplicaCount = 3,
+        DataDir = NodePathKit.Combine(_dataDir!.Path, node),
+    };
 }

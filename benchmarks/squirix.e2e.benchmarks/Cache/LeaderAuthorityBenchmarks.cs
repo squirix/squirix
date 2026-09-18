@@ -19,14 +19,9 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
+    private TestCluster<ClusterStartOptions>? _cluster;
     private TempDirectory? _dataDir;
-    private TestNodeHost? _node;
     private int _offset;
-
-    /// <summary>Stops the benchmark node.</summary>
-    /// <returns>A task that completes after cleanup.</returns>
-    [GlobalCleanup]
-    public Task CleanupAsync() => DisposeClusterAsync();
 
     /// <summary>Measures local reads on the leader-authority fast path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
@@ -58,6 +53,11 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops the benchmark node.</summary>
+    /// <returns>A task that completes after cleanup.</returns>
+    [GlobalCleanup]
+    public Task CleanupAsync() => DisposeClusterAsync();
+
     /// <summary>Starts a single node, opens the public client, and seeds read keys.</summary>
     /// <returns>A task that completes when the node is ready.</returns>
     [GlobalSetup]
@@ -67,13 +67,14 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
         _dataDir = new TempDirectory("squirix-e2e-authority");
         try
         {
-            _node = await TestNodeHostFactory.StartNodeAsync("nodeA", uri, _dataDir.Path, CancellationToken.None).ConfigureAwait(false);
+            _cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+            _ = await _cluster.StartNodeAsync("nodeA", new ClusterStartOptions { DataDir = _dataDir.Path }, CancellationToken.None).ConfigureAwait(false);
             _client = await E2EBenchmarkClientLease.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("authority", CancellationToken.None).ConfigureAwait(false);
             for (var i = 0; i < Seeded; i++)
             {
                 await _cache.SetAsync(NodeInvariantIndexStrings.FormatPrefixedPadded("authority", i, "D10", 10), "v", cancellationToken: CancellationToken.None)
-                             .ConfigureAwait(false);
+                            .ConfigureAwait(false);
             }
         }
         catch
@@ -97,9 +98,9 @@ public class LeaderAuthorityBenchmarks : IAsyncDisposable
         _client = null;
         _cache = null;
 
-        if (_node != null)
-            await _node.DisposeAsync().ConfigureAwait(false);
-        _node = null;
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
+        _cluster = null;
 
         _dataDir?.Dispose();
         _dataDir = null;
