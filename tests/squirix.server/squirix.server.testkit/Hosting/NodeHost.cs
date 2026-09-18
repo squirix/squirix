@@ -17,7 +17,7 @@ internal static class NodeHost
     {
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurer(options);
+        var configureArgs = new CompositionArgsConfigurator(options);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
@@ -52,11 +52,11 @@ internal static class NodeHost
     }
 
     [Immutable]
-    private sealed class CompositionArgsConfigurer
+    private sealed class CompositionArgsConfigurator
     {
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurer(NodeHostStartOptions options)
+        internal CompositionArgsConfigurator(NodeHostStartOptions options)
         {
             _options = options;
         }

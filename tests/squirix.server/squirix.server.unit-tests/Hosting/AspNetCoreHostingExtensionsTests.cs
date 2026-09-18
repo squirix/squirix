@@ -89,9 +89,9 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 EnvironmentName = "Development",
             });
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurer = new PersistenceOptionsConfigurer(port, Dir);
+        var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
 
-        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
+        _ = await builder.AddSquirixServerAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
@@ -111,13 +111,13 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             });
         var state = new AuthorizationStateCapture();
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurer = new UriOptionsConfigurer(port);
-        var extensionsConfigurer = new AuthorizationStateExtensionsConfigurer(state);
+        var optionsConfigurator = new UriOptionsConfigurator(port);
+        var extensionsConfigurator = new AuthorizationStateExtensionsConfigurator(state);
 
         _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
+            optionsConfigurator.Apply,
             loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurer.Apply,
+            configureExtensions: extensionsConfigurator.Apply,
             cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
@@ -137,12 +137,12 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 EnvironmentName = "Development",
             });
         var marker = new ExtensionMarker("extension-test");
-        var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
+        var extensionsConfigurator = new MarkerExtensionsConfigurator(marker);
 
         _ = await builder.AddSquirixServerAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurer.Apply,
+            configureExtensions: extensionsConfigurator.Apply,
             cancellationToken: cancellationToken);
 
         await using var app = builder.Build();
@@ -169,10 +169,10 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 {
                     EnvironmentName = "Development",
                 });
-            var optionsConfigurer = new FixedUriOptionsConfigurer(uri);
+            var optionsConfigurator = new FixedUriOptionsConfigurator(uri);
 
             _ = await builder.AddSquirixServerAsync(
-                optionsConfigurer.Apply,
+                optionsConfigurator.Apply,
                 loadDiscoveredSettings: false,
                 configureExtensions: ConfigureJournalQuotaExtensions,
                 cancellationToken: cancellationToken);
@@ -205,13 +205,13 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             });
         var state = new DecoratePipelineState();
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var optionsConfigurer = new UriOptionsConfigurer(port);
-        var extensionsConfigurer = new DecoratePipelineExtensionsConfigurer(state);
+        var optionsConfigurator = new UriOptionsConfigurator(port);
+        var extensionsConfigurator = new DecoratePipelineExtensionsConfigurator(state);
 
         _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
+            optionsConfigurator.Apply,
             loadDiscoveredSettings: false,
-            configureExtensions: extensionsConfigurer.Apply,
+            configureExtensions: extensionsConfigurator.Apply,
             cancellationToken: cancellationToken);
 
         await using (var app = builder.Build())
@@ -245,11 +245,11 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class AuthorizationStateExtensionsConfigurer
+    private sealed class AuthorizationStateExtensionsConfigurator
     {
         private readonly AuthorizationStateCapture _state;
 
-        internal AuthorizationStateExtensionsConfigurer(AuthorizationStateCapture state)
+        internal AuthorizationStateExtensionsConfigurator(AuthorizationStateCapture state)
         {
             _state = state;
             Apply = ApplyCore;
@@ -263,11 +263,11 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class DecoratePipelineExtensionsConfigurer
+    private sealed class DecoratePipelineExtensionsConfigurator
     {
         private readonly DecoratePipelineState _state;
 
-        internal DecoratePipelineExtensionsConfigurer(DecoratePipelineState state)
+        internal DecoratePipelineExtensionsConfigurator(DecoratePipelineState state)
         {
             _state = state;
             Apply = ApplyCore;
@@ -290,11 +290,11 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class FixedUriOptionsConfigurer
+    private sealed class FixedUriOptionsConfigurator
     {
         private readonly Uri _uri;
 
-        internal FixedUriOptionsConfigurer(Uri uri)
+        internal FixedUriOptionsConfigurator(Uri uri)
         {
             _uri = uri;
             Apply = ApplyCore;
@@ -306,11 +306,11 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class MarkerExtensionsConfigurer
+    private sealed class MarkerExtensionsConfigurator
     {
         private readonly ExtensionMarker _marker;
 
-        internal MarkerExtensionsConfigurer(ExtensionMarker marker)
+        internal MarkerExtensionsConfigurator(ExtensionMarker marker)
         {
             _marker = marker;
             Apply = ApplyCore;
@@ -328,12 +328,12 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class PersistenceOptionsConfigurer
+    private sealed class PersistenceOptionsConfigurator
     {
         private readonly string _dataDirectory;
         private readonly int _port;
 
-        internal PersistenceOptionsConfigurer(int port, string dataDirectory)
+        internal PersistenceOptionsConfigurator(int port, string dataDirectory)
         {
             _port = port;
             _dataDirectory = dataDirectory;
@@ -350,11 +350,11 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class UriOptionsConfigurer
+    private sealed class UriOptionsConfigurator
     {
         private readonly int _port;
 
-        internal UriOptionsConfigurer(int port)
+        internal UriOptionsConfigurator(int port)
         {
             _port = port;
             Apply = ApplyCore;

@@ -109,10 +109,10 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
                 LoadExportableCertificate(peerClientCertificate),
                 X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath),
                 serverNodeId);
-            var kestrelConfigurer = new KestrelListenConfigurer(internalPort, host);
+            var kestrelConfigurator = new KestrelListenConfigurator(internalPort, host);
 
             var builder = WebApplication.CreateBuilder();
-            _ = builder.WebHost.ConfigureKestrel(kestrelConfigurer.Apply);
+            _ = builder.WebHost.ConfigureKestrel(kestrelConfigurator.Apply);
             var application = builder.Build();
             try
             {
@@ -165,12 +165,12 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
             TestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
 
         [Immutable]
-        private sealed class KestrelListenConfigurer
+        private sealed class KestrelListenConfigurator
         {
             private readonly MtlsInternalListenerHost _host;
             private readonly int _port;
 
-            internal KestrelListenConfigurer(int port, MtlsInternalListenerHost host)
+            internal KestrelListenConfigurator(int port, MtlsInternalListenerHost host)
             {
                 _port = port;
                 _host = host;
