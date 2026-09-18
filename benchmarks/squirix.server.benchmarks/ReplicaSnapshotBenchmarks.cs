@@ -23,9 +23,9 @@ public class ReplicaSnapshotBenchmarks
     private GroupSnapshot _snapshot;
     private FollowerLog? _source;
 
-    private TempDirectory? _sourceDirectory;
+    private TempDirectory? _dir;
     private FollowerLog? _target;
-    private TempDirectory? _targetDirectory;
+    private TempDirectory? _dir2;
 
     /// <summary>Disposes benchmark logs and temporary directories.</summary>
     /// <returns>A task that completes after cleanup.</returns>
@@ -37,8 +37,8 @@ public class ReplicaSnapshotBenchmarks
             await _source.DisposeAsync().ConfigureAwait(false);
         if (_target != null)
             await _target.DisposeAsync().ConfigureAwait(false);
-        _sourceDirectory?.Dispose();
-        _targetDirectory?.Dispose();
+        _dir?.Dispose();
+        _dir2?.Dispose();
     }
 
     /// <summary>Compacts the source journal while retaining the published snapshot.</summary>
@@ -104,11 +104,11 @@ public class ReplicaSnapshotBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        _sourceDirectory = new TempDirectory("squirix-replica-snapshot-bench-source");
-        _targetDirectory = new TempDirectory("squirix-replica-snapshot-bench-target");
+        _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
+        _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
         var composition = GroupComposition.Create(GroupId);
-        _source = new FollowerLog(_sourceDirectory.Path, GroupId, composition);
-        _target = new FollowerLog(_targetDirectory.Path, GroupId, composition);
+        _source = new FollowerLog(_dir, GroupId, composition);
+        _target = new FollowerLog(_dir2, GroupId, composition);
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
@@ -121,8 +121,8 @@ public class ReplicaSnapshotBenchmarks
     [Benchmark]
     public async Task ValidateReplicaSnapshotAsync()
     {
-        var sourceDirectory = ThrowHelper.Required(_sourceDirectory, "Benchmark source directory was not initialized.");
-        var store = new GroupSnapshotStore(sourceDirectory.Path, GroupId);
+        var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
+        var store = new GroupSnapshotStore(dir, GroupId);
         _ = ThrowHelper.RequiredValue(await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false), "Published snapshot was not found.");
     }
 
@@ -149,10 +149,10 @@ public class ReplicaSnapshotBenchmarks
         if (_source != null)
             await _source.DisposeAsync().ConfigureAwait(false);
 
-        _sourceDirectory?.Dispose();
-        _sourceDirectory = new TempDirectory("squirix-replica-snapshot-bench-source");
+        _dir?.Dispose();
+        _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
 
-        _source = new FollowerLog(_sourceDirectory.Path, GroupId, GroupComposition.Create(GroupId));
+        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId));
         await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, publishSnapshot).ConfigureAwait(false);
@@ -163,10 +163,10 @@ public class ReplicaSnapshotBenchmarks
         if (_target != null)
             await _target.DisposeAsync().ConfigureAwait(false);
 
-        _targetDirectory?.Dispose();
-        _targetDirectory = new TempDirectory("squirix-replica-snapshot-bench-target");
+        _dir2?.Dispose();
+        _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
 
-        _target = new FollowerLog(_targetDirectory.Path, GroupId, GroupComposition.Create(GroupId));
+        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId));
         await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
     }
 

@@ -12,10 +12,10 @@ namespace Squirix.Server.UnitTests.Support;
 internal sealed class MtlsTestCertificateBundle : IDisposable
 {
     private readonly X509Certificate2 _nodeCertificate;
-    private readonly TempDirectory _rootDirectory;
+    private readonly TempDirectory _dir;
 
     private MtlsTestCertificateBundle(
-        TempDirectory rootDirectory,
+        TempDirectory dir,
         X509Certificate2 ca,
         X509Certificate2 nodeCertificate,
         string caPath,
@@ -23,8 +23,8 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         string keyPath,
         string pfxPath)
     {
-        _rootDirectory = rootDirectory;
-        RootDirectory = rootDirectory.Path;
+        _dir = dir;
+        RootDirectory = dir;
         Ca = ca;
         _nodeCertificate = nodeCertificate;
         CaPath = caPath;
@@ -49,22 +49,22 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
     {
         _nodeCertificate.Dispose();
         Ca.Dispose();
-        _rootDirectory.Dispose();
+        _dir.Dispose();
     }
 
     internal static async Task<MtlsTestCertificateBundle> CreateAsync(X509Certificate2 ca, X509Certificate2 nodeCertificate, CancellationToken cancellationToken)
     {
-        var rootDirectory = new TempDirectory("squirix-cluster-mtls-tests");
-        var caPath = NodePathKit.Combine(rootDirectory, "cluster-ca.crt");
-        var certPath = NodePathKit.Combine(rootDirectory, "node.crt");
-        var keyPath = NodePathKit.Combine(rootDirectory, "node.key");
-        var pfxPath = NodePathKit.Combine(rootDirectory, "node.pfx");
+        var dir = new TempDirectory("squirix-cluster-mtls-tests");
+        var caPath = NodePathKit.Combine(dir, "cluster-ca.crt");
+        var certPath = NodePathKit.Combine(dir, "node.crt");
+        var keyPath = NodePathKit.Combine(dir, "node.key");
+        var pfxPath = NodePathKit.Combine(dir, "node.pfx");
 
         FileKit.WriteAllText(caPath, ca.ExportCertificatePem());
         FileKit.WriteAllText(certPath, nodeCertificate.ExportCertificatePem());
         FileKit.WriteAllText(keyPath, nodeCertificate.GetRSAPrivateKey()!.ExportRSAPrivateKeyPem());
         await File.WriteAllBytesAsync(pfxPath, nodeCertificate.Export(X509ContentType.Pfx), cancellationToken);
 
-        return new MtlsTestCertificateBundle(rootDirectory, ca, nodeCertificate, caPath, certPath, keyPath, pfxPath);
+        return new MtlsTestCertificateBundle(dir, ca, nodeCertificate, caPath, certPath, keyPath, pfxPath);
     }
 }

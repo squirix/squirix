@@ -52,7 +52,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-rf2");
+        using var dir = new TempDirectory("squirix-e2e-rf2");
         await using var host = await TestNodeHostFactory.StartNodeAsync(
             "nodeA",
             heldA.HttpUri,
@@ -60,7 +60,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
             new TestNodeHostStartOptions
             {
                 ReplicaCount = 2,
-                DataDir = dataDir.Path,
+                DataDir = dir,
             },
             identity,
             cancellationToken);

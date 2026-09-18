@@ -22,7 +22,7 @@ public sealed class FileExTests : ServerUnitTestBase
     public async Task FlushDirectoryEntrySucceedsForFile(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-flush");
-        var filePath = Path.Join(dir.Path, "test.bin");
+        var filePath = Path.Join(dir, "test.bin");
         await File.WriteAllBytesAsync(filePath, [1, 2, 3], cancellationToken);
 
         FileEx.FlushDirectoryEntry(filePath);
@@ -36,8 +36,8 @@ public sealed class FileExTests : ServerUnitTestBase
     public async Task PublishFileMovesAndFlushes(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-publish");
-        var tempPath = Path.Join(dir.Path, "temp.bin");
-        var finalPath = Path.Join(dir.Path, "final.bin");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
         await File.WriteAllBytesAsync(tempPath, [7, 8, 9], cancellationToken);
 
         _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath)).IsTrue();
@@ -53,9 +53,9 @@ public sealed class FileExTests : ServerUnitTestBase
     public async Task PublishFileReplaceWithBackup(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-fileex-replace");
-        var tempPath = Path.Join(dir.Path, "temp.bin");
-        var finalPath = Path.Join(dir.Path, "final.bin");
-        var backupPath = Path.Join(dir.Path, "backup.bin");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        var backupPath = Path.Join(dir, "backup.bin");
         await File.WriteAllBytesAsync(finalPath, [10, 20], cancellationToken);
         await File.WriteAllBytesAsync(tempPath, [30, 40], cancellationToken);
 

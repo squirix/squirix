@@ -23,9 +23,9 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task ChecksumMismatchQuarantinesReplica(CancellationToken cancellationToken)
     {
-        using var targetDir = new TempDirectory("squirix-catch-up-mismatch");
+        using var dir = new TempDirectory("squirix-catch-up-mismatch");
         var transfer = ReplicaSnapshotTransfer.Create(Snapshot()) with { PayloadChecksum = 0U };
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        await using var follower = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         var eligibility = new ReplicaEligibility(3);
         var session = new ReplicaSnapshotCatchUpSession(new ReplicaRepairPlanner(2), follower, eligibility, 1);
@@ -50,12 +50,12 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task CompactedFollowerCatchesUp(CancellationToken cancellationToken)
     {
-        using var sourceDir = new TempDirectory("squirix-catch-up-source");
-        using var targetDir = new TempDirectory("squirix-catch-up-target");
+        using var dir = new TempDirectory("squirix-catch-up-source");
+        using var dir2 = new TempDirectory("squirix-catch-up-target");
         var snapshot = Snapshot();
-        await using var source = new FollowerLog(sourceDir, GroupId, GroupComposition.Create(GroupId));
+        await using var source = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await source.OpenAsync(cancellationToken);
-        var store = new GroupSnapshotStore(sourceDir, GroupId);
+        var store = new GroupSnapshotStore(dir, GroupId);
         await store.PublishAsync(snapshot, cancellationToken);
         var published = await Assert.That(await store.ReadPublishedAsync(cancellationToken)).IsTypeOf<GroupSnapshot>();
         var transfer = ReplicaSnapshotTransfer.Create(in published);
@@ -69,7 +69,7 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
         _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(published).Length).IsEqualTo(transfer.PayloadLength);
         _ = await Assert.That(GroupSnapshotStore.ComputePayloadIntegrity(published).Checksum).IsEqualTo(transfer.PayloadChecksum);
 
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        await using var follower = new FollowerLog(dir2, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         var eligibility = new ReplicaEligibility(3);
         var expected = Expected(73U);
@@ -106,9 +106,9 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task CompactedTailFailsWithoutQuarantine(CancellationToken cancellationToken)
     {
-        using var targetDir = new TempDirectory("squirix-catch-up-compacted");
+        using var dir = new TempDirectory("squirix-catch-up-compacted");
         var transfer = ReplicaSnapshotTransfer.Create(Snapshot());
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        await using var follower = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         var eligibility = new ReplicaEligibility(3);
         var session = new ReplicaSnapshotCatchUpSession(new ReplicaRepairPlanner(2), follower, eligibility, 1);
@@ -132,8 +132,8 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task ConflictingTopologyQuarantinesReplica(CancellationToken cancellationToken)
     {
-        using var targetDir = new TempDirectory("squirix-catch-up-topology");
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        using var dir = new TempDirectory("squirix-catch-up-topology");
+        await using var follower = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         var installed = await follower.InstallSnapshotAsync(SnapshotWith([7]), 1UL, cancellationToken);
         _ = await Assert.That(installed.Success).IsTrue();
@@ -161,8 +161,8 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task StaleLeaderTermRefusedWithoutQuarantine(CancellationToken cancellationToken)
     {
-        using var targetDir = new TempDirectory("squirix-catch-up-stale-term");
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        using var dir = new TempDirectory("squirix-catch-up-stale-term");
+        await using var follower = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         _ = await Assert.That((await follower.AppendAsync(Append(1UL, 3UL, "one"), cancellationToken)).Success).IsTrue();
 
@@ -191,8 +191,8 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
     [Test]
     public async Task StaleSnapshotRefusedWithoutQuarantine(CancellationToken cancellationToken)
     {
-        using var targetDir = new TempDirectory("squirix-catch-up-stale");
-        await using var follower = new FollowerLog(targetDir, GroupId, GroupComposition.Create(GroupId));
+        using var dir = new TempDirectory("squirix-catch-up-stale");
+        await using var follower = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
         await follower.OpenAsync(cancellationToken);
         _ = await Assert.That((await follower.AppendAsync(Append(1UL, 1UL, "one"), cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await follower.AppendAsync(Append(2UL, 1UL, "two"), cancellationToken)).Success).IsTrue();

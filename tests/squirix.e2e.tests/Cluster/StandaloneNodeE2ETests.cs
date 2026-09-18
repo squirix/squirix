@@ -20,9 +20,9 @@ public sealed class StandaloneNodeE2ETests : EndToEndTestBase
     {
         var uriA = ListenPortPool.EndToEndTests.HoldHttpUri();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-standalone-node");
+        using var dir = new TempDirectory("squirix-e2e-standalone-node");
         var peers = new[] { ("nodeA", uriA) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
+        var dirA = NodePathKit.Combine(dir, "nodeA");
 
         var options = new TestNodeHostStartOptions { ReplicaCount = 1, DataDir = dirA, EnableReplication = false };
         await using var host = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, options, identity, cancellationToken);

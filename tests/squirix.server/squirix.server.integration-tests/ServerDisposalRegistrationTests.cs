@@ -36,7 +36,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 
         var mtlsOptions = new MtlsOptions();
         var mtlsMaterial = MtlsCertificateMaterial.Load(mtlsOptions, null, false);
-        var persistenceOptions = new PersistenceOptions { DataDir = dir.Path };
+        var persistenceOptions = new PersistenceOptions { DataDir = dir };
         var cluster = new TopologyOptions(new ServerPeer { NodeId = nodeId, Uri = uri })
         {
             NodeId = nodeId,

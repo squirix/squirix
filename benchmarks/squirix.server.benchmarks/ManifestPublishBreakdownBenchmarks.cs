@@ -118,12 +118,12 @@ public class ManifestPublishBreakdownBenchmarks
     {
         private const int EncodeBufferSize = 512;
 
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(TempDirectory dataDir, Ledger store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
+        private Session(TempDirectory dir, Ledger store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             _encodeBuffer = warmup.EncodeBuffer;
             Ledger = store;
             Format = warmup.Format;
@@ -148,18 +148,18 @@ public class ManifestPublishBreakdownBenchmarks
         public void Dispose()
         {
             Ledger.Dispose();
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         /// <summary>Creates a warmed manifest session with primed in-memory cache.</summary>
         /// <returns>A session ready for breakdown benchmarks.</returns>
         internal static async Task<Session> CreateAsync()
         {
-            var dataDir = new TempDirectory("manifest-breakdown");
+            var dir = new TempDirectory("manifest-breakdown");
             var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
             var options = new PersistenceOptions
             {
-                DataDir = dataDir.Path,
+                DataDir = dir,
                 ManifestRetentionCount = retention,
                 SnapshotRetentionCount = retention,
             };
@@ -169,11 +169,11 @@ public class ManifestPublishBreakdownBenchmarks
             await warmup.Task.ConfigureAwait(false);
 
             var encodeBuffer = new byte[EncodeBufferSize];
-            var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, FilePrefixes.Manifest);
-            var currentPath = PathEx.Combine(dataDir.Path, $"{FilePrefixes.Manifest}current");
+            var manifestFileNamePrefix = PathEx.Combine(dir, FilePrefixes.Manifest);
+            var currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
 
             return new Session(
-                dataDir,
+                dir,
                 store,
                 new PersistentPointerWriter(currentPath),
                 new SessionWarmup

@@ -24,10 +24,10 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var heldC = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-topology-live");
+        using var dir = new TempDirectory("squirix-e2e-topology-live");
         var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
-        var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
+        var dirA = NodePathKit.Combine(dir, "nodeA");
+        var dirB = NodePathKit.Combine(dir, "nodeB");
         var optionsA = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA };
         var optionsB = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB };
 
@@ -55,10 +55,10 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var identity = new ClusterIdentity();
-        using var dataDir = new TempDirectory("squirix-e2e-topology-stopped");
+        using var dir = new TempDirectory("squirix-e2e-topology-stopped");
         var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
-        var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
+        var dirA = NodePathKit.Combine(dir, "nodeA");
+        var dirB = NodePathKit.Combine(dir, "nodeB");
 
         var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA }, identity, cancellationToken);
         var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB }, identity, cancellationToken);

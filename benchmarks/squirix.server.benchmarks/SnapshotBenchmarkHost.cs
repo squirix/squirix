@@ -13,14 +13,14 @@ namespace Squirix.Server.Benchmarks;
 
 internal sealed class SnapshotBenchmarkHost : IDisposable
 {
-    private readonly TempDirectory _dataDir;
+    private readonly TempDirectory _dir;
     private readonly IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
     private readonly ISnapshotWriter _writer;
     private int _nextIndex;
 
-    private SnapshotBenchmarkHost(TempDirectory dataDir, PersistenceOptions options, IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items)
+    private SnapshotBenchmarkHost(TempDirectory dir, PersistenceOptions options, IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items)
     {
-        _dataDir = dataDir;
+        _dir = dir;
         _items = items;
         _writer = StoreFactory.CreateWriter(options);
         Reader = StoreFactory.CreateReader();
@@ -28,15 +28,15 @@ internal sealed class SnapshotBenchmarkHost : IDisposable
 
     internal ISnapshotReader Reader { get; }
 
-    public void Dispose() => _dataDir.Dispose();
+    public void Dispose() => _dir.Dispose();
 
     internal static Task<SnapshotBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options, int entryCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(tempDirectoryPrefix);
         ArgumentNullException.ThrowIfNull(options);
 
-        var dataDir = new TempDirectory(tempDirectoryPrefix);
-        var persistence = options with { DataDir = dataDir.Path };
+        var dir = new TempDirectory(tempDirectoryPrefix);
+        var persistence = options with { DataDir = dir };
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
         for (var i = 0; i < entryCount; i++)
         {
@@ -49,7 +49,7 @@ internal sealed class SnapshotBenchmarkHost : IDisposable
             items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
         }
 
-        return Task.FromResult(new SnapshotBenchmarkHost(dataDir, persistence, items));
+        return Task.FromResult(new SnapshotBenchmarkHost(dir, persistence, items));
     }
 
     internal ValueTask<string> WriteNextSnapshotAsync()

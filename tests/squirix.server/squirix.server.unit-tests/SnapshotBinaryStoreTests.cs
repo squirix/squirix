@@ -33,7 +33,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     public async Task LoadStrictAsyncRejectsCorruptedFileCrc(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-crc");
-        var options = new PersistenceOptions { DataDir = dir.Path };
+        var options = new PersistenceOptions { DataDir = dir };
         var writer = StoreFactory.CreateWriter(options);
         var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
@@ -59,7 +59,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     public async Task LoadStrictAsyncRejectsNearMaxBodyLength(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-near-max");
-        var options = new PersistenceOptions { DataDir = dir.Path };
+        var options = new PersistenceOptions { DataDir = dir };
         var writer = StoreFactory.CreateWriter(options);
         var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
@@ -85,7 +85,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     public async Task LoadStrictAsyncRejectsOversizedRecord(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-oversized");
-        var options = new PersistenceOptions { DataDir = dir.Path };
+        var options = new PersistenceOptions { DataDir = dir };
         var writer = StoreFactory.CreateWriter(options);
         var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
@@ -114,7 +114,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     public async Task LoadStrictAsyncRejectsPastFooter(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-past-footer");
-        var options = new PersistenceOptions { DataDir = dir.Path };
+        var options = new PersistenceOptions { DataDir = dir };
         var writer = StoreFactory.CreateWriter(options);
         var reader = StoreFactory.CreateReader();
         var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
@@ -143,7 +143,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
     public async Task WriteAndReadRoundTripMixedEntries(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-binary-snapshot");
-        var options = new PersistenceOptions { DataDir = dir.Path };
+        var options = new PersistenceOptions { DataDir = dir };
         var writer = StoreFactory.CreateWriter(options);
         var reader = StoreFactory.CreateReader();
 

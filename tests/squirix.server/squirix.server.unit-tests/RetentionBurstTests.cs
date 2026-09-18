@@ -34,7 +34,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         using var dir = new TempDirectory("manifest-cache-rewind");
         var options = new PersistenceOptions
         {
-            DataDir = dir.Path,
+            DataDir = dir,
             ManifestRetentionCount = 32,
         };
 
@@ -73,7 +73,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
 
         var finalState = await store.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(finalState.CurrentJournal).IsEqualTo(20);
-        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(dir.Path, cancellationToken)).IsEqualTo(20);
+        _ = await Assert.That(await StoreTestSupport.ReadCurrentManifestIndexAsync(dir, cancellationToken)).IsEqualTo(20);
         return;
 
         void OnRollFailed(Exception ex)
@@ -91,7 +91,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         using var dir = new TempDirectory("manifest-burst");
         var options = new PersistenceOptions
         {
-            DataDir = dir.Path,
+            DataDir = dir,
             ManifestRetentionCount = 2,
         };
         using var store = new Ledger(options);
@@ -109,7 +109,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
 
         Volatile.Read(ref rollError.Value).ThrowIfFaulted();
 
-        _ = await Assert.That(File.Exists(NodePathKit.Combine(dir.Path, StoreTestSupport.ManifestDataFileName(20)))).IsTrue();
+        _ = await Assert.That(File.Exists(NodePathKit.Combine(dir, StoreTestSupport.ManifestDataFileName(20)))).IsTrue();
         return;
 
         void OnRollFailed(Exception ex)

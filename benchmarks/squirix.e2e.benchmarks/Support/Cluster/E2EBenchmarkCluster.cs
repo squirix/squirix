@@ -18,15 +18,15 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     private static readonly string[] DualNodeIds = ["nodeA", "nodeB"];
     private static readonly string[] SingleNodeIds = ["nodeA"];
 
-    private readonly TempDirectory? _dataDir;
+    private readonly TempDirectory? _dir;
     private readonly FrozenDictionary<string, TestNodeHost> _nodes;
     private E2EBenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
+    private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dir)
     {
         _nodes = nodes;
-        _dataDir = dataDir;
+        _dir = dir;
     }
 
     public async ValueTask DisposeAsync()
@@ -40,7 +40,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         foreach (var node in _nodes.Values)
             await node.DisposeAsync().ConfigureAwait(false);
 
-        _dataDir?.Dispose();
+        _dir?.Dispose();
     }
 
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
@@ -49,7 +49,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
         var heldPorts = new List<HeldPort>(nodeIds.Length);
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
-        TempDirectory? dataDir = null;
+        TempDirectory? dir = null;
         try
         {
             // Allocate listener URIs up front so every node advertises the same peer topology during startup.
@@ -66,17 +66,18 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
                 peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
             var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
-            dataDir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
+            dir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
 
             // Each node receives an isolated data directory when persistence benchmarks are enabled.
             foreach (var nodeId in nodeIds)
             {
-                nodes[nodeId] = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Join(dataDir!.Path, nodeId), cancellationToken).ConfigureAwait(false)
-                    : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
+                if (dir != null)
+                    nodes[nodeId] = await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Join(dir, nodeId), cancellationToken).ConfigureAwait(false);
+                else
+                    nodes[nodeId] = await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
-            return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
+            return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dir);
         }
         catch
         {
@@ -86,7 +87,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
                 heldPorts[i].Dispose();
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            dir?.Dispose();
             throw;
         }
     }
