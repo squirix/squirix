@@ -172,7 +172,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         }
     }
 
-    /// <summary>Allocates a dedicated port, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a dedicated port, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[], NodeStartOptions, CancellationToken, string)" /> releases it for the real bind.</summary>
     /// <returns>A held loopback port; the hold is released by node startup, disposing it earlier releases it manually.</returns>
     protected static HeldPort AllocateDedicatedPort() => ListenPortPool.IntegrationTests.HoldPort();
 
@@ -188,7 +188,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[], NodeStartOptions, CancellationToken, string)" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.HoldHttpUri();
 
@@ -235,6 +235,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
     private protected static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
 
+    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
+    /// <param name="nodeId">Local node identifier.</param>
+    /// <param name="uri">Primary listen URL.</param>
+    /// <returns>A one-element peer array.</returns>
+    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
+
     private static string BuildTestScope(string? testName, string? extra)
     {
         var name = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
@@ -245,19 +251,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
             scope = $"{scope}__{tfm}";
 
         return $"{scope}__pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}";
-    }
-
-    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
-    {
-        ArgumentNullException.ThrowIfNull(uri);
-        for (var index = 0; index < peers.Length; index++)
-        {
-            var peer = peers[index];
-            if (ListenUris.SameAuthority(peer.Uri, uri))
-                return peer.NodeId;
-        }
-
-        return null;
     }
 
     private static NodeHostStartOptions CreateStartOptions(
@@ -287,11 +280,18 @@ public abstract class NodeIntegrationTestBase : IDisposable
         };
     }
 
-    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
+    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        for (var index = 0; index < peers.Length; index++)
+        {
+            var peer = peers[index];
+            if (ListenUris.SameAuthority(peer.Uri, uri))
+                return peer.NodeId;
+        }
+
+        return null;
+    }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {

@@ -120,7 +120,7 @@ public abstract class SmokeTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[], SmokeNodeStartOptions, CancellationToken)" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.HoldHttpUri();
 
@@ -171,6 +171,12 @@ public abstract class SmokeTestBase : IDisposable
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.</exception>
     private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
 
+    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
+    /// <param name="nodeId">Local node identifier.</param>
+    /// <param name="uri">Primary listen URL.</param>
+    /// <returns>A one-element peer array.</returns>
+    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
+
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
@@ -183,12 +189,6 @@ public abstract class SmokeTestBase : IDisposable
 
         return null;
     }
-
-    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
