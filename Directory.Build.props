@@ -50,26 +50,12 @@
 
     <!-- Test/benchmark analyzer exemptions live in .editorconfig ([tests/**], [benchmarks/**]);
          do not reintroduce project-level NoWarn. -->
-    <!-- Rocks doc-cref warnings cannot move to .editorconfig: path-scoped severities do not
-         apply to compiler diagnostics from generated trees (verified: CS1570 still fires).
-         GenerateDocumentationFile must stay on: IDE0005 and StyleCop doc analysis depend on it.
-         Rocks 10.3.1 fixed array-typed params (empty slot / doubled comma, e.g.
-         Target(String,String,,CancellationToken)) via upstream PR JasonBock/Rocks#430
-         (fixes #429): the CS1584/CS1658 cascade is gone (verified), so those entries
-         are dropped from NoWarn below.
-         Measured per project on Rocks 10.3.1: unit-tests emit CS1570,
-         integration/squirix-unit-tests emit CS1574/CS1580 (dropped generic args,
-         unqualified names). The remaining union is required; dropping any entry
-         breaks one of the test projects.
-         TODO(Rocks): delete this whole PropertyGroup once Rocks fixes the remaining
-         doc-cref rendering (dropped generic args, unqualified names) — issues #2-#3
-         on our mirror. -->
     <PropertyGroup Label="BenchmarkCode" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
         <NoWarn>$(NoWarn);S1075;S1450</NoWarn>
     </PropertyGroup>
 
     <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
+        <NoWarn>$(NoWarn);CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
     </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
