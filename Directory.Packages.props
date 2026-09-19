@@ -33,7 +33,7 @@
         <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12"/>
     </ItemGroup>
     <ItemGroup Label="Authentication">
-        <PackageVersion Include="Microsoft.IdentityModel.Protocols" Version="8.22.0"/>
+        <PackageVersion Include="Microsoft.IdentityModel.Protocols" Version="8.23.0"/>
         <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0"/>
         <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.22.0"/>
         <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0"/>
