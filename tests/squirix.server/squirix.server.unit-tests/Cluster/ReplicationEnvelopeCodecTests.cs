@@ -23,7 +23,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
 
         _ = await Assert.That(decoded.SchemaVersion).IsEqualTo(EnvelopeCodec.SchemaVersion);
         _ = await Assert.That(decoded.GroupId).IsEqualTo("group-a");
-        await SequenceAssert.EqualMemory(new ReadOnlyMemory<byte>([1, 2, 3, 4, 5, 6, 7, 8]), decoded.TopologyFingerprint);
+        await SequenceAssert.EqualMemoryAsync(new ReadOnlyMemory<byte>([1, 2, 3, 4, 5, 6, 7, 8]), decoded.TopologyFingerprint);
         _ = await Assert.That(decoded.ConfigurationGeneration).IsEqualTo(9UL);
         _ = await Assert.That(decoded.Term).IsEqualTo(11UL);
         _ = await Assert.That(decoded.LeaderNodeId).IsEqualTo("leader-1");
@@ -39,7 +39,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
     {
         var envelope = new Envelope(EnvelopeCodec.SchemaVersion, "group-a", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, 9, 11, "leader-1", "sender-2", 13, 17, 0xA5A5_A5A5);
 
-        return SequenceAssert.Equal(GoldenWireBytes(), EnvelopeCodec.Encode(envelope));
+        return SequenceAssert.EqualAsync(GoldenWireBytes(), EnvelopeCodec.Encode(envelope));
     }
 
     /// <summary>Verifies that an envelope missing its commit index is rejected as truncated.</summary>
@@ -116,7 +116,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
 
         _ = await Assert.That(decoded.SchemaVersion).IsEqualTo(envelope.SchemaVersion);
         _ = await Assert.That(decoded.GroupId).IsEqualTo(envelope.GroupId);
-        await SequenceAssert.EqualMemory(envelope.TopologyFingerprint, decoded.TopologyFingerprint);
+        await SequenceAssert.EqualMemoryAsync(envelope.TopologyFingerprint, decoded.TopologyFingerprint);
         _ = await Assert.That(decoded.ConfigurationGeneration).IsEqualTo(envelope.ConfigurationGeneration);
         _ = await Assert.That(decoded.Term).IsEqualTo(envelope.Term);
         _ = await Assert.That(decoded.LeaderNodeId).IsEqualTo(envelope.LeaderNodeId);

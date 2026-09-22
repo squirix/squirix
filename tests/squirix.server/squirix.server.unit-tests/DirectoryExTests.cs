@@ -43,12 +43,15 @@ public sealed class DirectoryExTests : ServerUnitTestBase
             return;
 
         var name = NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-macos-tmp-");
+        var volumeRoot = Path.GetPathRoot(Path.GetTempPath());
+        var tmpBase = Path.Join(volumeRoot, "tmp");
+        var privateTmp = Path.Join(volumeRoot, "private", "tmp");
         string? created = null;
         try
         {
-            created = await DirectoryEx.CreateDirectoryAsync(name, "/tmp", cancellationToken: cancellationToken);
+            created = await DirectoryEx.CreateDirectoryAsync(name, tmpBase, cancellationToken: cancellationToken);
             _ = await Assert.That(Directory.Exists(created)).IsTrue();
-            _ = await Assert.That(created.StartsWith("/private/tmp", StringComparison.Ordinal) || created.StartsWith("/tmp", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(created.StartsWith(privateTmp, StringComparison.Ordinal) || created.StartsWith(tmpBase, StringComparison.Ordinal)).IsTrue();
         }
         finally
         {
@@ -211,7 +214,7 @@ public sealed class DirectoryExTests : ServerUnitTestBase
         {
             var processStartInfo = new ProcessStartInfo
             {
-                FileName = "cmd.exe",
+                FileName = Path.Join(Environment.SystemDirectory, "cmd.exe"),
                 Arguments = NodeInvariantIndexStrings.FormatMklinkJunctionArguments(linkPath, targetPath),
                 UseShellExecute = false,
                 CreateNoWindow = true,

@@ -48,7 +48,7 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
 
         pipeline.Trace.Add("miss");
         _ = await Assert.That(miss).IsTrue();
-        await SequenceAssert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
     }
 
     private sealed class ImmediatePipeline : IReplicaCommitPipeline

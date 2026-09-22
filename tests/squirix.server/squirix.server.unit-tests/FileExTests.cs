@@ -44,7 +44,7 @@ public sealed class FileExTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
-        await SequenceAssert.Equal<byte>([7, 8, 9], finalBytes);
+        await SequenceAssert.EqualAsync<byte>([7, 8, 9], finalBytes);
     }
 
     /// <summary>PublishFile with backup replaces existing final and produces backup copy.</summary>
@@ -65,8 +65,8 @@ public sealed class FileExTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(finalPath)).IsTrue();
         _ = await Assert.That(File.Exists(backupPath)).IsTrue();
         var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
-        await SequenceAssert.Equal<byte>([30, 40], finalBytes);
+        await SequenceAssert.EqualAsync<byte>([30, 40], finalBytes);
         var backupBytes = await File.ReadAllBytesAsync(backupPath, cancellationToken);
-        await SequenceAssert.Equal<byte>([10, 20], backupBytes);
+        await SequenceAssert.EqualAsync<byte>([10, 20], backupBytes);
     }
 }

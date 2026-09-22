@@ -57,7 +57,7 @@ public sealed class ReplicaBootstrapE2ETests : EndToEndTestBase
 
         _ = await Assert.That(summary.TargetReplicaCount).IsEqualTo(targetReplicaCount);
         _ = await Assert.That(summary.TargetGeneration).IsEqualTo(targetGeneration);
-        await SequenceAssert.Equal(["group-a:Pending", "group-b:Pending"], summary.PendingGroups, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["group-a:Pending", "group-b:Pending"], summary.PendingGroups, StringComparer.Ordinal);
         _ = await Assert.That(summary.Resumed).IsFalse();
 
         await node.RestartAsync(cancellationToken);

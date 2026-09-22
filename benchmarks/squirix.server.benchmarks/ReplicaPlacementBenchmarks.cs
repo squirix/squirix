@@ -91,11 +91,11 @@ public class ReplicaPlacementBenchmarks
     {
         ServerPeer[] peers =
         [
-            new() { NodeId = "node-a", Uri = new Uri("https://127.0.0.1:6001") },
-            new() { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6002") },
-            new() { NodeId = "node-c", Uri = new Uri("https://127.0.0.1:6003") },
-            new() { NodeId = "node-d", Uri = new Uri("https://127.0.0.1:6004") },
-            new() { NodeId = "node-e", Uri = new Uri("https://127.0.0.1:6005") },
+            new() { NodeId = "node-a", Uri = LoopbackUri(6001) },
+            new() { NodeId = "node-b", Uri = LoopbackUri(6002) },
+            new() { NodeId = "node-c", Uri = LoopbackUri(6003) },
+            new() { NodeId = "node-d", Uri = LoopbackUri(6004) },
+            new() { NodeId = "node-e", Uri = LoopbackUri(6005) },
         ];
         return new TopologyOptions(peers)
         {
@@ -107,6 +107,8 @@ public class ReplicaPlacementBenchmarks
             ConfigurationGeneration = 1,
         };
     }
+
+    private static Uri LoopbackUri(int port) => new UriBuilder("https", "127.0.0.1", port).Uri;
 
     private string WriteGroup(IReplicaGroupLocator? locator)
     {

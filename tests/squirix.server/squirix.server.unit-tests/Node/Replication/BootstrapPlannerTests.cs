@@ -38,7 +38,7 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
         _ = await Assert.That(decoded.TargetGeneration).IsEqualTo(2UL);
         _ = await Assert.That(decoded.Groups).All(static group => group.State == BootstrapGroupState.Pending);
         var after = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
-        await SequenceAssert.Equal(before, after);
+        await SequenceAssert.EqualAsync(before, after);
     }
 
     /// <summary>A different generation and a corrupted manifest both fail closed.</summary>
@@ -134,7 +134,7 @@ public sealed class BootstrapPlannerTests : ServerUnitTestBase
         _ = await Assert.That(resumed.Resumed).IsTrue();
         _ = await Assert.That(resumed.Manifest.TargetGeneration).IsEqualTo(first.Manifest.TargetGeneration);
         var manifestBytes = await File.ReadAllBytesAsync(first.ManifestPath, cancellationToken);
-        await SequenceAssert.Equal(before, manifestBytes);
+        await SequenceAssert.EqualAsync(before, manifestBytes);
     }
 
     private static ServerPeer Peer(string nodeId, int clientPort, int internalPort)

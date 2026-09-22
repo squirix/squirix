@@ -32,7 +32,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         outcome[0] = 0xFF;
 
         _ = await Assert.That(state.Lookup("client", "operation", [1, 2, 3], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-        await SequenceAssert.Equal<byte>([7, 8, 9], record.OutcomePayload.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7, 8, 9], record.OutcomePayload.ToArray());
         _ = await Assert.That(record.IsResolved).IsTrue();
     }
 
@@ -68,7 +68,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         // TryResolve against the new coordinates must succeed (previously failed on the stale coordinates).
         _ = await Assert.That(state.TryResolve("client", "operation", [7, 8], 10UL, 3UL)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-        await SequenceAssert.Equal<byte>([7, 8], record.OutcomePayload.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
 
         // The resolved record no longer stays unresolved forever; after retention it expires and frees the slot.
         clock.Advance(TimeSpan.FromHours(2));
@@ -94,7 +94,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.TryResolve("client", "operation", [9], 4UL, 2UL)).IsFalse();
 
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-        await SequenceAssert.Equal<byte>([7, 8], record.OutcomePayload.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
         _ = await Assert.That(record.ResolvedUtc).IsEqualTo(resolvedUtc);
     }
 
@@ -114,7 +114,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.LogIndex).IsEqualTo(4UL);
         _ = await Assert.That(record.Term).IsEqualTo(2UL);
-        await SequenceAssert.Equal<byte>([7, 8], record.OutcomePayload.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
     }
 
     /// <summary>Expired snapshot outcomes are filtered at restore and do not cause capacity refusal.</summary>
@@ -194,7 +194,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = state.TryResolve("client", "operation", [7, 8], 4UL, 2UL);
 
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
-        await SequenceAssert.Equal<byte>([7, 8], record.OutcomePayload.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
         _ = await Assert.That(state.Lookup("client", "operation", [2], out _)).IsEqualTo(GroupIdempotencyLookup.Mismatch);
 
         // Re-reserving the same identity with a differing fingerprint must be rejected rather than treated as idempotent.

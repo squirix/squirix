@@ -115,12 +115,6 @@ public sealed class ClusterIdentity : IDisposable
         return result;
     }
 
-    private void ReleaseHeldInternalPort(string nodeId)
-    {
-        if (_internalPorts.TryGetValue(nodeId, out var held))
-            held.Dispose();
-    }
-
     private static HashSet<int> CollectExcludedPrimaryPorts(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
         var ports = new HashSet<int>();
@@ -239,6 +233,12 @@ public sealed class ClusterIdentity : IDisposable
     private X509Certificate2 GetOrCreateUntrustedCertificateAuthority() =>
         _untrustedCertificateAuthority ??= TrackCertificate(TestCertificates.CreateStandaloneCertificateAuthority());
 
+    private void ReleaseHeldInternalPort(string nodeId)
+    {
+        if (_internalPorts.TryGetValue(nodeId, out var held))
+            held.Dispose();
+    }
+
     /// <summary>Creates cluster mTLS startup overrides for the node being started.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -292,8 +292,6 @@ public sealed class ClusterIdentity : IDisposable
     {
         private static ListenPortPool Pool { get; } = ConsumerPortSlicer.PoolFor(HostPortRegion.MtlsInternal);
 
-        internal static HeldPort? Rehold(int port) => Pool.HoldSpecificPort(port);
-
         /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
         /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
         /// <returns>A held internal listener port for cluster mTLS; disposing it releases the hold for the real bind.</returns>
@@ -320,6 +318,8 @@ public sealed class ClusterIdentity : IDisposable
 
             throw new InvalidOperationException("Failed to allocate a cluster mTLS internal listener port for tests.");
         }
+
+        internal static HeldPort? Rehold(int port) => Pool.HoldSpecificPort(port);
     }
 
     [Immutable]

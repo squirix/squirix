@@ -375,7 +375,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         var status = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
-        await SequenceAssert.Equal(fingerprint, status.TopologyFingerprint.ToArray());
+        await SequenceAssert.EqualAsync(fingerprint, status.TopologyFingerprint.ToArray());
         _ = await Assert.That(status.ConfigurationGeneration).IsEqualTo(5UL);
         _ = await Assert.That(status.CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(1UL);
@@ -716,7 +716,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         var reopenedStatus = await reopened.GetStatusAsync(cancellationToken);
-        await SequenceAssert.Equal<byte>([5, 6, 7, 8], reopenedStatus.TopologyFingerprint.ToArray());
+        await SequenceAssert.EqualAsync<byte>([5, 6, 7, 8], reopenedStatus.TopologyFingerprint.ToArray());
         _ = await Assert.That(reopenedStatus.CommitIndex).IsEqualTo(0UL);
         _ = await Assert.That(reopenedStatus.LastAppliedIndex).IsEqualTo(0UL);
         _ = await Assert.That(reopened.Idempotency.Lookup("client", "operation-1", [1, 2, 3], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);

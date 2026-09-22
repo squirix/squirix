@@ -34,8 +34,7 @@ public sealed class FilePathValidatorTests : IsolatedStorageTestBase
     [Test]
     public async Task PathExCombineRejectsParentSegments()
     {
-        var root = Path.GetTempPath();
-        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(root, static value => PathEx.Combine(value, "foo/../bar"));
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(Dir, static value => PathEx.Combine(value, "foo/../bar"));
         _ = await Assert.That(ex.Message).Contains("'.' or '..'", StringComparison.Ordinal);
     }
 

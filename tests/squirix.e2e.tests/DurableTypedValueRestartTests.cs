@@ -32,7 +32,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken);
         var result = await restartedCache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartRestoresMutableClassFromJournal.</summary>
@@ -48,7 +48,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         var restartedCache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken);
         var result = await restartedCache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertCartEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertCartEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartSkipsExpiredCustomRecord.</summary>
