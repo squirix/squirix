@@ -14,11 +14,11 @@ public sealed class ConsumerPortSlicerTests
 {
     /// <summary>Distinct slices must be non-overlapping, so parallel processes never collide on OIDC authority ports.</summary>
     [Test]
-    public Task MockOidcAuthoritySlicesAreDisjoint() => AssertSlicesDisjoint(HostPortRegion.MockOidcAuthority);
+    public Task MockOidcAuthoritySlicesAreDisjoint() => AssertSlicesDisjointAsync(HostPortRegion.MockOidcAuthority);
 
     /// <summary>Distinct slices must be non-overlapping, so parallel processes never collide on mTLS internal ports.</summary>
     [Test]
-    public Task MtlsInternalSlicesAreDisjoint() => AssertSlicesDisjoint(HostPortRegion.MtlsInternal);
+    public Task MtlsInternalSlicesAreDisjoint() => AssertSlicesDisjointAsync(HostPortRegion.MtlsInternal);
 
     /// <summary>Every slice must sit fully inside the shared mTLS internal region.</summary>
     [Test]
@@ -63,23 +63,6 @@ public sealed class ConsumerPortSlicerTests
                         .Because($"Runtime slice [{start}..{end}] left region [{regionStart}..{regionEndInclusive}].");
     }
 
-    /// <summary>A held exclusive slice lock must reject a second claim, restoring the cross-process guarantee the unreliable named mutex failed to provide on Linux.</summary>
-    [Test]
-    public void SliceLockFileExcludesConcurrentClaim()
-    {
-        var lockPath = Path.Join(Path.GetTempPath(), $"squirix-testkit-slice-lock-{Guid.NewGuid():N}.tmp");
-
-        try
-        {
-            using var held = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            _ = NodeExceptionAssert.For<IOException>().Throws(lockPath, static path => _ = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
-        }
-        finally
-        {
-            File.Delete(lockPath);
-        }
-    }
-
     /// <summary>Slice claims must prefer long-idle ranges, so a new process does not reuse ports whose sockets may still linger.</summary>
     [Test]
     public async Task SliceClaimsPreferLeastRecentlyClaimed()
@@ -100,7 +83,24 @@ public sealed class ConsumerPortSlicerTests
             _ = await Assert.That(order[i]).IsEqualTo(expected[i]).Because($"Position {i} should hold slice {expected[i]}.");
     }
 
-    private static async Task AssertSlicesDisjoint(HostPortRegion region)
+    /// <summary>A held exclusive slice lock must reject a second claim, restoring the cross-process guarantee the unreliable named mutex failed to provide on Linux.</summary>
+    [Test]
+    public void SliceLockFileExcludesConcurrentClaim()
+    {
+        var lockPath = Path.Join(Path.GetTempPath(), $"squirix-testkit-slice-lock-{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            using var held = File.OpenHandle(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            _ = NodeExceptionAssert.For<IOException>().Throws(lockPath, static path => _ = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+        }
+        finally
+        {
+            File.Delete(lockPath);
+        }
+    }
+
+    private static async Task AssertSlicesDisjointAsync(HostPortRegion region)
     {
         for (var i = 0; i < ConsumerPortSlicer.SliceCount; i++)
         {

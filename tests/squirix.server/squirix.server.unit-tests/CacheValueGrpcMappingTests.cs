@@ -402,6 +402,6 @@ public sealed class CacheValueGrpcMappingTests
         _ = await Assert.That(typed).IsNotNull();
         _ = await Assert.That(typed.Id).IsEqualTo(5);
         _ = await Assert.That(typed.Name).IsEqualTo("multi");
-        await SequenceAssert.Equal(["t"], typed.Tags, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["t"], typed.Tags, StringComparer.Ordinal);
     }
 }

@@ -118,10 +118,10 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
 
         var reader = StoreFactory.CreateReader();
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, cancellationToken);
-        await AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
+        await AssertStartedFrameHasFingerprintAsync(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
         await JournalCompactor.CompactAsync(persistence, scenario.Ledger, reader, cancellationToken);
-        await AssertStartedFrameHasFingerprint(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
+        await AssertStartedFrameHasFingerprintAsync(persistence, await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken), cancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
@@ -183,7 +183,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     /// <param name="persistence">The persistence options.</param>
     /// <param name="manifest">The manifest state.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    private static async Task AssertStartedFrameHasFingerprint(PersistenceOptions persistence, State manifest, CancellationToken cancellationToken)
+    private static async Task AssertStartedFrameHasFingerprintAsync(PersistenceOptions persistence, State manifest, CancellationToken cancellationToken)
     {
         var found = false;
         using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, cancellationToken);

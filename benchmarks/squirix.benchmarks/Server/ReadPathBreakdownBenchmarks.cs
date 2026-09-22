@@ -28,7 +28,6 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private readonly string[] _keys = new string[KeyCount];
     private ClientPool? _clientPool;
     private BenchmarkNodeScope? _node;
-    private Peer[]? _peers;
     private BenchmarkClientLease? _publicClient;
     private ICache<string>? _publicSdk;
     private BenchmarkRawGrpcCache? _rawGrpc;
@@ -48,9 +47,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_node.Host, CacheName);
         _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Uri, CacheName);
-        _peers = new Peer[1];
-        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Uri = _node.Uri };
-        _clientPool = new ClientPool(_peers, static nodeId => new CallPolicy(peer: nodeId));
+        _clientPool = new ClientPool([new Peer { NodeId = BenchmarkNodeId, Uri = _node.Uri }], static nodeId => new CallPolicy(peer: nodeId));
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _publicSdk = await _publicClient.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
@@ -158,8 +155,6 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             await _node.DisposeAsync().ConfigureAwait(false);
             _node = null;
         }
-
-        _peers = null;
 
         GC.SuppressFinalize(this);
     }

@@ -30,7 +30,7 @@ public sealed class MtlsTopologyTests
                 new ServerPeer { NodeId = "node-c", Uri = NodeCUrl },
             ]);
 
-        return SequenceAssert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster), StringComparer.Ordinal);
+        return SequenceAssert.EqualAsync(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster), StringComparer.Ordinal);
     }
 
     /// <summary>Ensures a multi-node topology with remote peers requires internode mTLS.</summary>

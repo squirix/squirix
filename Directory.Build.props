@@ -48,14 +48,14 @@
         <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
     </PropertyGroup>
 
-    <!-- Test/benchmark analyzer exemptions live in .editorconfig ([tests/**], [benchmarks/**]);
-         do not reintroduce project-level NoWarn. -->
-    <PropertyGroup Label="BenchmarkCode" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <NoWarn>$(NoWarn);S1075;S1450</NoWarn>
-    </PropertyGroup>
-
+    <!-- Rocks' generated mock docs emit malformed or unresolvable crefs (inherited members,
+         tuple and generic arguments): CS1570/CS1574/CS1580/CS1584/CS1658. Path-scoped
+         .editorconfig severities do not apply to compiler diagnostics from generated trees,
+         and GenerateDocumentationFile must stay on for IDE0005 and StyleCop doc analysis, so
+         these compiler codes are suppressed for test projects, which is where Rocks runs.
+         TODO(Rocks): delete this PropertyGroup once doc-cref rendering is fixed upstream. -->
     <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
+        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CS1584;CS1658</NoWarn>
     </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->

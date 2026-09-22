@@ -18,7 +18,13 @@ internal static class ErrorContractTestKit
     /// <param name="expectedError">Expected stable error name.</param>
     /// <param name="expectedPublicCode">Expected public error token.</param>
     /// <param name="expectedDetail">Expected bounded detail text.</param>
-    internal static async Task AssertErrorJsonPayload(JsonDocument payload, int status, int expectedStatus, string expectedError, string expectedPublicCode, string expectedDetail)
+    internal static async Task AssertErrorJsonPayloadAsync(
+        JsonDocument payload,
+        int status,
+        int expectedStatus,
+        string expectedError,
+        string expectedPublicCode,
+        string expectedDetail)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
@@ -34,7 +40,7 @@ internal static class ErrorContractTestKit
     /// <param name="expectedPublicCode">Expected public error token.</param>
     /// <param name="expectedDetail">Expected bounded detail text.</param>
     /// <param name="createDirectRpc">Factory for the direct exception RPC projection.</param>
-    internal static async Task AssertResourceExhaustedGrpcMapping(
+    internal static async Task AssertResourceExhaustedGrpcMappingAsync(
         SquirixException contract,
         SquirixErrorCode expectedCode,
         string expectedPublicCode,

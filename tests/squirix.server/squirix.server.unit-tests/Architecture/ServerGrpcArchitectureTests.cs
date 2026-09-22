@@ -22,7 +22,9 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task ProjectGeneratesNarrowContractSources()
     {
-        var protobuf = await ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
+        var protobuf = await ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElementAsync(
+            "Protobuf",
+            @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
         _ = await Assert.That(protobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Server;Client");
         _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");

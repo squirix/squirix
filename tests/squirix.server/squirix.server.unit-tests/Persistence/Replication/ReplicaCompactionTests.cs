@@ -150,7 +150,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
 
         // The durable prefix must survive intact because compaction refused before any truncate: the journal
         // bytes are unchanged and a reopened log still serves the committed entries.
-        await SequenceAssert.Equal(bytesBeforeCompaction, bytesAfterCompaction);
+        await SequenceAssert.EqualAsync(bytesBeforeCompaction, bytesAfterCompaction);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition);
         await reopened.OpenAsync(cancellationToken);

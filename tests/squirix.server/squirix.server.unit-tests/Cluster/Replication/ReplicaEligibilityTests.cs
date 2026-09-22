@@ -73,7 +73,7 @@ public sealed class ReplicaEligibilityTests
             ReplicaParticipantState.Quarantined,
         ];
 
-        return SequenceAssert.Equal(expected, Enum.GetValues<ReplicaParticipantState>());
+        return SequenceAssert.EqualAsync(expected, Enum.GetValues<ReplicaParticipantState>());
     }
 
     /// <summary>A progress regression removes a previously ready durable copy from commit calculation.</summary>

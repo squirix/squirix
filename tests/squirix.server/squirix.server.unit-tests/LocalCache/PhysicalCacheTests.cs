@@ -70,7 +70,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         var entry = await cache.GetEntryAsync(new CacheKey("ns", "added"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
-        await AssertTagsEqual(TestTags, entry.Tags);
+        await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
     /// <summary>Durable-recovery insert restores entry tags after restart/recovery (issue #421).</summary>
@@ -83,7 +83,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         var entry = await cache.GetEntryAsync(new CacheKey("ns", "recovered"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
-        await AssertTagsEqual(TestTags, entry.Tags);
+        await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
     /// <summary>Live enumeration exposes tags to the snapshot capture bridge (issue #421).</summary>
@@ -99,7 +99,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
             entries.Add(pair);
 
         var (_, singleEntry) = await Assert.That(entries).HasSingleItem();
-        await AssertTagsEqual(TestTags, singleEntry.Tags);
+        await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
     }
 
     /// <summary>RemoveExpirationAsync clears the expiration and reports success on a live entry (CAS path works).</summary>
@@ -150,7 +150,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
 
         var entry = await cache.GetEntryAsync(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
-        await AssertTagsEqual(TestTags, entry.Tags);
+        await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
     /// <summary>TouchExpirationRecoveryAsync sets a new expiration and reports success on a live entry (CAS path works).</summary>
@@ -269,7 +269,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         var entry = await cache.GetEntryAsync(key, cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry.Value).IsEqualTo("new");
-        await AssertTagsEqual(TestTags, entry.Tags);
+        await AssertTagsEqualAsync(TestTags, entry.Tags);
     }
 
     /// <summary>UpdateAsync must not report success on a key that is concurrently reclaimed.</summary>
@@ -321,7 +321,7 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
     }
 
-    private static async Task AssertTagsEqual(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
+    private static async Task AssertTagsEqualAsync(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
     {
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);

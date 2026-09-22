@@ -130,7 +130,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         pipeline.Trace.Add("miss");
         _ = await Assert.That(missed).IsTrue();
-        await SequenceAssert.Equal(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
         _ = await Assert.That(pipeline.Mutation!.OperationScope).IsEqualTo(ReplicaExpirationOperationId.OperationScope);
     }
 

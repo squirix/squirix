@@ -32,17 +32,17 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     [Test]
     public async Task HostProjectPacksAsGlobalToolExecutable()
     {
-        var index = ServerArchitectureFixtures.ParseMsbuildProject(await ServerArchitectureFixtures.LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
+        var index = ServerArchitectureFixtures.ParseMsbuildProject(await ServerArchitectureFixtures.LoadProjectAsync("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
-        _ = await Assert.That(await index.RequireProperty("TargetFramework")).IsEqualTo("net10.0");
-        _ = await Assert.That(await index.RequireProperty("OutputType")).IsEqualTo("Exe");
-        _ = await Assert.That(await index.RequireProperty("AssemblyName")).IsEqualTo("Squirix.Server.Host");
-        _ = await Assert.That(await index.RequireProperty("RootNamespace")).IsEqualTo("Squirix.Server.Host");
-        _ = await Assert.That(await index.RequireProperty("IsPackable")).IsEqualTo("true");
-        _ = await Assert.That(await index.RequireProperty("PackAsTool")).IsEqualTo("true");
-        _ = await Assert.That(await index.RequireProperty("ToolCommandName")).IsEqualTo("squirix-server");
-        _ = await Assert.That(await index.RequireProperty("Version")).IsEqualTo("$(SquirixPackageVersion)");
-        _ = await Assert.That(await index.RequireProperty("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("OutputType")).IsEqualTo("Exe");
+        _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo("Squirix.Server.Host");
+        _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo("Squirix.Server.Host");
+        _ = await Assert.That(await index.RequirePropertyAsync("IsPackable")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequirePropertyAsync("PackAsTool")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequirePropertyAsync("ToolCommandName")).IsEqualTo("squirix-server");
+        _ = await Assert.That(await index.RequirePropertyAsync("Version")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequirePropertyAsync("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
         var projectReferences = index.GetIncludes("ProjectReference");
         _ = await Assert.That(projectReferences).IsNotNull();
         _ = await Assert.That(projectReferences[0]).IsEqualTo(@"..\squirix.server\Squirix.Server.csproj");
@@ -105,7 +105,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
         granted.Sort(StringComparer.Ordinal);
         Array.Sort(approved, StringComparer.Ordinal);
-        await SequenceAssert.Equal(approved, granted, StringComparer.OrdinalIgnoreCase);
+        await SequenceAssert.EqualAsync(approved, granted, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
@@ -128,7 +128,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var root = RepositoryPaths.FindRepositoryRoot();
         _ = await Assert.That(await ServerArchitectureFixtures.CollectGlobalUsingSourceOffendersAsync(root, cancellationToken)).IsEmpty();
-        _ = await Assert.That(await ServerArchitectureFixtures.CollectImplicitUsingsProjectOffenders(root)).IsEmpty();
+        _ = await Assert.That(await ServerArchitectureFixtures.CollectImplicitUsingsOffendersAsync(root)).IsEmpty();
     }
 
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
@@ -137,17 +137,17 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
 
-        _ = await Assert.That(await index.RequireProperty("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
         _ = await Assert.That(index.ContainsElement("OutputType")).IsFalse();
-        _ = await Assert.That(await index.RequireProperty("AssemblyName")).IsEqualTo(ServerArchitectureNamespaces.Root);
-        _ = await Assert.That(await index.RequireProperty("RootNamespace")).IsEqualTo(ServerArchitectureNamespaces.Root);
-        _ = await Assert.That(await index.RequireProperty("PackageId")).IsEqualTo(ServerArchitectureNamespaces.PackageId);
-        _ = await Assert.That(await index.RequireProperty("Version")).IsEqualTo("$(SquirixPackageVersion)");
-        _ = await Assert.That(await index.RequireProperty("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
-        _ = await Assert.That(await index.RequireProperty("PackageLicenseExpression")).IsEqualTo("Apache-2.0");
-        _ = await Assert.That(await index.RequireProperty("IsPackable")).IsEqualTo("true");
-        _ = await Assert.That(await index.RequireProperty("TreatWarningsAsErrors")).IsEqualTo("true");
-        _ = await Assert.That(await index.RequireProperty("Nullable")).IsEqualTo("enable");
+        _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo(ServerArchitectureNamespaces.Root);
+        _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo(ServerArchitectureNamespaces.Root);
+        _ = await Assert.That(await index.RequirePropertyAsync("PackageId")).IsEqualTo(ServerArchitectureNamespaces.PackageId);
+        _ = await Assert.That(await index.RequirePropertyAsync("Version")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequirePropertyAsync("PackageVersion")).IsEqualTo("$(SquirixPackageVersion)");
+        _ = await Assert.That(await index.RequirePropertyAsync("PackageLicenseExpression")).IsEqualTo("Apache-2.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("IsPackable")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequirePropertyAsync("TreatWarningsAsErrors")).IsEqualTo("true");
+        _ = await Assert.That(await index.RequirePropertyAsync("Nullable")).IsEqualTo("enable");
     }
 
     /// <summary>Ensures product code does not use access-check bypass attributes.</summary>

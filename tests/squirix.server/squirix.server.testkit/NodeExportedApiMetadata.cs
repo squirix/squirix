@@ -231,24 +231,26 @@ public static class NodeExportedApiMetadata
 
     private static bool IsExportedPublicType(MetadataReader reader, TypeDefinition typeDef)
     {
-        var visibility = typeDef.Attributes & TypeAttributes.VisibilityMask;
-        var declaring = typeDef.GetDeclaringType();
-        var isPublic = declaring.IsNil ? visibility == TypeAttributes.Public : visibility == TypeAttributes.NestedPublic;
-        if (!isPublic)
-            return false;
+        while (true)
+        {
+            var visibility = typeDef.Attributes & TypeAttributes.VisibilityMask;
+            var declaring = typeDef.GetDeclaringType();
+            var isPublic = declaring.IsNil ? visibility == TypeAttributes.Public : visibility == TypeAttributes.NestedPublic;
+            if (!isPublic)
+                return false;
 
-        var name = reader.GetString(typeDef.Name);
-        if (name.Contains('<', StringComparison.Ordinal))
-            return false;
+            var name = reader.GetString(typeDef.Name);
+            if (name.Contains('<', StringComparison.Ordinal))
+                return false;
 
-        if (HasCompilerGeneratedAttribute(reader, typeDef))
-            return false;
+            if (HasCompilerGeneratedAttribute(reader, typeDef))
+                return false;
 
-        if (declaring.IsNil)
-            return true;
+            if (declaring.IsNil)
+                return true;
 
-        var parentDef = reader.GetTypeDefinition(declaring);
-        return IsExportedPublicType(reader, parentDef);
+            typeDef = reader.GetTypeDefinition(declaring);
+        }
     }
 
     private static bool IsIncludedMethod(MethodDefinition methodDef, string name, out bool isCtor)
@@ -347,7 +349,17 @@ public static class NodeExportedApiMetadata
             return JoinCommaSeparated(parts);
         }
 
-        internal static string GetFullTypeReferenceName(MetadataReader reader, TypeReferenceHandle handle)
+        internal static string GetTypeIdentity(MetadataReader reader, TypeDefinition typeDef)
+        {
+            var name = reader.GetString(typeDef.Name);
+            var declaring = typeDef.GetDeclaringType();
+            if (!declaring.IsNil)
+                return $"{GetTypeIdentity(reader, reader.GetTypeDefinition(declaring))}.{name}";
+            var ns = reader.GetString(typeDef.Namespace);
+            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        }
+
+        private static string GetFullTypeReferenceName(MetadataReader reader, TypeReferenceHandle handle)
         {
             var typeRef = reader.GetTypeReference(handle);
             var name = reader.GetString(typeRef.Name);
@@ -363,19 +375,6 @@ public static class NodeExportedApiMetadata
 
             var ns = reader.GetString(typeRef.Namespace);
             return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
-
-        internal static string GetTypeIdentity(MetadataReader reader, TypeDefinition typeDef)
-        {
-            var name = reader.GetString(typeDef.Name);
-            var declaring = typeDef.GetDeclaringType();
-            if (declaring.IsNil)
-            {
-                var ns = reader.GetString(typeDef.Namespace);
-                return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-            }
-
-            return $"{GetTypeIdentity(reader, reader.GetTypeDefinition(declaring))}.{name}";
         }
 
         private static string JoinCommaSeparated(string[] parts) => string.Join(',', parts);

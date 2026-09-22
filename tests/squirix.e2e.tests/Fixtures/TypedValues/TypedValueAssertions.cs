@@ -8,7 +8,7 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 
 internal static class TypedValueAssertions
 {
-    internal static async Task AssertCartEquals(TypedMutableCart expected, TypedMutableCart actual)
+    internal static async Task AssertCartEqualsAsync(TypedMutableCart expected, TypedMutableCart actual)
     {
         _ = await Assert.That(actual.Id).IsEqualTo(expected.Id);
         _ = await Assert.That(actual.Total).IsEqualTo(expected.Total);
@@ -26,13 +26,13 @@ internal static class TypedValueAssertions
         }
     }
 
-    internal static async Task AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
+    internal static async Task AssertProfileEqualsAsync(TypedCustomerProfile expected, TypedCustomerProfile actual)
     {
         _ = await Assert.That(actual.Id).IsEqualTo(expected.Id);
         _ = await Assert.That(actual.DisplayName).IsEqualTo(expected.DisplayName);
         _ = await Assert.That(actual.Email).IsEqualTo(expected.Email);
-        await AssertAddressEquals(expected.Address, actual.Address);
-        await SequenceAssert.Equal(expected.Roles, actual.Roles, StringComparer.Ordinal);
+        await AssertAddressEqualsAsync(expected.Address, actual.Address);
+        await SequenceAssert.EqualAsync(expected.Roles, actual.Roles, StringComparer.Ordinal);
         _ = await Assert.That(actual.Metadata.Count).IsEqualTo(expected.Metadata.Count);
         foreach (var item in expected.Metadata)
             _ = await Assert.That(actual.Metadata.TryGetValue(item.Key, out var value) && string.Equals(value, item.Value, StringComparison.OrdinalIgnoreCase)).IsTrue();
@@ -41,7 +41,7 @@ internal static class TypedValueAssertions
         _ = await Assert.That(actual.Status).IsEqualTo(expected.Status);
     }
 
-    private static async Task AssertAddressEquals(TypedCustomerAddress expected, TypedCustomerAddress actual)
+    private static async Task AssertAddressEqualsAsync(TypedCustomerAddress expected, TypedCustomerAddress actual)
     {
         _ = await Assert.That(actual.City).IsEqualTo(expected.City);
         _ = await Assert.That(actual.Street).IsEqualTo(expected.Street);

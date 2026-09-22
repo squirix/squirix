@@ -15,7 +15,7 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies stable codes across REST and gRPC projections for memory pressure.</summary>
     [Test]
-    public Task PressureMapsToGrpcResourceExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMapping(
+    public Task PressureMapsToGrpcResourceExhausted() => ErrorContractTestKit.AssertResourceExhaustedGrpcMappingAsync(
         ServerOpContract.MemoryPressure(),
         SquirixErrorCode.MemoryPressure,
         "MEMORY_PRESSURE",
@@ -30,7 +30,7 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
         var (status, payload) = await HttpResultTestKit.ExecuteJsonAsync(ServerOpContract.MemoryPressure().ToHttpResult(), cancellationToken);
         using (payload)
         {
-            await ErrorContractTestKit.AssertErrorJsonPayload(
+            await ErrorContractTestKit.AssertErrorJsonPayloadAsync(
                 payload,
                 status,
                 StatusCodes.Status429TooManyRequests,

@@ -39,7 +39,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);
-        await AssertSingleTryAddWinnerPerKey(keys, addSuccesses);
+        await AssertSingleTryAddWinnerPerKeyAsync(keys, addSuccesses);
 
         var expectedValues = BuildWriterValues(profile.Writers, WriterValuesV2);
         await RunInsertContentionAsync(caches, keys, profile, token);
@@ -64,7 +64,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         _ = await Assert.That(reread.Value).IsEqualTo(entry.Value);
     }
 
-    private static async Task AssertSingleTryAddWinnerPerKey(string[] keys, int[] addSuccesses)
+    private static async Task AssertSingleTryAddWinnerPerKeyAsync(string[] keys, int[] addSuccesses)
     {
         for (var k = 0; k < keys.Length; k++)
             _ = await Assert.That(addSuccesses[k]).IsEqualTo(1);

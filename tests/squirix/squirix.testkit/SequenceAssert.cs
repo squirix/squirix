@@ -7,8 +7,10 @@ using TUnit.Assertions.Extensions;
 namespace Squirix.TestKit;
 
 /// <summary>Ordered sequence assertions without LINQ or reflection (AOT-safe).</summary>
-/// <remarks>Client surface stays minimal on purpose: only the comparer overload is used here.
-/// For the full set (collections, memory blocks, default comparer) see Squirix.Server.TestKit.</remarks>
+/// <remarks>
+/// Client surface stays minimal on purpose: only the comparer overload is used here.
+/// For the full set (collections, memory blocks, default comparer) see Squirix.Server.TestKit.
+/// </remarks>
 public static class SequenceAssert
 {
     /// <summary>Asserts two sequences contain equal items in the same order using a custom comparer.</summary>
@@ -17,16 +19,16 @@ public static class SequenceAssert
     /// <param name="actual">Actual items in order.</param>
     /// <param name="comparer">Element equality comparer.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task Equal<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
+    public static Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        return EqualAsync(expected, actual, comparer);
+        return EqualCoreAsync(expected, actual, comparer);
     }
 
-    private static async Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
+    private static async Task EqualCoreAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
         for (var i = 0; i < expected.Count; i++)

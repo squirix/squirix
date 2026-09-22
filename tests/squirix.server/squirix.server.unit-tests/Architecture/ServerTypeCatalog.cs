@@ -42,7 +42,7 @@ internal static class ServerTypeCatalog
     /// <param name="exactNamespace">Required exact namespace.</param>
     /// <exception cref="ArgumentNullException"><paramref name="types" /> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="types" /> is empty or <paramref name="exactNamespace" /> is null or empty.</exception>
-    internal static async Task AssertResideInNamespace(IReadOnlyList<DeclaredType> types, string exactNamespace)
+    internal static async Task AssertResideInNamespaceAsync(IReadOnlyList<DeclaredType> types, string exactNamespace)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentException.ThrowIfNullOrEmpty(exactNamespace);
@@ -62,7 +62,7 @@ internal static class ServerTypeCatalog
     /// <param name="exactNamespaces">Allowed exact namespace names.</param>
     /// <exception cref="ArgumentNullException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="types" /> or <paramref name="exactNamespaces" /> is empty.</exception>
-    internal static async Task AssertResideInOneOfNamespaces(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
+    internal static async Task AssertResideInOneOfNamespacesAsync(IReadOnlyList<DeclaredType> types, string[] exactNamespaces)
     {
         ArgumentNullException.ThrowIfNull(types);
         ArgumentNullException.ThrowIfNull(exactNamespaces);
@@ -203,7 +203,7 @@ internal static class ServerTypeCatalog
     private static async Task<IReadOnlyList<DeclaredType>> ScanAsync()
     {
         var matches = new List<DeclaredType>();
-        var paths = await ServerSourceFiles.EnumerateCsharpFiles();
+        var paths = await ServerSourceFiles.EnumerateCsharpFilesAsync();
         for (var pathIndex = 0; pathIndex < paths.Count; pathIndex++)
         {
             var lines = await File.ReadAllLinesAsync(paths[pathIndex], CancellationToken.None).ConfigureAwait(false);
