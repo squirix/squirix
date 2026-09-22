@@ -36,11 +36,11 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var composition = await File.ReadAllTextAsync(compositionPath, cancellationToken);
 
         // The endpoint mapping maps the closed adapter only on the internal host filter and only under FoundationOnly.
-        await AssertRegistrationGuarded(mapping, "app.MapGrpcService<ReplicationServiceAdapter>()", "featureState.FoundationOnly");
+        await AssertRegistrationGuardedAsync(mapping, "app.MapGrpcService<ReplicationServiceAdapter>()", "featureState.FoundationOnly");
         _ = await Assert.That(mapping).DoesNotContain("MapGrpcService<SquirixReplicationServiceAdapter", StringComparison.Ordinal);
 
         // The hosting composition registers the adapter singleton only when FoundationOnly is enabled.
-        await AssertRegistrationGuarded(composition, "AddSingleton(static sp => new SquirixReplicationServiceAdapter(", "args.FoundationOnly");
+        await AssertRegistrationGuardedAsync(composition, "AddSingleton(static sp => new SquirixReplicationServiceAdapter(", "args.FoundationOnly");
 
         // The reverse direction must not exist: Storage.Replication never reaches into hosting composition types.
         var storageReplicationRoot = Path.Join(root, "src", "squirix.server", "Storage", "Replication");
@@ -76,9 +76,9 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
 
         // Storage.Replication must not depend upward on Node, Adapters, or Cluster.
         const string storageReplicationFrom = @"/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/";
-        await AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Node.*");
-        await AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Adapters.*");
-        await AssertDisallowedEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
+        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Node.*");
+        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Adapters.*");
+        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
 
         var edge = FindEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
         _ = await Assert.That(edge).IsNotNull();
@@ -90,14 +90,14 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         _ = await Assert.That("Squirix.Server.Storage.ReplicationX").DoesNotMatch(storageReplicationFromRegex);
 
         // Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and cache.
-        await AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
-        await AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.Hosting.*");
-        await AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.App.*");
-        await AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Cluster.Transport.*");
-        await AssertDisallowedEdge(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.LocalCache.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.Hosting.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.App.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Cluster.Transport.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.LocalCache.*");
 
         // Node.App must not bypass Cluster.Replication into Storage.Replication.
-        await AssertDisallowedEdge(policy, "Squirix.Server.Node.App.*", "Squirix.Server.Storage.Replication.*");
+        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Node.App.*", "Squirix.Server.Storage.Replication.*");
     }
 
     /// <summary>Cluster.Replication sources must not import dumping or banned namespaces.</summary>
@@ -198,7 +198,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertDisallowedEdge(XmlDocument policy, string from, string to)
+    private static async Task AssertDisallowedEdgeAsync(XmlDocument policy, string from, string to)
     {
         var edge = FindEdge(policy, from, to);
         _ = await Assert.That(edge).IsNotNull();
@@ -210,7 +210,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     /// <param name="source">The hosting source text.</param>
     /// <param name="registration">The registration expression that must be present.</param>
     /// <param name="guard">The guard condition that must wrap the registration.</param>
-    private static async Task AssertRegistrationGuarded(string source, string registration, string guard)
+    private static async Task AssertRegistrationGuardedAsync(string source, string registration, string guard)
     {
         var lines = source.Split('\n');
         var registrationIndex = -1;

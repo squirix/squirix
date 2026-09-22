@@ -30,7 +30,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         using var scope = journalTracer.Begin(JournalOperationKind.Put, in context);
 
         _ = await Assert.That(scope).IsNotNull();
-        var activity = await AssertActivity("journal.put");
+        var activity = await AssertActivityAsync("journal.put");
         var payloadTag = await Assert.That(activity.GetTagItem("journal.bytes_payload")).IsTypeOf<string>();
         _ = await Assert.That(payloadTag).IsEqualTo("128");
         var frameTag = await Assert.That(activity.GetTagItem("journal.frame.total_bytes")).IsTypeOf<string>();
@@ -45,17 +45,17 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
 
-        await AssertSpanName(journalTracer, JournalOperationKind.Put, "journal.put");
-        await AssertSpanName(journalTracer, JournalOperationKind.Remove, "journal.remove");
-        await AssertSpanName(journalTracer, JournalOperationKind.RemoveExpiration, "journal.remove_expiration");
-        await AssertSpanName(journalTracer, JournalOperationKind.TouchExpiration, "journal.touch_expiration");
-        await AssertSpanName(journalTracer, JournalOperationKind.IdempotencyOutcome, "journal.idempotency_outcome");
-        await AssertSpanName(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
-        await AssertSpanName(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");
-        await AssertSpanName(journalTracer, JournalOperationKind.WaitForStartup, "journal.wait_startup");
-        await AssertSpanName(journalTracer, JournalOperationKind.MaintenanceExclusive, "journal.maintenance");
-        await AssertSpanName(journalTracer, JournalOperationKind.SnapshotCut, "journal.snapshot_cut");
-        await AssertSpanName(journalTracer, JournalOperationKind.UnderSnapshotBarrier, "journal.snapshot_barrier");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.Put, "journal.put");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.Remove, "journal.remove");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.RemoveExpiration, "journal.remove_expiration");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.TouchExpiration, "journal.touch_expiration");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.IdempotencyOutcome, "journal.idempotency_outcome");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.WaitForStartup, "journal.wait_startup");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.MaintenanceExclusive, "journal.maintenance");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.SnapshotCut, "journal.snapshot_cut");
+        await AssertSpanNameAsync(journalTracer, JournalOperationKind.UnderSnapshotBarrier, "journal.snapshot_barrier");
     }
 
     /// <summary>Ensures unset durability settings do not emit durability span tags.</summary>
@@ -68,7 +68,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         using var scope = journalTracer.Begin(JournalOperationKind.Put, null);
 
         _ = await Assert.That(scope).IsNotNull();
-        var activity = await AssertActivity("journal.put");
+        var activity = await AssertActivityAsync("journal.put");
         _ = await Assert.That(activity.GetTagItem("journal.group_commit")).IsNull();
     }
 
@@ -87,14 +87,14 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         using var scope = journalTracer.Begin(JournalOperationKind.Put, in context);
 
         _ = await Assert.That(scope).IsNotNull();
-        var activity = await AssertActivity("journal.put");
+        var activity = await AssertActivityAsync("journal.put");
         var fsyncTag = await Assert.That(activity.GetTagItem("journal.strict_fsync")).IsTypeOf<string>();
         _ = await Assert.That(fsyncTag).IsEqualTo(ActivityTagValues.True);
         var groupCommitTag = await Assert.That(activity.GetTagItem("journal.group_commit")).IsTypeOf<string>();
         _ = await Assert.That(groupCommitTag).IsEqualTo(ActivityTagValues.False);
     }
 
-    private static async Task<Activity> AssertActivity(string expectedDisplayName)
+    private static async Task<Activity> AssertActivityAsync(string expectedDisplayName)
     {
         var activity = Activity.Current;
         _ = await Assert.That(activity).IsNotNull();
@@ -102,11 +102,11 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         return activity;
     }
 
-    private static async Task AssertSpanName(IJournalOperationTracer journalTracer, JournalOperationKind kind, string expectedDisplayName)
+    private static async Task AssertSpanNameAsync(IJournalOperationTracer journalTracer, JournalOperationKind kind, string expectedDisplayName)
     {
         using var scope = journalTracer.Begin(kind, null);
 
         _ = await Assert.That(scope).IsNotNull();
-        _ = await AssertActivity(expectedDisplayName);
+        _ = await AssertActivityAsync(expectedDisplayName);
     }
 }

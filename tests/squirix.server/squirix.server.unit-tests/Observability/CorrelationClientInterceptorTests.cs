@@ -97,7 +97,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
 
         _ = await Assert.That(capture.Headers).IsNotNull();
         _ = await Assert.That(capture.Headers).Contains(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase));
-        await AssertEntriesEqual(before, SnapshotEntries(callerHeaders));
+        await AssertEntriesEqualAsync(before, SnapshotEntries(callerHeaders));
         _ = await Assert.That(callerHeaders).DoesNotContain(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -171,7 +171,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         _ = gate.TrySetResult();
         await Task.WhenAll(tasks);
 
-        await AssertEntriesEqual(["x-shared=yes"], SnapshotEntries(sharedHeaders));
+        await AssertEntriesEqualAsync(["x-shared=yes"], SnapshotEntries(sharedHeaders));
         for (var index = 0; index < states.Length; index++)
         {
             var headers = states[index].Capture.Headers;
@@ -188,7 +188,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertEntriesEqual(List<string> expected, List<string> actual)
+    private static async Task AssertEntriesEqualAsync(List<string> expected, List<string> actual)
     {
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
         for (var index = 0; index < expected.Count; index++)

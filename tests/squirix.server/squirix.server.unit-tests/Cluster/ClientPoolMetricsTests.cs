@@ -92,7 +92,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         var peers = BuildPeers(3);
         await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter));
 
-        await SequenceAssert.Equal(["n0", "n1", "n2"], pool.NodeIds);
+        await SequenceAssert.EqualAsync(["n0", "n1", "n2"], pool.NodeIds);
     }
 
     /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>

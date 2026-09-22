@@ -50,7 +50,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var replay = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(replay.Granted).IsTrue();
         var replayBytes = await File.ReadAllBytesAsync(replayMetaPath, cancellationToken);
-        await SequenceAssert.Equal(replayBefore, replayBytes);
+        await SequenceAssert.EqualAsync(replayBefore, replayBytes);
 
         var staleTerm = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(staleTerm.Granted).IsFalse();
@@ -98,7 +98,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(5UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-a");
         var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
-        await SequenceAssert.Equal(before, metaBytes);
+        await SequenceAssert.EqualAsync(before, metaBytes);
 
         var stale = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(stale.Granted).IsFalse();
@@ -147,7 +147,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
         var metaBytes = await File.ReadAllBytesAsync(metaPath, cancellationToken);
-        await SequenceAssert.Equal(before, metaBytes);
+        await SequenceAssert.EqualAsync(before, metaBytes);
     }
 
     /// <summary>Builds an append request for a single entry.</summary>

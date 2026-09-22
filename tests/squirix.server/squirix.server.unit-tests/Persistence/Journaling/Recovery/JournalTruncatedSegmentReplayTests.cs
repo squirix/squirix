@@ -45,7 +45,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
                     _ = records.Current;
             });
         var pathBytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        await SequenceAssert.Equal(mutatedBeforeRead, pathBytes);
+        await SequenceAssert.EqualAsync(mutatedBeforeRead, pathBytes);
     }
 
     /// <summary>CRC mismatch throws <see cref="InvalidDataException" /> to surface corruption.</summary>

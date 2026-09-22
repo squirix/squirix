@@ -26,7 +26,7 @@ public readonly record struct ProtocolModelExceptionExpectation<TException>
         }
         catch (Exception thrown)
         {
-            throw new AssertionException($"Expected {typeof(TException)} but observed {thrown.GetType()}.");
+            throw new AssertionException($"Expected {typeof(TException)} but observed {thrown.GetType()}.", thrown);
         }
 
         throw new AssertionException($"Expected {typeof(TException)} but no matching exception was thrown.");

@@ -14,12 +14,12 @@ public static class SequenceAssert
     /// <param name="expected">Expected items in order.</param>
     /// <param name="actual">Actual items in order.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task Equal<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual)
+    public static Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
 
-        return EqualAsync(expected, actual, EqualityComparer<T>.Default);
+        return EqualCoreAsync(expected, actual, EqualityComparer<T>.Default);
     }
 
     /// <summary>Asserts two sequences contain equal items in the same order using a custom comparer.</summary>
@@ -28,13 +28,13 @@ public static class SequenceAssert
     /// <param name="actual">Actual items in order.</param>
     /// <param name="comparer">Element equality comparer.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task Equal<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
+    public static Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        return EqualAsync(expected, actual, comparer);
+        return EqualCoreAsync(expected, actual, comparer);
     }
 
     /// <summary>Asserts two sequences contain equal items in the same order.</summary>
@@ -42,12 +42,12 @@ public static class SequenceAssert
     /// <param name="expected">Expected items in order.</param>
     /// <param name="actual">Actual items in order.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task Equal<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
+    public static Task EqualAsync<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
     {
         ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(actual);
 
-        return EqualAsync(expected, actual);
+        return EqualCoreAsync(expected, actual);
     }
 
     /// <summary>Asserts two memory blocks contain equal items in the same order.</summary>
@@ -55,25 +55,7 @@ public static class SequenceAssert
     /// <param name="expected">Expected items in order.</param>
     /// <param name="actual">Actual items in order.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task EqualMemory<T>(ReadOnlyMemory<T> expected, ReadOnlyMemory<T> actual) =>
-        EqualMemoryAsync(expected, actual, EqualityComparer<T>.Default);
-
-    private static async Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
-    {
-        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
-        for (var i = 0; i < expected.Count; i++)
-            _ = await Assert.That(comparer.Equals(expected[i], actual[i])).IsTrue().Because($"Sequences differ at index {i}.");
-    }
-
-    private static async Task EqualAsync<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
-    {
-        var comparer = EqualityComparer<T>.Default;
-        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
-        var expectedItems = CopyToArray(expected);
-        var actualItems = CopyToArray(actual);
-        for (var i = 0; i < expectedItems.Length; i++)
-            _ = await Assert.That(comparer.Equals(expectedItems[i], actualItems[i])).IsTrue().Because($"Sequences differ at index {i}.");
-    }
+    public static Task EqualMemoryAsync<T>(ReadOnlyMemory<T> expected, ReadOnlyMemory<T> actual) => EqualMemoryAsync(expected, actual, EqualityComparer<T>.Default);
 
     private static T[] CopyToArray<T>(IReadOnlyCollection<T> source)
     {
@@ -83,6 +65,23 @@ public static class SequenceAssert
             items[index++] = item;
 
         return items;
+    }
+
+    private static async Task EqualCoreAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
+    {
+        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
+        for (var i = 0; i < expected.Count; i++)
+            _ = await Assert.That(comparer.Equals(expected[i], actual[i])).IsTrue().Because($"Sequences differ at index {i}.");
+    }
+
+    private static async Task EqualCoreAsync<T>(IReadOnlyCollection<T> expected, IReadOnlyCollection<T> actual)
+    {
+        var comparer = EqualityComparer<T>.Default;
+        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
+        var expectedItems = CopyToArray(expected);
+        var actualItems = CopyToArray(actual);
+        for (var i = 0; i < expectedItems.Length; i++)
+            _ = await Assert.That(comparer.Equals(expectedItems[i], actualItems[i])).IsTrue().Because($"Sequences differ at index {i}.");
     }
 
     private static async Task EqualMemoryAsync<T>(ReadOnlyMemory<T> expected, ReadOnlyMemory<T> actual, IEqualityComparer<T> comparer)

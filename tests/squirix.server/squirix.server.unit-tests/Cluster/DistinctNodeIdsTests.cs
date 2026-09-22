@@ -23,7 +23,7 @@ public sealed class DistinctNodeIdsTests : ServerUnitTestBase
 
     /// <summary>Duplicate values after trimming are deduplicated.</summary>
     [Test]
-    public Task DeduplicatesAfterTrim() => SequenceAssert.Equal(["NodeA"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeA", "  NodeA  "]), StringComparer.Ordinal);
+    public Task DeduplicatesAfterTrim() => SequenceAssert.EqualAsync(["NodeA"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeA", "  NodeA  "]), StringComparer.Ordinal);
 
     /// <summary>Empty input returns empty array.</summary>
     [Test]
@@ -35,16 +35,17 @@ public sealed class DistinctNodeIdsTests : ServerUnitTestBase
 
     /// <summary>Preserves insertion order of first-seen distinct IDs.</summary>
     [Test]
-    public Task PreservesInsertionOrder() => SequenceAssert.Equal(
+    public Task PreservesInsertionOrder() => SequenceAssert.EqualAsync(
         ["NodeC", "NodeA", "NodeB"],
         DistinctNodeIds.InInsertionOrder(["NodeC", " NodeA ", "NodeB", "NodeA"]),
         StringComparer.Ordinal);
 
     /// <summary>Whitespace-only values are rejected after trimming.</summary>
     [Test]
-    public Task RejectsWhitespaceOnlyValues() => SequenceAssert.Equal(["NodeA"], DistinctNodeIds.InInsertionOrder(["   ", "NodeA", "\t\n"]), StringComparer.Ordinal);
+    public Task RejectsWhitespaceOnlyValues() => SequenceAssert.EqualAsync(["NodeA"], DistinctNodeIds.InInsertionOrder(["   ", "NodeA", "\t\n"]), StringComparer.Ordinal);
 
     /// <summary>Leading and trailing whitespace is trimmed from node IDs.</summary>
     [Test]
-    public Task TrimsLeadingAndTrailingWhitespace() => SequenceAssert.Equal(["NodeA", "NodeB"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeB"]), StringComparer.Ordinal);
+    public Task TrimsLeadingAndTrailingWhitespace() =>
+        SequenceAssert.EqualAsync(["NodeA", "NodeB"], DistinctNodeIds.InInsertionOrder([" NodeA ", "NodeB"]), StringComparer.Ordinal);
 }

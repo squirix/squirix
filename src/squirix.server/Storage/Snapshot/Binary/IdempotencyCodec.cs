@@ -10,15 +10,15 @@ internal static class IdempotencyCodec
 {
     private const byte CompletedStateWire = 0;
 
-    private const byte StartedStateWire = 1;
+    private const string FieldExceedsMaxLengthMessage = "Snapshot idempotency field exceeds maximum encoded length.";
 
     private const byte FingerprintAbsentWire = 0;
 
+    private const string FingerprintMissingMessage = "Snapshot idempotency fingerprint is missing.";
+
     private const byte FingerprintPresentWire = 1;
 
-    private const string FieldExceedsMaxLengthMessage = "Snapshot idempotency field exceeds maximum encoded length.";
-
-    private const string FingerprintMissingMessage = "Snapshot idempotency fingerprint is missing.";
+    private const byte StartedStateWire = 1;
 
     internal static int ComputeEncodedLength(PersistedIdempotencyRecord record)
     {
@@ -37,9 +37,9 @@ internal static class IdempotencyCodec
             {
                 return checked(1 + 2 + operationIdBytes + 1 + (hasFingerprint * (2 + startedFingerprintBytes)) + 8);
             }
-            catch (OverflowException)
+            catch (OverflowException ex)
             {
-                throw new InvalidDataException(FieldExceedsMaxLengthMessage);
+                throw new InvalidDataException(FieldExceedsMaxLengthMessage, ex);
             }
         }
 
@@ -52,9 +52,9 @@ internal static class IdempotencyCodec
         {
             return checked(1 + 2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes);
         }
-        catch (OverflowException)
+        catch (OverflowException ex)
         {
-            throw new InvalidDataException(FieldExceedsMaxLengthMessage);
+            throw new InvalidDataException(FieldExceedsMaxLengthMessage, ex);
         }
     }
 
@@ -104,29 +104,70 @@ internal static class IdempotencyCodec
         record.ResponseBytes.AsSpan().CopyTo(destination[offset..]);
     }
 
-    /// <summary>Decodes one idempotency record in the versioned snapshot layout (leading state byte).</summary>
-    /// <param name="source">The record body bytes.</param>
-    /// <returns>The decoded record.</returns>
-    /// <exception cref="InvalidDataException">When the record is truncated or invalid.</exception>
-    private static PersistedIdempotencyRecord ReadVersioned(ReadOnlySpan<byte> source)
+    private static void EnsureFullyConsumed(ReadOnlySpan<byte> source, int offset)
     {
-        if (source.Length < 1)
-            throw new InvalidDataException("Snapshot idempotency record state is missing.");
+        if (offset != source.Length)
+            throw new InvalidDataException("Snapshot idempotency record has trailing bytes.");
+    }
 
-        var stateWire = source[0];
-        if (stateWire is not (CompletedStateWire or StartedStateWire))
-            throw new InvalidDataException("Snapshot idempotency record state is invalid.");
+    /// <summary>Decodes a completed record body after the operation id.</summary>
+    /// <param name="source">The record body bytes.</param>
+    /// <param name="offset">The offset after the operation id; advanced past the decoded fields.</param>
+    /// <param name="operationId">The already-decoded operation id.</param>
+    /// <returns>The decoded completed record.</returns>
+    /// <exception cref="InvalidDataException">When the record is truncated or invalid.</exception>
+    private static PersistedIdempotencyRecord ReadCompletedRecord(ReadOnlySpan<byte> source, ref int offset, string operationId)
+    {
+        if (!TryReadUtf8Prefixed(source, ref offset, out var fingerprint))
+            throw new InvalidDataException(FingerprintMissingMessage);
 
-        var offset = 1;
+        var createdUtc = ReadCreatedUtc(source, ref offset);
+        var responseBytes = ReadResponseBytes(source, ref offset);
+        var record = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, createdUtc);
+        Validate(record);
+        return record;
+    }
+
+    private static DateTime ReadCreatedUtc(ReadOnlySpan<byte> source, ref int offset)
+    {
+        if (source.Length < offset + 8)
+            throw new InvalidDataException("Snapshot idempotency created timestamp is missing.");
+
+        var createdUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
+        offset += 8;
+        return createdUtc;
+    }
+
+    private static PersistedIdempotencyRecord ReadLegacy(ReadOnlySpan<byte> source)
+    {
+        var offset = 0;
         if (!TryReadUtf8Prefixed(source, ref offset, out var operationId))
             throw new InvalidDataException("Snapshot idempotency operation id is missing.");
 
-        var record = stateWire == StartedStateWire
-            ? ReadStartedRecord(source, ref offset, operationId)
-            : ReadCompletedRecord(source, ref offset, operationId);
+        if (!TryReadUtf8Prefixed(source, ref offset, out var fingerprint))
+            throw new InvalidDataException(FingerprintMissingMessage);
 
+        var createdUtc = ReadCreatedUtc(source, ref offset);
+        var responseBytes = ReadResponseBytes(source, ref offset);
+        var record = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, createdUtc);
+        Validate(record);
         EnsureFullyConsumed(source, offset);
         return record;
+    }
+
+    private static byte[] ReadResponseBytes(ReadOnlySpan<byte> source, ref int offset)
+    {
+        if (source.Length < offset + 4)
+            throw new InvalidDataException("Snapshot idempotency response length is missing.");
+
+        var responseLength = BinaryPrimitives.ReadInt32LittleEndian(source[offset..]);
+        offset += 4;
+        if (responseLength < 0 || source.Length < offset + responseLength)
+            throw new InvalidDataException("Snapshot idempotency response bytes are truncated.");
+
+        var responseBytes = BufferEx.CopyToOwned(source.Slice(offset, responseLength));
+        offset += responseLength;
+        return responseBytes;
     }
 
     /// <summary>Decodes a write-ahead started record body after the operation id.</summary>
@@ -154,37 +195,25 @@ internal static class IdempotencyCodec
         return record;
     }
 
-    /// <summary>Decodes a completed record body after the operation id.</summary>
+    /// <summary>Decodes one idempotency record in the versioned snapshot layout (leading state byte).</summary>
     /// <param name="source">The record body bytes.</param>
-    /// <param name="offset">The offset after the operation id; advanced past the decoded fields.</param>
-    /// <param name="operationId">The already-decoded operation id.</param>
-    /// <returns>The decoded completed record.</returns>
+    /// <returns>The decoded record.</returns>
     /// <exception cref="InvalidDataException">When the record is truncated or invalid.</exception>
-    private static PersistedIdempotencyRecord ReadCompletedRecord(ReadOnlySpan<byte> source, ref int offset, string operationId)
+    private static PersistedIdempotencyRecord ReadVersioned(ReadOnlySpan<byte> source)
     {
-        if (!TryReadUtf8Prefixed(source, ref offset, out var fingerprint))
-            throw new InvalidDataException(FingerprintMissingMessage);
+        if (source.Length < 1)
+            throw new InvalidDataException("Snapshot idempotency record state is missing.");
 
-        var createdUtc = ReadCreatedUtc(source, ref offset);
-        var responseBytes = ReadResponseBytes(source, ref offset);
-        var record = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, createdUtc);
-        Validate(record);
-        return record;
-    }
+        var stateWire = source[0];
+        if (stateWire is not (CompletedStateWire or StartedStateWire))
+            throw new InvalidDataException("Snapshot idempotency record state is invalid.");
 
-    private static PersistedIdempotencyRecord ReadLegacy(ReadOnlySpan<byte> source)
-    {
-        var offset = 0;
+        var offset = 1;
         if (!TryReadUtf8Prefixed(source, ref offset, out var operationId))
             throw new InvalidDataException("Snapshot idempotency operation id is missing.");
 
-        if (!TryReadUtf8Prefixed(source, ref offset, out var fingerprint))
-            throw new InvalidDataException(FingerprintMissingMessage);
+        var record = stateWire == StartedStateWire ? ReadStartedRecord(source, ref offset, operationId) : ReadCompletedRecord(source, ref offset, operationId);
 
-        var createdUtc = ReadCreatedUtc(source, ref offset);
-        var responseBytes = ReadResponseBytes(source, ref offset);
-        var record = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, createdUtc);
-        Validate(record);
         EnsureFullyConsumed(source, offset);
         return record;
     }
@@ -201,43 +230,6 @@ internal static class IdempotencyCodec
             record = null;
             return false;
         }
-    }
-
-    private static void EnsureFullyConsumed(ReadOnlySpan<byte> source, int offset)
-    {
-        if (offset != source.Length)
-            throw new InvalidDataException("Snapshot idempotency record has trailing bytes.");
-    }
-
-    private static DateTime ReadCreatedUtc(ReadOnlySpan<byte> source, ref int offset)
-    {
-        if (source.Length < offset + 8)
-            throw new InvalidDataException("Snapshot idempotency created timestamp is missing.");
-
-        var createdUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
-        offset += 8;
-        return createdUtc;
-    }
-
-    private static void WriteCreatedUtc(DateTime createdUtc, Span<byte> destination, ref int offset)
-    {
-        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], new DateTimeOffset(createdUtc.ToUniversalTime()).ToUnixTimeMilliseconds());
-        offset += 8;
-    }
-
-    private static byte[] ReadResponseBytes(ReadOnlySpan<byte> source, ref int offset)
-    {
-        if (source.Length < offset + 4)
-            throw new InvalidDataException("Snapshot idempotency response length is missing.");
-
-        var responseLength = BinaryPrimitives.ReadInt32LittleEndian(source[offset..]);
-        offset += 4;
-        if (responseLength < 0 || source.Length < offset + responseLength)
-            throw new InvalidDataException("Snapshot idempotency response bytes are truncated.");
-
-        var responseBytes = BufferEx.CopyToOwned(source.Slice(offset, responseLength));
-        offset += responseLength;
-        return responseBytes;
     }
 
     private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, ref int offset, out string text)
@@ -269,6 +261,12 @@ internal static class IdempotencyCodec
 
         if (record.ResponseBytes.Length == 0)
             throw new InvalidDataException("Snapshot idempotency response bytes are empty.");
+    }
+
+    private static void WriteCreatedUtc(DateTime createdUtc, Span<byte> destination, ref int offset)
+    {
+        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], new DateTimeOffset(createdUtc.ToUniversalTime()).ToUnixTimeMilliseconds());
+        offset += 8;
     }
 
     private static int WriteUtf8Prefixed(string text, Span<byte> destination)
