@@ -30,9 +30,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var outcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
             var retryOutcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellationToken);
-            await SequenceAssert.Equal(outcome.ToArray(), retryOutcome.ToArray());
+            await SequenceAssert.EqualAsync(outcome.ToArray(), retryOutcome.ToArray());
             _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
             _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(1);
             IReadOnlyList<string> list =
@@ -50,7 +50,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 "stage:MemoryApplied",
                 "stage:ResponseReady",
             ];
-            await SequenceAssert.Equal(list, pipeline.Trace, StringComparer.Ordinal);
+            await SequenceAssert.EqualAsync(list, pipeline.Trace, StringComparer.Ordinal);
             _ = await Assert.That(pipeline.LaggingReplicas).Contains(2);
         }
         finally
@@ -121,7 +121,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
@@ -233,14 +233,14 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
             await coordinator.DisposeAsync();
         }
 
-        await SequenceAssert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
     /// <summary>A late acknowledgement advances its replica before that replica's next acknowledgement is released.</summary>
@@ -301,7 +301,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
-        await SequenceAssert.Equal([], pipeline.LaggingReplicas);
+        await SequenceAssert.EqualAsync([], pipeline.LaggingReplicas);
     }
 
     /// <summary>A later commit applies skipped earlier entries in index order.</summary>
@@ -322,14 +322,14 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
             await coordinator.DisposeAsync();
         }
 
-        await SequenceAssert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
     /// <summary>A lagging follower past the observe bound does not block disposal after majority commit.</summary>
@@ -345,7 +345,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         {
             // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
             var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
 
             // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
             var disposal = coordinator.DisposeAsync().AsTask();

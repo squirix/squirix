@@ -34,7 +34,7 @@ internal sealed class MsbuildProjectIndex
 
     internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-    internal async Task<XPathNavigator> RequireIncludedElement(string localName, string include)
+    internal async Task<XPathNavigator> RequireIncludedElementAsync(string localName, string include)
     {
         _ = await Assert.That(_includedElements.TryGetValue(localName, out var elements)).IsTrue();
         var present = (await Assert.That(elements).IsNotNull())!;
@@ -52,7 +52,7 @@ internal sealed class MsbuildProjectIndex
         return await Assert.That(match).IsNotNull();
     }
 
-    internal async Task<string> RequireProperty(string propertyName)
+    internal async Task<string> RequirePropertyAsync(string propertyName)
     {
         _ = await Assert.That(_properties.TryGetValue(propertyName, out var value)).IsTrue();
         return await Assert.That(value).IsNotNull();

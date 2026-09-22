@@ -72,7 +72,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.OperationId).IsEqualTo("0123456789abcdef0123456789abcdef");
         _ = await Assert.That(decoded.Fingerprint).IsEqualTo("try-add-entry-async|default|k|abc123");
         _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(createdUtc);
-        await SequenceAssert.Equal<byte>([0x08, 0x01], decoded.ResponseBytes);
+        await SequenceAssert.EqualAsync<byte>([0x08, 0x01], decoded.ResponseBytes);
     }
 
     /// <summary>A legacy record without fingerprint bytes is rejected.</summary>
@@ -93,7 +93,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.OperationId).IsEqualTo("0123456789abcdef0123456789abcdef");
         _ = await Assert.That(decoded.Fingerprint).IsEqualTo("try-add-entry-async|default|k|abc123");
         _ = await Assert.That(decoded.CreatedUtc).IsEqualTo(new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
-        await SequenceAssert.Equal<byte>([0x08, 0x01], decoded.ResponseBytes);
+        await SequenceAssert.EqualAsync<byte>([0x08, 0x01], decoded.ResponseBytes);
         _ = await Assert.That(decoded.State).IsEqualTo(IdempotencyRecordState.Completed);
     }
 
@@ -265,7 +265,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
 
         IdempotencyCodec.Write(record, buffer);
 
-        return SequenceAssert.Equal(GoldenWireBytes(), buffer);
+        return SequenceAssert.EqualAsync(GoldenWireBytes(), buffer);
     }
 
     /// <summary>

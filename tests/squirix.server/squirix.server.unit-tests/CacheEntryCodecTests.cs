@@ -92,9 +92,9 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     [Test]
     public async Task RoundTripsDecimalAndByteArrayValues()
     {
-        await RoundTripValue(12.5m);
+        await RoundTripValueAsync(12.5m);
         byte[] payload = [9, 8, 7];
-        await RoundTripValue(payload);
+        await RoundTripValueAsync(payload);
     }
 
     /// <summary>Complex JSON values round-trip through the codec as JsonElement trees.</summary>
@@ -186,7 +186,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             0x00, 0x00,
             0x04, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        await SequenceAssert.Equal(golden, actual);
+        await SequenceAssert.EqualAsync(golden, actual);
         return;
 
         static byte[] WriteEntry(NodeCacheEntry<object?> value)
@@ -216,7 +216,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
             });
     }
 
-    private static async Task RoundTripValue(object? value)
+    private static async Task RoundTripValueAsync(object? value)
     {
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 4 };
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
@@ -236,7 +236,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         if (value is byte[] expectedBytes)
         {
             var decodedBytes = (await Assert.That(decodedValue).IsTypeOf<byte[]>())!;
-            await SequenceAssert.Equal(expectedBytes, decodedBytes);
+            await SequenceAssert.EqualAsync(expectedBytes, decodedBytes);
         }
         else
         {

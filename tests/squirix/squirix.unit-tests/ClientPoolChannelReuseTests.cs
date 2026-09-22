@@ -48,7 +48,7 @@ public sealed class ClientPoolChannelReuseTests
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await SequenceAssert.Equal(ExpectedNodes, pool.BootstrapNodeIds, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(ExpectedNodes, pool.BootstrapNodeIds, StringComparer.Ordinal);
 
         var anchor = pool.ForNode("node-a");
 

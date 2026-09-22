@@ -51,17 +51,17 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
 
         var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
 
-        await AssertJournalReadiness(json);
-        await AssertSnapshotReadiness(json);
-        await AssertCompactionReadiness(json);
-        await AssertClientPoolReadiness(json);
-        await AssertCoordinationReadiness(json);
-        await AssertMemoryPressureReadiness(json);
-        await AssertJournalDiskReadiness(json);
-        await AssertRetentionCleanupReadiness(json);
+        await AssertJournalReadinessAsync(json);
+        await AssertSnapshotReadinessAsync(json);
+        await AssertCompactionReadinessAsync(json);
+        await AssertClientPoolReadinessAsync(json);
+        await AssertCoordinationReadinessAsync(json);
+        await AssertMemoryPressureReadinessAsync(json);
+        await AssertJournalDiskReadinessAsync(json);
+        await AssertRetentionCleanupReadinessAsync(json);
     }
 
-    private static async Task AssertClientPoolReadiness(JsonElement json)
+    private static async Task AssertClientPoolReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("clientPool", out var pool)).IsTrue();
         _ = await Assert.That(pool.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -71,7 +71,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(peersCount.GetInt32() >= 1).IsTrue();
     }
 
-    private static async Task AssertCompactionReadiness(JsonElement json)
+    private static async Task AssertCompactionReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("compaction", out var compaction)).IsTrue();
         _ = await Assert.That(compaction.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -81,7 +81,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(compInFlight.ValueKind == JsonValueKind.True || compInFlight.ValueKind == JsonValueKind.False).IsTrue();
     }
 
-    private static async Task AssertCoordinationReadiness(JsonElement json)
+    private static async Task AssertCoordinationReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("coordination", out var coordination)).IsTrue();
         _ = await Assert.That(coordination.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -93,7 +93,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(watches.GetProperty("active").GetInt32()).IsEqualTo(0);
     }
 
-    private static async Task AssertJournalDiskReadiness(JsonElement json)
+    private static async Task AssertJournalDiskReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("journalDisk", out var journalDisk)).IsTrue();
         _ = await Assert.That(journalDisk.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -115,14 +115,14 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(rejection.ValueKind == JsonValueKind.True || rejection.ValueKind == JsonValueKind.False).IsTrue();
     }
 
-    private static async Task AssertJournalReadiness(JsonElement json)
+    private static async Task AssertJournalReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp)).IsTrue();
         _ = await Assert.That(journalBacklogProp.ValueKind is JsonValueKind.Number).IsTrue();
         _ = await Assert.That(journalBacklogProp.GetUInt64() >= 1).IsTrue();
     }
 
-    private static async Task AssertMemoryPressureReadiness(JsonElement json)
+    private static async Task AssertMemoryPressureReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("memoryPressure", out var memoryPressure)).IsTrue();
         _ = await Assert.That(memoryPressure.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -141,7 +141,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(memWra.GetBoolean()).IsTrue();
     }
 
-    private static async Task AssertRetentionCleanupReadiness(JsonElement json)
+    private static async Task AssertRetentionCleanupReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("retentionCleanup", out var retentionCleanup)).IsTrue();
         _ = await Assert.That(retentionCleanup.ValueKind).IsEqualTo(JsonValueKind.Object);
@@ -153,7 +153,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(recent.ValueKind).IsEqualTo(JsonValueKind.Number);
     }
 
-    private static async Task AssertSnapshotReadiness(JsonElement json)
+    private static async Task AssertSnapshotReadinessAsync(JsonElement json)
     {
         _ = await Assert.That(json.TryGetProperty("snapshotInFlight", out var snpFlight)).IsTrue();
         _ = await Assert.That(snpFlight.ValueKind == JsonValueKind.True || snpFlight.ValueKind == JsonValueKind.False).IsTrue();

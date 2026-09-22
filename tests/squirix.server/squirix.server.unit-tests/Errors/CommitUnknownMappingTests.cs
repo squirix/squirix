@@ -24,18 +24,18 @@ public sealed class CommitUnknownMappingTests : ServerUnitTestBase
     [Test]
     public async Task ExistingErrorCodeNumbersDoNotChange()
     {
-        await AssertNumericValue(0, SquirixErrorCode.None);
-        await AssertNumericValue(1, SquirixErrorCode.InvalidCacheKey);
-        await AssertNumericValue(2, SquirixErrorCode.PayloadTooLarge);
-        await AssertNumericValue(3, SquirixErrorCode.TooManyRequests);
-        await AssertNumericValue(4, SquirixErrorCode.MemoryPressure);
-        await AssertNumericValue(5, SquirixErrorCode.OperationIdRequired);
-        await AssertNumericValue(6, SquirixErrorCode.OperationIdInvalidFormat);
-        await AssertNumericValue(7, SquirixErrorCode.OperationIdTooLong);
-        await AssertNumericValue(8, SquirixErrorCode.OperationIdReuseMismatch);
-        await AssertNumericValue(9, SquirixErrorCode.InvalidEntryTags);
-        await AssertNumericValue(10, SquirixErrorCode.JournalDiskQuota);
-        await AssertNumericValue(11, SquirixErrorCode.CommitOutcomeUnknown);
+        await AssertNumericValueAsync(0, SquirixErrorCode.None);
+        await AssertNumericValueAsync(1, SquirixErrorCode.InvalidCacheKey);
+        await AssertNumericValueAsync(2, SquirixErrorCode.PayloadTooLarge);
+        await AssertNumericValueAsync(3, SquirixErrorCode.TooManyRequests);
+        await AssertNumericValueAsync(4, SquirixErrorCode.MemoryPressure);
+        await AssertNumericValueAsync(5, SquirixErrorCode.OperationIdRequired);
+        await AssertNumericValueAsync(6, SquirixErrorCode.OperationIdInvalidFormat);
+        await AssertNumericValueAsync(7, SquirixErrorCode.OperationIdTooLong);
+        await AssertNumericValueAsync(8, SquirixErrorCode.OperationIdReuseMismatch);
+        await AssertNumericValueAsync(9, SquirixErrorCode.InvalidEntryTags);
+        await AssertNumericValueAsync(10, SquirixErrorCode.JournalDiskQuota);
+        await AssertNumericValueAsync(11, SquirixErrorCode.CommitOutcomeUnknown);
     }
 
     /// <summary>Projects commit unknown to unavailable with its stable symbolic code.</summary>
@@ -66,5 +66,5 @@ public sealed class CommitUnknownMappingTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertNumericValue(int expected, SquirixErrorCode code) => _ = await Assert.That(Unsafe.As<SquirixErrorCode, int>(ref code)).IsEqualTo(expected);
+    private static async Task AssertNumericValueAsync(int expected, SquirixErrorCode code) => _ = await Assert.That(Unsafe.As<SquirixErrorCode, int>(ref code)).IsEqualTo(expected);
 }

@@ -63,7 +63,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         worker.Post(1);
         await worker.EnqueueAsync(2);
 
-        await SequenceAssert.Equal([2], handled);
+        await SequenceAssert.EqualAsync([2], handled);
     }
 
     /// <summary>A failing item does not prevent later items from being handled.</summary>
@@ -84,7 +84,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(worker.EnqueueAsync(1));
         await worker.EnqueueAsync(2);
 
-        await SequenceAssert.Equal([2], handled);
+        await SequenceAssert.EqualAsync([2], handled);
     }
 
     /// <summary>A non-curated handler exception is isolated and does not kill the worker thread, so later items still run.</summary>
@@ -105,7 +105,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(worker.EnqueueAsync(1));
         await worker.EnqueueAsync(2);
 
-        await SequenceAssert.Equal([2], handled);
+        await SequenceAssert.EqualAsync([2], handled);
     }
 
     /// <summary>A Post after Dispose reports the failure through onFault and does not throw to the caller.</summary>
@@ -198,7 +198,7 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         }
 
         await Task.WhenAll(pending);
-        await SequenceAssert.Equal([1, 2, 3], values);
+        await SequenceAssert.EqualAsync([1, 2, 3], values);
     }
 
     private static void Complete(TaskCompletionSource tcs) => _ = tcs.TrySetResult();

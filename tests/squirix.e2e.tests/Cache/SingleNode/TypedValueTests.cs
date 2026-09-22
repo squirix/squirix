@@ -25,7 +25,7 @@ public sealed class TypedValueTests : TestBase
         _ = await Assert.That(await cache.TryAddAsync("k", TypedValueFactory.CreateUpdatedProfile("try-add"), cancellationToken: cancellationToken)).IsFalse();
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(original, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(original, result.Value!);
     }
 
     /// <summary>Verifies AddThrowsForExistingCustomRecord.</summary>
@@ -40,7 +40,7 @@ public sealed class TypedValueTests : TestBase
             cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: cancellationToken));
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(original, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(original, result.Value!);
     }
 
     /// <summary>Verifies CustomRecordRoundTripsOnSingleNode.</summary>
@@ -53,7 +53,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies GetEntryReturnsTypedValueAndMetadata.</summary>
@@ -66,7 +66,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, Expiry.In(TimeSpan.FromMinutes(5)), cancellationToken);
         var entry = await cache.GetEntryAsync("k", cancellationToken);
         _ = await Assert.That(entry.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, entry.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, entry.Value!);
         _ = await Assert.That(entry.ExpiresUtc).IsNotNull();
         _ = await Assert.That(entry.ExpiresUtc > DateTime.UtcNow).IsTrue();
     }
@@ -85,9 +85,9 @@ public sealed class TypedValueTests : TestBase
             cancellationToken: cancellationToken);
         var second = await cache.GetOrAddAsync("k", counter.CreateUpdatedProfileAsync, cancellationToken: cancellationToken);
         _ = await Assert.That(first.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, first.Value!);
         _ = await Assert.That(second.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, second.Value!);
         _ = await Assert.That(counter.Count).IsEqualTo(1);
     }
 
@@ -101,7 +101,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertCartEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertCartEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RecordRoundTripsEmptyCollections.</summary>
@@ -114,7 +114,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RecordRoundTripsNullValueProperty.</summary>
@@ -127,7 +127,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RecordRoundTripsUnicodeText.</summary>
@@ -140,7 +140,7 @@ public sealed class TypedValueTests : TestBase
         await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RemoveExpiryClearsRecordOnSingleNode.</summary>
@@ -156,7 +156,7 @@ public sealed class TypedValueTests : TestBase
         var result = await cache.GetValueAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsFalse();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies TouchUpdatesCustomRecordExpirySingleNode.</summary>
@@ -174,7 +174,7 @@ public sealed class TypedValueTests : TestBase
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
         _ = await Assert.That(expiration.Expiration > TimeSpan.Zero).IsTrue();
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies UpdatePreservesCustomRecordExpiry.</summary>
@@ -190,7 +190,7 @@ public sealed class TypedValueTests : TestBase
         var expiration = await cache.GetExpirationAsync("k", cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(updated, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(updated, result.Value!);
     }
 
     private sealed class CallCounter

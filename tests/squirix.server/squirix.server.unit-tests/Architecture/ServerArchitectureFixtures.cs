@@ -92,7 +92,7 @@ internal static class ServerArchitectureFixtures
     /// <summary>Scans repository <c language="csharp">.csproj</c> files for <c language="csharp">ImplicitUsings</c> set to <c language="csharp">enable</c>.</summary>
     /// <param name="repositoryRoot">Absolute path to the repository root.</param>
     /// <returns>Sorted repo-relative paths of offending projects.</returns>
-    internal static async Task<List<string>> CollectImplicitUsingsProjectOffenders(string repositoryRoot)
+    internal static async Task<List<string>> CollectImplicitUsingsOffendersAsync(string repositoryRoot)
     {
         var projectOffenders = new List<string>();
         foreach (var path in Directory.GetFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories))
@@ -101,7 +101,7 @@ internal static class ServerArchitectureFixtures
                 continue;
 
             var hasImplicitUsings = false;
-            var navigator = await LoadProject(path);
+            var navigator = await LoadProjectAsync(path);
             var elements = navigator.Select("//*");
             while (elements.MoveNext())
             {
@@ -155,7 +155,7 @@ internal static class ServerArchitectureFixtures
 
     internal static MsbuildProjectIndex GetServerProjectIndex() => ServerProjectIndex.Value;
 
-    internal static async Task<XPathNavigator> LoadProject(string relativeOrAbsolutePath)
+    internal static async Task<XPathNavigator> LoadProjectAsync(string relativeOrAbsolutePath)
     {
         var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
             RepositoryPaths.FindRepositoryRoot(),

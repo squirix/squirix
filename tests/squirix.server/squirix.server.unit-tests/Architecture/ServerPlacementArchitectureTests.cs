@@ -20,7 +20,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             false,
             ["Squirix.Server.Storage.Manifest.NoOpManifestRetentionFailureMetrics"],
             cancellationToken);
-        await ServerTypeCatalog.AssertResideInNamespace(types, $"{ServerArchitectureNamespaces.Node}.Observability");
+        await ServerTypeCatalog.AssertResideInNamespaceAsync(types, $"{ServerArchitectureNamespaces.Node}.Observability");
     }
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
@@ -29,7 +29,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
     public async Task OptionsTypesLiveInApprovedNamespaces(CancellationToken cancellationToken)
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Options", true, cancellationToken: cancellationToken);
-        await ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServerOptionsTypeNamespaces);
+        await ServerTypeCatalog.AssertResideInOneOfNamespacesAsync(types, Allowlists.ServerOptionsTypeNamespaces);
     }
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
@@ -38,7 +38,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
     public async Task ServiceTypesLiveInApprovedNamespaces(CancellationToken cancellationToken)
     {
         var types = await ServerTypeCatalog.TypesWithNameEndingWithAsync("Service", true, cancellationToken: cancellationToken);
-        await ServerTypeCatalog.AssertResideInOneOfNamespaces(types, Allowlists.ServiceTypeNamespaces);
+        await ServerTypeCatalog.AssertResideInOneOfNamespacesAsync(types, Allowlists.ServiceTypeNamespaces);
     }
 
     /// <summary>Centralized namespace allowlists for naming-convention architecture rules.</summary>

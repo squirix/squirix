@@ -16,7 +16,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// <summary>Test-only production trace capture and independent safety projection.</summary>
 internal static class ConformanceTestKit
 {
-    internal static async Task AssertModelAccepted(IReadOnlyList<TracePoint> trace)
+    internal static async Task AssertModelAcceptedAsync(IReadOnlyList<TracePoint> trace)
     {
         _ = await Assert.That(trace).IsNotEmpty();
         var modelTrace = new ModelCommitTracePoint[trace.Count];

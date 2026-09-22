@@ -73,7 +73,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
 
             var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
 
-            await SequenceAssert.Equal<byte>([7], outcome.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
             _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(2);
         }
         finally

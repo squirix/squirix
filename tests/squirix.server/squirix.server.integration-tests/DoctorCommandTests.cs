@@ -107,7 +107,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
     [Test]
     public async Task HelpListsReplicationOptInSwitch(CancellationToken cancellationToken)
     {
-        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDll()}\" help", cancellationToken);
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDllAsync()}\" help", cancellationToken);
         _ = await Assert.That(exitCode).IsEqualTo(0);
         _ = await Assert.That(output).Contains("--enable-replication", StringComparison.Ordinal);
     }
@@ -121,12 +121,12 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         var settingsPath = await WriteSettingsAsync(dir, 2, cancellationToken, false);
         _ = Directory.CreateDirectory(Path.Join(dir, "data"));
 
-        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDll()}\" run --settings \"{settingsPath}\"", cancellationToken);
+        var (exitCode, output) = await RunHostAsync($"exec \"{await FindHostDllAsync()}\" run --settings \"{settingsPath}\"", cancellationToken);
         _ = await Assert.That(exitCode).IsNotEqualTo(0);
         _ = await Assert.That(output).Contains("replication opt-in", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<string> FindHostDll()
+    private static async Task<string> FindHostDllAsync()
     {
         var directory = AppContext.BaseDirectory;
         while (directory != null)
@@ -153,7 +153,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         CancellationToken cancellationToken,
         bool enableReplication = false)
     {
-        var hostDll = await FindHostDll();
+        var hostDll = await FindHostDllAsync();
         var arguments = $"exec \"{hostDll}\" doctor --settings \"{settingsPath}\"";
         if (dataDir != null)
             arguments += $" --data-dir \"{dataDir}\"";
@@ -164,9 +164,44 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
         return await RunHostAsync(arguments, cancellationToken);
     }
 
+    private static string? ResolveDotnetPath()
+    {
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(dotnetRoot))
+        {
+            var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+            if (File.Exists(dotnetRootCandidate))
+                return Path.GetFullPath(dotnetRootCandidate);
+        }
+
+        var processPath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            var processFileName = Path.GetFileName(processPath);
+            if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+                return Path.GetFullPath(processPath);
+        }
+
+        var pathValue = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathValue))
+            return null;
+
+        var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var pathCandidate = Path.Join(segment, executableName);
+            if (File.Exists(pathCandidate))
+                return Path.GetFullPath(pathCandidate);
+        }
+
+        return null;
+    }
+
     private static async Task<(int ExitCode, string Output)> RunHostAsync(string arguments, CancellationToken cancellationToken)
     {
-        var info = new ProcessStartInfo("dotnet", arguments)
+        var dotnetPath = ResolveDotnetPath() ?? "dotnet";
+        var info = new ProcessStartInfo(dotnetPath, arguments)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
