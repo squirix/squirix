@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -12,7 +11,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Measures replica-group snapshot creation, installation, and journal compaction.</summary>
-[SuppressMessage("Design", "CA1001", Justification = "BenchmarkDotNet lifecycle manages disposable fields via global cleanup.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5, invocationCount: 1)]
 public class ReplicaSnapshotBenchmarks
@@ -54,18 +52,10 @@ public class ReplicaSnapshotBenchmarks
 
     /// <summary>Rebuilds the source log before each compaction iteration so every run compacts a fully populated journal.</summary>
     [IterationSetup(Target = nameof(CompactAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
     public void CompactIterationSetup() => RebuildSourceLogAsync().GetAwaiter().GetResult();
 
     /// <summary>Rebuilds the source log before each install iteration so every run installs into a fresh replica.</summary>
     [IterationSetup(Target = nameof(InstallReplicaSnapshotAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
     public void InstallIterationSetup() => RebuildTargetLogAsync().GetAwaiter().GetResult();
 
     /// <summary>Installs the prepared snapshot into a replica log.</summary>
@@ -82,10 +72,6 @@ public class ReplicaSnapshotBenchmarks
 
     /// <summary>Rebuilds the target log before each restore iteration so every run restores into a fresh replica with an empty idempotency map.</summary>
     [IterationSetup(Target = nameof(RestoreIdempotencyRecords))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
     public void RestoreIdempotencyIterationSetup() => RebuildTargetLogAsync().GetAwaiter().GetResult();
 
     /// <summary>Restores the snapshot's committed idempotency outcomes into a replica log.</summary>
@@ -127,10 +113,6 @@ public class ReplicaSnapshotBenchmarks
 
     /// <summary>Rebuilds the source log before each write iteration without a published snapshot, so every run measures the first publish path.</summary>
     [IterationSetup(Target = nameof(WriteReplicaSnapshotAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
     public void WriteIterationSetup() => RebuildSourceLogAsync(false).GetAwaiter().GetResult();
 
     /// <summary>Writes a committed replica snapshot.</summary>

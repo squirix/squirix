@@ -640,6 +640,7 @@ dotnet_diagnostic.ZA0901.severity = none # Seal class for JIT devirtualization (
 
 [{tests,benchmarks}/**]
 dotnet_diagnostic.SA1615.severity = none # Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant)
+dotnet_diagnostic.CA1001.severity = none # test/benchmark-class disposables are released by TUnit [After] hooks or BenchmarkDotNet [GlobalCleanup], not IDisposable
 
 [tests/**]
 dotnet_diagnostic.S1075.severity = none # S1075 (hardcoded URI) is test data, not prod concern
@@ -647,7 +648,6 @@ dotnet_diagnostic.CA1822.severity = none # CA1822 (mark members as static) not a
 dotnet_diagnostic.VSTHRD111.severity = none # VSTHRD111 (ConfigureAwait(bool)) targets production code; test classes with [Test] are excluded
 dotnet_diagnostic.CA1515.severity = none # test classes and fixtures must stay public for TUnit discovery
 dotnet_diagnostic.CA2007.severity = none # no SynchronizationContext in tests; ConfigureAwait is noise
-dotnet_diagnostic.CA1001.severity = none # test-class disposables are released by TUnit [After] hooks and fixture teardown, not IDisposable
 dotnet_diagnostic.MA0004.severity = none # Meziantou twin of CA2007; same rationale
 dotnet_diagnostic.MA0137.severity = none # test method names are stable identifiers (filters, test lists); Async suffix would churn them
 dotnet_diagnostic.ZA0302.severity = none # tests may use plain arrays for clarity over ArrayPool
@@ -664,6 +664,7 @@ dotnet_diagnostic.CA1822.severity = none # benchmark methods must stay instance 
 dotnet_diagnostic.IDE0058.severity = none # benchmark steps call side-effect APIs with intentionally discarded results
 dotnet_diagnostic.ZA0901.severity = none # sealing is for production hot paths, not the benchmark harness
 dotnet_diagnostic.ZA0302.severity = none # plain scratch buffers avoid setup/teardown noise in measured workloads
+dotnet_diagnostic.VSTHRD002.severity = none # [IterationSetup]/[IterationCleanup] must be synchronous void; blocking there is required and safe (no SynchronizationContext in the benchmark host)
 
 [src/squirix.protocol-model/**]
 dotnet_diagnostic.CA1515.severity = none # design-time Raft safety explorer; not a shipped product package
