@@ -23,7 +23,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
         try
         {
             var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
-            await SequenceAssert.Equal<byte>([7], result.ToArray());
+            await SequenceAssert.EqualAsync<byte>([7], result.ToArray());
             _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
             _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(1UL);
             _ = await Assert.That(pipeline.AppliedIndex).IsEqualTo(1UL);
@@ -45,7 +45,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
 
         var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
-        await SequenceAssert.Equal<byte>([7], result.ToArray());
+        await SequenceAssert.EqualAsync<byte>([7], result.ToArray());
         _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
         _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(pipeline.AppliedIndex).IsEqualTo(1UL);

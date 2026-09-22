@@ -80,8 +80,10 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [Test]
     public async Task IsExpectedPrivateTargetIgnoresCase()
     {
-        _ = await Assert.That(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP")).IsTrue();
-        _ = await Assert.That(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var")).IsFalse();
+        var volumeRoot = Path.GetPathRoot(Path.GetTempPath());
+        var privateTmp = Path.Join(volumeRoot, "private", "tmp");
+        _ = await Assert.That(MacOsCompatibilitySymlink.IsExpectedPrivateTarget(privateTmp, privateTmp.ToUpperInvariant())).IsTrue();
+        _ = await Assert.That(MacOsCompatibilitySymlink.IsExpectedPrivateTarget(privateTmp, Path.Join(volumeRoot, "private", "var"))).IsFalse();
     }
 
     /// <summary>Expected private paths are built under the volume root.</summary>

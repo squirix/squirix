@@ -182,7 +182,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         var bytes = ReplicaLogCodec.Encode(in record);
 
         var decoded = await Assert.That(ReplicaLogCodec.Decode(bytes)).IsNotNull();
-        await SequenceAssert.Equal(bytes, ReplicaLogCodec.Encode(in decoded));
+        await SequenceAssert.EqualAsync(bytes, ReplicaLogCodec.Encode(in decoded));
         _ = await Assert.That(ReplicaLogCodec.Decode(bytes.AsMemory(0, bytes.Length - 1))).IsNull();
 
         var trailed = new byte[bytes.Length + 1];

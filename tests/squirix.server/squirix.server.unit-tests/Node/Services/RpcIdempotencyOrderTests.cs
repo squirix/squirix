@@ -85,7 +85,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        await trace.AssertExpected();
+        await trace.AssertExpectedAsync();
         await JournalHasPutAndIdempotencyRecordsAsync(options.DataDir, manifestStore);
     }
 
@@ -217,7 +217,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
         private OrderingStep _step1;
         private OrderingStep _step2;
 
-        internal async Task AssertExpected()
+        internal async Task AssertExpectedAsync()
         {
             const byte expectedCount = 3;
             _ = await Assert.That(_count).IsEqualTo(expectedCount);

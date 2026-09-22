@@ -40,7 +40,7 @@ public sealed class ClientArchitectureTests
     [Test]
     public async Task GeneratesNarrowCacheGrpcFromShared()
     {
-        var protobuf = await RequireClientProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
+        var protobuf = await RequireClientProjectIndex().RequireIncludedElementAsync("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
         _ = await Assert.That(protobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Client");
         _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");
@@ -173,7 +173,7 @@ public sealed class ClientArchitectureTests
 
         internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
-        internal async Task<XPathNavigator> RequireIncludedElement(string localName, string include)
+        internal async Task<XPathNavigator> RequireIncludedElementAsync(string localName, string include)
         {
             _ = await Assert.That(_includedElements.TryGetValue(localName, out var elements)).IsTrue();
 

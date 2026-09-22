@@ -29,8 +29,8 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         var nodeBResult = await cluster.CacheA.GetValueAsync(nodeBKey, cancellationToken);
         _ = await Assert.That(nodeAResult.Found).IsTrue();
         _ = await Assert.That(nodeBResult.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(nodeAValue, nodeAResult.Value!);
-        await TypedValueAssertions.AssertProfileEquals(nodeBValue, nodeBResult.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(nodeAValue, nodeAResult.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(nodeBValue, nodeBResult.Value!);
     }
 
     /// <summary>Verifies GetOrAddStoresCustomRecordForRemoteOwner.</summary>
@@ -50,9 +50,9 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
             static (_, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateUpdatedProfile("unused")),
             cancellationToken: cancellationToken);
         _ = await Assert.That(added.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, added.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, added.Value!);
         _ = await Assert.That(reread.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, reread.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, reread.Value!);
     }
 
     /// <summary>Verifies LocalOwnerCustomRecordRoundTripsTwoNodes.</summary>
@@ -66,7 +66,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         await cluster.CacheA.SetAsync(key, expected, cancellationToken: cancellationToken);
         var result = await cluster.CacheA.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies MutableClassRoundTripsAcrossTwoNodes.</summary>
@@ -85,8 +85,8 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         var nodeBResult = await cluster.CacheA.GetValueAsync(nodeBKey, cancellationToken);
         _ = await Assert.That(nodeAResult.Found).IsTrue();
         _ = await Assert.That(nodeBResult.Found).IsTrue();
-        await TypedValueAssertions.AssertCartEquals(nodeAValue, nodeAResult.Value!);
-        await TypedValueAssertions.AssertCartEquals(nodeBValue, nodeBResult.Value!);
+        await TypedValueAssertions.AssertCartEqualsAsync(nodeAValue, nodeAResult.Value!);
+        await TypedValueAssertions.AssertCartEqualsAsync(nodeBValue, nodeBResult.Value!);
     }
 
     /// <summary>Verifies RemoteOwnerCustomRecordRoundTripsNodes.</summary>
@@ -100,7 +100,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         await cluster.CacheA.SetAsync(key, expected, cancellationToken: cancellationToken);
         var result = await cluster.CacheA.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RemoveDeletesRemoteOwnerCustomRecord.</summary>
@@ -129,6 +129,6 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         var expiration = await cluster.CacheA.GetExpirationAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
-        await TypedValueAssertions.AssertProfileEquals(updated, result.Value!);
+        await TypedValueAssertions.AssertProfileEqualsAsync(updated, result.Value!);
     }
 }

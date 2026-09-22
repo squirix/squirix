@@ -29,14 +29,14 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
-        await SequenceAssert.Equal(
+        await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(1, 1, 0, 0),
                 new ConformanceTestKit.TracePoint(1, 1, 1, 0),
                 new ConformanceTestKit.TracePoint(1, 1, 1, 1),
             ],
             pipeline.Trace);
-        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
 
     /// <summary>Production election vote and commit trace follow the model safety path.</summary>
@@ -63,7 +63,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
-        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
 
     /// <summary>Production quorum-read gate and commit trace follow the model read path.</summary>
@@ -87,7 +87,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
-        await ConformanceTestKit.AssertModelAccepted(pipeline.Trace);
+        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline.Trace);
     }
 
     /// <summary>Production conformance pins the protocol model version it was verified against.</summary>

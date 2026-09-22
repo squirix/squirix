@@ -62,7 +62,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        await AssertForwardRejected(ex);
+        await AssertForwardRejectedAsync(ex);
     }
 
     /// <summary>Verifies node A rejects internode forwarding to node C with an untrusted server certificate while node B traffic still flows.</summary>
@@ -78,7 +78,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cacheA.SetAsync(rejectedKey, "blocked", cancellationToken: cancellationToken));
 
-        await AssertForwardRejected(ex);
+        await AssertForwardRejectedAsync(ex);
 
         // Only node C is distrusted: traffic to healthy node B keeps flowing through node A.
         var healthyKey = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("orders", "nodeB", "e2e-trusted-node-b");
@@ -98,7 +98,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        await AssertForwardRejected(ex);
+        await AssertForwardRejectedAsync(ex);
     }
 
     /// <summary>Verifies expired peer certificates are rejected for internode forwarding.</summary>
@@ -111,7 +111,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        await AssertForwardRejected(ex);
+        await AssertForwardRejectedAsync(ex);
     }
 
     /// <summary>Verifies node B rejects internode forwarding when node A does not present a client certificate.</summary>
@@ -126,7 +126,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken));
 
-        await AssertForwardRejected(ex);
+        await AssertForwardRejectedAsync(ex);
     }
 
     /// <summary>Verifies external JWT authentication works independently of internode mTLS forwarding.</summary>
@@ -173,7 +173,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         _ = await Assert.That((await cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("forwarded");
     }
 
-    private static async Task AssertForwardRejected(RpcException exception)
+    private static async Task AssertForwardRejectedAsync(RpcException exception)
     {
         _ = await Assert.That(
             exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown ||

@@ -37,7 +37,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         var headers = capture.Headers;
         _ = await Assert.That(headers).IsNotNull();
         _ = await Assert.That(headers).IsNotSameReferenceAs(callerHeaders);
-        await AssertEntriesEqual(before, SnapshotEntries(callerHeaders));
+        await AssertEntriesEqualAsync(before, SnapshotEntries(callerHeaders));
         _ = await Assert.That(callerHeaders).DoesNotContain(static entry => string.Equals(
             entry.Key,
             RemoteInvocationContract.InternalOwnerRpcHeaderName,
@@ -69,7 +69,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         _ = gate.TrySetResult();
         await Task.WhenAll(tasks);
 
-        await AssertEntriesEqual(["x-shared=yes"], SnapshotEntries(sharedHeaders));
+        await AssertEntriesEqualAsync(["x-shared=yes"], SnapshotEntries(sharedHeaders));
         for (var index = 0; index < states.Length; index++)
         {
             var headers = states[index].Capture.Headers;
@@ -89,7 +89,7 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertEntriesEqual(List<string> expected, List<string> actual)
+    private static async Task AssertEntriesEqualAsync(List<string> expected, List<string> actual)
     {
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
         for (var index = 0; index < expected.Count; index++)

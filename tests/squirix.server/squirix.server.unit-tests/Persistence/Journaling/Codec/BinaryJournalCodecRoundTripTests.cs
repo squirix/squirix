@@ -98,23 +98,23 @@ public sealed class BinaryJournalCodecRoundTripTests
 
     /// <summary>Idempotency outcome journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
-    public Task PrepareEncodeRoundTripsIdempotency() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.IdempotencyOutcome);
+    public Task PrepareEncodeRoundTripsIdempotency() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.IdempotencyOutcome);
 
     /// <summary>Put journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
-    public Task PrepareEncodeRoundTripsPut() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.Put);
+    public Task PrepareEncodeRoundTripsPut() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Put);
 
     /// <summary>Remove journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
-    public Task PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.Remove);
+    public Task PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Remove);
 
     /// <summary>Remove-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
-    public Task PrepareEncodeRoundTripsRemoveExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.RemoveExpiration);
+    public Task PrepareEncodeRoundTripsRemoveExpiration() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.RemoveExpiration);
 
     /// <summary>Touch-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
-    public Task PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.TouchExpiration);
+    public Task PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.TouchExpiration);
 
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
@@ -168,7 +168,7 @@ public sealed class BinaryJournalCodecRoundTripTests
         };
     }
 
-    private static async Task PrepareEncodeRoundTripsDecodeCore(JournalOperationKind operation)
+    private static async Task PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind operation)
     {
         var record = CreateRecord(operation);
         var prepared = BinaryJournalCodec.PrepareEncode(record);

@@ -37,7 +37,7 @@ public sealed class PointerTests
         // The CRC is pinned by an independent computation, not by Crc32C itself:
         // recomputing it here with production code would mask a broken checksum.
         byte[] golden = [0x53, 0x51, 0x4D, 0x43, 0x2A, 0x00, 0x00, 0x00, 0x5D, 0xB7, 0x56, 0x95];
-        await SequenceAssert.Equal(golden, actual);
+        await SequenceAssert.EqualAsync(golden, actual);
         return;
 
         static byte[] WriteIndexBytes(int index)

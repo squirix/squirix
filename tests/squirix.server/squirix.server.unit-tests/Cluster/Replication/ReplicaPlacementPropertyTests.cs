@@ -159,11 +159,11 @@ public sealed class ReplicaPlacementPropertyTests
     {
         var ring = new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]);
 
-        await AssertGroup(ring, "n3", 1, ["n3"]);
-        await AssertGroup(ring, "n3", 2, ["n3", "n4"]);
-        await AssertGroup(ring, "n3", 3, ["n3", "n4", "n5"]);
-        await AssertGroup(ring, "n4", 3, ["n4", "n5", "n1"]);
-        await AssertGroup(ring, "n3", 5, ["n3", "n4", "n5", "n1", "n2"]);
+        await AssertGroupAsync(ring, "n3", 1, ["n3"]);
+        await AssertGroupAsync(ring, "n3", 2, ["n3", "n4"]);
+        await AssertGroupAsync(ring, "n3", 3, ["n3", "n4", "n5"]);
+        await AssertGroupAsync(ring, "n4", 3, ["n4", "n5", "n1"]);
+        await AssertGroupAsync(ring, "n3", 5, ["n3", "n4", "n5", "n1", "n2"]);
     }
 
     /// <summary>Followers are the next distinct physical nodes after the owner.</summary>
@@ -208,11 +208,11 @@ public sealed class ReplicaPlacementPropertyTests
         _ = await Assert.That(group[2]).IsEqualTo("node-b");
     }
 
-    private static Task AssertGroup(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
+    private static Task AssertGroupAsync(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
     {
         var group = new string[replicaCount];
         ring.WriteReplicaGroup(owner, replicaCount, group);
-        return SequenceAssert.Equal(expected, group, StringComparer.Ordinal);
+        return SequenceAssert.EqualAsync(expected, group, StringComparer.Ordinal);
     }
 
     private static int CountOccurrences(ReadOnlySpan<string> values, string expected)

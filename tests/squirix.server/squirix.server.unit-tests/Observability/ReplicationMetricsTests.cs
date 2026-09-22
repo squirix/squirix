@@ -42,26 +42,26 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
 
         listener.RecordObservableInstruments();
 
-        await AssertReportsTotal(records, 7);
-        await AssertMismatchTotal(records, "group-b", "topology", 1);
-        await AssertMismatchTotal(records, "group-c", "generation", 1);
-        await AssertMismatchTotal(records, "group-d", "topology", 1);
-        await AssertMismatchTotal(records, "group-d", "generation", 1);
-        await AssertGauge(records, "squirix_replication_term", "group-a", 4);
-        await AssertGauge(records, "squirix_replication_commit_index", "group-a", 7);
-        await AssertGauge(records, "squirix_replication_applied_index", "group-a", 5);
-        await AssertGauge(records, "squirix_replication_commit_lag_entries", "group-a", 3);
-        await AssertGauge(records, "squirix_replication_apply_lag_entries", "group-a", 2);
-        await AssertGauge(records, "squirix_replication_topology_match", "group-a", 1);
-        await AssertGauge(records, "squirix_replication_generation_match", "group-a", 1);
-        await AssertGauge(records, "squirix_replication_ready", "group-a", 1);
-        await AssertGauge(records, "squirix_replication_term", "group-b", 6);
-        await AssertGauge(records, "squirix_replication_topology_match", "group-b", 0);
-        await AssertGauge(records, "squirix_replication_ready", "group-b", 0);
-        await AssertLabelSetsAreBounded(records);
+        await AssertReportsTotalAsync(records, 7);
+        await AssertMismatchTotalAsync(records, "group-b", "topology", 1);
+        await AssertMismatchTotalAsync(records, "group-c", "generation", 1);
+        await AssertMismatchTotalAsync(records, "group-d", "topology", 1);
+        await AssertMismatchTotalAsync(records, "group-d", "generation", 1);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-a", 4);
+        await AssertGaugeAsync(records, "squirix_replication_commit_index", "group-a", 7);
+        await AssertGaugeAsync(records, "squirix_replication_applied_index", "group-a", 5);
+        await AssertGaugeAsync(records, "squirix_replication_commit_lag_entries", "group-a", 3);
+        await AssertGaugeAsync(records, "squirix_replication_apply_lag_entries", "group-a", 2);
+        await AssertGaugeAsync(records, "squirix_replication_topology_match", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_generation_match", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-b", 6);
+        await AssertGaugeAsync(records, "squirix_replication_topology_match", "group-b", 0);
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-b", 0);
+        await AssertLabelSetsAreBoundedAsync(records);
     }
 
-    private static async Task AssertGauge(List<MeasurementRecord> records, string name, string group, double expected)
+    private static async Task AssertGaugeAsync(List<MeasurementRecord> records, string name, string group, double expected)
     {
         var found = false;
         for (var i = 0; i < records.Count; i++)
@@ -76,7 +76,7 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(found).IsTrue().Because($"Expected gauge '{name}' for group '{group}'.");
     }
 
-    private static async Task AssertLabelSetsAreBounded(List<MeasurementRecord> records)
+    private static async Task AssertLabelSetsAreBoundedAsync(List<MeasurementRecord> records)
     {
         for (var i = 0; i < records.Count; i++)
         {
@@ -91,7 +91,7 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertMismatchTotal(List<MeasurementRecord> records, string group, string reason, int expectedCount)
+    private static async Task AssertMismatchTotalAsync(List<MeasurementRecord> records, string group, string reason, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)
@@ -108,7 +108,7 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(count).IsEqualTo(expectedCount);
     }
 
-    private static async Task AssertReportsTotal(List<MeasurementRecord> records, int expectedCount)
+    private static async Task AssertReportsTotalAsync(List<MeasurementRecord> records, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)

@@ -16,7 +16,7 @@ internal static class ServerSourceFiles
     /// </summary>
     /// <param name="relativePathSegments">Optional path segments under the server project root.</param>
     /// <returns>Matching source file paths.</returns>
-    internal static async Task<IReadOnlyList<string>> EnumerateCsharpFiles(params string[] relativePathSegments)
+    internal static async Task<IReadOnlyList<string>> EnumerateCsharpFilesAsync(params string[] relativePathSegments)
     {
         ArgumentNullException.ThrowIfNull(relativePathSegments);
 

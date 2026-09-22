@@ -45,10 +45,10 @@ public sealed class SnapshotCaptureBridgeTests : ServerUnitTestBase
 
         var (capturedKey, capturedEntry) = await Assert.That(target).HasSingleItem();
         _ = await Assert.That(capturedKey).IsEqualTo(new CacheKey("ns", "tagged"));
-        await AssertTagsEqual(Tags, capturedEntry.Tags);
+        await AssertTagsEqualAsync(Tags, capturedEntry.Tags);
     }
 
-    private static async Task AssertTagsEqual(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
+    private static async Task AssertTagsEqualAsync(FrozenDictionary<string, string> expected, FrozenDictionary<string, string>? actual)
     {
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);

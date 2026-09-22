@@ -48,10 +48,10 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
     {
         var missingPersistence = new List<string>();
         ReplicationActivationGuard.CollectFailures(missingPersistence, 2, false, false, true);
-        await SequenceAssert.Equal([ReplicationActivationGuard.PersistenceRequired], missingPersistence, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync([ReplicationActivationGuard.PersistenceRequired], missingPersistence, StringComparer.Ordinal);
 
         var missingMtls = new List<string>();
         ReplicationActivationGuard.CollectFailures(missingMtls, 2, true, false, true);
-        await SequenceAssert.Equal([ReplicationActivationGuard.MtlsRequired], missingMtls, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync([ReplicationActivationGuard.MtlsRequired], missingMtls, StringComparer.Ordinal);
     }
 }
