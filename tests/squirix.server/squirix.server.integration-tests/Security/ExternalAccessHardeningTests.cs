@@ -23,11 +23,9 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     [Test]
     public async Task HealthServedOnPrimaryHttpsListener(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken);
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken);
-
-        var response = await HttpClient.GetAsync(new Uri(uri, "/health"), cancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(cluster[NodeId].Uri, "/health"), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -39,10 +37,9 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         using var held = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
-        await using var node = await StartNodeAsync(
-            uri,
-            NodeId,
-            new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()) },
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode(NodeId, uri),
+            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()) },
             cancellationToken);
 
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", held.Port).Uri;
@@ -61,8 +58,8 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         using var held = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
+            StartClusterAsync(new ClusterNode(NodeId, uri), new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken));
         _ = await Assert.That(ex.Message).Contains("JWT", StringComparison.Ordinal);
     }
 }

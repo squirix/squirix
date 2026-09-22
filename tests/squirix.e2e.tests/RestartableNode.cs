@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
@@ -12,25 +13,24 @@ namespace Squirix.E2ETests;
 /// <summary>Single persistent node that can be stopped and restarted on the same data directory.</summary>
 internal sealed class RestartableNode : IAsyncDisposable
 {
+    private readonly TestCluster<ClusterStartOptions> _cluster;
     private readonly TempDirectory _dir;
     private ISquirixClient? _client;
-    private TestNodeHost? _host;
 
-    private RestartableNode(TempDirectory dir, Uri uri)
+    private RestartableNode(TestCluster<ClusterStartOptions> cluster, TempDirectory dir)
     {
+        _cluster = cluster;
         _dir = dir;
-        Uri = uri;
     }
 
     /// <summary>Gets the node data directory path.</summary>
     internal string DataDir => _dir;
 
-    private Uri Uri { get; }
-
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        await _cluster.DisposeAsync().ConfigureAwait(false);
         _dir.Dispose();
     }
 
@@ -38,13 +38,19 @@ internal sealed class RestartableNode : IAsyncDisposable
     /// <param name="testName">Test name used for the data directory hint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started node.</returns>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "Ownership of the data directory transfers to the returned node, which disposes it.")]
     internal static async ValueTask<RestartableNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
         var dir = new TempDirectory("squirix-e2e-restartable", testName);
-        var node = new RestartableNode(dir, ListenPortPool.EndToEndTests.HoldHttpUri());
+        var uri = ListenPortPool.EndToEndTests.HoldHttpUri();
+        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+        var node = new RestartableNode(cluster, dir);
         try
         {
-            await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);
+            _ = await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -62,7 +68,7 @@ internal sealed class RestartableNode : IAsyncDisposable
     /// <returns>The cache facade.</returns>
     internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken).ConfigureAwait(false);
+        _client ??= await LoopbackConnect.ConnectAsync(_cluster["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
     }
 
@@ -73,7 +79,7 @@ internal sealed class RestartableNode : IAsyncDisposable
     {
         await StopAsync().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        await StartNodeAsync(cancellationToken).ConfigureAwait(false);
+        _ = await StartNodeAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Stops the node while keeping the data directory.</summary>
@@ -90,14 +96,10 @@ internal sealed class RestartableNode : IAsyncDisposable
         }
         finally
         {
-            if (_host != null)
-            {
-                await _host.DisposeAsync().ConfigureAwait(false);
-                _host = null;
-            }
+            await _cluster.StopNodeAsync("nodeA").ConfigureAwait(false);
         }
     }
 
-    private async ValueTask StartNodeAsync(CancellationToken cancellationToken) =>
-        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, DataDir, cancellationToken).ConfigureAwait(false);
+    private ValueTask<ITestNodeHost> StartNodeAsync(CancellationToken cancellationToken) =>
+        _cluster.StartNodeAsync("nodeA", new ClusterStartOptions { DataDir = DataDir }, cancellationToken);
 }

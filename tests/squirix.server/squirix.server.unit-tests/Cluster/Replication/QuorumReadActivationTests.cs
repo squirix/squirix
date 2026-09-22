@@ -2,16 +2,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
-using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Architecture;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -101,24 +96,11 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
     [Test]
     public async Task RfThreeReadsRemainDisabled(CancellationToken cancellationToken)
     {
-        using var heldA = ListenPortPool.ServerUnitTests.HoldPort();
-        using var heldB = ListenPortPool.ServerUnitTests.HoldPort();
-        using var heldC = ListenPortPool.ServerUnitTests.HoldPort();
-        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri), ("nodeC", heldC.HttpUri) };
-        using var identity = new ClusterIdentity();
-        using var dir = new TempDirectory("squirix-quorum-read");
-        var options = new Func<string, string, TestNodeHostStartOptions>(static (node, dataDirPath) => new TestNodeHostStartOptions
-        {
-            ReplicaCount = 3,
-            DataDir = NodePathKit.Combine(dataDirPath, node),
-        });
+        await using var cluster = await TestNodeCluster.StartAsync("squirix-quorum-read", "nodeA", "nodeB", "nodeC", 3, true, cancellationToken);
+        var nodeA = cluster["nodeA"];
 
-        await using var nodeA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, options("nodeA", dir), identity, cancellationToken);
-        await using var nodeB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, options("nodeB", dir), identity, cancellationToken);
-        await using var nodeC = await TestNodeHostFactory.StartNodeAsync("nodeC", heldC.HttpUri, peers, options("nodeC", dir), identity, cancellationToken);
-
-        var cache = nodeA.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("quorum-read");
-        var key = FindKeyOwnedBy(nodeA, "quorum-read", "nodeA");
+        var cache = nodeA.GetCache<object?>("quorum-read");
+        var key = nodeA.FindKeyOwnedBy("quorum-read", "nodeA");
 
         // The seed write races leader election: under parallel CI load the fixed commit budget can
         // expire after the local append, surfacing an ambiguous outcome for a fresh operation id.
@@ -140,31 +122,16 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
             }
         }
 
-        // ReSharper disable once DisposeOnUsingVariable — intentional follower stop: the test covers reads staying local without a quorum gate.
-        await nodeC.DisposeAsync();
+        await cluster.StopNodeAsync("nodeC");
         var majorityRead = await cache.GetValueAsync("quorum-read", key, cancellationToken);
         _ = await Assert.That(majorityRead.Found).IsTrue();
 
         // No majority remains, yet the read is still served locally: no quorum gate is consulted.
-        // ReSharper disable once DisposeOnUsingVariable — intentional second follower stop: the test covers lone-node local reads.
-        await nodeB.DisposeAsync();
+        await cluster.StopNodeAsync("nodeB");
         var loneRead = await cache.GetValueAsync("quorum-read", key, cancellationToken);
         _ = await Assert.That(loneRead.Found).IsTrue();
         var loneValue = await Assert.That(loneRead.Value).IsTypeOf<string>();
         _ = await Assert.That(loneValue).IsEqualTo("v");
-    }
-
-    private static string FindKeyOwnedBy(TestNodeHost host, string cacheName, string owner)
-    {
-        var locator = host.Services.GetRequiredService<INodeLocator>();
-        for (var i = 0; i < 10_000; i++)
-        {
-            var candidate = $"quorum-read-{i}";
-            if (string.Equals(locator.GetOwner(cacheName, candidate), owner, StringComparison.Ordinal))
-                return candidate;
-        }
-
-        throw new InvalidOperationException($"No key owned by '{owner}' was found.");
     }
 
     private static bool IsCommitOutcomeUnknown(InvalidOperationException error) =>

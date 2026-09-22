@@ -1,10 +1,10 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -60,16 +60,10 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
     {
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
-        using var identity = new ClusterIdentity();
         using var dir = new TempDirectory("squirix-e2e-follower-foundation");
-        var options = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dir };
-        await using var host = await TestNodeHostFactory.StartNodeAsync(
-            "nodeA",
-            heldA.HttpUri,
-            [("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri)],
-            options,
-            identity,
-            cancellationToken);
+        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(topology);
+        var host = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dir }, cancellationToken);
 
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }
@@ -77,33 +71,36 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
     /// <summary>Single persistent node that can be stopped and restarted in the same data directory.</summary>
     private sealed class PersistentSingleNode : IAsyncDisposable
     {
+        private readonly TestCluster<ClusterStartOptions> _cluster;
         private readonly TempDirectory _dir;
         private ISquirixClient? _client;
-        private TestNodeHost? _host;
 
-        private PersistentSingleNode(TempDirectory dir, Uri uri)
+        private PersistentSingleNode(TestCluster<ClusterStartOptions> cluster, TempDirectory dir)
         {
+            _cluster = cluster;
             _dir = dir;
-            Uri = uri;
         }
-
-        private string DataDir => _dir;
-
-        private Uri Uri { get; }
 
         public async ValueTask DisposeAsync()
         {
             await StopNodeAsync().ConfigureAwait(false);
+            await _cluster.DisposeAsync().ConfigureAwait(false);
             _dir.Dispose();
         }
 
+        [SuppressMessage(
+            "Reliability",
+            "CA2000:Dispose objects before losing scope",
+            Justification = "Ownership of the data directory transfers to the returned node, which disposes it.")]
         internal static async ValueTask<PersistentSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
         {
             var dir = new TempDirectory("squirix-e2e-follower-foundation", testName);
-            var node = new PersistentSingleNode(dir, ListenPortPool.EndToEndTests.HoldHttpUri());
+            var uri = ListenPortPool.EndToEndTests.HoldHttpUri();
+            var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+            var node = new PersistentSingleNode(cluster, dir);
             try
             {
-                await node.StartNodeAsync(cancellationToken);
+                _ = await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -117,7 +114,7 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
 
         internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
         {
-            _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
+            _client ??= await LoopbackConnect.ConnectAsync(_cluster["nodeA"].Uri, cancellationToken);
             return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
         }
 
@@ -125,12 +122,16 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
         {
             // The stop must complete before the restart: a canceled wait would leave the previous host
             // shutting down while the new one binds the same URI and data directory.
-            await StopNodeAsync();
+            await StopNodeAsync().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            await StartNodeAsync(cancellationToken);
+            _ = await StartNodeAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, DataDir, cancellationToken);
+        private ValueTask<ITestNodeHost> StartNodeAsync(CancellationToken cancellationToken)
+        {
+            var options = new ClusterStartOptions { DataDir = _dir };
+            return _cluster.StartNodeAsync("nodeA", options, cancellationToken);
+        }
 
         private async ValueTask StopNodeAsync()
         {
@@ -138,17 +139,13 @@ public sealed class FollowerFoundationE2ETests : EndToEndTestBase
             {
                 if (_client != null)
                 {
-                    await _client.DisposeAsync();
+                    await _client.DisposeAsync().ConfigureAwait(false);
                     _client = null;
                 }
             }
             finally
             {
-                if (_host != null)
-                {
-                    await _host.DisposeAsync();
-                    _host = null;
-                }
+                await _cluster.StopNodeAsync("nodeA").ConfigureAwait(false);
             }
         }
     }

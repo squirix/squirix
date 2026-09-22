@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -11,12 +12,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
 using JetBrains.Annotations;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
@@ -40,7 +39,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
-    private ClusterIdentity? _mtls;
+    private ClusterIdentity? _identity;
 
     static NodeIntegrationTestBase()
     {
@@ -60,7 +59,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterIdentity.CreatePeers(topology, ref _mtls);
+    internal ServerPeer[] BuildClusterPeers(ClusterNode[] topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -77,7 +76,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
+        (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
     }
@@ -105,36 +104,118 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = callerPrimaryUrl,
             VirtualNodes = 128,
         };
-        (_mtls, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_mtls, cluster, cancellationToken).ConfigureAwait(false);
+        (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true } ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        string uri,
+    /// <summary>Reserves one loopback listen URI and starts a single-node cluster.</summary>
+    /// <param name="nodeId">Node identifier to start.</param>
+    /// <param name="options">Optional startup knobs applied to the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the node.</returns>
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
         string nodeId,
-        NodeStartOptions? options = null,
+        IntegrationStartOptions? options = null,
         CancellationToken cancellationToken = default,
-        [CallerMemberName] string? testName = null) => StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken, testName);
+        [CallerMemberName] string? testName = null) => StartClusterAsync([new ClusterNode(nodeId, GetNextHttpUri())], options, cancellationToken, testName);
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        Uri uri,
-        string nodeId,
-        NodeStartOptions? options = null,
+    /// <summary>Reserves one loopback listen URI per node and starts a two-node cluster.</summary>
+    /// <param name="nodeA">First node identifier.</param>
+    /// <param name="nodeB">Second node identifier.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        string nodeA,
+        string nodeB,
+        IntegrationStartOptions? options = null,
         CancellationToken cancellationToken = default,
-        [CallerMemberName] string? testName = null) => StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken, testName);
+        [CallerMemberName] string? testName = null) => StartClusterAsync(
+        [new ClusterNode(nodeA, GetNextHttpUri()), new ClusterNode(nodeB, GetNextHttpUri())],
+        options,
+        cancellationToken,
+        testName);
 
-    internal async ValueTask<TestNodeHost> StartNodeAsync(
-        Uri uri,
-        ServerPeer[] peers,
-        NodeStartOptions? options = null,
+    /// <summary>Reserves one loopback listen URI per node and starts a three-node cluster.</summary>
+    /// <param name="nodeA">First node identifier.</param>
+    /// <param name="nodeB">Second node identifier.</param>
+    /// <param name="nodeC">Third node identifier.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        string nodeA,
+        string nodeB,
+        string nodeC,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null) => StartClusterAsync(
+        [new ClusterNode(nodeA, GetNextHttpUri()), new ClusterNode(nodeB, GetNextHttpUri()), new ClusterNode(nodeC, GetNextHttpUri())],
+        options,
+        cancellationToken,
+        testName);
+
+    /// <summary>Starts a single-node cluster for the supplied topology entry.</summary>
+    /// <param name="node">Node identifier paired with its listen URI.</param>
+    /// <param name="options">Optional startup knobs applied to the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the node.</returns>
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ClusterNode node,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null) => StartClusterAsync([node], options, cancellationToken, testName);
+
+    /// <summary>Starts one node per topology entry with a shared peer set.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "Ownership of the cluster transfers to the caller through the returned ValueTask.")]
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ClusterNode[] topology,
+        IntegrationStartOptions? options = null,
         CancellationToken cancellationToken = default,
         [CallerMemberName] string? testName = null)
     {
-        options ??= new NodeStartOptions();
+        ArgumentNullException.ThrowIfNull(topology);
+        var peers = BuildClusterPeers(topology);
+        var cluster = TestCluster<IntegrationStartOptions>.Create(
+            topology,
+            (self, nodeTopology, nodeOptions, token) => StartClusterNodeAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
+            peers);
+
+        return cluster.StartAllAsync(
+            _ => options,
+            (started, total) =>
+            {
+                for (var i = started; i < total; i++)
+                    ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port);
+            },
+            cancellationToken);
+    }
+
+    internal async ValueTask<ITestNodeHost> StartClusterNodeAsync(
+        Uri uri,
+        ServerPeer[] peers,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null)
+    {
+        options ??= new IntegrationStartOptions();
+        Helpers.ThrowIfUnsupportedClusterStartOptions(options);
         ArgumentNullException.ThrowIfNull(uri);
         var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
-        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ??
+        var selfNodeId = Helpers.FindSelfNodeId(peers, canonicalUri) ??
                          ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
 
         var config = new TopologyOptions(peers)
@@ -154,13 +235,18 @@ public abstract class NodeIntegrationTestBase : IDisposable
             var dir = string.Empty;
             if (options.UsePersistence || options.PersistenceOptions != null)
             {
-                po = await GetPersistenceOptionsAsync(options.PersistenceOptions, selfNodeId, BuildTestScope(name, options.ExtraScope), options.CleanTestDir, cancellationToken);
+                po = await GetPersistenceOptionsAsync(
+                    options.PersistenceOptions,
+                    selfNodeId,
+                    Helpers.BuildTestScope(name, options.ExtraScope),
+                    options.CleanTestDir,
+                    cancellationToken);
                 dir = po.DataDir;
             }
 
-            (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_mtls, config, cancellationToken);
+            (_identity, var mtlsOptions, var mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_identity, config, cancellationToken);
 
-            var startOptions = CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
+            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
             return new TestNodeHost(application, canonicalUri, dir, po != null);
@@ -172,7 +258,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         }
     }
 
-    /// <summary>Allocates a dedicated port, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[], NodeStartOptions, CancellationToken, string)" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a dedicated port, held bound until <see cref="StartClusterNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
     /// <returns>A held loopback port; the hold is released by node startup, disposing it earlier releases it manually.</returns>
     protected static HeldPort AllocateDedicatedPort() => ListenPortPool.IntegrationTests.HoldPort();
 
@@ -188,7 +274,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartNodeAsync(Uri, ServerPeer[], NodeStartOptions, CancellationToken, string)" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartClusterNodeAsync(Uri, ServerPeer[])" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.HoldHttpUri();
 
@@ -200,7 +286,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!disposing)
             return;
 
-        _mtls?.Dispose();
+        _identity?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
     }
@@ -210,7 +296,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// The value to store. If a <see cref="JsonDocument" /> or <see cref="JsonElement" /> is supplied,
     /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
     /// </param>
-    /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have an absolute expiry.</param>
+    /// <param name="expiresUtc">Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have absolute expiry.</param>
     /// <param name="version">The initial monotonic version to assign to the entry. Defaults to <c language="csharp">1</c>.</param>
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
@@ -233,65 +319,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="host">The started test node host providing access to the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
-    private protected static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
-
-    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    private static ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterIdentity.CreatePeer(nodeId, uri);
-
-    private static string BuildTestScope(string? testName, string? extra)
-    {
-        var name = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
-        var scope = string.IsNullOrWhiteSpace(extra) ? name : $"{name}__{extra}";
-
-        var tfm = AppContext.TargetFrameworkName;
-        if (!string.IsNullOrWhiteSpace(tfm))
-            scope = $"{scope}__{tfm}";
-
-        return $"{scope}__pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}";
-    }
-
-    private static NodeHostStartOptions CreateStartOptions(
-        NodeStartOptions options,
-        PersistenceOptions? persistenceOptions,
-        MtlsOptions? mtlsOptions,
-        MtlsCertificate? mtlsMaterial)
-    {
-        return new NodeHostStartOptions
-        {
-            ConfigureLogging = static b =>
-            {
-                _ = b.ClearProviders();
-                _ = b.SetMinimumLevel(LogLevel.Debug);
-                _ = b.AddFilter("Grpc", LogLevel.Debug);
-                _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                _ = b.AddFilter("Squirix", LogLevel.Debug);
-                _ = b.AddConsole().AddDebug();
-            },
-            WaitForRecovery = options.WaitForRecovery,
-            ServicesConfigure = options.ServicesConfigure,
-            PersistenceOptions = persistenceOptions,
-            SecurityOptions = options.Security?.ToServerOptions(),
-            MtlsOptions = mtlsOptions,
-            MtlsMaterial = mtlsMaterial,
-            FoundationOnly = options.FoundationOnly,
-        };
-    }
-
-    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
-    {
-        ArgumentNullException.ThrowIfNull(uri);
-        for (var index = 0; index < peers.Length; index++)
-        {
-            var peer = peers[index];
-            if (ListenUris.SameAuthority(peer.Uri, uri))
-                return peer.NodeId;
-        }
-
-        return null;
-    }
+    private protected static ILogicalNamespacedCache<object?> GetCache(ITestNodeHost host) => host.GetCache<object?>("default");
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
@@ -349,27 +377,70 @@ public abstract class NodeIntegrationTestBase : IDisposable
         }
     }
 
-    /// <summary>
-    /// Starts a new <see cref="NodeHost" /> for integration testing with configurable peers,
-    /// persistence, gRPC configuration, and extra services.
-    /// </summary>
-    /// <param name="uri">The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.</param>
-    /// <param name="peers">The cluster peer set, including the node being started (its <see cref="ServerPeer.Uri" /> must equal <paramref name="uri" />).</param>
-    /// <param name="options">Optional startup knobs (persistence, security, policies, etc.).</param>
-    /// <param name="cancellationToken">Cancellation token to stop startup.</param>
-    /// <param name="testName">
-    /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
-    /// Under TUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
-    /// </param>
-    /// <returns>
-    /// A started <see cref="TestNodeHost" /> wrapper containing the running application, its base URL, and the resolved data directory.
-    /// Dispose it to stop the node and release resources.
-    /// </returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).</exception>
-    private ValueTask<TestNodeHost> StartNodeAsync(
-        string uri,
-        ServerPeer[] peers,
-        NodeStartOptions? options = null,
-        CancellationToken cancellationToken = default,
-        [CallerMemberName] string? testName = null) => StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken, testName);
+    private static class Helpers
+    {
+        internal static string BuildTestScope(string? testName, string? extra)
+        {
+            var name = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
+            var scope = string.IsNullOrWhiteSpace(extra) ? name : $"{name}__{extra}";
+
+            var tfm = AppContext.TargetFrameworkName;
+            if (!string.IsNullOrWhiteSpace(tfm))
+                scope = $"{scope}__{tfm}";
+
+            return $"{scope}__pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}";
+        }
+
+        internal static NodeHostStartOptions CreateStartOptions(
+            IntegrationStartOptions options,
+            PersistenceOptions? persistenceOptions,
+            MtlsOptions? mtlsOptions,
+            MtlsCertificate? mtlsMaterial)
+        {
+            return new NodeHostStartOptions
+            {
+                ConfigureLogging = static b =>
+                {
+                    _ = b.ClearProviders();
+                    _ = b.SetMinimumLevel(LogLevel.Debug);
+                    _ = b.AddFilter("Grpc", LogLevel.Debug);
+                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
+                    _ = b.AddFilter("Squirix", LogLevel.Debug);
+                    _ = b.AddConsole().AddDebug();
+                },
+                WaitForRecovery = options.WaitForRecovery,
+                ServicesConfigure = options.ServicesConfigure,
+                PersistenceOptions = persistenceOptions,
+                SecurityOptions = options.Security?.ToServerOptions(),
+                MtlsOptions = mtlsOptions,
+                MtlsMaterial = mtlsMaterial,
+                FoundationOnly = options.FoundationOnly,
+            };
+        }
+
+        internal static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
+        {
+            ArgumentNullException.ThrowIfNull(uri);
+            for (var index = 0; index < peers.Length; index++)
+            {
+                var peer = peers[index];
+                if (ListenUris.SameAuthority(peer.Uri, uri))
+                    return peer.NodeId;
+            }
+
+            return null;
+        }
+
+        /// <summary>Fails loudly on <see cref="ClusterStartOptions" /> members this starter does not wire into node startup.</summary>
+        /// <param name="options">The options to validate.</param>
+        /// <exception cref="NotSupportedException">Thrown when an unsupported member is set to a non-default value.</exception>
+        internal static void ThrowIfUnsupportedClusterStartOptions(IntegrationStartOptions options)
+        {
+            if (options.DataDir != null || options.MtlsProfile != TestNodeProfile.Normal || options.TimeProvider != null)
+            {
+                throw new NotSupportedException(
+                    "IntegrationStartOptions does not wire DataDir, MtlsProfile, or TimeProvider into node startup; use PersistenceOptions/UsePersistence for persistence.");
+            }
+        }
+    }
 }

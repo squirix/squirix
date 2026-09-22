@@ -20,13 +20,12 @@ public sealed class AuthSmokeTests : SmokeTestBase
     public async Task CacheRpcValidatesJwtWhenConfigured(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
-        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(
-            uri,
+        await using var cluster = await StartClusterAsync(
             "node-grpc-auth",
-            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
             cancellationToken);
+        var uri = cluster["node-grpc-auth"].Uri;
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

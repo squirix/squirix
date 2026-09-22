@@ -17,9 +17,12 @@ public sealed class ProbeSmokeTests : SmokeTestBase
     public async Task HealthProbesOpenWithJwtAuthEnabled(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-health", new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            "node-health",
+            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            cancellationToken);
+        var uri = cluster["node-health"].Uri;
 
         var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), cancellationToken);
         _ = await Assert.That(live.IsSuccessStatusCode).IsTrue();

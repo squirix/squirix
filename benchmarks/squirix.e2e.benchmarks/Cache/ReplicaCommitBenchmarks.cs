@@ -6,7 +6,6 @@ using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Cache;
@@ -19,10 +18,8 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
+    private TestCluster<ClusterStartOptions>? _cluster;
     private TempDirectory? _dir;
-    private ClusterIdentity? _identity;
-    private TestNodeHost? _nodeA;
-    private TestNodeHost? _nodeB;
     private int _offset;
 
     /// <summary>Stops the benchmark cluster.</summary>
@@ -52,25 +49,13 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
     {
         using var heldA = ListenPortPool.EndToEndBenchmarks.HoldPort();
         using var heldB = ListenPortPool.EndToEndBenchmarks.HoldPort();
-        _identity = new ClusterIdentity();
         _dir = new TempDirectory("squirix-e2e-replica-commit");
-        var topology = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
+        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
         try
         {
-            _nodeA = await TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                heldA.HttpUri,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dir, "nodeA") },
-                _identity,
-                CancellationToken.None).ConfigureAwait(false);
-            _nodeB = await TestNodeHostFactory.StartNodeAsync(
-                "nodeB",
-                heldB.HttpUri,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(_dir, "nodeB") },
-                _identity,
-                CancellationToken.None).ConfigureAwait(false);
+            _cluster = TestCluster<ClusterStartOptions>.Create(topology);
+            _ = await _cluster.StartNodeAsync("nodeA", StartOptions("nodeA"), CancellationToken.None).ConfigureAwait(false);
+            _ = await _cluster.StartNodeAsync("nodeB", StartOptions("nodeB"), CancellationToken.None).ConfigureAwait(false);
 
             _client = await E2EBenchmarkClientLease.ConnectAsync(heldA.HttpUri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("replica-commit", CancellationToken.None).ConfigureAwait(false);
@@ -96,17 +81,17 @@ public class ReplicaCommitBenchmarks : IAsyncDisposable
         _client = null;
         _cache = null;
 
-        if (_nodeA != null)
-            await _nodeA.DisposeAsync().ConfigureAwait(false);
-        _nodeA = null;
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
+        _cluster = null;
 
-        if (_nodeB != null)
-            await _nodeB.DisposeAsync().ConfigureAwait(false);
-        _nodeB = null;
-
-        _identity?.Dispose();
-        _identity = null;
         _dir?.Dispose();
         _dir = null;
     }
+
+    private ClusterStartOptions StartOptions(string node) => new()
+    {
+        ReplicaCount = 2,
+        DataDir = NodePathKit.Combine(_dir!, node),
+    };
 }

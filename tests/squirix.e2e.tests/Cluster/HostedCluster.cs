@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,28 +24,12 @@ internal sealed class HostedCluster : IAsyncDisposable
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
     private readonly List<ISquirixClient> _clients = [];
-    private readonly TempDirectory? _dir;
-    private readonly ClusterIdentity? _mtls;
-    private readonly Dictionary<string, TestNode> _nodes;
-    private readonly MultiNodeStartOptions _startOptions;
-    private readonly FrozenDictionary<string, Uri> _uris;
-    private readonly bool _usePersistence;
+    private readonly TestCluster<ClusterStartOptions> _cluster;
     private int _disposed;
 
-    private HostedCluster(
-        Dictionary<string, TestNode> nodes,
-        ClusterIdentity? mtls,
-        TempDirectory? dir,
-        MultiNodeStartOptions startOptions,
-        FrozenDictionary<string, Uri> uris,
-        bool usePersistence)
+    private HostedCluster(TestCluster<ClusterStartOptions> cluster)
     {
-        _nodes = nodes;
-        _mtls = mtls;
-        _dir = dir;
-        _startOptions = startOptions;
-        _uris = uris;
-        _usePersistence = usePersistence;
+        _cluster = cluster;
     }
 
     public async ValueTask DisposeAsync()
@@ -56,11 +40,8 @@ internal sealed class HostedCluster : IAsyncDisposable
         for (var i = _clients.Count - 1; i >= 0; i--)
             await _clients[i].DisposeAsync();
 
-        foreach (var node in _nodes.Values)
-            await node.DisposeAsync();
-
-        _mtls?.Dispose();
-        _dir?.Dispose();
+        _clients.Clear();
+        await _cluster.DisposeAsync();
     }
 
     internal static ValueTask<HostedCluster> StartSingleNodeAsync(
@@ -100,18 +81,21 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
-        var uri = _nodes[nodeId].Uri;
-        var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
+        var client = await LoopbackConnect.ConnectAsync(_cluster[nodeId].Uri, cancellationToken);
         _clients.Add(client);
         return client;
     }
 
-    internal Uri GetUri(string nodeId) => _nodes[nodeId].Uri;
+    /// <summary>Gets a started node by identifier.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>The started test node host.</returns>
+    internal ITestNodeHost GetNode(string nodeId) => _cluster[nodeId];
+
+    internal Uri GetUri(string nodeId) => _cluster[nodeId].Uri;
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="id">Node identifier to stop.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="id" /> is not a running node.</exception>
-    internal ValueTask StopNodeAsync(string id) => _nodes.Remove(id, out var node) ? node.DisposeAsync() : throw new InvalidOperationException("Requested node is not running.");
+    internal ValueTask StopNodeAsync(string id) => _cluster.StopNodeAsync(id);
 
     private static string BuildDataDir(TempDirectory dir, string nodeId)
     {
@@ -119,6 +103,15 @@ internal sealed class HostedCluster : IAsyncDisposable
         Directory.CreateDirectory(path);
         return path;
     }
+
+    private static ClusterStartOptions CreateNodeOptions(MultiNodeStartOptions startOptions, string nodeId, bool usePersistence, TempDirectory? dataDir) => new()
+    {
+        DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
+        ReplicaCount = startOptions.ReplicaCount,
+        Security = startOptions.Security,
+        MtlsProfile = startOptions.GetProfile(nodeId),
+        TimeProvider = startOptions.TimeProvider,
+    };
 
     /// <summary>Allocates listen URIs, starts each node with a shared topology, and rolls back on partial failure.</summary>
     /// <param name="nodeIds">Ordered node identifiers to start.</param>
@@ -149,6 +142,10 @@ internal sealed class HostedCluster : IAsyncDisposable
         }
     }
 
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "Ownership of the shared identity and data directory transfers to the cluster, which disposes them.")]
     private static async ValueTask<HostedCluster> StartCoreAsync(
         string[] nodeIds,
         MultiNodeStartOptions? startOptions,
@@ -157,9 +154,6 @@ internal sealed class HostedCluster : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         startOptions ??= new MultiNodeStartOptions();
-
-        var pool = ListenPortPool.EndToEndTests;
-        var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
 
         // Multi-node topologies share one ClusterIdentity material so peer trust anchors stay consistent.
         var identity = nodeIds.Length > 1 ? new ClusterIdentity() : null;
@@ -172,72 +166,36 @@ internal sealed class HostedCluster : IAsyncDisposable
             // the pool will not hand the same port to a later caller, and cross-process slices are disjoint.
             // This closes the pool-level TOCTOU race; an unrelated third-party process could still grab a
             // briefly released port, which upstream probes already guard against.
-            reserved = pool.HoldPorts(nodeIds.Length);
-            var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
+            reserved = ListenPortPool.EndToEndTests.HoldPorts(nodeIds.Length);
+            var topology = new ClusterNode[nodeIds.Length];
             for (var i = 0; i < nodeIds.Length; i++)
-                uris[nodeIds[i]] = reserved[i].HttpUri;
+                topology[i] = new ClusterNode(nodeIds[i], reserved[i].HttpUri);
 
-            var topology = new (string NodeId, Uri Uri)[nodeIds.Length];
-            for (var i = 0; i < nodeIds.Length; i++)
-                topology[i] = (nodeIds[i], uris[nodeIds[i]]);
+            var cluster = TestCluster<ClusterStartOptions>.Create(topology, identity: identity, dataDir: dir);
+            _ = await cluster.StartAllAsync(
+                nodeId => CreateNodeOptions(startOptions, nodeId, usePersistence, dir),
+                (started, total) =>
+                {
+                    for (var i = started; i < total; i++)
+                        reserved[i].Dispose();
+                },
+                cancellationToken).ConfigureAwait(false);
 
-            var cluster = new HostedCluster(nodes, identity, dir, startOptions, uris.ToFrozenDictionary(StringComparer.Ordinal), usePersistence);
-            for (var i = 0; i < nodeIds.Length; i++)
-            {
-                var nodeId = nodeIds[i];
-
-                // The reservation stays held until TestNodeHostFactory releases it immediately
-                // before Kestrel binds, so certificate generation stays protected from races.
-                nodes[nodeId] = new TestNode(await cluster.StartOneAsync(nodeId, topology, cancellationToken).ConfigureAwait(false));
-            }
-
-            return cluster;
+            return new HostedCluster(cluster);
         }
         catch
         {
-            // Release any reserved ports that were never handed to a started node, then dispose all
-            // already-started nodes before rethrowing. This runs for every failure, including startup
-            // exceptions and cancellation, so held ports never leak for the process lifetime.
-            for (var i = nodes.Count; i < reserved.Length; i++)
-                reserved[i].Dispose();
-
-            foreach (var node in nodes.Values)
-                await node.DisposeAsync();
-
+            // TestCluster.Create never fails; a throw here means the reserved ports (and, for multi-node
+            // topologies, the identity/data directory) were never handed to a cluster to own, so releasing
+            // them is this method's responsibility. StartAllAsync already disposed the cluster and released
+            // its own unstarted-node ports on a node-start failure.
             identity?.Dispose();
             dir?.Dispose();
+
+            for (var i = 0; i < reserved.Length; i++)
+                reserved[i].Dispose();
+
             throw;
         }
-    }
-
-    private ValueTask<TestNodeHost> StartOneAsync(string nodeId, (string NodeId, Uri Uri)[] topology, CancellationToken cancellationToken)
-    {
-        var hostOptions = new TestNodeHostStartOptions
-        {
-            DataDir = _usePersistence ? BuildDataDir(_dir!, nodeId) : null,
-            ReplicaCount = _startOptions.ReplicaCount,
-            Security = _startOptions.Security,
-            MtlsProfile = _startOptions.GetProfile(nodeId),
-            TimeProvider = _startOptions.TimeProvider,
-        };
-
-        return TestNodeHostFactory.StartNodeAsync(nodeId, _uris[nodeId], topology, hostOptions, _mtls, cancellationToken);
-    }
-
-    /// <summary>Represents a started test node.</summary>
-    [Immutable]
-    private sealed class TestNode : IAsyncDisposable
-    {
-        private readonly TestNodeHost _host;
-
-        internal TestNode(TestNodeHost host)
-        {
-            ArgumentNullException.ThrowIfNull(host);
-            _host = host;
-        }
-
-        internal Uri Uri => _host.Uri;
-
-        public ValueTask DisposeAsync() => _host.DisposeAsync();
     }
 }

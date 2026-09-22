@@ -125,5 +125,6 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         return peers;
     }
 
-    private ServerClientPoolArgs PolicyOnlyArgs() => new() { PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))) };
+    private ServerClientPoolArgs PolicyOnlyArgs() => new()
+    { PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter))) };
 }

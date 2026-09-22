@@ -5,7 +5,7 @@ namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>
 /// Per-node security settings for in-process test hosts.
-/// When provided to <see cref="TestNodeHostFactory" />, replaces process environment variables for that startup.
+/// When provided to a test node start, replaces process environment variables for that startup.
 /// </summary>
 [Immutable]
 public sealed class TestNodeSecurityOptions

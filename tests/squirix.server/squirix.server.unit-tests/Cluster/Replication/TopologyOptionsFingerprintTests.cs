@@ -58,10 +58,10 @@ public sealed class TopologyOptionsFingerprintTests
     [Test]
     public async Task FingerprintPrefersConfiguredInterNodeUri()
     {
-        var interNode = new Uri("https://127.0.0.1:7100");
+        var node = new Uri("https://127.0.0.1:7100");
         ServerPeer[] peers =
         [
-            new() { NodeId = "n1", Uri = new Uri("https://127.0.0.1:6001"), InterNodeUri = interNode },
+            new() { NodeId = "n1", Uri = new Uri("https://127.0.0.1:6001"), InterNodeUri = node },
             new() { NodeId = "n2", Uri = new Uri("https://127.0.0.1:6002"), InterNodeUri = new Uri("https://127.0.0.1:7101") },
         ];
         var topology = new TopologyOptions(peers)
@@ -75,19 +75,18 @@ public sealed class TopologyOptionsFingerprintTests
         var withExplicit = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions { InternalListenPort = 9999 });
         var baselinePeers = new[]
         {
-            new ServerPeer { NodeId = "n1", Uri = peers[0].Uri, InterNodeUri = interNode },
+            new ServerPeer { NodeId = "n1", Uri = peers[0].Uri, InterNodeUri = node },
             new ServerPeer { NodeId = "n2", Uri = peers[1].Uri, InterNodeUri = peers[1].InterNodeUri },
         };
-        var baseline = TopologyFingerprint.CreateFromTopology(
-            new TopologyOptions(baselinePeers)
-            {
-                ClusterId = "c1",
-                NodeId = "n1",
-                Uri = peers[0].Uri,
-                ReplicaCount = 2,
-                ConfigurationGeneration = 1,
-            },
-            new MtlsOptions { InternalListenPort = 1 });
+        var options = new TopologyOptions(baselinePeers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 2,
+            ConfigurationGeneration = 1,
+        };
+        var baseline = TopologyFingerprint.CreateFromTopology(options, new MtlsOptions { InternalListenPort = 1 });
         _ = await Assert.That(baseline).IsEqualTo(withExplicit);
     }
 }
