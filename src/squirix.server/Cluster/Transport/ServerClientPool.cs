@@ -100,7 +100,7 @@ internal sealed class ServerClientPool : IServerClientPool
     private static GrpcChannelOptions CreateChannelOptions(
         string nodeId,
         bool interNodeMtlsEnabled,
-        MtlsCertificateMaterial? mtlsMaterial,
+        MtlsCertificate? mtlsMaterial,
         Func<string, HttpMessageHandler>? peerHandlerFactory)
     {
         var peerHandler = interNodeMtlsEnabled switch
@@ -185,7 +185,7 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <returns>A handler configured for internode mutual TLS.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="material" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when cluster mTLS material is not loaded.</exception>
-        internal static SocketsHttpHandler CreateMtlsHandler(MtlsCertificateMaterial material, string expectedPeerNodeId)
+        internal static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate material, string expectedPeerNodeId)
         {
             ArgumentNullException.ThrowIfNull(material);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);

@@ -18,7 +18,7 @@ internal static class SquirixReplicationAdapterTestHelpers
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
-        var material = MtlsCertificateMaterial.Create(peerCertificate, bundle.Ca);
+        var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         return new SquirixReplicationServiceAdapterTests.AdapterFixture(new SquirixReplicationServiceAdapter(topology, mtls, material), mtls, bundle, peerCertificate, material);
     }
 

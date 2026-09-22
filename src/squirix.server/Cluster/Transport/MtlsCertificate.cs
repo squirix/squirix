@@ -6,16 +6,16 @@ namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
 [Immutable]
-internal sealed class MtlsCertificateMaterial : IDisposable
+internal sealed class MtlsCertificate : IDisposable
 {
-    private MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    private MtlsCertificate(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         Enabled = true;
         NodeCertificate = nodeCertificate;
         TrustAnchor = trustAnchor;
     }
 
-    private MtlsCertificateMaterial()
+    private MtlsCertificate()
     {
         Enabled = false;
     }
@@ -30,7 +30,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     internal X509Certificate2? TrustAnchor { get; }
 
     /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
-    private static MtlsCertificateMaterial Disabled { get; } = new();
+    private static MtlsCertificate Disabled { get; } = new();
 
     /// <inheritdoc />
     void IDisposable.Dispose()
@@ -46,7 +46,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <param name="nodeCertificate">The local node certificate including its private key.</param>
     /// <param name="trustAnchor">The configured cluster trust root.</param>
     /// <returns>Enabled certificate material.</returns>
-    internal static MtlsCertificateMaterial Create(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor) => new(nodeCertificate, trustAnchor);
+    internal static MtlsCertificate Create(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor) => new(nodeCertificate, trustAnchor);
 
     /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
@@ -56,7 +56,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <returns>Loaded certificate material, or <see cref="Disabled" /> when internode mTLS is not required.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when internode mTLS is required but configuration or certificate material is invalid.</exception>
-    internal static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
+    internal static MtlsCertificate Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate(primaryListenPort, requiresInterNodeMtls);

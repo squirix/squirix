@@ -264,7 +264,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         NodeStartOptions options,
         PersistenceOptions? persistenceOptions,
         MtlsOptions? mtlsOptions,
-        MtlsCertificateMaterial? mtlsMaterial)
+        MtlsCertificate? mtlsMaterial)
     {
         return new NodeHostStartOptions
         {
