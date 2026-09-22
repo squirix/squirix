@@ -246,7 +246,7 @@ public abstract class SmokeTestBase : IDisposable
                     MemoryPressureOptions = options.MemoryPressureOptions,
                     SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
                     MtlsOptions = mtlsOptions,
-                    MtlsMaterial = mtlsMaterial,
+                    Certificate = mtlsMaterial,
                 },
                 cancellationToken);
 

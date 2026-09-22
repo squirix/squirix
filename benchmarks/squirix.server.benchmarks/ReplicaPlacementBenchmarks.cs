@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -10,7 +9,6 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Placement and topology fingerprint hot-path benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-[SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "BenchmarkDotNet discovers benchmark methods by reflection.")]
 public class ReplicaPlacementBenchmarks
 {
     private string[] _groupBuffer = [];

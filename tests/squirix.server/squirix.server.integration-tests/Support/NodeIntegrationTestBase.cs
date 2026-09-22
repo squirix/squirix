@@ -395,7 +395,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             IntegrationStartOptions options,
             PersistenceOptions? persistenceOptions,
             MtlsOptions? mtlsOptions,
-            MtlsCertificate? mtlsMaterial)
+            MtlsCertificate? certificate)
         {
             return new NodeHostStartOptions
             {
@@ -413,7 +413,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 PersistenceOptions = persistenceOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
+                Certificate = certificate,
                 FoundationOnly = options.FoundationOnly,
             };
         }

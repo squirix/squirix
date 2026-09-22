@@ -75,23 +75,12 @@ public sealed class ClusterIdentity : IDisposable
         return identity.BuildPeers(topology);
     }
 
-    /// <summary>Returns a shared identity for the topology, creating one for multi-node topologies when none was supplied.</summary>
-    /// <param name="topology">Cluster members that will be started from the shared identity.</param>
-    /// <param name="identity">Caller-supplied shared identity, or <see langword="null" />.</param>
-    /// <returns>The supplied identity; a new shared identity for multi-node topologies; otherwise <see langword="null" />.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is null.</exception>
-    internal static ClusterIdentity? ResolveForTopology(ClusterNode[] topology, ClusterIdentity? identity)
-    {
-        ArgumentNullException.ThrowIfNull(topology);
-        return identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
-    }
-
     /// <summary>Resolves startup mTLS material and releases the node's held internal port for immediate bind.</summary>
     /// <param name="identity">Shared identity for the current test case.</param>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForBindAsync(
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate)> ResolveForBindAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
@@ -101,7 +90,7 @@ public sealed class ClusterIdentity : IDisposable
         return result;
     }
 
-    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForNodeAsync(
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate)> ResolveForNodeAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
@@ -112,6 +101,17 @@ public sealed class ClusterIdentity : IDisposable
         identity ??= new ClusterIdentity();
         var (options, material) = await identity.ResolveAsync(cluster, cancellationToken).ConfigureAwait(false);
         return (identity, options, material);
+    }
+
+    /// <summary>Returns a shared identity for the topology, creating one for multi-node topologies when none was supplied.</summary>
+    /// <param name="topology">Cluster members that will be started from the shared identity.</param>
+    /// <param name="identity">Caller-supplied shared identity, or <see langword="null" />.</param>
+    /// <returns>The supplied identity; a new shared identity for multi-node topologies; otherwise <see langword="null" />.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is null.</exception>
+    internal static ClusterIdentity? ResolveForTopology(ClusterNode[] topology, ClusterIdentity? identity)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        return identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
     }
 
     /// <summary>Resolves startup overrides for a test node profile and releases its held internal port for immediate bind.</summary>
@@ -229,9 +229,9 @@ public sealed class ClusterIdentity : IDisposable
             // advertising the assigned port — it is still the correct one.
             if (!excludedPorts.Contains(existing.Port))
             {
-                var reheld = InternalPortPool.Rehold(existing.Port);
-                if (reheld != null)
-                    _internalPorts[nodeId] = reheld;
+                var rehold = InternalPortPool.Rehold(existing.Port);
+                if (rehold != null)
+                    _internalPorts[nodeId] = rehold;
 
                 return _internalPorts[nodeId];
             }
@@ -265,10 +265,10 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    private async Task<(MtlsOptions? Options, MtlsCertificate? Material)> ResolveAsync(TopologyOptions cluster, CancellationToken cancellationToken)
+    private async Task<(MtlsOptions? Options, MtlsCertificate? Certificate)> ResolveAsync(TopologyOptions cluster, CancellationToken cancellationToken)
     {
-        var (options, material, _) = await ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
-        return (options, material);
+        var (options, certificate, _) = await ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
+        return (options, certificate);
     }
 
     /// <summary>Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.</summary>
@@ -292,16 +292,16 @@ public sealed class ClusterIdentity : IDisposable
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         _bundle ??= new TestBundle();
-        var internalPort = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
-        var (options, material) = await _bundle.CreateNodeAsync(cluster.NodeId, internalPort, cancellationToken).ConfigureAwait(false);
+        var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
+        var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
         return profile switch
         {
-            TestNodeProfile.Normal => new NodeMtlsStartup(options, material, null),
-            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, material, new NoClientCertificateHandlerFactory(material.TrustAnchor!).Create),
-            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
-            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
-            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
+            TestNodeProfile.Normal => new NodeMtlsStartup(options, certificate, null),
+            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(options, certificate, new NoClientCertificateHandlerFactory(certificate.TrustAnchor!).Create),
+            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate),
+            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate),
+            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate),
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
         };
     }

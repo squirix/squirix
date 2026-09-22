@@ -12,7 +12,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Measures replica-group snapshot creation, installation, and journal compaction.</summary>
-[SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "BenchmarkDotNet discovers benchmark methods by reflection.")]
 [SuppressMessage("Design", "CA1001", Justification = "BenchmarkDotNet lifecycle manages disposable fields via global cleanup.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5, invocationCount: 1)]
@@ -20,12 +19,12 @@ public class ReplicaSnapshotBenchmarks
 {
     private const string GroupId = "grp-snapshot-bench";
     private const ulong SnapshotIndex = 256UL;
-    private GroupSnapshot _snapshot;
-    private FollowerLog? _source;
 
     private TempDirectory? _dir;
-    private FollowerLog? _target;
     private TempDirectory? _dir2;
+    private GroupSnapshot _snapshot;
+    private FollowerLog? _source;
+    private FollowerLog? _target;
 
     /// <summary>Disposes benchmark logs and temporary directories.</summary>
     /// <returns>A task that completes after cleanup.</returns>

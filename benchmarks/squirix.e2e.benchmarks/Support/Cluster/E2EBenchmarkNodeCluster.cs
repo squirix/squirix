@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
@@ -19,7 +20,7 @@ internal static class E2EBenchmarkNodeCluster
     internal static Task<TestCluster<ClusterStartOptions>> StartAsync(DurabilityMode durabilityMode = DurabilityMode.Ephemeral, CancellationToken cancellationToken = default) =>
         StartAsync($"bench-{Guid.NewGuid():N}", ListenPortPool.EndToEndBenchmarks.HoldHttpUri(), durabilityMode, cancellationToken);
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+    [SuppressMessage(
         "Design",
         "CA1031:Do not catch general exception types",
         Justification = "Best-effort rollback: the cluster disposal failure is logged and swallowed so the original start failure always propagates.")]

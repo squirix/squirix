@@ -18,24 +18,6 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Protects the hold-open internal mTLS port discipline that keeps parallel multi-node tests from colliding (see #612).</summary>
 public sealed class ClusterIdentityInternalPortTests
 {
-    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and Kestrel bind.</summary>
-    [Test]
-    public async Task InternalPortStaysBoundUntilReleased()
-    {
-        using var identity = new ClusterIdentity();
-        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
-        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
-        var peers = CreateTwoNodePeers(identity, [primaryA.HttpUri, primaryB.HttpUri]);
-        var internalPort = GetInterNodePort(peers[0]);
-
-        _ = NodeExceptionAssert.For<SocketException>().Throws(internalPort, static port => BindExclusively(port));
-
-        identity.Dispose();
-        BindExclusively(internalPort);
-
-        _ = await Assert.That(GetInterNodePort(peers[1]) != internalPort).IsTrue().Because("Sibling nodes must not share one internal listener port.");
-    }
-
     /// <summary>Parallel cluster owners must receive distinct internal ports.</summary>
     [Test]
     public async Task ClustersGetDistinctInternalPorts()
@@ -63,6 +45,50 @@ public sealed class ClusterIdentityInternalPortTests
             for (var i = 0; i < ownerCount; i++)
                 identities[i].Dispose();
         }
+    }
+
+    /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and Kestrel bind.</summary>
+    [Test]
+    public async Task InternalPortStaysBoundUntilReleased()
+    {
+        using var identity = new ClusterIdentity();
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        var peers = CreateTwoNodePeers(identity, [primaryA.HttpUri, primaryB.HttpUri]);
+        var internalPort = GetInterNodePort(peers[0]);
+
+        _ = NodeExceptionAssert.For<SocketException>().Throws(internalPort, static port => BindExclusively(port));
+
+        identity.Dispose();
+        BindExclusively(internalPort);
+
+        _ = await Assert.That(GetInterNodePort(peers[1]) != internalPort).IsTrue().Because("Sibling nodes must not share one internal listener port.");
+    }
+
+    /// <summary>A new node id introduced ahead of an already-assigned, released sibling must not reassign the sibling's internal port.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewNodeDoesNotStealSiblingPort(CancellationToken cancellationToken)
+    {
+        using var identity = new ClusterIdentity();
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        var primaries = new[] { primaryA.HttpUri, primaryB.HttpUri };
+        var peers = CreateTwoNodePeers(identity, primaries);
+        var nodeBPort = GetInterNodePort(peers[1]);
+
+        // Release nodeB's internal port for a real bind, matching what a successful start does.
+        var nodeBCluster = new TopologyOptions(peers) { NodeId = "nodeB", Uri = primaries[1] };
+        _ = await identity.ResolveNodeStartupForBindAsync(nodeBCluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
+
+        // A brand-new node id ordered ahead of nodeB in the topology must not exclude nodeB's own
+        // already-assigned port from itself and force an unnecessary reallocation.
+        using var primaryLegacy = ListenPortPool.ServerUnitTests.HoldPort();
+        ClusterNode[] newTopology = [new("nodeLegacy", primaryLegacy.HttpUri), new("nodeB", primaries[1])];
+        var identityRef = identity;
+        var newPeers = ClusterIdentity.CreatePeers(newTopology, ref identityRef);
+
+        _ = await Assert.That(GetInterNodePort(newPeers[1])).IsEqualTo(nodeBPort).Because("A newly introduced node must not reassign an already-held sibling's internal port.");
     }
 
     /// <summary>A released internal port is reacquired live on restart so the reservation stays valid through certificate generation.</summary>
@@ -93,32 +119,6 @@ public sealed class ClusterIdentityInternalPortTests
 
         // The retry releases the reacquired hold for the real bind, so the port is bindable again.
         BindExclusively(firstPort);
-    }
-
-    /// <summary>A new node id introduced ahead of an already-assigned, released sibling must not reassign the sibling's internal port.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task NewNodeDoesNotStealSiblingPort(CancellationToken cancellationToken)
-    {
-        using var identity = new ClusterIdentity();
-        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
-        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
-        var primaries = new[] { primaryA.HttpUri, primaryB.HttpUri };
-        var peers = CreateTwoNodePeers(identity, primaries);
-        var nodeBPort = GetInterNodePort(peers[1]);
-
-        // Release nodeB's internal port for a real bind, matching what a successful start does.
-        var nodeBCluster = new TopologyOptions(peers) { NodeId = "nodeB", Uri = primaries[1] };
-        _ = await identity.ResolveNodeStartupForBindAsync(nodeBCluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
-
-        // A brand-new node id ordered ahead of nodeB in the topology must not exclude nodeB's own
-        // already-assigned port from itself and force an unnecessary reallocation.
-        using var primaryLegacy = ListenPortPool.ServerUnitTests.HoldPort();
-        ClusterNode[] newTopology = [new("nodeLegacy", primaryLegacy.HttpUri), new("nodeB", primaries[1])];
-        var identityRef = identity;
-        var newPeers = ClusterIdentity.CreatePeers(newTopology, ref identityRef);
-
-        _ = await Assert.That(GetInterNodePort(newPeers[1])).IsEqualTo(nodeBPort).Because("A newly introduced node must not reassign an already-held sibling's internal port.");
     }
 
     /// <summary>A disposed identity refuses to build peers instead of reallocating internal ports nothing would release.</summary>
@@ -153,6 +153,15 @@ public sealed class ClusterIdentityInternalPortTests
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken));
     }
 
+    private static void BindExclusively(int port)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Server.ExclusiveAddressUse = true;
+        listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+        listener.Start();
+        listener.Stop();
+    }
+
     private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity? identity, Uri[] primaries) => ClusterIdentity.CreatePeers(
         [new ClusterNode("nodeA", primaries[0]), new ClusterNode("nodeB", primaries[1])],
         ref identity);
@@ -162,14 +171,5 @@ public sealed class ClusterIdentityInternalPortTests
         ArgumentNullException.ThrowIfNull(peer);
         var interNodeUri = peer.InterNodeUri;
         return interNodeUri == null ? throw new InvalidOperationException("Expected an internode mTLS URL for a multi-node topology.") : interNodeUri.Port;
-    }
-
-    private static void BindExclusively(int port)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, port);
-        listener.Server.ExclusiveAddressUse = true;
-        listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
-        listener.Start();
-        listener.Stop();
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Support.Client;
@@ -17,13 +18,9 @@ internal static class BenchmarkNodeCluster
     /// <returns>A started cluster owning the node.</returns>
     internal static Task<TestCluster<ClusterStartOptions>> StartAsync(
         BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral,
-        CancellationToken cancellationToken = default)
-    {
-        var uri = ListenPortPool.ServerBenchmarks.HoldHttpUri();
-        return StartAsync($"bench-{Guid.NewGuid():N}", uri, durabilityMode, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) => StartAsync($"bench-{Guid.NewGuid():N}", ListenPortPool.ServerBenchmarks.HoldHttpUri(), durabilityMode, cancellationToken);
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+    [SuppressMessage(
         "Design",
         "CA1031:Do not catch general exception types",
         Justification = "Best-effort rollback: the cluster disposal failure is logged and swallowed so the original start failure always propagates.")]

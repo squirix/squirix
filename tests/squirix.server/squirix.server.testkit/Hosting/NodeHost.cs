@@ -72,7 +72,7 @@ internal static class NodeHost
             args.MemoryPressureOptions = _options.MemoryPressureOptions;
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
-            args.MtlsMaterial = _options.MtlsMaterial;
+            args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
         }
 

@@ -93,7 +93,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 
         void Configure(ICompositionArgs args)
         {
-            args.MtlsMaterial = mtls;
+            args.Certificate = mtls;
             args.MtlsOptions = options;
             args.PersistenceOptions = persistence;
             args.WaitForRecovery = false;

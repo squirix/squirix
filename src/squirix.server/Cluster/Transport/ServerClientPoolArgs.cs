@@ -9,6 +9,8 @@ namespace Squirix.Server.Cluster.Transport;
 [Immutable]
 internal sealed class ServerClientPoolArgs
 {
+    internal MtlsCertificate? Certificate { get; init; }
+
     internal bool InterNodeMtlsEnabled { get; init; }
 
     internal Interceptor? Interceptor { get; init; }
@@ -16,8 +18,6 @@ internal sealed class ServerClientPoolArgs
     internal Interceptor? InternalOwnerInterceptor { get; init; }
 
     internal ILogger? Logger { get; init; }
-
-    internal MtlsCertificate? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 

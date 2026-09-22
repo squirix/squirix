@@ -27,9 +27,9 @@ internal static class ServiceRegistration
 
             _ = services.AddSingleton<IServerClientPool>(sp =>
             {
-                var material = sp.GetRequiredService<MtlsCertificate>();
+                var certificate = sp.GetRequiredService<MtlsCertificate>();
                 var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
-                var interNodeMtlsEnabled = material.Enabled;
+                var interNodeMtlsEnabled = certificate.Enabled;
                 return new ServerClientPool(
                     CopyPeers(cluster),
                     new ServerClientPoolArgs
@@ -41,7 +41,7 @@ internal static class ServiceRegistration
                         Logger = sp.GetService<ILogger<ServerClientPool>>(),
                         Interceptor = sp.GetRequiredService<ClientInterceptor>(),
                         MtlsOptions = mtlsOptions,
-                        MtlsMaterial = material,
+                        Certificate = certificate,
                         InterNodeMtlsEnabled = interNodeMtlsEnabled,
                         InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<InternalOwnerClientInterceptor>() : null,
                     },

@@ -92,21 +92,21 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
 
-    public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
-
     public GrpcChannel OpenChannel(string nodeId) => _channels[nodeId];
+
+    public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
 
     [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     private static GrpcChannelOptions CreateChannelOptions(
         string nodeId,
         bool interNodeMtlsEnabled,
-        MtlsCertificate? mtlsMaterial,
+        MtlsCertificate? certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory)
     {
         var peerHandler = interNodeMtlsEnabled switch
         {
-            true when mtlsMaterial is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport."),
-            true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId),
+            true when certificate is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport."),
+            true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(certificate, nodeId),
             _ => null,
         };
 
@@ -128,7 +128,7 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
-        var channel = GrpcChannel.ForAddress(address, CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.MtlsMaterial, args.PeerHandlerFactory));
+        var channel = GrpcChannel.ForAddress(address, CreateChannelOptions(peer.NodeId, args.InterNodeMtlsEnabled, args.Certificate, args.PeerHandlerFactory));
         var invoker = channel.CreateCallInvoker();
         if (args.InternalOwnerInterceptor != null)
             invoker = invoker.Intercept(args.InternalOwnerInterceptor);
@@ -180,18 +180,18 @@ internal sealed class ServerClientPool : IServerClientPool
         internal static SocketsHttpHandler CreateChannelHandler() => new();
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
-        /// <param name="material">Loaded cluster mTLS certificate material.</param>
+        /// <param name="certificate">Loaded cluster mTLS certificate.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="material" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when cluster mTLS material is not loaded.</exception>
-        internal static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate material, string expectedPeerNodeId)
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
+        internal static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId)
         {
-            ArgumentNullException.ThrowIfNull(material);
+            ArgumentNullException.ThrowIfNull(certificate);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-            var missingMaterial = !material.Enabled || material.NodeCertificate == null || material.TrustAnchor == null;
-            const string message = "Cluster mTLS material must be loaded before creating the outbound handler.";
-            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, expectedPeerNodeId);
+            var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null;
+            const string message = "Cluster mTLS certificate must be loaded before creating the outbound handler.";
+            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.TrustAnchor!, expectedPeerNodeId);
         }
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>

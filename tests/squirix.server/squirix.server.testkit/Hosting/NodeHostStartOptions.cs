@@ -18,6 +18,8 @@ internal sealed class NodeHostStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
+    internal MtlsCertificate? Certificate { get; init; }
+
     internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
     internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
@@ -26,8 +28,6 @@ internal sealed class NodeHostStartOptions
     internal bool FoundationOnly { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
-
-    internal MtlsCertificate? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
