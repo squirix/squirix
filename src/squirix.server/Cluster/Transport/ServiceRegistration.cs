@@ -27,7 +27,7 @@ internal static class ServiceRegistration
 
             _ = services.AddSingleton<IServerClientPool>(sp =>
             {
-                var material = sp.GetRequiredService<MtlsCertificateMaterial>();
+                var material = sp.GetRequiredService<MtlsCertificate>();
                 var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
                 var interNodeMtlsEnabled = material.Enabled;
                 return new ServerClientPool(

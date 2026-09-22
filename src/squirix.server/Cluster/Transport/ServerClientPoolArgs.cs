@@ -17,7 +17,7 @@ internal sealed class ServerClientPoolArgs
 
     internal ILogger? Logger { get; init; }
 
-    internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
+    internal MtlsCertificate? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 

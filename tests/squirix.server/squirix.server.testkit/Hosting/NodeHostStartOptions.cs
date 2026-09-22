@@ -27,7 +27,7 @@ internal sealed class NodeHostStartOptions
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
-    internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
+    internal MtlsCertificate? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
