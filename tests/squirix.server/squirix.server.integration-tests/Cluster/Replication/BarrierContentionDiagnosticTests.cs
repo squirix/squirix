@@ -5,10 +5,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.Hosting;
@@ -29,20 +27,20 @@ public sealed class BarrierContentionDiagnosticTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var peers = BuildClusterPeers([new ClusterNode("node-a", uriA), new ClusterNode("node-b", uriB)]);
         var scope = $"barrier-spans-{Guid.NewGuid():N}";
         var recorderA = new JournalBarrierRecorder();
         var recorderB = new JournalBarrierRecorder();
-        var optionsA = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderA) };
-        var optionsB = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderB) };
+        var optionsA = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderA) };
+        var optionsB = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = scope, ServicesConfigure = b => b.AddSingleton<IJournalOperationTracer>(recorderB) };
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, optionsA, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, optionsB, cancellationToken);
+        await using var nodeA = await StartClusterAsync(uriA, peers, optionsA, cancellationToken);
+        await using var nodeB = await StartClusterAsync(uriB, peers, optionsB, cancellationToken);
 
         try
         {
-            var cache = nodeA.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("leader-read");
-            var key = FindOwnedKey(nodeA, "leader-read", "node-a");
+            var cache = nodeA.GetCache<object?>("leader-read");
+            var key = nodeA.FindKeyOwnedBy("leader-read", "node-a");
             await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), "leader-read", key, new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
 
             // ReSharper disable once DisposeOnUsingVariable — intentional peer loss, mirrors the flaky test.
@@ -56,24 +54,6 @@ public sealed class BarrierContentionDiagnosticTests : NodeIntegrationTestBase
             recorderA.Dump("node-a");
             recorderB.Dump("node-b");
         }
-    }
-
-    /// <summary>TEMP DIAGNOSTIC: finds a key owned by a node (revert before merge).</summary>
-    /// <param name="host">Test node host.</param>
-    /// <param name="cacheName">Target cache name.</param>
-    /// <param name="owner">Expected owner node identifier.</param>
-    /// <exception cref="InvalidOperationException">No owned key was found.</exception>
-    private static string FindOwnedKey(TestNodeHost host, string cacheName, string owner)
-    {
-        var locator = host.Services.GetRequiredService<INodeLocator>();
-        for (var i = 0; i < 10_000; i++)
-        {
-            var candidate = $"barrier-spans-{i}";
-            if (string.Equals(locator.GetOwner(cacheName, candidate), owner, StringComparison.Ordinal))
-                return candidate;
-        }
-
-        throw new InvalidOperationException($"No key owned by '{owner}' was found.");
     }
 
     /// <summary>TEMP DIAGNOSTIC: records journal operation spans (revert before merge).</summary>
