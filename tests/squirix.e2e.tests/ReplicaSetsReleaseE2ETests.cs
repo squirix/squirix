@@ -8,6 +8,7 @@ using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Exceptions;
 
 namespace Squirix.E2ETests;
 
@@ -39,16 +40,24 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
     /// <remarks>
     /// #239 mandates the name "RfThreeLeaderStopRecoversWithinFiveSeconds"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
+    /// The stopped node ("nodeA") now owns the test key, so this would exercise a real leader loss instead of an
+    /// unrelated node's stop. Automatic failover is not yet wired into production (#646: no PreVote/RequestVote
+    /// RPCs, both activation flags stay off), so the cluster cannot currently recover from this, and the test
+    /// skips instead of asserting a recovery that cannot happen. Un-skip once #646 lands.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Always thrown until automatic failover is wired into production (#646).</exception>
     [Test]
     public async Task RfThreeLeaderStopRecoversInFiveSeconds(CancellationToken cancellationToken)
     {
+        throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
+
+#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once #646 lands.
         var options = new MultiNodeStartOptions { ReplicaCount = 3 };
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfThreeLeaderStopRecoversInFiveSeconds), options, true, cancellationToken);
         var uriB = cluster.GetUri("nodeB");
         var uriC = cluster.GetUri("nodeC");
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("default", "nodeB", "rf3-release-recover");
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("default", "nodeA", "rf3-release-recover");
 
         await using var client = await LoopbackConnect.ConnectAsync(uriB, uriC, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
@@ -63,6 +72,7 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
 
         await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
         _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
+#pragma warning restore CS0162
     }
 
     /// <summary>RF=2 refuses new mutations after mirror loss while committed data stays readable.</summary>

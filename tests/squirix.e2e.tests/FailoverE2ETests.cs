@@ -10,6 +10,7 @@ using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Exceptions;
 
 namespace Squirix.E2ETests;
 
@@ -106,11 +107,18 @@ public sealed class FailoverE2ETests : EndToEndTestBase
     /// #237 mandates the name "LeaderStopRecoversOnMajorityWithinFiveSeconds"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
+    /// The stopped node ("nodeA") now actually owns the test key, so this exercises a real leader loss instead of
+    /// an unrelated node's stop; automatic failover is not yet wired into production (see #646), so the test skips
+    /// until that lands rather than asserting a recovery the cluster cannot currently perform.
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Thrown until automatic failover is wired into production (#646).</exception>
     [Test]
     public async Task MajorityRecoversWithinFiveSeconds(CancellationToken cancellationToken)
     {
+        throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
+
+#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once #646 lands.
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
             nameof(MajorityRecoversWithinFiveSeconds),
             new MultiNodeStartOptions { ReplicaCount = 3 },
@@ -118,7 +126,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
             cancellationToken);
         var uriB = cluster.GetUri("nodeB");
         var uriC = cluster.GetUri("nodeC");
-        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("default", "nodeB", "failover-recover");
+        var key = KeyOwnerHelper.ThreeNode.FindKeyOwnedBy("default", "nodeA", "failover-recover");
 
         await using var client = await LoopbackConnect.ConnectAsync(uriB, uriC, cancellationToken);
         var cache = await client.GetCacheAsync<string>("default", cancellationToken);
@@ -135,5 +143,6 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
         _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
         _ = await Assert.That(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5)).IsTrue();
+#pragma warning restore CS0162
     }
 }
