@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -23,22 +22,19 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
         using var heldC = ListenPortPool.EndToEndTests.HoldPort();
-        using var identity = new ClusterIdentity();
         using var dir = new TempDirectory("squirix-e2e-topology-live");
-        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
-        var dirA = NodePathKit.Combine(dir, "nodeA");
-        var dirB = NodePathKit.Combine(dir, "nodeB");
-        var optionsA = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA };
-        var optionsB = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB };
-
-        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, optionsA, identity, cancellationToken);
-        await using var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, optionsB, identity, cancellationToken);
-        await hostA.DisposeAsync();
+        ClusterNode[] clusterTopology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
+        var optionsA = new ClusterStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(dir, "nodeA") };
+        var optionsB = new ClusterStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(dir, "nodeB") };
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(clusterTopology);
+        _ = await cluster.StartNodeAsync("nodeA", optionsA, cancellationToken);
+        _ = await cluster.StartNodeAsync("nodeB", optionsB, cancellationToken);
+        await cluster.StopNodeAsync("nodeA");
 
         // NodeB stays live while nodeA restarts with a peer set that was never bootstrapped.
-        var changedPeers = new[] { ("nodeA", heldA.HttpUri), ("nodeC", heldC.HttpUri) };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, changedPeers, optionsA, identity, cancellationToken));
+        ClusterNode[] changedTopology = [new("nodeA", heldA.HttpUri), new("nodeC", heldC.HttpUri)];
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            cluster.StartNodeAsync(new ClusterNode("nodeA", heldA.HttpUri), changedTopology, optionsA, cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
     }
@@ -54,26 +50,19 @@ public sealed class TopologyActivationE2ETests : EndToEndTestBase
     {
         using var heldA = ListenPortPool.EndToEndTests.HoldPort();
         using var heldB = ListenPortPool.EndToEndTests.HoldPort();
-        using var identity = new ClusterIdentity();
         using var dir = new TempDirectory("squirix-e2e-topology-stopped");
-        var peers = new[] { ("nodeA", heldA.HttpUri), ("nodeB", heldB.HttpUri) };
+        ClusterNode[] clusterTopology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
         var dirA = NodePathKit.Combine(dir, "nodeA");
         var dirB = NodePathKit.Combine(dir, "nodeB");
-
-        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", heldA.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA }, identity, cancellationToken);
-        var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", heldB.HttpUri, peers, new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB }, identity, cancellationToken);
-        await hostA.DisposeAsync();
-        await hostB.DisposeAsync();
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(clusterTopology);
+        _ = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA }, cancellationToken);
+        _ = await cluster.StartNodeAsync("nodeB", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken);
+        await cluster.StopNodeAsync("nodeA");
+        await cluster.StopNodeAsync("nodeB");
 
         // The whole cluster is stopped, yet the generation change without a bootstrap is refused.
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                heldA.HttpUri,
-                peers,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 },
-                identity,
-                cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 }, cancellationToken));
 
         _ = await Assert.That(exception.Message).Contains("offline bootstrap", StringComparison.Ordinal);
     }

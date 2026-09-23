@@ -24,17 +24,12 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task ForwardRejectsTooLargeRemotePayload(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit");
         var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
 
-        using var channelA = CreateGrpcChannel(uriA);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             clientA.TryAddEntryAsync(
@@ -49,7 +44,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
 
-        using var channelB = CreateGrpcChannel(uriB);
+        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(getResponse.Found).IsFalse();
@@ -60,16 +55,11 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task ForwardedUpdatePreservesLargePayload(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit-update");
 
-        using var channelA = CreateGrpcChannel(uriA);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
 
         _ = await clientA.SetEntryAsync(
@@ -106,10 +96,9 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task OversizedInsertReturnsResourceExhausted(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
 
@@ -136,10 +125,9 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task OversizedUpdateKeepsOriginalValue(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.SetEntryAsync(

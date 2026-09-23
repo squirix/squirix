@@ -87,15 +87,15 @@ internal static class TopologyValidator
             failures.Add(originRequiredMessage);
     }
 
-    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+    private static int CountDistinctPeerNodes<TPeer>(Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, IReadOnlyList<TPeer> peers)
         where TPeer : notnull
     {
         // Empty peer list is single-node mode (matches PhysicalNodeRing input synthesized elsewhere).
-        if (peers.Length == 0)
+        if (peers.Count == 0)
             return 1;
 
-        var nodeIds = new string[peers.Length];
-        for (var i = 0; i < peers.Length; i++)
+        var nodeIds = new string[peers.Count];
+        for (var i = 0; i < peers.Count; i++)
             nodeIds[i] = readPeer(peers[i]).NodeId ?? string.Empty;
 
         // Same distinct count PhysicalNodeRing / ReplicaGroupLocator use for RF bounds.
@@ -135,15 +135,15 @@ internal static class TopologyValidator
         return true;
     }
 
-    private static void ValidatePeers<TPeer>(List<string> failures, string? nodeId, Uri? nodeUri, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+    private static void ValidatePeers<TPeer>(List<string> failures, string? nodeId, Uri? nodeUri, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, IReadOnlyList<TPeer> peers)
         where TPeer : notnull
     {
         var peerIds = new HashSet<string>(StringComparer.Ordinal);
         var peerUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Empty peer list means single-node mode; otherwise the local node id must appear in Peers.
-        var localNodePresent = peers.Length == 0;
-        for (var i = 0; i < peers.Length; i++)
+        var localNodePresent = peers.Count == 0;
+        for (var i = 0; i < peers.Count; i++)
             localNodePresent |= ValidatePeerEntry(failures, nodeId, nodeUri, readPeer(peers[i]), peerIds, peerUris);
 
         if (!localNodePresent)
@@ -183,7 +183,7 @@ internal static class TopologyValidator
             failures.Add(ReplicaCountAbovePeerCount);
     }
 
-    private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
+    private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, IReadOnlyList<TPeer> peers)
         where TPeer : notnull
     {
         ValidateIdentifier(failures, args.ClusterId, ClusterIdRequired, ClusterIdTooLong);
@@ -192,7 +192,7 @@ internal static class TopologyValidator
         ValidateVirtualNodes(failures, args.VirtualNodes);
         ValidatePersistenceSettings(failures, args);
 
-        if (peers.Length > MaxPeers)
+        if (peers.Count > MaxPeers)
             failures.Add(PeersTooMany);
 
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);

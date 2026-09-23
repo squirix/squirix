@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -27,9 +28,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         using var held = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode(NodeId, uri),
+            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            cancellationToken);
 
         var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details")), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
@@ -42,9 +46,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         using var held = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode(NodeId, uri),
+            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            cancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details"));
         req.Version = HttpVersion.Version20;
@@ -65,9 +72,12 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         using var held = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port);
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode(NodeId, uri),
+            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            cancellationToken);
 
         var response = await GetReadyDetailsViaLocalIpAsync(localIp!, held.Port, cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);

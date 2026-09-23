@@ -41,9 +41,9 @@ internal static class RuntimeServiceRegistration
     private static string[] GetPeerNodeIds(TopologyOptions cluster)
     {
         var peers = cluster.Peers;
-        var nodeIds = new string[peers.Length];
+        var nodeIds = new string[peers.Count];
 
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
             nodeIds[i] = peers[i].NodeId;
 
         return nodeIds;

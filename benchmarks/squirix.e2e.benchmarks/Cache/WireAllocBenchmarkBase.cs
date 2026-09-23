@@ -8,6 +8,7 @@ using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -28,17 +29,17 @@ public abstract class WireAllocBenchmarkBase<T>
 
     private GetOrAddMissFactory? _getOrAddMissFactory;
     private int _getOrAddMissOffset;
-    private E2EBenchmarkNodeScope? _node;
+    private TestCluster<ClusterStartOptions>? _cluster;
     private int _removeExpirationOffset;
     private int _removeOffset;
     private int _uniqueKeyOffset;
 
     /// <summary>Gets or sets the durability mode measured by the current BenchmarkDotNet case.</summary>
-    [Params(E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence)]
+    [Params(DurabilityMode.Ephemeral, DurabilityMode.Persistence)]
     [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "A property annotated with [Params] must have a public setter")]
     [SuppressMessage("ReSharper", "AutoPropertyCanBeMadeGetOnly.Global", Justification = "A property annotated with [Params] must have a public setter")]
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "A property annotated with [Params] must have a public setter")]
-    public E2EBenchmarkDurabilityMode DurabilityMode { get; set; }
+    public DurabilityMode DurabilityMode { get; set; }
 
     /// <summary>Gets the consumer used to prevent dead-code elimination.</summary>
     private protected Consumer Consumer { get; } = new();
@@ -62,8 +63,8 @@ public abstract class WireAllocBenchmarkBase<T>
         if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node != null)
-            await _node.DisposeAsync().ConfigureAwait(false);
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Reads a pre-seeded entry via <see cref="ICache{T}.GetEntryAsync" />.</summary>
@@ -168,8 +169,8 @@ public abstract class WireAllocBenchmarkBase<T>
             _expiringKeys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded("exp", i, "D5", 5);
         }
 
-        _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
-        _client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
+        _cluster = await E2EBenchmarkNodeCluster.StartAsync(DurabilityMode, CancellationToken.None).ConfigureAwait(false);
+        _client = await _cluster.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         Cache = await _client.Client.GetCacheAsync<T>(GetCacheName(), CancellationToken.None).ConfigureAwait(false);
 
         var cache = Cache;

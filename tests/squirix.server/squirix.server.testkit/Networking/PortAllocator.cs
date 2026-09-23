@@ -177,6 +177,39 @@ public sealed class PortAllocator : IDisposable
         throw new InvalidOperationException($"Failed to reserve a contiguous range of {count} free listen ports.");
     }
 
+    /// <summary>Reserves a single free port and holds it bound until released via <see cref="ReleasePort" />.</summary>
+    /// <param name="maxAttempts">The maximum number of candidate ports to try before giving up. The default is 3,000.</param>
+    /// <returns>The reserved port number, bound and held open until released.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if no free port can be reserved within the attempt budget.</exception>
+    /// <remarks>
+    /// Scalar counterpart of <see cref="ReserveRange" /> for the common single-port case; avoids the
+    /// temporary arrays that <see cref="ReserveRange" /> allocates.
+    /// </remarks>
+    internal int ReserveOne(int maxAttempts = 3_000)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var port = ResolveWithinRange(NextCandidate());
+            if (!Reserved.TryAdd(port, 0))
+                continue;
+
+            try
+            {
+                _heldPorts[port] = BindPort(port);
+                _ = _allocatedPorts.TryAdd(port, 0);
+                return port;
+            }
+            catch (SocketException)
+            {
+                _ = Reserved.TryRemove(port, out _);
+            }
+        }
+
+        throw new InvalidOperationException("Failed to reserve a free listen port.");
+    }
+
     /// <summary>Attempts to bind and hold a specific port that was previously allocated from this allocator's range.</summary>
     /// <param name="port">The port number to hold.</param>
     /// <returns><see langword="true" /> when the port is held bound (including when it was already held); <see langword="false" /> when it is out of range or currently unbindable.</returns>

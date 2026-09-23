@@ -4,9 +4,9 @@ using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.TestKit.Hosting;
 
-/// <summary>Optional settings for <see cref="TestNodeHostFactory" /> node startup.</summary>
+/// <summary>Optional base settings for in-process node startup, extended by per-project option types.</summary>
 [Immutable]
-public sealed class TestNodeHostStartOptions
+public class ClusterStartOptions
 {
     /// <summary>Gets the stopped-topology configuration generation.</summary>
     public ulong ConfigurationGeneration { get; init; } = 1;

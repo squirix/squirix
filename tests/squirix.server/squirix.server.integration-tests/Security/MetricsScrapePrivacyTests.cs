@@ -4,11 +4,10 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -27,12 +26,15 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         using var held = AllocateDedicatedPort();
-        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port), UriKind.Absolute);
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            new ClusterNode(NodeId, uri),
+            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            cancellationToken);
 
-        var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
+        var cache = cluster[NodeId].GetCache<object?>(secretCacheName);
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics"));

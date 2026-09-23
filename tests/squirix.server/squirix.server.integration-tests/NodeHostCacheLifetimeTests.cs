@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
@@ -17,9 +17,9 @@ public sealed class NodeHostCacheLifetimeTests : NodeIntegrationTestBase
     [Test]
     public async Task AfterHostDisposedResolvingCacheThrows(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        var host = await StartNodeAsync(uri, "nodeA", cancellationToken: cancellationToken);
-        await host.DisposeAsync();
+        await using var cluster = await StartClusterAsync("nodeA", cancellationToken: cancellationToken);
+        var host = cluster["nodeA"];
+        await cluster.StopNodeAsync("nodeA");
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => GetCache(value));
     }
 
@@ -28,9 +28,9 @@ public sealed class NodeHostCacheLifetimeTests : NodeIntegrationTestBase
     [Test]
     public async Task ResolveThrowsAfterHostDisposal(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        var host = await StartNodeAsync(uri, "nodeA", cancellationToken: cancellationToken);
-        await host.DisposeAsync();
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => _ = value.Services.GetRequiredService<ICacheRuntime>());
+        await using var cluster = await StartClusterAsync("nodeA", cancellationToken: cancellationToken);
+        var host = cluster["nodeA"];
+        await cluster.StopNodeAsync("nodeA");
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => _ = value.GetRequiredService<ICacheRuntime>());
     }
 }

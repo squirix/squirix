@@ -122,7 +122,7 @@ internal static class ServerHostingComposition
         await EnsureActivatedTopologyAsync(persistence.DataDir, fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
            .ConfigureAwait(false);
 
-        var groupIds = new string[cluster.Peers.Length];
+        var groupIds = new string[cluster.Peers.Count];
         for (var i = 0; i < groupIds.Length; i++)
             groupIds[i] = cluster.Peers[i].NodeId;
 

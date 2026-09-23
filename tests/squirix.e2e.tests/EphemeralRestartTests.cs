@@ -34,40 +34,15 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
 
     private sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     {
+        private readonly TestCluster<ClusterStartOptions> _cluster;
         private ISquirixClient? _client;
-        private TestNodeHost? _host;
 
-        private EphemeralRestartableSingleNode(Uri uri)
+        private EphemeralRestartableSingleNode(TestCluster<ClusterStartOptions> cluster)
         {
-            Uri = uri;
+            _cluster = cluster;
         }
 
-        private Uri Uri { get; }
-
-        public ValueTask DisposeAsync() => StopNodeAsync();
-
-        internal static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
-        {
-            var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.HoldHttpUri());
-            await node.StartNodeAsync(cancellationToken);
-            return node;
-        }
-
-        internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
-        {
-            _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
-            return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
-        }
-
-        internal async ValueTask RestartAsync(CancellationToken cancellationToken)
-        {
-            await StopNodeAsync();
-            await StartNodeAsync(cancellationToken);
-        }
-
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, cancellationToken);
-
-        private async ValueTask StopNodeAsync()
+        public async ValueTask DisposeAsync()
         {
             if (_client != null)
             {
@@ -75,11 +50,43 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
                 _client = null;
             }
 
-            if (_host != null)
+            await _cluster.DisposeAsync();
+        }
+
+        internal static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
+        {
+            var uri = ListenPortPool.EndToEndTests.HoldHttpUri();
+            TestCluster<ClusterStartOptions>? cluster = null;
+            try
             {
-                await _host.DisposeAsync();
-                _host = null;
+                cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uri));
+                _ = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
+                var node = new EphemeralRestartableSingleNode(cluster);
+                cluster = null;
+                return node;
             }
+            finally
+            {
+                if (cluster != null)
+                    await cluster.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
+        {
+            _client ??= await LoopbackConnect.ConnectAsync(_cluster["nodeA"].Uri, cancellationToken);
+            return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
+        }
+
+        internal async ValueTask RestartAsync(CancellationToken cancellationToken)
+        {
+            if (_client != null)
+            {
+                await _client.DisposeAsync();
+                _client = null;
+            }
+
+            _ = await _cluster.RestartNodeAsync("nodeA", cancellationToken: cancellationToken);
         }
     }
 }

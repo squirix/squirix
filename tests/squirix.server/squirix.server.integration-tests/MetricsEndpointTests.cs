@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -19,11 +20,11 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-metrics-a", uriA), ("node-metrics-b", uriB)]);
-        await using var node = await StartNodeAsync(
+        var peers = BuildClusterPeers([new ClusterNode("node-metrics-a", uriA), new ClusterNode("node-metrics-b", uriB)]);
+        await using var node = await StartClusterAsync(
             uriA,
             peers,
-            new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" },
+            new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" },
             cancellationToken);
 
         using (var ready = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken))

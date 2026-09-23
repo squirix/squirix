@@ -55,9 +55,9 @@ internal static class ServiceRegistration
     private static ServerPeer[] CopyPeers(TopologyOptions cluster)
     {
         var peers = cluster.Peers;
-        var copy = new ServerPeer[peers.Length];
+        var copy = new ServerPeer[peers.Count];
 
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
             copy[i] = peers[i];
 
         return copy;

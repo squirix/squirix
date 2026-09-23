@@ -24,9 +24,8 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task AuthorityWithoutAudienceFailsStartup(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
+            StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken));
         _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", StringComparison.Ordinal);
     }
 
@@ -36,10 +35,9 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task GrpcExpiredOidcJwtIsRejected(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var token = authority.CreateBearerToken(Audience, TimeSpan.FromMinutes(-10));
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
@@ -56,10 +54,9 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task GrpcInvalidOidcJwtIsRejected(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
 
@@ -76,10 +73,9 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task GrpcMissingOidcJwtIsRejected(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -94,10 +90,9 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task GrpcValidOidcJwtSucceeds(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };
 
@@ -114,10 +109,9 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task GrpcWrongAudienceOidcJwtIsRejected(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken("wrong-audience")}" } };
 

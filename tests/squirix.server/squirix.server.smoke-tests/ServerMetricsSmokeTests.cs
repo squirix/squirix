@@ -16,9 +16,8 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
     [Test]
     public async Task MetricsExposeCountersAfterOperations(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-
-        await using var node = await StartNodeAsync(uri, "node_A", cancellationToken: cancellationToken);
+        await using var cluster = await StartClusterAsync("node_A", cancellationToken: cancellationToken);
+        var node = cluster["node_A"];
         var cache = GetCacheApiClient(node);
 
         const string key = "smoke:1";
@@ -26,7 +25,7 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
 
         await Task.Delay(10, cancellationToken);
 
-        var body = await GetWithRetryAsync(new Uri(uri, "/metrics"), TimeSpan.FromMilliseconds(50), 30, cancellationToken);
+        var body = await GetWithRetryAsync(new Uri(node.Uri, "/metrics"), TimeSpan.FromMilliseconds(50), 30, cancellationToken);
         _ = await Assert.That(string.IsNullOrWhiteSpace(body)).IsFalse();
         _ = await Assert.That(body).DoesNotContain("cache=\"", StringComparison.InvariantCulture);
         _ = await Assert.That(body).DoesNotContain("exception_type=", StringComparison.InvariantCulture);

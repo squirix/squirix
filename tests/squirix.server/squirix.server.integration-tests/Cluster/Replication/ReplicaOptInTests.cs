@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
@@ -21,11 +20,11 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
     [Test]
     public async Task RfOneNeedsNoOptIn(CancellationToken cancellationToken)
     {
-        await using var plain = await StartNodeAsync(GetNextHttpUri(), "n1", new NodeStartOptions { EnableReplication = false }, cancellationToken);
-        _ = await Assert.That(plain.Services.GetRequiredService<FeatureState>().NetworkReplicationEnabled).IsFalse();
+        await using var plainCluster = await StartClusterAsync("n1", new IntegrationStartOptions { EnableReplication = false }, cancellationToken);
+        _ = await Assert.That(plainCluster["n1"].GetRequiredService<FeatureState>().NetworkReplicationEnabled).IsFalse();
 
-        await using var opted = await StartNodeAsync(GetNextHttpUri(), "n1", new NodeStartOptions { EnableReplication = true }, cancellationToken);
-        _ = await Assert.That(opted.Services.GetRequiredService<FeatureState>().NetworkReplicationEnabled).IsFalse();
+        await using var optedCluster = await StartClusterAsync("n1", new IntegrationStartOptions { EnableReplication = true }, cancellationToken);
+        _ = await Assert.That(optedCluster["n1"].GetRequiredService<FeatureState>().NetworkReplicationEnabled).IsFalse();
     }
 
     /// <summary>RF=2 with persistence, mTLS, and the opt-in activates network replication.</summary>
@@ -35,12 +34,12 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var options = new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = true, ExtraScope = "rf2-optin-active" };
-        await using var host = await StartNodeAsync(uriA, peers, options, cancellationToken);
-        var featureState = host.Services.GetRequiredService<FeatureState>();
+        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = true, ExtraScope = "rf2-optin-active" };
+        await using var host = await StartClusterAsync(uriA, peers, options, cancellationToken);
+        var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsTrue();
-        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
+        _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
     /// <summary>RF=2 with persistence and mTLS but without the opt-in refuses startup to name the switch.</summary>
@@ -50,13 +49,13 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var task = StartNodeAsync(
+        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        var task = StartClusterAsync(
             uriA,
             peers,
-            new NodeStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = false, ExtraScope = "rf2-optin-refused" },
+            new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = false, ExtraScope = "rf2-optin-refused" },
             cancellationToken);
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(task);
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(task);
         _ = await Assert.That(exception.Message).Contains(ReplicationActivationGuard.OptInRequired, StringComparison.Ordinal);
     }
 }

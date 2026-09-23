@@ -13,10 +13,10 @@ internal static class MtlsTopology
         ArgumentNullException.ThrowIfNull(cluster);
 
         var peers = cluster.Peers;
-        var remotePeerNodeIds = new string[peers.Length];
+        var remotePeerNodeIds = new string[peers.Count];
         var writeIndex = 0;
 
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
         {
             if (!string.Equals(peers[i].NodeId, cluster.NodeId, StringComparison.Ordinal))
                 remotePeerNodeIds[writeIndex++] = peers[i].NodeId;
@@ -41,7 +41,7 @@ internal static class MtlsTopology
         ArgumentNullException.ThrowIfNull(cluster);
 
         var peers = cluster.Peers;
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
         {
             if (!string.Equals(peers[i].NodeId, cluster.NodeId, StringComparison.Ordinal))
                 return true;
