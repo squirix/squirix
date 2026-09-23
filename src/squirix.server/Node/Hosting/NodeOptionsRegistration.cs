@@ -71,7 +71,7 @@ internal static class NodeOptionsRegistration
         // Register through the factory overload so the DI container owns and disposes the certificate material on
         // host shutdown. AddSingleton(instance) does not transfer disposal ownership in Microsoft DI, which would
         // leak the loaded X509 certificates.
-        _ = args.MtlsMaterial != null ? services.AddSingleton(_ => args.MtlsMaterial) : services.AddSingleton(static provider =>
+        _ = args.Certificate != null ? services.AddSingleton(_ => args.Certificate) : services.AddSingleton(static provider =>
         {
             var registeredCluster = provider.GetRequiredService<TopologyOptions>();
             var options = provider.GetRequiredService<MtlsOptions>();
@@ -126,7 +126,6 @@ internal static class NodeOptionsRegistration
         }
     }
 
-    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container via factory.")]
     [Immutable]
     private sealed class StartupOptionsValidator<TOptions> : IHostedService
         where TOptions : class

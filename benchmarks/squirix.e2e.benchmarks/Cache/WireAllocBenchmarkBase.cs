@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -26,19 +25,16 @@ public abstract class WireAllocBenchmarkBase<T>
     private readonly TimeSpan _longExpiration = TimeSpan.FromHours(1);
 
     private E2EBenchmarkClientLease? _client;
+    private TestCluster<ClusterStartOptions>? _cluster;
 
     private GetOrAddMissFactory? _getOrAddMissFactory;
     private int _getOrAddMissOffset;
-    private TestCluster<ClusterStartOptions>? _cluster;
     private int _removeExpirationOffset;
     private int _removeOffset;
     private int _uniqueKeyOffset;
 
     /// <summary>Gets or sets the durability mode measured by the current BenchmarkDotNet case.</summary>
     [Params(DurabilityMode.Ephemeral, DurabilityMode.Persistence)]
-    [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "A property annotated with [Params] must have a public setter")]
-    [SuppressMessage("ReSharper", "AutoPropertyCanBeMadeGetOnly.Global", Justification = "A property annotated with [Params] must have a public setter")]
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "A property annotated with [Params] must have a public setter")]
     public DurabilityMode DurabilityMode { get; set; }
 
     /// <summary>Gets the consumer used to prevent dead-code elimination.</summary>
@@ -54,6 +50,16 @@ public abstract class WireAllocBenchmarkBase<T>
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
         for (var i = 0; i < Batch; i++)
             await cache.AddAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>Attempts to add a new value for a unique key via <see cref="ICache{T}.TryAddAsync" />.</summary>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task AddUniqueAsync()
+    {
+        var cache = Cache!;
+        var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
+        for (var i = 0; i < Batch; i++)
+            Consumer.Consume(await cache.TryAddAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Stops benchmark dependencies.</summary>
@@ -198,16 +204,6 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         for (var i = 0; i < Batch; i++)
             Consumer.Consume(await cache.TouchAsync(_hitKeys[i], _longExpiration, CancellationToken.None).ConfigureAwait(false));
-    }
-
-    /// <summary>Attempts to add a new value for a unique key via <see cref="ICache{T}.TryAddAsync" />.</summary>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task AddUniqueAsync()
-    {
-        var cache = Cache!;
-        var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
-        for (var i = 0; i < Batch; i++)
-            Consumer.Consume(await cache.TryAddAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Updates a pre-seeded value via <see cref="ICache{T}.UpdateAsync" />.</summary>

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -27,8 +26,6 @@ public abstract class BenchmarkBase
 
     /// <summary>Gets or sets the scenario measured by the current BenchmarkDotNet case.</summary>
     [ParamsSource(nameof(Scenarios))]
-    [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "A property annotated with [ParamsSource] must have a public setter")]
-    [SuppressMessage("ReSharper", "AutoPropertyCanBeMadeGetOnly.Global", Justification = "A property annotated with [ParamsSource] must have a public setter")]
     public BenchmarkScenario Scenario { get; set; } = BenchmarkScenario.CreateDefaultMatrix()[0];
 
     /// <summary>Gets the scenario matrix used by BenchmarkDotNet.</summary>

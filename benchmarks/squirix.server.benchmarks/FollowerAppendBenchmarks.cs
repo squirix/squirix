@@ -10,7 +10,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Durable ordered append and committed-prefix recovery benchmarks for the replica-group follower log.</summary>
-[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "BenchmarkDotNet lifecycle manages disposal via GlobalCleanup.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]

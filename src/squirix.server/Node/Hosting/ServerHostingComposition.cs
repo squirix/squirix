@@ -215,7 +215,7 @@ internal static class ServerHostingComposition
                 PersistenceOptions = persistence,
                 MemoryPressureOptions = args.MemoryPressureOptions,
                 MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
+                Certificate = mtlsMaterial,
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -241,41 +241,6 @@ internal static class ServerHostingComposition
         if (args.Extensions != null)
             _ = builder.Services.AddSingleton(args.Extensions);
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
-    }
-
-    /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
-    /// <param name="services">DI service collection.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="persistence">Resolved persistence options; <see langword="null" /> when persistence is disabled.</param>
-    /// <param name="serverMeter">The per-host Meter singleton owned by the container.</param>
-    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
-    /// <param name="args">Composition arguments.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the replication stack is registered.</returns>
-    private static async Task RegisterPersistenceAndReplicationAsync(
-        IServiceCollection services,
-        TopologyOptions cluster,
-        PersistenceOptions? persistence,
-        Meter serverMeter,
-        MtlsOptions mtlsOptions,
-        ICompositionArgs args,
-        CancellationToken cancellationToken)
-    {
-        if (persistence == null)
-            return;
-
-        _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
-
-        // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
-        // materialized; group membership is derived in a later milestone. Registered only when persistence is
-        // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
-        // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
-        // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
-        // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
-        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
-
-        if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
-            await AddReplicaGroupRegistryAsync(services, cluster, persistence, mtlsOptions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Freezes the activated topology on first start and refuses later identity changes.</summary>
@@ -337,6 +302,41 @@ internal static class ServerHostingComposition
         return app;
     }
 
+    /// <summary>Registers persistence, follower-group storage, and the replica group registry on the service collection.</summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="persistence">Resolved persistence options; <see langword="null" /> when persistence is disabled.</param>
+    /// <param name="serverMeter">The per-host Meter singleton owned by the container.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options resolved for this node.</param>
+    /// <param name="args">Composition arguments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the replication stack is registered.</returns>
+    private static async Task RegisterPersistenceAndReplicationAsync(
+        IServiceCollection services,
+        TopologyOptions cluster,
+        PersistenceOptions? persistence,
+        Meter serverMeter,
+        MtlsOptions mtlsOptions,
+        ICompositionArgs args,
+        CancellationToken cancellationToken)
+    {
+        if (persistence == null)
+            return;
+
+        _ = await services.AddPersistenceServicesAsync(persistence, serverMeter, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+
+        // Follower-group storage composition. For RF=1 the local composition is empty, so no group storage is
+        // materialized; group membership is derived in a later milestone. Registered only when persistence is
+        // enabled because the factory resolves PersistenceOptions, which are not registered otherwise.
+        // Note: GroupRecovery.RecoverAllAsync is intentionally NOT invoked from any production path in this
+        // milestone; with an empty static composition a call would be a no-op. Recovery wiring is introduced
+        // together with group-membership derivation (see the durable ordered follower log specification, M8-05).
+        _ = services.AddSingleton(static sp => new GroupRecovery(sp.GetRequiredService<PersistenceOptions>().DataDir, GroupComposition.Empty()));
+
+        if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
+            await AddReplicaGroupRegistryAsync(services, cluster, persistence, mtlsOptions, cancellationToken).ConfigureAwait(false);
+    }
+
     [SuppressMessage(
         "Microsoft.Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -353,9 +353,9 @@ internal static class ServerHostingComposition
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
-        var mtlsMaterial = args.MtlsMaterial ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
-        KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
-        return (mtlsOptions, mtlsMaterial);
+        var certificate = args.Certificate ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
+        KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, certificate);
+        return (mtlsOptions, certificate);
     }
 
     [Immutable]
@@ -372,16 +372,16 @@ internal static class ServerHostingComposition
         /// <param name="uri">The primary HTTPS listen URI.</param>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="mtlsOptions">Cluster mTLS options.</param>
-        /// <param name="mtls">Loaded cluster mTLS certificate material.</param>
-        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate mtls)
+        /// <param name="certificate">Loaded cluster mTLS certificate material.</param>
+        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate certificate)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(uri);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
-            ArgumentNullException.ThrowIfNull(mtls);
+            ArgumentNullException.ThrowIfNull(certificate);
 
-            var mtlsEnabled = mtls.Enabled;
+            var mtlsEnabled = certificate.Enabled;
             var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
             var isLoopbackHost = ExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
@@ -398,9 +398,9 @@ internal static class ServerHostingComposition
                 if (!mtlsEnabled)
                     return;
                 if (isLoopbackHost)
-                    kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtls, remotePeerNodeIds));
+                    kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
                 else
-                    kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtls, remotePeerNodeIds));
+                    kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
             });
         }
 
@@ -411,7 +411,7 @@ internal static class ServerHostingComposition
         {
             ArgumentNullException.ThrowIfNull(cluster);
             if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext 'http://' is not supported.");
+                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
         }
 
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
@@ -467,6 +467,8 @@ internal static class ServerHostingComposition
     {
         public AdmissionOptions? BackpressureOptions { get; set; }
 
+        public MtlsCertificate? Certificate { get; set; }
+
         public Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
         public ExtensionOptions? Extensions { get; set; }
@@ -474,8 +476,6 @@ internal static class ServerHostingComposition
         public bool FoundationOnly { get; set; }
 
         public PressureOptions? MemoryPressureOptions { get; set; }
-
-        public MtlsCertificate? MtlsMaterial { get; set; }
 
         public MtlsOptions? MtlsOptions { get; set; }
 

@@ -16,6 +16,8 @@ internal interface ICompositionArgs
 {
     AdmissionOptions? BackpressureOptions { get; set; }
 
+    MtlsCertificate? Certificate { get; set; }
+
     Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
     ExtensionOptions? Extensions { get; set; }
@@ -24,8 +26,6 @@ internal interface ICompositionArgs
     bool FoundationOnly { get; set; }
 
     PressureOptions? MemoryPressureOptions { get; set; }
-
-    MtlsCertificate? MtlsMaterial { get; set; }
 
     MtlsOptions? MtlsOptions { get; set; }
 

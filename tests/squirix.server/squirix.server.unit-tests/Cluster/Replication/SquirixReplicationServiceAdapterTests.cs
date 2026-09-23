@@ -54,10 +54,10 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public void ConstructorRequiresMtlsMaterial()
     {
-        MtlsCertificate? material = null;
+        MtlsCertificate? certificate = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
-            material,
+            certificate,
             static m => _ = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, m!));
     }
 
@@ -78,10 +78,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public async Task DisabledMtlsMaterialIsRejected()
     {
-        var adapter = new SquirixReplicationServiceAdapter(
-            CreateTopology(),
-            new MtlsOptions { InternalListenPort = 6001 },
-            MtlsCertificate.Load(new MtlsOptions(), null, false));
+        var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, MtlsCertificate.Load(new MtlsOptions(), null, false));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));

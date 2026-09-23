@@ -345,7 +345,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
         // An empty hint suppresses the implicit [CallerMemberName] leaf, so disposal deletes exactly the created directory.
         var dataDir = dir == null ? null : new TempDirectory(dir, string.Empty);
-        return new(
+        return new TestCluster<TOptions>(
             node,
             (self, topology, options, cancellationToken) => StartNodeCoreAsync(self, topology, options, sharedIdentity, cancellationToken),
             peers,
@@ -408,7 +408,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             PeerHandlerFactory = peerHandlerFactory,
             SecurityOptions = startOptions?.Security?.ToServerOptions(),
             MtlsOptions = mtlsOptions,
-            MtlsMaterial = mtlsMaterial,
+            Certificate = mtlsMaterial,
             TimeProvider = startOptions?.TimeProvider,
         };
     }
