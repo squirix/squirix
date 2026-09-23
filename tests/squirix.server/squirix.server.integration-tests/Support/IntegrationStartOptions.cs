@@ -8,23 +8,15 @@ namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>Optional knobs for <see cref="NodeIntegrationTestBase" /> node startup.</summary>
 [Immutable]
-internal sealed class NodeStartOptions
+internal sealed class IntegrationStartOptions : ClusterStartOptions
 {
     internal bool CleanTestDir { get; init; } = true;
-
-    internal ulong ConfigurationGeneration { get; init; } = 1;
-
-    internal bool EnableReplication { get; init; } = true;
 
     internal string? ExtraScope { get; init; }
 
     internal bool FoundationOnly { get; init; }
 
     internal PersistenceOptions? PersistenceOptions { get; init; }
-
-    internal int ReplicaCount { get; init; } = 1;
-
-    internal TestNodeSecurityOptions? Security { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
 

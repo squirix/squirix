@@ -2,13 +2,13 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -26,11 +26,9 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task WriteAtCapFailsReadyStaysHealthy(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(
-            uri,
+        await using var cluster = await StartClusterAsync(
             "node_journal_quota",
-            new NodeStartOptions
+            new IntegrationStartOptions
             {
                 PersistenceOptions = new PersistenceOptions
                 {
@@ -39,8 +37,10 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
                 },
             },
             cancellationToken);
+        var node = cluster["node_journal_quota"];
+        var uri = node.Uri;
 
-        var journal = node.Services.GetRequiredService<IJournalCoordinator>();
+        var journal = node.GetRequiredService<IJournalCoordinator>();
         _ = await Assert.That(journal.MaxBytes).IsEqualTo(1024L * 1024L);
 
         var rejection = await FillUntilJournalQuotaAsync(journal, cancellationToken);

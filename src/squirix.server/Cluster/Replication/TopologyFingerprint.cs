@@ -110,9 +110,9 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         ArgumentNullException.ThrowIfNull(mtlsOptions);
 
         var peers = topology.Peers;
-        var fingerprintPeers = new FingerprintPeer[peers.Length];
+        var fingerprintPeers = new FingerprintPeer[peers.Count];
         var interNodeEnabled = MtlsTopology.RequiresInterNodeMtls(topology);
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
         {
             var peer = peers[i];
             fingerprintPeers[i] = new FingerprintPeer(peer.NodeId, peer.Uri, ResolveInterNodeUri(peer, mtlsOptions, interNodeEnabled));

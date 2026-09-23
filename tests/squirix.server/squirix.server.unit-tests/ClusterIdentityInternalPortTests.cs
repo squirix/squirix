@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -94,11 +95,67 @@ public sealed class ClusterIdentityInternalPortTests
         BindExclusively(firstPort);
     }
 
-    private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity mtls, Uri[] primaries)
+    /// <summary>A new node id introduced ahead of an already-assigned, released sibling must not reassign the sibling's internal port.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewNodeDoesNotStealSiblingPort(CancellationToken cancellationToken)
     {
-        var shared = mtls;
-        return ClusterIdentity.CreatePeers([("nodeA", primaries[0]), ("nodeB", primaries[1])], ref shared);
+        using var identity = new ClusterIdentity();
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        var primaries = new[] { primaryA.HttpUri, primaryB.HttpUri };
+        var peers = CreateTwoNodePeers(identity, primaries);
+        var nodeBPort = GetInterNodePort(peers[1]);
+
+        // Release nodeB's internal port for a real bind, matching what a successful start does.
+        var nodeBCluster = new TopologyOptions(peers) { NodeId = "nodeB", Uri = primaries[1] };
+        _ = await identity.ResolveNodeStartupForBindAsync(nodeBCluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
+
+        // A brand-new node id ordered ahead of nodeB in the topology must not exclude nodeB's own
+        // already-assigned port from itself and force an unnecessary reallocation.
+        using var primaryLegacy = ListenPortPool.ServerUnitTests.HoldPort();
+        ClusterNode[] newTopology = [new("nodeLegacy", primaryLegacy.HttpUri), new("nodeB", primaries[1])];
+        var identityRef = identity;
+        var newPeers = ClusterIdentity.CreatePeers(newTopology, ref identityRef);
+
+        _ = await Assert.That(GetInterNodePort(newPeers[1])).IsEqualTo(nodeBPort).Because("A newly introduced node must not reassign an already-held sibling's internal port.");
     }
+
+    /// <summary>A disposed identity refuses to build peers instead of reallocating internal ports nothing would release.</summary>
+    [Test]
+    public async Task BuildPeersThrowsAfterDispose()
+    {
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        var identity = new ClusterIdentity();
+        identity.Dispose();
+
+        var ex = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
+            (identity, primaries: new[] { primaryA.HttpUri, primaryB.HttpUri }),
+            static state => _ = CreateTwoNodePeers(state.identity, state.primaries));
+
+        _ = await Assert.That(ex.ObjectName).Contains(nameof(ClusterIdentity), StringComparison.Ordinal);
+    }
+
+    /// <summary>A disposed identity refuses to resolve node startup material instead of recreating the CA bundle and internal ports.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ResolveNodeStartupThrowsAfterDispose(CancellationToken cancellationToken)
+    {
+        using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
+        using var primaryB = ListenPortPool.ServerUnitTests.HoldPort();
+        var identity = new ClusterIdentity();
+        var primaries = new[] { primaryA.HttpUri, primaryB.HttpUri };
+        var peers = CreateTwoNodePeers(identity, primaries);
+        var cluster = new TopologyOptions(peers) { NodeId = "nodeA", Uri = primaries[0] };
+        identity.Dispose();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken));
+    }
+
+    private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity? identity, Uri[] primaries) => ClusterIdentity.CreatePeers(
+        [new ClusterNode("nodeA", primaries[0]), new ClusterNode("nodeB", primaries[1])],
+        ref identity);
 
     private static int GetInterNodePort(ServerPeer peer)
     {

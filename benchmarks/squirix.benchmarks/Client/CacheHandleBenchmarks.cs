@@ -17,10 +17,10 @@ public class CacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>Starts the benchmark node.</summary>
     /// <returns>A task that completes after the node is started.</returns>
     [GlobalSetup]
-    public Task SetupBenchmarkAsync() => StartNodeAsync();
+    public Task SetupBenchmarkAsync() => StartClusterAsync();
 
     /// <summary>Stops the benchmark node.</summary>
     /// <returns>A task that completes after the node is stopped.</returns>
     [GlobalCleanup]
-    public Task TeardownBenchmarkAsync() => StopNodeAsync();
+    public Task TeardownBenchmarkAsync() => StopClusterAsync();
 }

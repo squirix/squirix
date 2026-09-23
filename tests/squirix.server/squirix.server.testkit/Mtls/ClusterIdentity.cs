@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 
@@ -23,10 +24,14 @@ public sealed class ClusterIdentity : IDisposable
     private readonly List<X509Certificate2> _ownedCertificates = [];
     private TestBundle? _bundle;
     private X509Certificate2? _untrustedCertificateAuthority;
+    private int _disposed;
 
     /// <inheritdoc />
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         foreach (var held in _internalPorts.Values)
             held.Dispose();
 
@@ -41,26 +46,21 @@ public sealed class ClusterIdentity : IDisposable
         _internalPorts.Clear();
     }
 
-    /// <summary>Builds a standalone single-peer topology without allocating a temporary topology span array.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    internal static ServerPeer[] CreatePeer(string nodeId, Uri uri)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentNullException.ThrowIfNull(uri);
-        return [new ServerPeer { NodeId = nodeId, Uri = uri }];
-    }
-
     /// <summary>Builds peer entries for a multi-node topology, including dedicated internode URLs.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="identity">Shared context for the current test case.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty.</exception>
-    internal static ServerPeer[] CreatePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology, ref ClusterIdentity? identity)
+    /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty or contains an empty node identifier.</exception>
+    internal static ServerPeer[] CreatePeers(ClusterNode[] topology, ref ClusterIdentity? identity)
     {
-        if (topology.IsEmpty)
+        if (topology.Length == 0)
             throw new ArgumentException("Topology must not be empty.", nameof(topology));
+
+        for (var i = 0; i < topology.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(topology[i].NodeId))
+                throw new ArgumentException("Node identifiers must be non-empty.", nameof(topology));
+        }
 
         if (!HasRemotePeers(topology))
         {
@@ -75,22 +75,33 @@ public sealed class ClusterIdentity : IDisposable
         return identity.BuildPeers(topology);
     }
 
+    /// <summary>Returns a shared identity for the topology, creating one for multi-node topologies when none was supplied.</summary>
+    /// <param name="topology">Cluster members that will be started from the shared identity.</param>
+    /// <param name="identity">Caller-supplied shared identity, or <see langword="null" />.</param>
+    /// <returns>The supplied identity; a new shared identity for multi-node topologies; otherwise <see langword="null" />.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is null.</exception>
+    internal static ClusterIdentity? ResolveForTopology(ClusterNode[] topology, ClusterIdentity? identity)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        return identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
+    }
+
     /// <summary>Resolves startup mTLS material and releases the node's held internal port for immediate bind.</summary>
-    /// <param name="shared">Shared context for the current test case.</param>
+    /// <param name="identity">Shared identity for the current test case.</param>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForBindAsync(
-        ClusterIdentity? shared,
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForBindAsync(
+        ClusterIdentity? identity,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
     {
-        var result = await ResolveForNodeAsync(shared, cluster, cancellationToken).ConfigureAwait(false);
-        result.Shared?.ReleaseHeldInternalPort(cluster.NodeId);
+        var result = await ResolveForNodeAsync(identity, cluster, cancellationToken).ConfigureAwait(false);
+        result.Identity?.ReleaseHeldInternalPort(cluster.NodeId);
         return result;
     }
 
-    internal static async Task<(ClusterIdentity? Shared, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForNodeAsync(
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Material)> ResolveForNodeAsync(
         ClusterIdentity? identity,
         TopologyOptions cluster,
         CancellationToken cancellationToken = default)
@@ -115,7 +126,7 @@ public sealed class ClusterIdentity : IDisposable
         return result;
     }
 
-    private static HashSet<int> CollectExcludedPrimaryPorts(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    private static HashSet<int> CollectExcludedPrimaryPorts(ClusterNode[] topology)
     {
         var ports = new HashSet<int>();
         for (var i = 0; i < topology.Length; i++)
@@ -127,7 +138,7 @@ public sealed class ClusterIdentity : IDisposable
     private static HashSet<int> CollectExcludedPrimaryPorts(TopologyOptions cluster)
     {
         var ports = new HashSet<int>();
-        for (var i = 0; i < cluster.Peers.Length; i++)
+        for (var i = 0; i < cluster.Peers.Count; i++)
             _ = ports.Add(cluster.Peers[i].Uri.Port);
 
         return ports;
@@ -135,7 +146,7 @@ public sealed class ClusterIdentity : IDisposable
 
     private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) => new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
 
-    private static bool HasRemotePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    private static bool HasRemotePeers(ClusterNode[] topology)
     {
         if (topology.Length <= 1)
             return false;
@@ -150,18 +161,24 @@ public sealed class ClusterIdentity : IDisposable
         return false;
     }
 
-    private ServerPeer[] BuildPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    /// <summary>Builds peer entries with dedicated internode URLs, allocating held internal ports as needed.</summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <returns>ServerPeer entries for host startup.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
+    private ServerPeer[] BuildPeers(ClusterNode[] topology)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
+        var excludedPorts = CollectExcludedPrimaryPorts(topology);
         var peers = new ServerPeer[topology.Length];
         for (var i = 0; i < topology.Length; i++)
         {
-            var (nodeId, primaryUri) = topology[i];
-            var internalPort = GetOrAllocateInternalPort(nodeId, CollectExcludedPrimaryPorts(topology)).Port;
+            var node = topology[i];
+            var internalPort = GetOrAllocateInternalPort(node.NodeId, excludedPorts).Port;
             peers[i] = new ServerPeer
             {
-                NodeId = nodeId,
-                Uri = primaryUri,
-                InterNodeUri = CreateInterNodeUrl(primaryUri, internalPort),
+                NodeId = node.NodeId,
+                Uri = node.Uri,
+                InterNodeUri = CreateInterNodeUrl(node.Uri, internalPort),
             };
         }
 
@@ -222,10 +239,15 @@ public sealed class ClusterIdentity : IDisposable
             _ = _internalPorts.Remove(nodeId);
         }
 
+        // A fresh allocation must also avoid every other node's already-assigned internal port, but that
+        // union is local to this allocation: excludedPorts may be the same set shared across every node in
+        // BuildPeers' loop, and mutating it here would make an already-tracked node's own assigned port
+        // exclude itself on a later iteration, forcing an unnecessary reallocation.
+        var allocationExcluded = new HashSet<int>(excludedPorts);
         foreach (var held in _internalPorts.Values)
-            _ = excludedPorts.Add(held.Port);
+            _ = allocationExcluded.Add(held.Port);
 
-        var allocated = InternalPortPool.AllocateInternalPort(excludedPorts);
+        var allocated = InternalPortPool.AllocateInternalPort(allocationExcluded);
         _internalPorts[nodeId] = allocated;
         return allocated;
     }
@@ -256,6 +278,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -267,6 +290,7 @@ public sealed class ClusterIdentity : IDisposable
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return new NodeMtlsStartup(null, null, null);
 
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         _bundle ??= new TestBundle();
         var internalPort = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
         var (options, material) = await _bundle.CreateNodeAsync(cluster.NodeId, internalPort, cancellationToken).ConfigureAwait(false);

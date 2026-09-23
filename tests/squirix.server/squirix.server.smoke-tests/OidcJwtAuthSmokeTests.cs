@@ -21,9 +21,12 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcEnforcesOidcJwtAuth(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-oidc-auth", new SmokeNodeStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            "node-oidc-auth",
+            _ => new SmokeStartOptions { Security = authority.ToSecurityOptions(Audience) },
+            cancellationToken);
+        var uri = cluster["node-oidc-auth"].Uri;
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

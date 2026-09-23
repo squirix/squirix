@@ -79,8 +79,7 @@ internal sealed class BootstrapPlanner
                 },
                 cancellationToken).ConfigureAwait(false);
 
-            return existing != null ? new BootstrapPreparationResult(existing, true, store.ManifestPath)
-                : new BootstrapPreparationResult(candidate, false, store.ManifestPath);
+            return existing != null ? new BootstrapPreparationResult(existing, true, store.ManifestPath) : new BootstrapPreparationResult(candidate, false, store.ManifestPath);
         }
     }
 
@@ -131,11 +130,11 @@ internal sealed class BootstrapPlanner
         return true;
     }
 
-    private static bool PeersMatch(ServerPeer[] source, ServerPeer[] target)
+    private static bool PeersMatch(IReadOnlyList<ServerPeer> source, IReadOnlyList<ServerPeer> target)
     {
-        if (source.Length != target.Length)
+        if (source.Count != target.Count)
             return false;
-        for (var index = 0; index < source.Length; index++)
+        for (var index = 0; index < source.Count; index++)
         {
             var left = source[index];
             var right = target[index];

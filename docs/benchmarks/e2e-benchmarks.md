@@ -207,9 +207,8 @@ separate benchmark groups and avoid mixing external service setup cost into Squi
 ## Known Limitations For v0.1 Benchmarks
 
 - Cluster membership is static peer configuration.
-- Wire alloc and durability comparison benchmarks support `E2EBenchmarkDurabilityMode.Persistence`
-  (`UsePersistence()`). The default scenario matrix stays ephemeral-only unless
-  `SQUIRIX_E2E_BENCHMARK_DURABILITY=1`.
+- Wire alloc and durability comparison benchmarks support `DurabilityMode.Persistence`. The default scenario matrix
+  stays ephemeral-only unless `SQUIRIX_E2E_BENCHMARK_DURABILITY=1`.
 - The benchmark project is diagnostic and early-preview oriented; absolute numbers depend heavily on the local machine,
   OS, thermal state, and background load.
 - Remove-hit benchmarks include inline reset work to keep destructive operations valid across repeated BenchmarkDotNet

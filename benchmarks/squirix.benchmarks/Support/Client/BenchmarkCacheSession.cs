@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -31,22 +29,24 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
             await clientLease.DisposeAsync().ConfigureAwait(false);
     }
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to BenchmarkCacheSession which disposes the client lease.")]
     internal static async Task<BenchmarkCacheSession> OpenAsync(Uri uri, string cacheName, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(uri);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        var clientLease = await BenchmarkClientLease.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
+        BenchmarkClientLease? clientLease = null;
         try
         {
+            clientLease = await BenchmarkClientLease.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
             var cache = await clientLease.Client.GetCacheAsync<object?>(cacheName, cancellationToken).ConfigureAwait(false);
-            return new BenchmarkCacheSession(clientLease, cache);
+            var session = new BenchmarkCacheSession(clientLease, cache);
+            clientLease = null;
+            return session;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        finally
         {
-            await clientLease.DisposeAsync().ConfigureAwait(false);
-            throw;
+            if (clientLease != null)
+                await clientLease.DisposeAsync().ConfigureAwait(false);
         }
     }
 }

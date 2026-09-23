@@ -26,7 +26,7 @@ public static class ReplicaDoctor
     {
         var topology = Configurator.ToClusterConfig(options);
         var expected = TopologyFingerprint.CreateFromTopology(topology, MtlsOptionsResolver.ResolveFromEnvironment());
-        var groupIds = new string[topology.Peers.Length];
+        var groupIds = new string[topology.Peers.Count];
         for (var i = 0; i < groupIds.Length; i++)
             groupIds[i] = topology.Peers[i].NodeId;
 

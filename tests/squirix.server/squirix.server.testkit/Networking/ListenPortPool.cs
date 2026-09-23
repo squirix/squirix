@@ -48,7 +48,7 @@ public sealed class ListenPortPool : IDisposable
     /// <summary>Releases a held primary port on whichever pool owns it; ignores foreign ports.</summary>
     /// <param name="uri">The listen URI whose port to release.</param>
     /// <remarks>
-    /// TestNodeHostFactory serves tests and benchmarks from different pools without knowing which one
+    /// Node startup serves tests and benchmarks from different pools without knowing which one
     /// issued the URI. Pool ranges are disjoint per process, so at most one pool matches; anything else
     /// (hardcoded ports, other regions) is a no-op, exactly like <see cref="ReleasePort" /> for unheld ports.
     /// </remarks>
@@ -75,13 +75,13 @@ public sealed class ListenPortPool : IDisposable
 
     /// <summary>Reserves the next free port, holds it bound, and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c language="csharp">https://127.0.0.1:&lt;port&gt;</c>, held open until released via <see cref="ReleasePort" />.</returns>
-    public Uri HoldHttpUri() => new(FormatLoopbackHttps(_allocator.ReserveRange(1)[0]), UriKind.Absolute);
+    public Uri HoldHttpUri() => new(FormatLoopbackHttps(_allocator.ReserveOne()), UriKind.Absolute);
 
     /// <summary>Reserves the next free port and holds it bound until the returned handle is disposed of.</summary>
     /// <returns>A held loopback port; disposing it releases the hold for the real bind.</returns>
     public HeldPort HoldPort()
     {
-        var port = _allocator.ReserveRange(1)[0];
+        var port = _allocator.ReserveOne();
         return new HeldPort(this, port, new Uri(FormatLoopbackHttps(port), UriKind.Absolute));
     }
 

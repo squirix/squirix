@@ -10,15 +10,13 @@ namespace Squirix.Server.SmokeTests;
 
 /// <summary>Optional knobs for <see cref="SmokeTestBase" /> node startup.</summary>
 [Immutable]
-internal sealed class SmokeNodeStartOptions
+internal sealed class SmokeStartOptions : ClusterStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
     internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
-
-    internal TestNodeSecurityOptions? Security { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
 }

@@ -21,15 +21,9 @@ public sealed class MtlsTopologyTests
     [Test]
     public Task RemotePeerIdsExcludeLocalNode()
     {
-        var cluster = CreateCluster(
-            "node-a",
-            NodeAUrl,
-            [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
-                new ServerPeer { NodeId = "node-c", Uri = NodeCUrl },
-            ]);
-
+        var self = Peer("node-a", NodeAUrl);
+        ServerPeer[] peers = [self, Peer("node-b", NodeBUrl), Peer("node-c", NodeCUrl)];
+        var cluster = CreateCluster(self, peers);
         return SequenceAssert.EqualAsync(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster), StringComparer.Ordinal);
     }
 
@@ -37,14 +31,8 @@ public sealed class MtlsTopologyTests
     [Test]
     public async Task RemotePeersRequireInterNodeMtls()
     {
-        var cluster = CreateCluster(
-            "node-a",
-            NodeAUrl,
-            [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
-            ]);
-
+        var self = Peer("node-a", NodeAUrl);
+        var cluster = CreateCluster(self, [self, Peer("node-b", NodeBUrl)]);
         _ = await Assert.That(MtlsTopology.RequiresInterNodeMtls(cluster)).IsTrue();
     }
 
@@ -52,22 +40,16 @@ public sealed class MtlsTopologyTests
     [Test]
     public async Task StandaloneTopologyNeedsNoInterNodeMtls()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
-
+        var cluster = CreateCluster(Peer("node-a", NodeAUrl), [Peer("node-a", NodeAUrl)]);
         _ = await Assert.That(MtlsTopology.RequiresInterNodeMtls(cluster)).IsFalse();
     }
 
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer peer) => new(peer)
+    private static TopologyOptions CreateCluster(ServerPeer self, ServerPeer[] peers) => new(peers)
     {
         ClusterId = "test",
-        NodeId = nodeId,
-        Uri = uri,
+        NodeId = self.NodeId,
+        Uri = self.Uri,
     };
 
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
-    {
-        ClusterId = "test",
-        NodeId = nodeId,
-        Uri = uri,
-    };
+    private static ServerPeer Peer(string nodeId, Uri uri) => new() { NodeId = nodeId, Uri = uri };
 }

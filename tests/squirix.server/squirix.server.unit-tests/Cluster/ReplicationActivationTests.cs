@@ -2,13 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -25,12 +23,12 @@ public sealed class ReplicationActivationTests : ServerUnitTestBase
     [Test]
     public async Task RfOneDoesNotRegisterReplicationServices(CancellationToken cancellationToken)
     {
-        var uri = ListenPortPool.ServerUnitTests.HoldHttpUri();
-        await using var host = await TestNodeHostFactory.StartNodeAsync("n1", uri, cancellationToken);
-        var featureState = host.Services.GetRequiredService<FeatureState>();
+        await using var cluster = await TestNodeCluster.StartAsync("n1", cancellationToken: cancellationToken);
+        var node = cluster["n1"];
+        var featureState = node.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
-        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
-        _ = host.Services.GetRequiredService<PhysicalNodeRing>();
+        _ = node.GetRequiredService<IReplicaGroupLocator>();
+        _ = node.GetRequiredService<PhysicalNodeRing>();
     }
 
     /// <summary>RF=2 with both prerequisites present activates networking with no failures.</summary>

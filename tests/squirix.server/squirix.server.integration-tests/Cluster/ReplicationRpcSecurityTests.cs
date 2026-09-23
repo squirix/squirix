@@ -6,13 +6,13 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -28,16 +28,10 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task CertificateNodeIdMatchIsAccepted(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var options = cluster["node-a"].GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(cluster["node-a"].Uri.Scheme, cluster["node-a"].Uri.Host, options.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUri,
             new GrpcChannelOptions
@@ -61,16 +55,12 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task CertificateNodeIdMismatchIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var nodeA = cluster["node-a"];
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUri,
             new GrpcChannelOptions
@@ -93,14 +83,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task ExternalListenerRefusesReplicationRpc(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        using var channel = CreateGrpcChannel(uriA);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken).ResponseAsync);
 
@@ -112,16 +96,12 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task ForeignLeaderNodeIdIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var nodeA = cluster["node-a"];
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUri,
             new GrpcChannelOptions
@@ -145,20 +125,16 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task ForgedInternalHostHeaderIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var nodeA = cluster["node-a"];
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
+        var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
         var forgedHost = string.Create(CultureInfo.InvariantCulture, $"127.0.0.1:{mtlsOptions.InternalListenPort}");
 
         using var inner = LoopbackHttp.CreateHandler();
         using var handler = new ForgedHostHandler(forgedHost, inner);
         using var channel = GrpcChannel.ForAddress(
-            uriA,
+            nodeA.Uri,
             new GrpcChannelOptions
             {
                 HttpHandler = handler,
@@ -180,16 +156,12 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     [Test]
     public async Task MatchingLeaderNodeIdIsAccepted(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var nodeA = cluster["node-a"];
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { FoundationOnly = true }, cancellationToken);
-
-        var mtlsOptions = nodeA.Services.GetRequiredService<MtlsOptions>();
-        var interNodeUri = new UriBuilder(uriA.Scheme, uriA.Host, mtlsOptions.InternalListenPort).Uri;
-        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", uriB, "node-a", peers, cancellationToken);
+        var mtlsOptions = nodeA.GetRequiredService<MtlsOptions>();
+        var interNodeUri = new UriBuilder(nodeA.Uri.Scheme, nodeA.Uri.Host, mtlsOptions.InternalListenPort).Uri;
+        using var handler = await CreateTrustedInterNodeClientHandlerAsync("node-b", cluster["node-b"].Uri, "node-a", cluster.Peers, cancellationToken);
         using var channel = GrpcChannel.ForAddress(
             interNodeUri,
             new GrpcChannelOptions

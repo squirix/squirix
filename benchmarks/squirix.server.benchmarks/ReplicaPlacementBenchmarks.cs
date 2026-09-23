@@ -72,7 +72,7 @@ public class ReplicaPlacementBenchmarks
     public void Setup()
     {
         var topology = CreateTopology();
-        var nodes = new string[topology.Peers.Length];
+        var nodes = new string[topology.Peers.Count];
         for (var i = 0; i < nodes.Length; i++)
             nodes[i] = topology.Peers[i].NodeId;
 

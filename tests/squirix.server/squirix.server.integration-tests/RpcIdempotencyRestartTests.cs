@@ -30,7 +30,6 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     [Test]
     public async Task KillDuringCompactionReplaysInsert(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = ValidOperationId,
@@ -39,7 +38,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var node = await StartNodeAsync(uri, "node-c", new NodeStartOptions { UsePersistence = true, ExtraScope = CompactScope }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-c", new IntegrationStartOptions { UsePersistence = true, ExtraScope = CompactScope }, cancellationToken);
+        var node = cluster["node-c"];
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -54,13 +54,11 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         using var manifestStore = new Ledger(persistence);
         await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), cancellationToken);
 
-        var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(
-            restartUri,
+        await using var restartCluster = await StartClusterAsync(
             "node-c",
-            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = CompactScope },
+            new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = CompactScope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restarted.Uri))
+        using (var channel = CreateGrpcChannel(restartCluster["node-c"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -73,7 +71,6 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     [Test]
     public async Task KillRestartReplaysInsertIdempotency(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = ValidOperationId,
@@ -82,7 +79,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
+        var node = cluster["node-a"];
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -94,13 +92,11 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
         await JournalHasPutAndIdempotencyRecordsAsync(node.DataDir);
 
-        var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(
-            restartUri,
+        await using var restartCluster = await StartClusterAsync(
             "node-a",
-            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope },
+            new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restarted.Uri))
+        using (var channel = CreateGrpcChannel(restartCluster["node-a"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.TryAddEntryAsync(request, cancellationToken: cancellationToken);
@@ -116,7 +112,6 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     [Test]
     public async Task KillRestartReplaysSetIdempotency(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
         var request = new SetEntryAsyncRequest
         {
             OperationId = ValidOperationId,
@@ -125,7 +120,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             Entry = new NodeCacheEntry<object?> { Value = "set-value", Version = 1 }.MapToProto(),
         };
 
-        var node = await StartNodeAsync(uri, "node-b", new NodeStartOptions { UsePersistence = true, ExtraScope = SetScope }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-b", new IntegrationStartOptions { UsePersistence = true, ExtraScope = SetScope }, cancellationToken);
+        var node = cluster["node-b"];
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -136,13 +132,11 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
-        var restartUri = GetNextHttpUri();
-        await using var restarted = await StartNodeAsync(
-            restartUri,
+        await using var restartCluster = await StartClusterAsync(
             "node-b",
-            new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SetScope },
+            new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SetScope },
             cancellationToken);
-        using (var channel = CreateGrpcChannel(restarted.Uri))
+        using (var channel = CreateGrpcChannel(restartCluster["node-b"].Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var retry = await client.SetEntryAsync(request, cancellationToken: cancellationToken);

@@ -27,8 +27,8 @@ public sealed class ValidationTests : SmokeTestBase
             RejectThreshold = 6,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken));
+        var operation = StartClusterAsync("nodeA", _ => new SmokeStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<SmokeStartOptions>>(operation);
 
         _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
     }
@@ -45,8 +45,8 @@ public sealed class ValidationTests : SmokeTestBase
             CriticalPressureThresholdPercent = 50,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { MemoryPressureOptions = invalid }, cancellationToken));
+        var operation = StartClusterAsync("nodeA", _ => new SmokeStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<SmokeStartOptions>>(operation);
 
         _ = await Assert.That(ex.Message).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
     }

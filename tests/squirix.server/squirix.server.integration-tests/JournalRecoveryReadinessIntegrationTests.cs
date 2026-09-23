@@ -33,7 +33,8 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
         var restartUrl = GetNextHttpUri();
         var replayDelay = new RecoveryReplayDelaySignal();
-        await using var node = await StartDelayedReplayNodeAsync(restartUrl, replayDelay, cancellationToken);
+        await using var cluster = await StartDelayedReplayNodeAsync(restartUrl, replayDelay, cancellationToken);
+        var node = cluster[NodeId];
 
         try
         {
@@ -57,7 +58,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
         _ = await Assert.That(writtenDuringRecovery.Value).IsEqualTo("during-recovery");
     }
 
-    private async Task AssertBlockedUntilReplayAsync(TestNodeHost node, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)
+    private async Task AssertBlockedUntilReplayAsync(ITestNodeHost node, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)
     {
         _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
         _ = await Assert.That(await GetLiveStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.OK);
@@ -66,12 +67,8 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
         var beforeReplay = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, cancellationToken);
         _ = await Assert.That(beforeReplay.Found).IsFalse();
 
-        var writeTask = cache.SetEntryAsync(
-            IntegrationMutationOpIds.Default,
-            ServerCacheNames.DefaultNamespace,
-            DuringRecoveryKey,
-            BuildEntry("during-recovery"),
-            cancellationToken).AsTask();
+        var entry = BuildEntry("during-recovery");
+        var writeTask = cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, DuringRecoveryKey, entry, cancellationToken).AsTask();
         var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, cancellationToken));
         _ = await Assert.That(writeStarted).IsNotSameReferenceAs(writeTask);
 
@@ -94,22 +91,21 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
 
     private async Task SeedPersistedEntryAsync(CancellationToken cancellationToken)
     {
-        var httpUri = GetNextHttpUri();
-        await using var seedNode = await StartNodeAsync(httpUri, NodeId, new NodeStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
-        var seedCache = GetCache(seedNode);
+        await using var seedCluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true, ExtraScope = Scope }, cancellationToken);
+        var seedCache = GetCache(seedCluster[NodeId]);
         await seedCache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), cancellationToken);
     }
 
-    private ValueTask<TestNodeHost> StartDelayedReplayNodeAsync(Uri restartUrl, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken) => StartNodeAsync(
-        restartUrl,
-        NodeId,
-        new NodeStartOptions
+    private ValueTask<TestCluster<IntegrationStartOptions>> StartDelayedReplayNodeAsync(Uri restartUrl, RecoveryReplayDelaySignal replayDelay, CancellationToken cancellationToken)
+    {
+        var options = new IntegrationStartOptions
         {
             ServicesConfigure = RecoveryReplayTestRegistration.CreateDelayedReplayConfigure(replayDelay),
             UsePersistence = true,
             CleanTestDir = false,
             ExtraScope = Scope,
             WaitForRecovery = false,
-        },
-        cancellationToken);
+        };
+        return StartClusterAsync(new ClusterNode(NodeId, restartUrl), options, cancellationToken);
+    }
 }

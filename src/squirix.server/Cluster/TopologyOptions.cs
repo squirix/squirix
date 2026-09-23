@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using Squirix.Server.Attributes;
 
@@ -7,16 +8,20 @@ namespace Squirix.Server.Cluster;
 [Immutable]
 internal sealed class TopologyOptions
 {
+    private readonly ServerPeer[] _peers;
+
     [SetsRequiredMembers]
-    internal TopologyOptions(ServerPeer[] peers)
+    internal TopologyOptions(IReadOnlyList<ServerPeer> peers)
     {
-        Peers = peers;
+        // Always snapshot into a private array so later mutation of the caller's collection (including
+        // a caller-held ServerPeer[]) cannot change this instance and the [Immutable] guarantee holds.
+        _peers = [.. peers];
     }
 
     [SetsRequiredMembers]
     internal TopologyOptions(ServerPeer peer)
     {
-        Peers = [peer];
+        _peers = [peer];
     }
 
     internal required string ClusterId { get; init; } = "cluster";
@@ -32,7 +37,7 @@ internal sealed class TopologyOptions
 
     internal required string NodeId { get; init; } = "node";
 
-    internal ServerPeer[] Peers { get; }
+    internal IReadOnlyList<ServerPeer> Peers => _peers;
 
     /// <summary>Gets the configured replica factor including the original owner (default 1).</summary>
     internal int ReplicaCount { get; init; } = 1;

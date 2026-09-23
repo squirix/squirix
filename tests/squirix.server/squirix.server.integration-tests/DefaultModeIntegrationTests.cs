@@ -20,7 +20,7 @@ public sealed class DefaultModeIntegrationTests : NodeIntegrationTestBase
     [ClassDataSource<IntegrationSingleNodeFixture>(Shared = SharedType.PerClass)]
     public required IntegrationSingleNodeFixture Fixture { get; init; }
 
-    private TestNodeHost Node => Fixture.Node;
+    private ITestNodeHost Node => Fixture.Node;
 
     /// <summary>Ensures cache operations work in the default ephemeral mode.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -41,6 +41,6 @@ public sealed class DefaultModeIntegrationTests : NodeIntegrationTestBase
     {
         _ = await Assert.That(Node.PersistenceEnabled).IsFalse();
         _ = await Assert.That(string.IsNullOrWhiteSpace(Node.DataDir)).IsTrue();
-        _ = await Assert.That(Node.Services.GetService(typeof(PersistenceOptions))).IsNull();
+        _ = await Assert.That(Node.GetService<PersistenceOptions>()).IsNull();
     }
 }

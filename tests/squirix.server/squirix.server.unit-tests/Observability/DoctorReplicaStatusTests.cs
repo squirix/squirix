@@ -207,7 +207,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
     private static async Task<ReplicaDoctorReport> BuildReportAsync(SquirixServerOptions options, MtlsOptions mtls, string dir, CancellationToken cancellationToken)
     {
         var topology = Configurator.ToClusterConfig(options);
-        var groupIds = new string[topology.Peers.Length];
+        var groupIds = new string[topology.Peers.Count];
         for (var i = 0; i < groupIds.Length; i++)
             groupIds[i] = topology.Peers[i].NodeId;
 

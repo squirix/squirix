@@ -23,7 +23,7 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     public async Task CleanupAsync()
     {
         await StopSharedCacheAsync().ConfigureAwait(false);
-        await StopNodeAsync().ConfigureAwait(false);
+        await StopClusterAsync().ConfigureAwait(false);
     }
 
     /// <summary>Inserts near-limit string values through the public client SDK.</summary>
@@ -49,7 +49,7 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        await StartNodeAsync().ConfigureAwait(false);
+        await StartClusterAsync().ConfigureAwait(false);
         await StartSharedCacheAsync("bench-entry-payload").ConfigureAwait(false);
         _smallValue = new string('x', 256);
         _largeValue = await EntryLimitKit.CreateNearLimitStringValueAsync().ConfigureAwait(false);

@@ -76,7 +76,7 @@ internal static class NodeEndpointServiceRegistration
         public Task<HealthReadyDetailsSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
         {
             var compaction = new HealthCompactionSnapshot("Idle", null, false);
-            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
+            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
@@ -211,7 +211,7 @@ internal static class NodeEndpointServiceRegistration
                 _ => throw new InvalidOperationException("Unsupported compaction state."),
             };
             var compaction = new HealthCompactionSnapshot(compactionState, _compaction.LastRunUtc, _compaction.IsInFlight);
-            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
+            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var memoryPressure = BuildMemoryPressureSnapshot();
