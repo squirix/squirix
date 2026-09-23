@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -195,17 +194,27 @@ public sealed class ClusterIdentity : IDisposable
         return new NodeMtlsStartup(options, material, new HandlerFactory(clientCertificate, material.TrustAnchor!).Create);
     }
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "Ownership of the created material transfers to the caller through the returned carrier and is disposed with the node host.")]
     private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedServerCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
         var serverCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(untrustedServerCertificate));
         var trustAnchor = material.TrustAnchor!;
-        return new NodeMtlsStartup(options, MtlsCertificate.Create(serverCertificate, trustAnchor), null);
+
+        // Only the node certificate is replaced by the untrusted one below; release it since trustAnchor stays in use.
+        material.NodeCertificate?.Dispose();
+        MtlsCertificate? certificate = null;
+        try
+        {
+            certificate = MtlsCertificate.Create(serverCertificate, trustAnchor);
+            var startup = new NodeMtlsStartup(options, certificate, null);
+            certificate = null;
+            return startup;
+        }
+        finally
+        {
+            (certificate as IDisposable)?.Dispose();
+        }
     }
 
     private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificate material)
@@ -279,10 +288,6 @@ public sealed class ClusterIdentity : IDisposable
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
     /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "MtlsCertificate created for the UntrustedInboundServer profile transfers to the caller through the returned carrier and is disposed with the node host.")]
     private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(TopologyOptions cluster, TestNodeProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);

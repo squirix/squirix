@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -46,7 +45,6 @@ public class ExpirationBenchmarks : BenchmarkBase
 
     /// <summary>Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.</summary>
     [IterationSetup(Target = nameof(RemoveExpiryClearsExpirationAsync))]
-    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
     public void SeedRemoveExpirationIteration()
     {
         var offset = Interlocked.Add(ref _removeExpirationOffset, DestructiveExpirationBatchSize);

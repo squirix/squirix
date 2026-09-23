@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,10 +44,6 @@ internal static class TestNodeCluster
         CancellationToken cancellationToken = default,
         [CallerMemberName] string? name = null) => StartCoreAsync(name, replicaCount, persistence, cancellationToken, nodeA, nodeB, nodeC);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "identity transfers to StartHeldAsync at once; ReadOnlySpan<T> blocks a try/finally here.")]
     private static ValueTask<TestCluster<ClusterStartOptions>> StartCoreAsync(
         string? name,
         int replicaCount,
@@ -61,12 +56,25 @@ internal static class TestNodeCluster
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeIds[i]);
 
         var held = ListenPortPool.ServerUnitTests.HoldPorts(nodeIds.Length);
-        var identity = nodeIds.Length > 1 ? new ClusterIdentity() : null;
-        var topology = new ClusterNode[nodeIds.Length];
-        for (var i = 0; i < nodeIds.Length; i++)
-            topology[i] = new ClusterNode(nodeIds[i], held[i].HttpUri);
+        ClusterIdentity? identity = null;
+        ClusterNode[] topology;
+        ClusterIdentity? startIdentity;
+        try
+        {
+            identity = nodeIds.Length > 1 ? new ClusterIdentity() : null;
+            topology = new ClusterNode[nodeIds.Length];
+            for (var i = 0; i < nodeIds.Length; i++)
+                topology[i] = new ClusterNode(nodeIds[i], held[i].HttpUri);
 
-        return StartHeldAsync(replicaCount, identity, persistence ? name : null, held, topology, cancellationToken);
+            startIdentity = identity;
+            identity = null;
+        }
+        finally
+        {
+            identity?.Dispose();
+        }
+
+        return StartHeldAsync(replicaCount, startIdentity, persistence ? name : null, held, topology, cancellationToken);
     }
 
     private static async ValueTask<TestCluster<ClusterStartOptions>> StartHeldAsync(

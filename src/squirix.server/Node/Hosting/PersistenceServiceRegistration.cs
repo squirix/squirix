@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,7 +27,6 @@ internal static class PersistenceServiceRegistration
 {
     private static readonly string[] ReadyHealthCheckTags = ["ready"];
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The PersistenceRuntime singleton is owned by the DI container.")]
     internal static async Task<IServiceCollection> AddPersistenceServicesAsync(
         this IServiceCollection services,
         PersistenceOptions options,
@@ -42,8 +40,19 @@ internal static class PersistenceServiceRegistration
         var failureMetrics = new ManifestRetentionFailureMetrics(meter);
         _ = services.AddSingleton(failureMetrics);
 
-        var runtime = await PersistenceRuntime.CreateAsync(options, failureMetrics, cancellationToken).ConfigureAwait(false);
-        _ = services.AddSingleton<PersistenceRuntime>(_ => runtime);
+        PersistenceRuntime? owned = null;
+        try
+        {
+            owned = await PersistenceRuntime.CreateAsync(options, failureMetrics, cancellationToken).ConfigureAwait(false);
+            var runtime = owned;
+            _ = services.AddSingleton<PersistenceRuntime>(_ => runtime);
+            owned = null;
+        }
+        finally
+        {
+            if (owned != null)
+                await owned.DisposeAsync().ConfigureAwait(false);
+        }
 
         RegisterPersistenceHostedServices(services, waitForRecovery);
         RegisterPersistenceRuntime(services);

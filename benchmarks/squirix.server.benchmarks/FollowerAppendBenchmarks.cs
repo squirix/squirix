@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -10,7 +9,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Durable ordered append and committed-prefix recovery benchmarks for the replica-group follower log.</summary>
-[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "BenchmarkDotNet lifecycle manages disposal via GlobalCleanup.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class FollowerAppendBenchmarks

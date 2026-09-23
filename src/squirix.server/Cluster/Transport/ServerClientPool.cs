@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -96,26 +95,51 @@ internal sealed class ServerClientPool : IServerClientPool
 
     public IServerCallPolicy PolicyFor(string nodeId) => _policies[nodeId];
 
-    [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     private static GrpcChannelOptions CreateChannelOptions(
         string nodeId,
         bool interNodeMtlsEnabled,
         MtlsCertificate? certificate,
         Func<string, HttpMessageHandler>? peerHandlerFactory)
     {
-        var peerHandler = interNodeMtlsEnabled switch
+        HttpMessageHandler? ownedHandler = null;
+        try
         {
-            true when certificate is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport."),
-            true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(certificate, nodeId),
-            _ => null,
-        };
+            HttpMessageHandler peerHandler;
+            if (interNodeMtlsEnabled)
+            {
+                if (certificate is not { Enabled: true })
+                    throw new InvalidOperationException("Cluster mTLS material must be loaded for internode transport.");
 
-        return new GrpcChannelOptions
+                var factoryHandler = peerHandlerFactory?.Invoke(nodeId);
+                if (factoryHandler != null)
+                {
+                    peerHandler = factoryHandler;
+                }
+                else
+                {
+                    ownedHandler = ServerGrpcEndpoints.CreateMtlsHandler(certificate, nodeId);
+                    peerHandler = ownedHandler;
+                }
+            }
+            else
+            {
+                ownedHandler = ServerGrpcEndpoints.CreateChannelHandler();
+                peerHandler = ownedHandler;
+            }
+
+            var options = new GrpcChannelOptions
+            {
+                HttpHandler = peerHandler,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
+            };
+            ownedHandler = null;
+            return options;
+        }
+        finally
         {
-            HttpHandler = peerHandler ?? ServerGrpcEndpoints.CreateChannelHandler(),
-            MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-            MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-        };
+            ownedHandler?.Dispose();
+        }
     }
 
     private void BeginDrain()

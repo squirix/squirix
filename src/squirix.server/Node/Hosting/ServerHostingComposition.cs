@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Net.Http;
 using System.Threading;
@@ -192,10 +191,6 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The Meter instance is transferred to the DI container via the factory overload, which disposes it on host shutdown.")]
     private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -223,8 +218,19 @@ internal static class ServerHostingComposition
         // resolve this same singleton. It is registered through the factory overload, so the DI container takes
         // ownership and disposes of it when the owning host shuts down: AddSingleton(instance) does not transfer
         // disposal ownership in Microsoft DI, which would leak the meter.
-        var serverMeter = new Meter("Squirix");
-        _ = builder.Services.AddSingleton(_ => serverMeter);
+        Meter? ownedMeter = null;
+        Meter serverMeter;
+        try
+        {
+            ownedMeter = new Meter("Squirix");
+            serverMeter = ownedMeter;
+            _ = builder.Services.AddSingleton(_ => serverMeter);
+            ownedMeter = null;
+        }
+        finally
+        {
+            ownedMeter?.Dispose();
+        }
 
         _ = builder.Services.AddSquirixRuntimeServices();
         AddSquirixClusterStack(builder.Services, cluster, args);
@@ -337,10 +343,6 @@ internal static class ServerHostingComposition
             await AddReplicaGroupRegistryAsync(services, cluster, persistence, mtlsOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    [SuppressMessage(
-        "Microsoft.Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
         WebApplicationBuilder builder,
         TopologyOptions cluster,
@@ -353,8 +355,8 @@ internal static class ServerHostingComposition
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
-        var certificate = args.Certificate ?? MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
-        KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, certificate);
+
+        var certificate = KestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, args.Certificate, requiresInterNodeMtls);
         return (mtlsOptions, certificate);
     }
 
@@ -367,20 +369,60 @@ internal static class ServerHostingComposition
     /// </summary>
     private static class KestrelConfiguration
     {
-        /// <summary>Configures Kestrel listeners: primary HTTPS for external clients and optional cluster/internal mTLS.</summary>
+        /// <summary>Resolves the cluster mTLS certificate material and configures Kestrel listeners from it.</summary>
         /// <param name="builder">The web application builder.</param>
         /// <param name="uri">The primary HTTPS listen URI.</param>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="mtlsOptions">Cluster mTLS options.</param>
-        /// <param name="certificate">Loaded cluster mTLS certificate material.</param>
-        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate certificate)
+        /// <param name="suppliedCertificate">Caller-supplied certificate material, when the caller owns loading it; otherwise <see langword="null" /> to load it here.</param>
+        /// <param name="requiresInterNodeMtls">Whether internode mTLS transport is required for this topology.</param>
+        /// <returns>The certificate material Kestrel was configured with.</returns>
+        internal static MtlsCertificate ConfigureKestrel(
+            WebApplicationBuilder builder,
+            Uri uri,
+            TopologyOptions cluster,
+            MtlsOptions mtlsOptions,
+            MtlsCertificate? suppliedCertificate,
+            bool requiresInterNodeMtls)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(uri);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
-            ArgumentNullException.ThrowIfNull(certificate);
 
+            if (suppliedCertificate != null)
+            {
+                ConfigureKestrelListeners(builder, uri, cluster, mtlsOptions, suppliedCertificate);
+                return suppliedCertificate;
+            }
+
+            MtlsCertificate? loaded = null;
+            try
+            {
+                loaded = MtlsCertificate.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
+                ConfigureKestrelListeners(builder, uri, cluster, mtlsOptions, loaded);
+                var certificate = loaded;
+                loaded = null;
+                return certificate;
+            }
+            finally
+            {
+                (loaded as IDisposable)?.Dispose();
+            }
+        }
+
+        /// <summary>Ensures the node URI uses HTTPS gRPC transport.</summary>
+        /// <param name="cluster">Cluster configuration including the node URI.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the node URI uses plaintext HTTP.</exception>
+        internal static void EnsureHttpsTransport(TopologyOptions cluster)
+        {
+            ArgumentNullException.ThrowIfNull(cluster);
+            if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
+        }
+
+        private static void ConfigureKestrelListeners(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificate certificate)
+        {
             var mtlsEnabled = certificate.Enabled;
             var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
             var isLoopbackHost = ExternalAccessSecurity.IsLoopbackHost(uri.Host);
@@ -402,16 +444,6 @@ internal static class ServerHostingComposition
                 else
                     kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
             });
-        }
-
-        /// <summary>Ensures the node URI uses HTTPS gRPC transport.</summary>
-        /// <param name="cluster">Cluster configuration including the node URI.</param>
-        /// <exception cref="InvalidOperationException">Thrown when the node URI uses plaintext HTTP.</exception>
-        internal static void EnsureHttpsTransport(TopologyOptions cluster)
-        {
-            ArgumentNullException.ThrowIfNull(cluster);
-            if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext HTTP is not supported.");
         }
 
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
