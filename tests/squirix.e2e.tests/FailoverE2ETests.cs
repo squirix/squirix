@@ -10,6 +10,7 @@ using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Exceptions;
 
 namespace Squirix.E2ETests;
 
@@ -117,6 +118,7 @@ public sealed class FailoverE2ETests : EndToEndTestBase
     {
         throw new SkipTestException("Automatic failover is not yet wired into production; see #646.");
 
+#pragma warning disable CS0162 // Unreachable code: intentional, kept ready to run once #646 lands.
         await using var cluster = await HostedCluster.StartThreeNodeAsync(
             nameof(MajorityRecoversWithinFiveSeconds),
             new MultiNodeStartOptions { ReplicaCount = 3 },
@@ -141,5 +143,6 @@ public sealed class FailoverE2ETests : EndToEndTestBase
         await cache.SetAsync(key, "after-loss", cancellationToken: linked.Token);
         _ = await Assert.That((await cache.GetValueAsync(key, linked.Token)).Value).IsEqualTo("after-loss");
         _ = await Assert.That(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5)).IsTrue();
+#pragma warning restore CS0162
     }
 }
