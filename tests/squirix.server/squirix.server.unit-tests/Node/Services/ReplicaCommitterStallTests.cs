@@ -23,6 +23,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>An RF=2 group owner whose memory apply fails or stalls after the majority acknowledged the write.</summary>
 public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 {
+    private const int CommitUnknownEventId = 4006;
     private const int LeakedOnShutdownEventId = 4005;
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
@@ -44,8 +45,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     public async Task ReplicatedUnknownMapsToStableContract(CancellationToken cancellationToken)
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
+        var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local);
+        await using var committer = CreateCommitter(registry, local, log);
         var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, committer));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
@@ -58,6 +60,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = await Assert.That(transport.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(remote.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(remote.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.UnknownCause?.InnerException?.Message).IsEqualTo("Injected memory apply failure after the majority.");
     }
 
     /// <summary>
@@ -167,11 +171,12 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         private static RpcException Unknown() => ServerOpContract.CommitOutcomeUnknown().ToRpcException();
     }
 
-    /// <summary>Logger double counting the committer's shutdown leak event.</summary>
+    /// <summary>Logger double counting the committer's shutdown leak event and capturing its commit-unknown warning.</summary>
     [ThreadSafe]
     private sealed class LeakRecordingLogger : ILogger
     {
         private readonly ConcurrentQueue<EventId> _events = new();
+        private readonly ConcurrentQueue<(LogLevel Level, Exception? Cause)> _unknowns = new();
 
         internal int LeakCount
         {
@@ -188,13 +193,23 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             }
         }
 
+        internal Exception? UnknownCause => _unknowns.TryPeek(out var unknown) ? unknown.Cause : null;
+
+        internal LogLevel? UnknownLevel => _unknowns.TryPeek(out var unknown) ? unknown.Level : null;
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
             _events.Enqueue(eventId);
+            if (eventId.Id != CommitUnknownEventId)
+                return;
+
+            _unknowns.Enqueue((logLevel, exception));
+        }
     }
 
     /// <summary>Local cache double whose memory apply of a replicated write fails, or stalls ignoring cancellation until released.</summary>

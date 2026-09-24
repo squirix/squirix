@@ -334,7 +334,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             // A durable majority may hold the entry: keep the reservation and sequencing untouched and
             // report the stable contract (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop
-            // instead of retrying under a new identity.
+            // instead of retrying under a new identity. The original cause is logged before it is dropped.
+            LogManager.ReplicaCommitOutcomeUnknown(Log, error);
             throw ServerOpContract.CommitOutcomeUnknown();
         }
         catch

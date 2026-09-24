@@ -23,4 +23,10 @@ internal static partial class LogManager
         Level = LogLevel.Error,
         Message = "Replica group committer did not drain within the shutdown budget of {Budget}; the in-flight commit keeps its coordinator and gate, which are leaked")]
     internal static partial void ReplicaCommitterLeakedOnShutdownTimeout(ILogger logger, TimeSpan budget);
+
+    [LoggerMessage(
+        EventId = 4006,
+        Level = LogLevel.Warning,
+        Message = "Replica commit outcome is unknown after the local append; the cause is reported here and the caller gets COMMIT_OUTCOME_UNKNOWN")]
+    internal static partial void ReplicaCommitOutcomeUnknown(ILogger logger, Exception exception);
 }
