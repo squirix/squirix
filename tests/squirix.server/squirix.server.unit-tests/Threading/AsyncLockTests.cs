@@ -213,7 +213,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         state.Lock.Dispose();
 
         _ = await Assert.That(state.Violations).IsEqualTo(0);
-        _ = await Assert.That(state.Settled).IsEqualTo(StressWorkers * StressOperationsPerWorker);
+        _ = await Assert.That(state.CountSettled()).IsEqualTo(StressWorkers * StressOperationsPerWorker);
     }
 
     private static async Task RunStressWorkerAsync(StressState state, CancellationToken token)
@@ -257,9 +257,9 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
         internal AsyncLock Lock { get; }
 
-        internal int Settled => Volatile.Read(ref _acquired) + Volatile.Read(ref _refused);
-
         internal int Violations => Volatile.Read(ref _violations);
+
+        internal int CountSettled() => Volatile.Read(ref _acquired) + Volatile.Read(ref _refused);
 
         internal void Enter()
         {

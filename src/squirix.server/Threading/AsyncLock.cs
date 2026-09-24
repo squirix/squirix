@@ -192,7 +192,7 @@ internal sealed class AsyncLock : IDisposable
 
         internal Waiter? Prev { get; set; }
 
-        internal CancellationTokenRegistration Registration { get; set; }
+        internal CancellationTokenRegistration Registration { private get; set; }
 
         /// <summary>Marks the node as out of the queue and drops its cancellation registration without waiting for a running callback.</summary>
         internal void Detach()
