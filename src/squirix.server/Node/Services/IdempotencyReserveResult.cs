@@ -9,6 +9,6 @@ internal enum IdempotencyReserveResult
     /// <summary>A completed outcome is already stored; the caller should replay it.</summary>
     AlreadyCompleted = 1,
 
-    /// <summary>Execution for this operation is already in flight; the outcome is unknown to this caller.</summary>
+    /// <summary>Execution for this operation already started; the caller joins it when it is in flight in this process, otherwise the outcome is unknown.</summary>
     AlreadyStarted = 2,
 }

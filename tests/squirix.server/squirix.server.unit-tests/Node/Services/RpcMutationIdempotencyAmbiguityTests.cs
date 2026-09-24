@@ -26,6 +26,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
+    private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(10);
+
     private readonly Meter _testMeter = new("test");
 
     /// <summary>A completed reservation replays without executing the handler.</summary>
@@ -148,6 +150,90 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
 
         _ = await Assert.That(response.Added).IsTrue();
+    }
+
+    /// <summary>A retry joined to an execution that fails before stamping re-acquires the released intent and executes itself.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JoinerExecutesAfterReleasedIntent(CancellationToken cancellationToken)
+    {
+        var store = CreateStore();
+        var coordinator = new RpcMutationIdempotencyCoordinator(store);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var flag = new ExecFlag();
+
+        var original = coordinator.ExecuteAsync<TaskCompletionSource, TryAddAsyncResponse>(
+            ValidOperationId,
+            "fp-1",
+            gate,
+            static async (g, _) =>
+            {
+                await g.Task.ConfigureAwait(false);
+                throw new InvalidOperationException("boom");
+            },
+            cancellationToken);
+        var retry = coordinator.ExecuteAsync(
+            ValidOperationId,
+            "fp-1",
+            flag,
+            static (state, _) =>
+            {
+                state.Value = true;
+                return Task.FromResult(new TryAddAsyncResponse { Added = true });
+            },
+            cancellationToken);
+        var joinedWhileInFlight = !retry.IsCompleted;
+        gate.SetResult();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(original);
+        var response = await retry.WaitAsync(JoinTimeout, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(joinedWhileInFlight).IsTrue();
+        _ = await Assert.That(response.Added).IsTrue();
+        _ = await Assert.That(flag.Value).IsTrue();
+        _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
+    }
+
+    /// <summary>A retry joined to an execution that fails after stamping surfaces the unknown outcome and never executes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JoinerSeesUnknownAfterStampedFailure(CancellationToken cancellationToken)
+    {
+        var store = CreateStore();
+        await using var journal = new OutcomeFailingJournal();
+        var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var flag = new ExecFlag();
+
+        var original = coordinator.ExecuteAsync<(IJournalCoordinator Journal, TaskCompletionSource Gate), TryAddAsyncResponse>(
+            ValidOperationId,
+            "fp-1",
+            (Journal: journal, Gate: gate),
+            static async (state, cancellationToken) =>
+            {
+                await state.Journal.AppendPutAsync(CacheKey.Default("k"), ReadOnlyMemory<byte>.Empty, cancellationToken).ConfigureAwait(false);
+                await state.Gate.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                return new TryAddAsyncResponse { Added = true };
+            },
+            cancellationToken);
+        var retry = coordinator.ExecuteAsync(
+            ValidOperationId,
+            "fp-1",
+            flag,
+            static (state, _) =>
+            {
+                state.Value = true;
+                return Task.FromResult(new TryAddAsyncResponse { Added = false });
+            },
+            cancellationToken);
+        var joinedWhileInFlight = !retry.IsCompleted;
+        gate.SetResult();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(original);
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(retry.WaitAsync(JoinTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(joinedWhileInFlight).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
+        _ = await Assert.That(flag.Value).IsFalse();
+        _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
     }
 
     /// <summary>An outcome-append failure leaves no completed record: retry surfaces unknown.</summary>

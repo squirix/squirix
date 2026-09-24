@@ -44,24 +44,39 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         if (_journal != null)
             await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
-        if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
-            return cached ?? ReplayGuard.NotCached<TResponse>();
-
-        // Write-ahead intent: record that execution is starting before running the handler so a retry after a
-        // crash, or a concurrent duplicate, never re-executes a mutation whose outcome was lost.
-        var reservation = _store.ReserveIntent(operationId, fingerprint);
-        return reservation switch
+        // Each pass replays, executes, or joins the execution in flight for this id and then re-reads the record: a joined
+        // execution that failed before stamping released its intent, so the next pass may acquire it.
+        while (true)
         {
-            // A concurrent call completed between the replay probe and the reservation; replay its outcome.
-            IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
-                : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
-            IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false),
+            if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
+                return cached ?? ReplayGuard.NotCached<TResponse>();
 
-            // Execution is already in flight elsewhere (or an unknown value arrived): the outcome is unknown
-            // to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
-            IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-            _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-        };
+            // Write-ahead intent: record that execution is starting before running the handler so a retry after a
+            // crash, or a concurrent duplicate, never re-executes a mutation whose outcome was lost.
+            var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reservation = _store.ReserveIntent(operationId, fingerprint, execution, out var inFlight);
+
+            // Execution is in flight in this process: wait for it under this caller's own deadline. The completion never
+            // faults; it only signals that the record is settled.
+            if (reservation == IdempotencyReserveResult.AlreadyStarted && inFlight != null)
+            {
+                await inFlight.WaitAsync(cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            return reservation switch
+            {
+                // A concurrent call completed between the replay probe and the reservation; replay its outcome.
+                IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
+                    : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
+                IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false),
+
+                // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown
+                // value: the outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+                IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
+                _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
+            };
+        }
     }
 
     private async Task<TResponse> ExecuteAcquiredAsync<TState, TResponse>(
@@ -69,37 +84,70 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         string fingerprint,
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
+        TaskCompletionSource execution,
         CancellationToken cancellationToken)
         where TResponse : class, IMessage<TResponse>, new()
     {
-        if (_journal != null)
+        try
         {
-            using var scope = RpcMutationIdempotencyExecutionScope.Begin(operationId, fingerprint, _journal);
-            try
-            {
-                var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-                var responseBytes = await scope.AppendOutcomeAsync(durableResponse, cancellationToken).ConfigureAwait(false);
-                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-
-                // The in-memory outcome is recorded only after the outcome frame is appended and
-                // durability is confirmed: a failure above must leave no Completed record so that
-                // a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of replaying an unconfirmed outcome.
-                _store.RecordSuccess(operationId, fingerprint, responseBytes);
-                return durableResponse;
-            }
-            catch
-            {
-                // Release the reservation only when no mutation frame was stamped in this scope. Once a
-                // stamped Put/Remove frame is enqueued, the mutation may already be durable: the Started
-                // record must survive, so a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of re-executing.
-                // The scope is still active here, so the ambient frame reliably reports whether stamping happened.
-                // Reserved intents reconstructed from journal frames carry no fingerprint and are never released here.
-                if (!RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope))
-                    _store.ReleaseIntent(operationId, fingerprint);
-                throw;
-            }
+            return _journal != null
+                ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false)
+                : await ExecuteInMemoryAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false);
         }
+        finally
+        {
+            // After the outcome is recorded or the intent released, so joined retries re-read a settled record.
+            _store.CompleteExecution(operationId, execution);
+        }
+    }
 
+    private async Task<TResponse> ExecuteDurableAsync<TState, TResponse>(
+        IJournalCoordinator journal,
+        string operationId,
+        string fingerprint,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : class, IMessage<TResponse>, new()
+    {
+        using var scope = RpcMutationIdempotencyExecutionScope.Begin(operationId, fingerprint, journal);
+        try
+        {
+            var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+
+            // A stamped mutation frame is the decision point: from here only a journal failure or shutdown may stop the
+            // outcome from being recorded, never the caller, so a retry replays it instead of seeing COMMIT_OUTCOME_UNKNOWN.
+            var outcomeToken = RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope) ? CancellationToken.None : cancellationToken;
+            var responseBytes = await scope.AppendOutcomeAsync(durableResponse, outcomeToken).ConfigureAwait(false);
+            await journal.AwaitDurabilityCommitAsync(outcomeToken).ConfigureAwait(false);
+
+            // The in-memory outcome is recorded only after the outcome frame is appended and
+            // durability is confirmed: a failure above must leave no Completed record so that
+            // a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of replaying an unconfirmed outcome.
+            _store.RecordSuccess(operationId, fingerprint, responseBytes);
+            return durableResponse;
+        }
+        catch
+        {
+            // Release the reservation only when no mutation frame was stamped in this scope. Once a
+            // stamped Put/Remove frame is enqueued, the mutation may already be durable: the Started
+            // record must survive, so a retry surfaces COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+            // The scope is still active here, so the ambient frame reliably reports whether stamping happened.
+            // Reserved intents reconstructed from journal frames carry no fingerprint and are never released here.
+            if (!RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope))
+                _store.ReleaseIntent(operationId, fingerprint);
+            throw;
+        }
+    }
+
+    private async Task<TResponse> ExecuteInMemoryAsync<TState, TResponse>(
+        string operationId,
+        string fingerprint,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : class, IMessage<TResponse>, new()
+    {
         try
         {
             var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);

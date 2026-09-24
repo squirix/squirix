@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
@@ -16,6 +17,12 @@ namespace Squirix.Server.Node.Services;
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 {
     private readonly Lock _capacityGate = new();
+
+    /// <summary>
+    /// Executions in flight for Started reservations acquired in this process, keyed like the records. A retry joins the execution
+    /// instead of reporting an unknown outcome; intents rebuilt from the journal never have an entry here.
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource> _executions = [with(StringComparer.Ordinal)];
     private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
     private readonly IdempotencyOptions _options;
@@ -30,6 +37,15 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _options = options;
         _nodeId = nodeId;
         _metrics = metrics;
+    }
+
+    internal int ExecutionCount
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _executions.Count;
+        }
     }
 
     internal int RecordCount
@@ -78,11 +94,27 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
     /// <returns>The reservation outcome for this caller.</returns>
     /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
-    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint)
+    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint) => ReserveIntent(operationId, fingerprint, null, out _);
+
+    /// <summary>Records a write-ahead intent and tracks its execution so a retry can join it instead of reporting an unknown outcome.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="execution">
+    /// Completion owned by the caller, registered when the reservation is acquired; the caller must pass it to
+    /// <see cref="CompleteExecution" /> once the outcome is recorded or the intent released. <see langword="null" /> tracks nothing.
+    /// </param>
+    /// <param name="inFlight">
+    /// For <see cref="IdempotencyReserveResult.AlreadyStarted" />, the execution of this process that owns the reservation;
+    /// <see langword="null" /> when there is none to join (an intent rebuilt from the journal, or one whose execution already ended).
+    /// </param>
+    /// <returns>The reservation outcome for this caller.</returns>
+    /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
+    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint, TaskCompletionSource? execution, out Task? inFlight)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
+        inFlight = null;
         var utcNow = DateTime.UtcNow;
         lock (_capacityGate)
         {
@@ -91,12 +123,41 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (_records.TryGetValue(operationId, out var existing))
             {
                 ThrowIfFingerprintMismatch(existing, fingerprint);
-                return existing.State == IdempotencyRecordState.Completed ? IdempotencyReserveResult.AlreadyCompleted : IdempotencyReserveResult.AlreadyStarted;
+                if (existing.State == IdempotencyRecordState.Completed)
+                    return IdempotencyReserveResult.AlreadyCompleted;
+
+                inFlight = _executions.GetValueOrDefault(operationId)?.Task;
+                return IdempotencyReserveResult.AlreadyStarted;
             }
 
             UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), utcNow);
+            if (execution != null)
+                _executions[operationId] = execution;
+
             return IdempotencyReserveResult.Acquired;
         }
+    }
+
+    /// <summary>Ends the execution registered by <see cref="ReserveIntent(string, string, TaskCompletionSource?, out Task?)" /> and wakes the retries joined to it.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="execution">The completion registered with the reservation.</param>
+    /// <remarks>
+    /// Call after the outcome is recorded or the intent released, so joined retries re-read a settled record. The completion always
+    /// succeeds (it never faults), and it is signaled even when retention expiry or eviction already dropped the registration.
+    /// </remarks>
+    internal void CompleteExecution(string operationId, TaskCompletionSource execution)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentNullException.ThrowIfNull(execution);
+
+        lock (_capacityGate)
+        {
+            // A reservation re-acquired after expiry, eviction or release owns a newer completion: leave it registered.
+            if (_executions.TryGetValue(operationId, out var registered) && ReferenceEquals(registered, execution))
+                _ = _executions.Remove(operationId);
+        }
+
+        _ = execution.TrySetResult();
     }
 
     internal void RestoreStarted(string operationId, DateTime createdUtc) => RestoreStarted(operationId, null, createdUtc);
@@ -276,8 +337,12 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         if (expired == null)
             return;
 
+        // An expired reservation can no longer be joined; its owner still signals the retries already joined to it.
         foreach (var key in CollectionsMarshal.AsSpan(expired))
+        {
             _ = _records.Remove(key);
+            _ = _executions.Remove(key);
+        }
     }
 
     private bool TryEvictOldestLocked()
@@ -293,6 +358,10 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             oldestKey = pair.Key;
         }
 
-        return oldestKey != null && _records.Remove(oldestKey);
+        if (oldestKey == null || !_records.Remove(oldestKey))
+            return false;
+
+        _ = _executions.Remove(oldestKey);
+        return true;
     }
 }
