@@ -47,4 +47,7 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Journal I/O thread still alive after shutdown; writer, ring, and gates are leaked; {FaultedInFlightWaiters} in-flight durability waiters faulted")]
     internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters);
+
+    [LoggerMessage(EventId = 3015, Level = LogLevel.Error, Message = "In-flight memory applies did not finish within the shutdown budget; their callers fail although their journal frames may be durable")]
+    internal static partial void JournalInFlightApplyWaitTimedOut(ILogger logger);
 }
