@@ -187,40 +187,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
         return StartClusterAsync(copy, options, cancellationToken, testName);
     }
 
-    /// <summary>Starts one node per topology entry with a shared peer set.</summary>
-    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
-    /// <param name="options">Optional startup knobs applied to every node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="testName">Optional persistence scope hint from the caller.</param>
-    /// <returns>A started cluster owning the nodes.</returns>
-    private async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
-        ClusterNode[] topology,
-        IntegrationStartOptions? options = null,
-        CancellationToken cancellationToken = default,
-        [CallerMemberName] string? testName = null)
-    {
-        ArgumentNullException.ThrowIfNull(topology);
-        var peers = BuildClusterPeers(topology);
-        TestCluster<IntegrationStartOptions>? cluster = null;
-        try
-        {
-            cluster = TestCluster<IntegrationStartOptions>.Create(
-                topology,
-                (self, nodeTopology, nodeOptions, token) => StartClusterAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
-                peers);
-
-            var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
-                                       .ConfigureAwait(false);
-            cluster = null;
-            return started;
-        }
-        finally
-        {
-            if (cluster != null)
-                await cluster.DisposeAsync().ConfigureAwait(false);
-        }
-    }
-
     internal async ValueTask<ITestNodeHost> StartClusterAsync(
         Uri uri,
         IReadOnlyList<ServerPeer> peers,
@@ -337,6 +303,40 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
     private protected static ILogicalNamespacedCache<object?> GetCache(ITestNodeHost host) => host.GetCache<object?>("default");
+
+    /// <summary>Starts one node per topology entry with a shared peer set.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    private async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ClusterNode[] topology,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        var peers = BuildClusterPeers(topology);
+        TestCluster<IntegrationStartOptions>? cluster = null;
+        try
+        {
+            cluster = TestCluster<IntegrationStartOptions>.Create(
+                topology,
+                (self, nodeTopology, nodeOptions, token) => StartClusterAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
+                peers);
+
+            var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
+                                       .ConfigureAwait(false);
+            cluster = null;
+            return started;
+        }
+        finally
+        {
+            if (cluster != null)
+                await cluster.DisposeAsync().ConfigureAwait(false);
+        }
+    }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
