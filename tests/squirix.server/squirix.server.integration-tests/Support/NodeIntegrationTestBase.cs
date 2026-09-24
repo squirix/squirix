@@ -170,6 +170,23 @@ public abstract class NodeIntegrationTestBase : IDisposable
         CancellationToken cancellationToken = default,
         [CallerMemberName] string? testName = null) => StartClusterAsync([node], options, cancellationToken, testName);
 
+    /// <summary>Starts one node per topology entry, copying the entries so literal topologies do not allocate at the call site.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ReadOnlySpan<ClusterNode> topology,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null)
+    {
+        var copy = new ClusterNode[topology.Length];
+        topology.CopyTo(copy);
+        return StartClusterAsync(copy, options, cancellationToken, testName);
+    }
+
     /// <summary>Starts one node per topology entry with a shared peer set.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
     /// <param name="options">Optional startup knobs applied to every node.</param>

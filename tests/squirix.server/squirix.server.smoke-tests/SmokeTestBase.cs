@@ -176,6 +176,21 @@ public abstract class SmokeTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
+    /// <summary>Starts one node per topology entry, copying the entries so literal topologies do not allocate at the call site.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    private ValueTask<TestCluster<SmokeStartOptions>> StartClusterAsync(
+        ReadOnlySpan<ClusterNode> topology,
+        Func<string, SmokeStartOptions>? factory = null,
+        CancellationToken cancellationToken = default)
+    {
+        var copy = new ClusterNode[topology.Length];
+        topology.CopyTo(copy);
+        return StartClusterAsync(copy, factory, cancellationToken);
+    }
+
     /// <summary>Starts one node per topology entry with a shared peer set.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
     /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
