@@ -15,6 +15,8 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 {
+    private static readonly TimeSpan CancelObservationWindow = TimeSpan.FromMilliseconds(500);
+
     private static readonly TimeSpan GateProbeWindow = TimeSpan.FromSeconds(2);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
@@ -103,10 +105,13 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         var put = memory.PutAsync(executor, journal.Journal, "a", caller.Token);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await caller.CancelAsync();
-        journal.Writer.Flush.Release();
-        _ = await Task.WhenAny(put).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(put.IsFaulted).IsFalse();
+        // The flush is still blocked: a wait that honored the canceled caller would complete here.
+        var completedWhileStalled = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+        _ = await Assert.That(completedWhileStalled).IsFalse();
+
+        journal.Writer.Flush.Release();
+        _ = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         return executor;
     }
