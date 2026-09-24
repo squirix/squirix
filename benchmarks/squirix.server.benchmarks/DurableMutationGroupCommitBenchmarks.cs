@@ -61,7 +61,7 @@ public class DurableMutationGroupCommitBenchmarks
                 {
                     await executor.ExecuteAsync(
                         key,
-                        static _ => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
+                        static (_, _) => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
                         new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload), int>(
                             (coordinator, key, payload),
                             static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
