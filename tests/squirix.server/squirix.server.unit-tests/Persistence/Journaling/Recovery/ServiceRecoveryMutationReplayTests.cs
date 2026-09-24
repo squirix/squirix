@@ -9,7 +9,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -76,8 +75,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         var removeExp = BinaryJournalTestSegmentWriter.BuildRemoveExpirationRecord(3UL, "a");
         var remove = BinaryJournalTestSegmentWriter.BuildRemoveRecord(4UL, "a");
         var putB = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "b", "vb");
-        IReadOnlyList<JournalRecord> records = [put, touch, removeExp, remove, putB];
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, records);
+        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, [put, touch, removeExp, remove, putB]);
         await scenario.Ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 6 }, cancellationToken);
 
         await RunRecoveryAsync(scenario, cancellationToken);

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
@@ -106,7 +105,7 @@ internal static class BinaryJournalTestSegmentWriter
         WriteSegment(path, record);
     }
 
-    internal static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalRecord> records)
+    internal static void WriteJournalSegment(string dir, int index, ReadOnlySpan<JournalRecord> records)
     {
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         WriteSegment(path, records);
@@ -120,12 +119,12 @@ internal static class BinaryJournalTestSegmentWriter
         WriteRecordFrame(handle, ref offset, record);
     }
 
-    internal static void WriteSegment(string path, IReadOnlyList<JournalRecord> records)
+    internal static void WriteSegment(string path, ReadOnlySpan<JournalRecord> records)
     {
         using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
         long offset = 0;
         WriteFileHeader(handle, ref offset);
-        for (var i = 0; i < records.Count; i++)
+        for (var i = 0; i < records.Length; i++)
             WriteRecordFrame(handle, ref offset, records[i]);
     }
 
