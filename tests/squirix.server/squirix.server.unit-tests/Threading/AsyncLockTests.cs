@@ -123,6 +123,16 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         holder.Dispose();
     }
 
+    /// <summary>A default holder (what <c language="csharp">TryLock</c> returns while the lock is held) compares without throwing.</summary>
+    [Test]
+    public async Task DefaultHolderEqualsDoesNotThrow()
+    {
+        var first = default(AsyncLockHolder);
+        var second = default(AsyncLockHolder);
+
+        _ = await Assert.That(first.Equals(second)).IsTrue();
+    }
+
     /// <summary>Concurrent lock, cancel and dispose interleavings keep exclusion and settle every waiter exactly once, with no lost wakeup.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -33,5 +33,5 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         _owner.Release();
     }
 
-    public readonly bool Equals(AsyncLockHolder other) => _owner.Equals(other._owner) && _released == other._released;
+    public readonly bool Equals(AsyncLockHolder other) => ReferenceEquals(_owner, other._owner) && _released == other._released;
 }
