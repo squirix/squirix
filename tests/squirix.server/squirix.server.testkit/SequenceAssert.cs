@@ -22,6 +22,19 @@ public static class SequenceAssert
         return EqualCoreAsync(expected, actual, EqualityComparer<T>.Default);
     }
 
+    /// <summary>Asserts a literal expected sequence equals the actual items in the same order, without allocating the expected side.</summary>
+    /// <typeparam name="T">Element type.</typeparam>
+    /// <param name="expected">Expected items in order.</param>
+    /// <param name="actual">Actual items in order.</param>
+    /// <returns>A task representing the asynchronous assertion.</returns>
+    public static Task EqualAsync<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual)
+    {
+        ArgumentNullException.ThrowIfNull(actual);
+
+        var mismatch = actual.Count == expected.Length ? FirstMismatch(expected, actual) : -1;
+        return EqualSpanCoreAsync(expected.Length, actual.Count, mismatch);
+    }
+
     /// <summary>Asserts two sequences contain equal items in the same order using a custom comparer.</summary>
     /// <typeparam name="T">Element type.</typeparam>
     /// <param name="expected">Expected items in order.</param>
@@ -82,6 +95,24 @@ public static class SequenceAssert
         var actualItems = CopyToArray(actual);
         for (var i = 0; i < expectedItems.Length; i++)
             _ = await Assert.That(comparer.Equals(expectedItems[i], actualItems[i])).IsTrue().Because($"Sequences differ at index {i}.");
+    }
+
+    private static async Task EqualSpanCoreAsync(int expectedCount, int actualCount, int mismatch)
+    {
+        _ = await Assert.That(actualCount).IsEqualTo(expectedCount);
+        _ = await Assert.That(mismatch).IsEqualTo(-1).Because($"Sequences differ at index {mismatch}.");
+    }
+
+    private static int FirstMismatch<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual)
+    {
+        var comparer = EqualityComparer<T>.Default;
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (!comparer.Equals(expected[i], actual[i]))
+                return i;
+        }
+
+        return -1;
     }
 
     private static async Task EqualMemoryAsync<T>(ReadOnlyMemory<T> expected, ReadOnlyMemory<T> actual, IEqualityComparer<T> comparer)

@@ -38,7 +38,8 @@ public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
         _ = await Assert.That(decoded.Groups[0].GroupId).IsEqualTo("group-a");
         _ = await Assert.That(decoded.Groups[1].GroupId).IsEqualTo("group-b");
         _ = await Assert.That(decoded.Groups).All(static group => group.State == BootstrapGroupState.Pending);
-        await SequenceAssert.EqualAsync(before, await File.ReadAllBytesAsync(sourcePath, cancellationToken));
+        var after = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
 
         var resumed = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
         _ = await Assert.That(resumed.Resumed).IsTrue();
