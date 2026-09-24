@@ -29,8 +29,10 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (_journal.HasFlushLoopFailure)
-            return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
+        // A latched pipeline (failed fsync/flush, segment roll, maintenance, or post-ring apply) cannot commit
+        // until restart. Report the reason as type and message only: no exception, so no stack trace in the report.
+        if (_journal.GetJournalThreadFailure() is { } failure)
+            return Task.FromResult(HealthCheckResult.Unhealthy($"journal pipeline is latched as failed until restart: {failure.GetType().Name}: {failure.Message}"));
 
         if (_compaction.State is RunState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));

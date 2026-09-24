@@ -150,6 +150,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public void FailJournalPipeline(Exception reason) => _inner.FailJournalPipeline(reason);
 
+    public Exception? GetJournalThreadFailure() => _inner.GetJournalThreadFailure();
+
     public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);

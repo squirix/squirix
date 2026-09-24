@@ -314,6 +314,8 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
 
+        public Exception? GetJournalThreadFailure() => null;
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
 
         internal void ReleaseStartupGate() => _gate.Set();
