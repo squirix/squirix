@@ -73,14 +73,6 @@ internal sealed class AppliedKeys
             cancellationToken).AsTask();
     }
 
-    /// <summary>Waits up to <paramref name="window" /> for <paramref name="key" /> to be applied.</summary>
-    /// <param name="key">Default-namespace key.</param>
-    /// <param name="window">Longest wait.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true" /> when the key was applied inside the window.</returns>
-    internal Task<bool> AppliedWithinAsync(string key, TimeSpan window, CancellationToken cancellationToken) =>
-        StallableJournal.CompletesWithinAsync(Signal(CacheKey.Default(key)), window, cancellationToken);
-
     private ValueTask<int> ApplyAsync(CacheKey key)
     {
         _ = Signal(key).TrySetResult();
