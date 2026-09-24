@@ -92,6 +92,12 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     internal Uri GetUri(string nodeId) => _cluster[nodeId].Uri;
 
+    /// <summary>Stops one node and starts it again on the same data directory and listen address.</summary>
+    /// <param name="id">Node identifier to restart.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the node is running again.</returns>
+    internal async ValueTask RestartNodeAsync(string id, CancellationToken cancellationToken = default) => _ = await _cluster.RestartNodeAsync(id, null, cancellationToken);
+
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="id">Node identifier to stop.</param>
     internal ValueTask StopNodeAsync(string id) => _cluster.StopNodeAsync(id);
