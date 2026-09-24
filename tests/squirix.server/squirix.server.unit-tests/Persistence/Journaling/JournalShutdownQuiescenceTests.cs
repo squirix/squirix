@@ -101,8 +101,9 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var failures = new List<Exception>();
-        await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
+        var timedOut = await coordinator.DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, TimeSpan.Zero);
 
+        _ = await Assert.That(timedOut).IsTrue();
         var failure = await Assert.That(failures).HasSingleItem();
         _ = await Assert.That(failure).IsTypeOf<TimeoutException>();
     }

@@ -79,6 +79,25 @@ public sealed class TaskCompletionSourceExtensionsTests
         _ = await Assert.That(completed.Task.IsCompletedSuccessfully).IsTrue();
     }
 
+    /// <summary>Faulting pending sources counts only the sources this call faulted.</summary>
+    [Test]
+    public async Task FaultPendingCountsFaultedSources()
+    {
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completed.SetResult();
+        var failure = new IOException("drain");
+        List<TaskCompletionSource> sources = [pending, completed];
+
+        var first = sources.FaultPending(failure);
+        var second = sources.FaultPending(new IOException("again"));
+
+        _ = await Assert.That(first).IsEqualTo(1);
+        _ = await Assert.That(second).IsEqualTo(0);
+        _ = await Assert.That(pending.Task.Exception!.InnerException).IsSameReferenceAs(failure);
+        _ = await Assert.That(completed.Task.IsCompletedSuccessfully).IsTrue();
+    }
+
     /// <summary>Completing a list completes every pending source and leaves faulted ones untouched.</summary>
     [Test]
     public async Task CompleteAllCompletesPendingSources()

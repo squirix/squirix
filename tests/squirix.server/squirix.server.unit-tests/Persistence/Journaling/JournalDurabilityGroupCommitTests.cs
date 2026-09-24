@@ -34,7 +34,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
-        groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
+        _ = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
 
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken));
     }
@@ -112,10 +112,50 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
 
         var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
-        groupCommit.CancelPending(failure);
+        _ = groupCommit.CancelPending(failure);
         await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
         _ = await Assert.That(ack.IsFaulted).IsTrue();
+        _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(failure);
+    }
+
+    /// <summary>Canceling pending acks also faults the batch whose flush is in flight; the late flush outcome is a no-op.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelPendingFaultsInFlightBatch(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 1,
+        };
+        var failure = new ObjectDisposedException(nameof(JournalCoordinator));
+        using var flushGate = new InFlightFlushGate(cancellationToken);
+        var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlushAction, options, new FakeTimeProvider());
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var drain = Task.Factory.StartNew(
+            static state =>
+            {
+                if (state is not JournalDurabilityGroupCommit groupCommit)
+                    throw new InvalidOperationException("Expected journal durability group commit state.");
+
+                groupCommit.DrainDueBatchesOnJournalThread();
+            },
+            groupCommit,
+            cancellationToken,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        _ = await Assert.That(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5))).IsTrue();
+
+        var faulted = groupCommit.CancelPending(failure);
+        var repeated = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        flushGate.ReleaseFlush();
+        await drain.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(faulted).IsEqualTo(1);
+        _ = await Assert.That(repeated).IsEqualTo(0);
         _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(failure);
     }
 

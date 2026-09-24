@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -19,6 +20,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     private readonly string _dataDir;
     private int _journalDisposed;
     private int _disposed;
+    private int _writerDisposed;
 
     private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal)
     {
@@ -68,31 +70,21 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="groupCommitMaxBatch">Waiter count that makes a group commit batch due before its deadline.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static async Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken)
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = dataDir,
-            JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
-            JournalGroupCommitMaxWait = groupCommitMaxWait,
-            JournalGroupCommitMaxBatch = groupCommitMaxBatch,
-        };
-        var ledger = new Ledger(options);
-        var writer = new StallableJournalSegmentWriter();
-        try
-        {
-            var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-            return new StallableJournal(dataDir, ledger, writer, new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer));
-        }
-        catch
-        {
-            writer.Dispose();
-            ledger.Dispose();
-            throw;
-        }
-    }
+    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommitMaxWait, groupCommitMaxBatch, null, cancellationToken);
+
+    /// <summary>
+    /// Creates a journal whose disposal gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
+    /// floor is the same budget, so a leaked disposal returns within about twice the budget.
+    /// </summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget and grace join floor.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, ILogger log, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, log), cancellationToken);
 
     /// <summary>Waits up to <paramref name="window" /> for <paramref name="signal" /> to complete.</summary>
     /// <param name="signal">Signal to observe.</param>
@@ -123,9 +115,34 @@ internal sealed class StallableJournal : IAsyncDisposable
         return string.Join(',', sorted);
     }
 
+    /// <summary>Disposes the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
+    /// <returns>The journal disposal.</returns>
+    internal Task DisposeStalledAsync()
+    {
+        _ = Interlocked.Exchange(ref _journalDisposed, 1);
+        return Journal.DisposeAsync().AsTask();
+    }
+
+    /// <summary>
+    /// Releases the stalls after <see cref="DisposeStalledAsync" /> leaked the journal thread, joins it and disposes the writer the
+    /// leaked disposal left open, so the segments can be replayed and the data directory deleted.
+    /// </summary>
+    /// <param name="joinTimeout">Longest wait for the released journal thread to exit.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="TimeoutException">The journal thread did not exit within <paramref name="joinTimeout" />.</exception>
+    internal async Task ReclaimLeakedAsync(TimeSpan joinTimeout)
+    {
+        Writer.ReleaseAll();
+        if (!await Journal.DurabilityPipeline.TryJoinJournalThreadAsync(joinTimeout))
+            throw new TimeoutException("released journal thread did not exit.");
+
+        if (Interlocked.Exchange(ref _writerDisposed, 1) == 0)
+            Writer.Dispose();
+    }
+
     /// <summary>
     /// Rebuilds the key set a restart would recover: <paramref name="snapshot" /> plus every WAL put/remove with a sequence above
-    /// <paramref name="afterSequence" />. Call <see cref="ShutdownAsync" /> first.
+    /// <paramref name="afterSequence" />. Call <see cref="ShutdownAsync" /> or <see cref="ReclaimLeakedAsync" /> first.
     /// </summary>
     /// <param name="snapshot">Snapshot key set in <see cref="Describe" /> form; empty for a journal-only restart.</param>
     /// <param name="afterSequence">Last sequence covered by <paramref name="snapshot" />.</param>
@@ -155,8 +172,49 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <returns>An asynchronous operation.</returns>
     internal async Task ShutdownAsync()
     {
-        Writer.ReleaseAll();
+        // A writer reclaimed after a leaked disposal already released and disposed its stalls.
+        if (Volatile.Read(ref _writerDisposed) == 0)
+            Writer.ReleaseAll();
+
         if (Interlocked.Exchange(ref _journalDisposed, 1) == 0)
             await Journal.DisposeAsync();
+    }
+
+    private static async Task<StallableJournal> CreateCoreAsync(
+        string dataDir,
+        TimeSpan groupCommitMaxWait,
+        int groupCommitMaxBatch,
+        (TimeSpan Budget, ILogger Log)? shutdown,
+        CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = dataDir,
+            JournalMaxSegmentMb = 4,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = groupCommitMaxWait,
+            JournalGroupCommitMaxBatch = groupCommitMaxBatch,
+        };
+        var ledger = new Ledger(options);
+        var writer = new StallableJournalSegmentWriter();
+        try
+        {
+            var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+            var journal = shutdown is { } stuck
+                ? new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, stuck.Log)
+                {
+                    ShutdownBudget = stuck.Budget,
+                    GraceJoinFloor = stuck.Budget,
+                }
+                : new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer);
+            return new StallableJournal(dataDir, ledger, writer, journal);
+        }
+        catch
+        {
+            writer.Dispose();
+            ledger.Dispose();
+            throw;
+        }
     }
 }
