@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -112,6 +113,42 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
     }
 
+    /// <summary>An fsync that is slow and then fails is still reported, and its failure is preserved.</summary>
+    [Test]
+    public async Task SlowFailingFsyncWarns()
+    {
+        var logger = new RecordingLogger();
+        using var writer = new SleepingFsyncSegmentWriter(PastThreshold, true);
+        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
+        loop.EventLoop.SetDirty(true);
+
+        _ = NodeExceptionAssert.For<IOException>().Throws(loop, static l => l.EventLoop.FlushToDisk());
+
+        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A maintenance action that holds the mutation gate past the threshold logs a long-hold warning.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongMaintenanceGateHoldWarns(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+
+        await journal.ExecuteMaintenanceExclusiveAsync(static async ct => await Task.Delay(PastThreshold, TimeProvider.System, ct), cancellationToken);
+
+        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
+    }
+
     private PersistenceOptions CreateOptions() => new()
     {
         DataDir = Dir,
@@ -214,11 +251,13 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
     private sealed class SleepingFsyncSegmentWriter : IJournalSegmentWriter
     {
         private readonly TimeSpan _fsyncDelay;
+        private readonly bool _failAfterDelay;
         private int _fsyncCount;
 
-        internal SleepingFsyncSegmentWriter(TimeSpan fsyncDelay)
+        internal SleepingFsyncSegmentWriter(TimeSpan fsyncDelay, bool failAfterDelay = false)
         {
             _fsyncDelay = fsyncDelay;
+            _failAfterDelay = failAfterDelay;
         }
 
         long IJournalSegmentWriter.Length => 0;
@@ -235,6 +274,9 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             _ = Interlocked.Increment(ref _fsyncCount);
             if (_fsyncDelay > TimeSpan.Zero)
                 Thread.Sleep(_fsyncDelay);
+
+            if (_failAfterDelay)
+                throw new IOException("fsync failed");
         }
 
         void IJournalSegmentWriter.OpenSegment(string path, bool append)

@@ -256,8 +256,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentNullException.ThrowIfNull(action);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
         await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        using var mutationGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-        await DurabilityPipeline.EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
+        var mutationGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+        var acquiredTimestamp = Stopwatch.GetTimestamp();
+        try
+        {
+            await DurabilityPipeline.EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            mutationGuard.Dispose();
+            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteMaintenanceExclusiveAsync));
+        }
     }
 
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(

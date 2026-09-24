@@ -90,9 +90,15 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             return;
 
         var startedTimestamp = Stopwatch.GetTimestamp();
-        SegmentWriter.FlushToDisk();
-        IsDurabilityFlushPending = false;
-        JournalSlowOperationDiagnostics.ReportFsync(JournalLog, startedTimestamp);
+        try
+        {
+            SegmentWriter.FlushToDisk();
+            IsDurabilityFlushPending = false;
+        }
+        finally
+        {
+            JournalSlowOperationDiagnostics.ReportFsync(JournalLog, startedTimestamp);
+        }
     }
 
     public void IncrementJournalSegmentCount() => JournalSegmentCount++;
