@@ -30,6 +30,50 @@ public sealed class BoundedJournalRingTests
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
+    /// <summary>NotifyWorkAvailable must not surface ObjectDisposedException after the ring is disposed.</summary>
+    [Test]
+    public async Task NotifySafeAfterDispose()
+    {
+        var ring = new BoundedJournalRing(4);
+        ring.Dispose();
+
+        Exception? thrown = null;
+        try
+        {
+            ring.NotifyWorkAvailable();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            thrown = ex;
+        }
+
+        _ = await Assert.That(thrown).IsNull();
+    }
+
+    /// <summary>A full ring drained completely must accept a full second round: no slot may leak.</summary>
+    [Test]
+    public async Task EnqueueDequeueKeepsSlots()
+    {
+        using var ring = new BoundedJournalRing(2);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        _ = await Assert.That(ring.TryDequeue(out var first)).IsTrue();
+        _ = await Assert.That(first).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out var second)).IsTrue();
+        _ = await Assert.That(second).IsNotNull();
+
+        // A leaked slot would park one of these enqueues until the bounded token cancels and fails the test.
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        _ = await Assert.That(ring.TryDequeue(out var third)).IsTrue();
+        _ = await Assert.That(third).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out var fourth)).IsTrue();
+        _ = await Assert.That(fourth).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
+    }
+
     private sealed class PipelineFailureProbe
     {
         internal InvalidOperationException Reason { get; } = new("pipeline failed");
