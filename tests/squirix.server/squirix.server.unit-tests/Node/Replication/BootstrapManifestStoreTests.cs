@@ -43,7 +43,7 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
         var store = new BootstrapManifestStore(dir);
         var groupId = new string('g', 4096);
 
-        await store.PublishAsync(Manifest([new BootstrapGroupProgress(groupId, BootstrapGroupState.Pending)]), cancellationToken);
+        await store.PublishAsync(Manifest(new BootstrapGroupProgress(groupId, BootstrapGroupState.Pending)), cancellationToken);
         var decoded = await store.ReadAsync(cancellationToken);
 
         _ = await Assert.That(decoded).IsNotNull();
@@ -77,7 +77,7 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-manifest-fingerprint-length");
         var store = new BootstrapManifestStore(dir);
-        var manifest = Manifest([new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)], new byte[sourceLength], new byte[targetLength]);
+        var manifest = Manifest(new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending), new byte[sourceLength], new byte[targetLength]);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(manifest, cancellationToken));
     }
@@ -103,7 +103,7 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-manifest-string-over");
         var store = new BootstrapManifestStore(dir);
-        var manifest = Manifest([new BootstrapGroupProgress(new string('g', 4097), BootstrapGroupState.Pending)]);
+        var manifest = Manifest(new BootstrapGroupProgress(new string('g', 4097), BootstrapGroupState.Pending));
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(manifest, cancellationToken));
     }
@@ -115,7 +115,7 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-manifest-oversize-read");
         var store = new BootstrapManifestStore(dir);
-        await store.PublishAsync(Manifest([new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)]), cancellationToken);
+        await store.PublishAsync(Manifest(new BootstrapGroupProgress("group-1", BootstrapGroupState.Pending)), cancellationToken);
 
         using (var handle = File.OpenHandle(store.ManifestPath, FileMode.Open, FileAccess.Write, FileShare.None))
             RandomAccess.SetLength(handle, (16L * 1024 * 1024) + 1);
@@ -124,6 +124,10 @@ public sealed class BootstrapManifestStoreTests : ServerUnitTestBase
     }
 
     private static BootstrapManifest Manifest(IReadOnlyList<BootstrapGroupProgress> groups) => Manifest(groups, new byte[32], new byte[32]);
+
+    private static BootstrapManifest Manifest(BootstrapGroupProgress group) => Manifest([group]);
+
+    private static BootstrapManifest Manifest(BootstrapGroupProgress group, byte[] sourceFingerprint, byte[] targetFingerprint) => Manifest([group], sourceFingerprint, targetFingerprint);
 
     private static BootstrapManifest Manifest(IReadOnlyList<BootstrapGroupProgress> groups, byte[] sourceFingerprint, byte[] targetFingerprint) => new()
     {
