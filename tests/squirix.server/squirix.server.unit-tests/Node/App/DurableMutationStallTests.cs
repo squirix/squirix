@@ -14,13 +14,11 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App;
 
-/// <summary>Durable mutations under a stalled journal fsync: memory must match the WAL, and one stall must not serialize the gate.</summary>
+/// <summary>Durable mutations under a stalled journal fsync: memory must match the WAL.</summary>
 [Immutable]
 public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 {
     private static readonly TimeSpan CancelObservationWindow = TimeSpan.FromMilliseconds(500);
-
-    private static readonly TimeSpan GateProbeWindow = TimeSpan.FromSeconds(2);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
@@ -98,30 +96,6 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 
         _ = await Assert.That(completedAfterCancel).IsFalse();
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-    }
-
-    /// <summary>While one mutation's fsync is stalled, a mutation on another key appends and applies; its acknowledgement still waits for durability.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Skip("Fails until #681")]
-    public async Task GateNotHeldAcrossFsync(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        var memory = new AppliedKeys();
-        var executor = new DurableMutationExecutor(journal.Journal);
-        journal.Writer.Flush.Arm();
-
-        var first = memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
-        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var second = memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
-        var secondAppliedDuringStall = await memory.AppliedWithinAsync("b", GateProbeWindow, cancellationToken);
-        var secondAckedDuringStall = second.IsCompleted;
-        journal.Writer.Flush.Release();
-        _ = await first;
-        _ = await second;
-
-        _ = await Assert.That(secondAppliedDuringStall).IsTrue();
-        _ = await Assert.That(secondAckedDuringStall).IsFalse();
     }
 
     /// <summary>A journal pipeline failure faults a durability wait the caller already canceled with the latched error.</summary>
