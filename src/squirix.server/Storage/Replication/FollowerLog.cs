@@ -57,7 +57,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     [SuppressMessage(
         "Reliability",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposing _gate may throw ObjectDisposedException in synchronous readers blocked on Wait(); idempotent disposal guarded by _disposed.")]
+        Justification = "Disposing _gate would fault callers queued on LockAsync with ObjectDisposedException; idempotent disposal guarded by _disposed.")]
     private readonly AsyncLock _gate = new();
 
     private readonly GroupIdempotencyState _idempotency;
