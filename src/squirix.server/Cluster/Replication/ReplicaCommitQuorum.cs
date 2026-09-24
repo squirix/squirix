@@ -40,6 +40,34 @@ internal sealed class ReplicaCommitQuorum
 
     internal int RequiredCopies { get; }
 
+    /// <summary>Raises the recorded match index of a replica to a leader-verified durable position.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="matchIndex">Contiguous durable index the leader verified on the replica (Log Matching).</param>
+    /// <remarks>
+    /// A slot that becomes ready after the quorum started keeps a stale match index, so its next acknowledgement
+    /// would sit in the future buffer forever. Admission never lowers a match index and drops buffered
+    /// acknowledgements it now covers.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is outside the fixed group.</exception>
+    internal void Admit(int replicaIndex, ulong matchIndex)
+    {
+        if (replicaIndex < 0 || replicaIndex >= ReplicaCount)
+            throw new ArgumentOutOfRangeException(nameof(replicaIndex));
+
+        lock (_sync)
+        {
+            if (matchIndex > _matchIndexes[replicaIndex])
+                _matchIndexes[replicaIndex] = matchIndex;
+
+            if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
+                return;
+
+            var covered = _matchIndexes[replicaIndex];
+            _ = buffered.RemoveWhere(index => index <= covered);
+            AdvanceThroughBuffered(replicaIndex);
+        }
+    }
+
     /// <summary>Returns the highest majority-backed contiguous index, never below the current commit index.</summary>
     /// <param name="currentCommitIndex">Current durable group commit index.</param>
     /// <param name="lastLogIndex">Highest local durable log index eligible for commit.</param>

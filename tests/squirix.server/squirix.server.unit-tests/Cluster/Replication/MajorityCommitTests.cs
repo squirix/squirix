@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,6 +55,42 @@ public sealed class MajorityCommitTests
         _ = await Assert.That(quorum.TryRecord(0, in notDurable, mutation)).IsFalse();
         _ = await Assert.That(quorum.TryRecord(0, in notReady, mutation)).IsFalse();
         _ = await Assert.That(quorum.MatchIndexFor(0)).IsEqualTo(0UL);
+    }
+
+    /// <summary>A slot admitted at a verified index counts its next contiguous acknowledgement.</summary>
+    [Test]
+    public async Task AdmittedReplicaCountsFromVerifiedIndex()
+    {
+        var eligibility = new ReplicaEligibility(3);
+        var quorum = new ReplicaCommitQuorum(3, 2, eligibility);
+        var ready = new ReplicaProgress(4, 3, 3, 0, 1, ReadOnlyMemory<byte>.Of(9), 1, 0);
+        var mutation = CreateMutation(4, [4]);
+        quorum.Admit(0, 3);
+        quorum.Admit(1, 3);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in ready, in ready)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
+
+        _ = await Assert.That(quorum.TryRecord(0, CreateAcknowledgement(mutation), mutation)).IsTrue();
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(mutation), mutation)).IsTrue();
+
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(4UL);
+        _ = await Assert.That(quorum.FindCommitIndex(3, 4)).IsEqualTo(4UL);
+    }
+
+    /// <summary>Admission never lowers a match index and folds buffered acknowledgements it now covers.</summary>
+    [Test]
+    public async Task AdmitNeverRewindsMatchIndex()
+    {
+        var quorum = new ReplicaCommitQuorum(3);
+        var ahead = CreateMutation(5, [5]);
+        _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(ahead), ahead)).IsTrue();
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(0UL);
+
+        quorum.Admit(1, 4);
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(5UL);
+
+        quorum.Admit(1, 2);
+        _ = await Assert.That(quorum.MatchIndexFor(1)).IsEqualTo(5UL);
     }
 
     /// <summary>Every supported replica factor uses the expected majority.</summary>

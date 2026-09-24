@@ -27,6 +27,22 @@ internal sealed class ReplicaEligibility
     /// <summary>Gets the fixed replica count.</summary>
     internal int ReplicaCount { get; }
 
+    /// <summary>Returns whether every slot, including the leader's own, may count in the write quorum.</summary>
+    /// <returns><see langword="true" /> when all slots are verified ready.</returns>
+    internal bool AllCanCountInWriteQuorum()
+    {
+        lock (_sync)
+        {
+            for (var i = 0; i < _states.Length; i++)
+            {
+                if (_states[i] != ReplicaParticipantState.Ready)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Returns whether the participant may be promoted to leader.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns><see langword="true" /> only for a verified ready participant.</returns>

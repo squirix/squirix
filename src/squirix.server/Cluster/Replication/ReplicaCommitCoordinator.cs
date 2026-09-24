@@ -133,6 +133,12 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Raises a replica's recorded match index to a position the leader verified against its own log.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="matchIndex">Verified contiguous durable index on the replica.</param>
+    /// <remarks>Call before marking the slot ready, while no commit is in flight, so the slot never counts a stale match index.</remarks>
+    internal void AdmitReplica(int replicaIndex, ulong matchIndex) => _quorum.Admit(replicaIndex, matchIndex);
+
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The replica match index.</returns>

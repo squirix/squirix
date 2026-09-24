@@ -148,6 +148,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<TopologyOptions>().NodeId,
             fingerprint.AsMemory(),
             sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration));
+        _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(sp.GetRequiredService<ReplicaGroupCommitter>()));
         _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<TopologyOptions>(),
