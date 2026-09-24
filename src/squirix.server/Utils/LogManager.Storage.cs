@@ -30,6 +30,9 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1013, Level = LogLevel.Warning, Message = "Journal mutation gate held for {HeldMs} ms by {Holder}")]
     internal static partial void JournalMutationGateHeldLong(ILogger logger, long heldMs, string holder);
 
+    [LoggerMessage(EventId = 1014, Level = LogLevel.Warning, Message = "Journal wait for {WaitingFor} canceled while stalled: journal I/O {Operation} in progress for {IoMs} ms, mutation gate held by {Holder} for {HeldMs} ms")]
+    internal static partial void JournalWaitCanceledWhileStalled(ILogger logger, string waitingFor, string operation, long ioMs, string holder, long heldMs);
+
     [LoggerMessage(EventId = 1009, Level = LogLevel.Warning, Message = "Manifest retention cleanup for {ArtifactKind} failed")]
     internal static partial void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind);
 

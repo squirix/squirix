@@ -24,6 +24,8 @@ internal interface IJournalCoordinatorState
 
     PendingAppendRegistry PendingAppends { get; }
 
+    JournalStallProbe StallProbe { get; }
+
     MutableInt32 QueuedAppendsCounter { get; }
 
     BoundedJournalRing Ring { get; }

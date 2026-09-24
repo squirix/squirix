@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
@@ -24,6 +25,10 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
     private const int FsyncSlowEventId = 1012;
 
     private const int GateHeldLongEventId = 1013;
+
+    private const int RingCapacity = 4096;
+
+    private const int WaitCanceledEventId = 1014;
 
     private static readonly TimeSpan PastThreshold = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 200);
 
@@ -149,6 +154,141 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
 
+    /// <summary>A durability wait canceled while an fsync is stalled reports the stall at the moment of cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledDurabilityWaitReportsFsyncStall(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800));
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A durability wait canceled while the journal thread is stuck in a segment write reports the stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledDurabilityWaitReportsWriteStall(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, false, TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800));
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A group commit wait canceled while the journal thread is stuck in fsync reports the stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledGroupCommitWaitReportsFsyncStall(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions() with
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(20),
+            JournalGroupCommitMaxBatch = 1,
+        };
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800));
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, cancellationToken);
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A durability wait parked at a full ring while the journal thread is stuck in a write reports the stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledRingAdmissionReportsWriteStall(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, false, TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800));
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await writer.WriteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        for (var i = 0; i < RingCapacity; i++)
+            await journal.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)), cancellationToken);
+
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A gate wait canceled while another holder keeps the gate past the threshold reports the stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledGateWaitReportsHolder(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        var holdFor = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800);
+        var holder = HoldGateAsync(journal, holdFor, cancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
+        await holder;
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) =>
+        journal.ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
+
     private PersistenceOptions CreateOptions() => new()
     {
         DataDir = Dir,
@@ -252,17 +392,21 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
     {
         private readonly TimeSpan _fsyncDelay;
         private readonly bool _failAfterDelay;
+        private readonly TimeSpan _writeDelay;
         private int _fsyncCount;
 
-        internal SleepingFsyncSegmentWriter(TimeSpan fsyncDelay, bool failAfterDelay = false)
+        internal SleepingFsyncSegmentWriter(TimeSpan fsyncDelay, bool failAfterDelay = false, TimeSpan writeDelay = default)
         {
             _fsyncDelay = fsyncDelay;
             _failAfterDelay = failAfterDelay;
+            _writeDelay = writeDelay;
         }
 
         long IJournalSegmentWriter.Length => 0;
 
         internal int FsyncCount => Volatile.Read(ref _fsyncCount);
+
+        internal TaskCompletionSource WriteEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Releases test resources.</summary>
         public void Dispose()
@@ -289,6 +433,9 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
         void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
         {
+            _ = WriteEntered.TrySetResult();
+            if (_writeDelay > TimeSpan.Zero)
+                Thread.Sleep(_writeDelay);
         }
     }
 }

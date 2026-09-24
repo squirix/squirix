@@ -15,6 +15,7 @@ internal sealed class JournalDurabilityGroupCommit
 {
     private readonly BatchDeadline _batchDeadline = new();
     private readonly Action _journalThreadFlush;
+    private readonly Action<string>? _onWaitCanceled;
     private readonly Action _notifyJournalThread;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
@@ -24,7 +25,7 @@ internal sealed class JournalDurabilityGroupCommit
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
 
-    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
+    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null, Action<string>? onWaitCanceled = null)
     {
         ArgumentNullException.ThrowIfNull(journalThreadFlush);
         ArgumentNullException.ThrowIfNull(notifyJournalThread);
@@ -33,6 +34,7 @@ internal sealed class JournalDurabilityGroupCommit
         _notifyJournalThread = notifyJournalThread;
         _opt = opt;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _onWaitCanceled = onWaitCanceled;
 
         var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);
         _acks = [with(capacity)];
@@ -78,6 +80,7 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _onWaitCanceled?.Invoke("group commit");
             CancelAck(ack, cancellationToken);
             throw;
         }
