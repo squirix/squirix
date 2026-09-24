@@ -50,20 +50,21 @@ internal sealed class DurableMutationExecutor
         DurableMutationPlan<TResult> plan,
         GroupCommitExecutionState state,
         TState mutationState,
-        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
-        CancellationToken cancellationToken)
+        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
     {
         if (!plan.ShouldApply)
             return plan.SkipResult!;
 
         try
         {
+            // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
             if (!IsIdempotentDurabilityDeferred())
-                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+                await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
 
             // The state is applied to memory right here; only the durability commit above was conditional.
-            var applyState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
+            var applyState = new GroupCommitApplyWithState<TState, TResult>(this, mutationState, applyMemory);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyState, static (s, _) => s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory), CancellationToken.None)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -86,7 +87,7 @@ internal sealed class DurableMutationExecutor
                 static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory, cancellationToken).ConfigureAwait(false);
+            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
         }
         finally
         {
@@ -110,11 +111,26 @@ internal sealed class DurableMutationExecutor
             return decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
 
         await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
-        if (IsIdempotentDurabilityDeferred())
-            return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
 
-        await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-        return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
+        // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
+        if (!IsIdempotentDurabilityDeferred())
+            await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return await ApplyAfterRingEntryAsync(state.State, state.ApplyMemory).ConfigureAwait(false);
+    }
+
+    private async ValueTask<TResult> ApplyAfterRingEntryAsync<TState, TResult>(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+    {
+        try
+        {
+            return await applyMemory(state, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Memory can no longer match the journal, and a retry would apply the frame twice: fail-stop instead.
+            _journal.FailJournalPipeline(new InvalidOperationException("memory apply failed after its journal frame entered the ring.", ex));
+            throw;
+        }
     }
 
     private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
@@ -193,13 +209,16 @@ internal sealed class DurableMutationExecutor
     [Immutable]
     private sealed record GroupCommitApplyWithState<TState, TResult>
     {
-        internal GroupCommitApplyWithState(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+        internal GroupCommitApplyWithState(DurableMutationExecutor mutator, TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
+            Mutator = mutator;
             State = state;
             ApplyMemory = applyMemory;
         }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
+
+        internal DurableMutationExecutor Mutator { get; }
 
         internal TState State { get; }
     }

@@ -113,5 +113,8 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
+    public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
+
+    /// <inheritdoc />
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => default;
 }

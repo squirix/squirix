@@ -57,7 +57,16 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
-    internal static async Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken)
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken) =>
+        CreateAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, cancellationToken);
+
+    /// <summary>Creates a journal over a fresh stallable writer with explicit group commit batching.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommitMaxWait">Group commit batch deadline; <see cref="TimeSpan.Zero" /> disables group commit.</param>
+    /// <param name="groupCommitMaxBatch">Waiter count that makes a group commit batch due before its deadline.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static async Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -65,8 +74,8 @@ internal sealed class StallableJournal : IAsyncDisposable
             JournalMaxSegmentMb = 4,
             FlushInterval = 600_000,
             ManifestRetentionCount = 1,
-            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
-            JournalGroupCommitMaxBatch = 1,
+            JournalGroupCommitMaxWait = groupCommitMaxWait,
+            JournalGroupCommitMaxBatch = groupCommitMaxBatch,
         };
         var ledger = new Ledger(options);
         var writer = new StallableJournalSegmentWriter();

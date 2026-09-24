@@ -370,6 +370,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
+    public void FailJournalPipeline(Exception reason) => DurabilityPipeline.FailJournalPipeline(reason);
+
     public Exception? GetJournalThreadFailure() => _flushLoopFailure.Read();
 
     void IJournalCoordinatorAppendState.RecordAppendMetrics(int frameLength, long startedMs)
