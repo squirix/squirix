@@ -100,7 +100,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return;
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
-        // the semaphore before it is disposed of. New admissions fail closed via ThrowIfDisposed.
+        // the gate before it is disposed of. New admissions fail closed via ThrowIfDisposed.
         // Work after a durable majority ignores cancellation and can outlast a stalled disk, so the
         // drain is bounded: on expiry the coordinator and the gate stay with the in-flight commit and
         // are leaked loudly instead of being torn down under it. Not throwing keeps the host disposing
