@@ -136,7 +136,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         var dir = new TempDirectory("squirix-replication-adapter");
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, new ReadOnlyMemory<byte>([9]), topology.ConfigurationGeneration);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration);
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry);
         var header = new ReplicationEnvelopeHeader

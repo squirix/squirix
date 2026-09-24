@@ -9,6 +9,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -118,7 +119,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task QuarantinedGroupLosesReadiness(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-readiness-quarantine");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, new ReadOnlyMemory<byte>([9]), 1);
+        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, ReadOnlyMemory<byte>.Of(9), 1);
         await registry.OpenAsync(cancellationToken);
         var eligibility = registry.EligibilityFor("node-a");
         eligibility.Quarantine(1);
@@ -162,7 +163,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     [Test]
     public async Task UnopenedRegistryYieldsNoSnapshots(CancellationToken cancellationToken)
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, new ReadOnlyMemory<byte>([9]), 1);
+        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1);
         var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), "node-a");
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);
