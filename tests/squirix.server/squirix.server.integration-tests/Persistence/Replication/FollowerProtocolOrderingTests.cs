@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
@@ -77,7 +78,7 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
 
-            var higher = new FollowerLogAppendRequest("leader-1", 9UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([Entry(2UL, 9UL, "b")]));
+            var higher = new FollowerLogAppendRequest("leader-1", 9UL, 1UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(Entry(2UL, 9UL, "b")));
             var result = await log.AppendAsync(higher, cancellationToken);
 
             _ = await Assert.That(result.Success).IsTrue();
@@ -108,13 +109,13 @@ public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => Batch([Entry(index, term, payload)], index - 1, index == 1UL ? 0UL : term, term);
 
-    private static FollowerLogAppendRequest Batch(FollowerLogEntry[] entries, ulong prevIndex, ulong prevTerm, ulong term) => new(
+    private static FollowerLogAppendRequest Batch(ReadOnlySpan<FollowerLogEntry> entries, ulong prevIndex, ulong prevTerm, ulong term) => new(
         "leader-1",
         term,
         prevIndex,
         prevTerm,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>(entries));
+        ReadOnlyMemory<FollowerLogEntry>.Of(entries));
 
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) => new(index, term, Encoding.UTF8.GetBytes(payload));
 }

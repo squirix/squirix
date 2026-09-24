@@ -232,12 +232,10 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
                 0UL,
                 0UL,
                 0UL,
-                new ReadOnlyMemory<FollowerLogEntry>(
-                [
+                ReadOnlyMemory<FollowerLogEntry>.Of(
                     new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
                     new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")),
-                    new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")),
-                ]));
+                    new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c"))));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken));
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
 
@@ -249,11 +247,9 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
                 0UL,
                 0UL,
                 0UL,
-                new ReadOnlyMemory<FollowerLogEntry>(
-                [
+                ReadOnlyMemory<FollowerLogEntry>.Of(
                     new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
-                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")),
-                ]));
+                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
             var retry = await log.AppendAsync(shortBatch, cancellationToken);
             _ = await Assert.That(retry.Success).IsTrue();
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
@@ -293,7 +289,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             2UL,
             1UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("C"))]));
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("C"))));
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(batch, cancellationToken));
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
@@ -391,7 +387,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         index - 1,
         index == 1UL ? 0UL : term,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 

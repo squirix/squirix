@@ -106,7 +106,7 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
             0UL,
             0UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("durable"))]));
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("durable"))));
         _ = await firstGrp1.AppendAsync(request, cancellationToken);
         _ = await firstGrp1.AdvanceCommitAsync(1UL, cancellationToken);
 
@@ -133,5 +133,5 @@ public sealed class GroupRecoveryTests : IsolatedStorageTestBase
         0UL,
         0UL,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("leased"))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("leased"))));
 }

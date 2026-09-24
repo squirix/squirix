@@ -161,7 +161,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         index - 1,
         index == 1UL ? 0UL : term,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
     /// <param name="dir">The persistence root for the test.</param>

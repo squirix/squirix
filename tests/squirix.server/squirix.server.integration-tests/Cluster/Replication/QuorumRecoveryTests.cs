@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -54,7 +55,7 @@ public sealed class QuorumRecoveryTests : NodeIntegrationTestBase
         0,
         0,
         0,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1, 1, Encoding.UTF8.GetBytes("committed"))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1, 1, Encoding.UTF8.GetBytes("committed"))));
 
     private static int CountAfter(IReadOnlyList<FollowerLogEntry> entries, ulong appliedIndex)
     {
