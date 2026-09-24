@@ -27,6 +27,15 @@ public sealed class SequenceAssertTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync<int>([1, 2, 3], actual));
     }
 
+    /// <summary>The comparer overload honors the supplied comparer for both matches and mismatches.</summary>
+    [Test]
+    public async Task SpanOverloadUsesSuppliedComparer()
+    {
+        var actual = new[] { "A", "b" };
+        await SequenceAssert.EqualAsync<string>(["a", "B"], actual, StringComparer.OrdinalIgnoreCase);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync<string>(["a", "B"], actual, StringComparer.Ordinal));
+    }
+
     /// <summary>Equal literal and actual items pass.</summary>
     [Test]
     public Task SpanOverloadPassesOnEqualItems()

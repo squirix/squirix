@@ -27,11 +27,20 @@ public static class SequenceAssert
     /// <param name="expected">Expected items in order.</param>
     /// <param name="actual">Actual items in order.</param>
     /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task EqualAsync<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual)
+    public static Task EqualAsync<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual) => EqualAsync(expected, actual, EqualityComparer<T>.Default);
+
+    /// <summary>Asserts a literal expected sequence equals the actual items in the same order using a custom comparer, without allocating the expected side.</summary>
+    /// <typeparam name="T">Element type.</typeparam>
+    /// <param name="expected">Expected items in order.</param>
+    /// <param name="actual">Actual items in order.</param>
+    /// <param name="comparer">Element equality comparer.</param>
+    /// <returns>A task representing the asynchronous assertion.</returns>
+    public static Task EqualAsync<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
         ArgumentNullException.ThrowIfNull(actual);
+        ArgumentNullException.ThrowIfNull(comparer);
 
-        var mismatch = actual.Count == expected.Length ? FirstMismatch(expected, actual) : -1;
+        var mismatch = actual.Count == expected.Length ? FirstMismatch(expected, actual, comparer) : -1;
         return EqualSpanCoreAsync(expected.Length, actual.Count, mismatch);
     }
 
@@ -103,9 +112,8 @@ public static class SequenceAssert
         _ = await Assert.That(mismatch).IsEqualTo(-1).Because($"Sequences differ at index {mismatch}.");
     }
 
-    private static int FirstMismatch<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual)
+    private static int FirstMismatch<T>(ReadOnlySpan<T> expected, IReadOnlyList<T> actual, IEqualityComparer<T> comparer)
     {
-        var comparer = EqualityComparer<T>.Default;
         for (var i = 0; i < expected.Length; i++)
         {
             if (!comparer.Equals(expected[i], actual[i]))
