@@ -104,6 +104,64 @@ public sealed class RpcMutationIdempotencyStoreCapTests : DisposableServerUnitTe
         _ = await Assert.That(store.RecordCount).IsEqualTo(0);
     }
 
+    /// <summary>Retention expiry drops a joinable execution with its record; the owner still wakes the retries already joined to it.</summary>
+    [Test]
+    public async Task ExpiryDropsJoinableExecution()
+    {
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { Retention = TimeSpan.FromMinutes(15) }, "local", new IdempotencyMetrics(_testMeter));
+        var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = store.ReserveIntent("op-1", "fp-1", execution, out _);
+        _ = store.ReserveIntent("op-1", "fp-1", null, out var joined);
+
+        store.SweepExpired(DateTime.UtcNow.AddHours(1));
+        var countAfterExpiry = store.ExecutionCount;
+        store.CompleteExecution("op-1", execution);
+
+        _ = await Assert.That(ReferenceEquals(joined, execution.Task)).IsTrue();
+        _ = await Assert.That(countAfterExpiry).IsEqualTo(0);
+        _ = await Assert.That(store.RecordCount).IsEqualTo(0);
+        _ = await Assert.That(execution.Task.IsCompletedSuccessfully).IsTrue();
+    }
+
+    /// <summary>Evicting the oldest Started reservation at capacity drops its joinable execution too.</summary>
+    [Test]
+    public async Task EvictionDropsJoinableExecution()
+    {
+        var store = new RpcMutationIdempotencyStore(
+            new IdempotencyOptions { MaxInFlightRecords = 1, Retention = TimeSpan.FromHours(1) },
+            "test-node",
+            new IdempotencyMetrics(_testMeter));
+        var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = store.ReserveIntent("op-1", "fp-1", execution, out _);
+
+        _ = store.ReserveIntent("op-2", "fp-2");
+
+        _ = await Assert.That(store.RecordCount).IsEqualTo(1);
+        _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
+    }
+
+    /// <summary>Completing a stale execution leaves the newer execution of a re-acquired reservation registered and joinable.</summary>
+    [Test]
+    public async Task StaleCompletionKeepsNewerExecution()
+    {
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        var stale = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var current = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = store.ReserveIntent("op-1", "fp-1", stale, out _);
+        store.ReleaseIntent("op-1", "fp-1");
+        var reacquired = store.ReserveIntent("op-1", "fp-1", current, out _);
+
+        store.CompleteExecution("op-1", stale);
+        var started = store.ReserveIntent("op-1", "fp-1", null, out var joined);
+        store.CompleteExecution("op-1", current);
+
+        _ = await Assert.That(reacquired).IsEqualTo(IdempotencyReserveResult.Acquired);
+        _ = await Assert.That(started).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+        _ = await Assert.That(ReferenceEquals(joined, current.Task)).IsTrue();
+        _ = await Assert.That(stale.Task.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
+    }
+
     /// <summary>Flooding unique operation ids keeps the in-memory record count within the configured cap.</summary>
     [Test]
     public async Task UniqueOpIdFloodStaysWithinRecordCap()
