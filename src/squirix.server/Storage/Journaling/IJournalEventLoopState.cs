@@ -21,7 +21,7 @@ internal interface IJournalEventLoopState
 
     void AddJournalTotalBytes(long delta);
 
-    void FsyncOnJournalThread();
+    void FlushToDisk();
 
     void SetActiveSegmentWrittenBytes(long value);
 

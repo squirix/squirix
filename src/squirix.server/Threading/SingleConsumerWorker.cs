@@ -134,24 +134,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         }
     }
 
-    private void RunCompletion(QueuedItem work)
-    {
-        var completion = work.Completion;
-        if (completion == null)
-            return;
-
-        try
-        {
-            _handler(work.Item);
-            _ = completion.TrySetResult();
-        }
-#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
-        catch (Exception exception)
-#pragma warning restore CA1031
-        {
-            _ = completion.TrySetException(exception);
-        }
-    }
+    private void RunCompletion(QueuedItem work) => work.Completion?.RunIsolated(work.Item, _handler);
 
     private void RunHandler(T item)
     {

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -35,7 +36,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly VolatileField<Exception> _flushLoopFailure = new();
-    private readonly ILogger _log = LogManager.GetLogger<JournalCoordinator>();
+    private readonly ILogger _log;
     private readonly JournalProducerGate _producerGate = new();
 
     private readonly IJournalSegmentWriter _segmentWriter;
@@ -45,11 +46,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     private long _ops;
 
     internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate)
+        : this(opt, manifest, manifestStore, startupGate, JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend))
     {
+    }
+
+    internal JournalCoordinator(PersistenceOptions opt, State manifest, Ledger manifestStore, AsyncManualResetEvent startupGate, IJournalSegmentWriter segmentWriter, ILogger? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(segmentWriter);
+        _log = log ?? LogManager.GetLogger<JournalCoordinator>();
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
-        _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
+        _segmentWriter = segmentWriter;
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, LogManager.GetLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
@@ -288,6 +296,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             throw new InvalidOperationException("journal coordinator is disposed.", ex);
         }
 
+        var acquiredTimestamp = Stopwatch.GetTimestamp();
         try
         {
             return await action(state, cancellationToken).ConfigureAwait(false);
@@ -295,6 +304,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         finally
         {
             gateGuard.Dispose();
+            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -314,6 +324,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             throw new InvalidOperationException("journal coordinator is disposed.", ex);
         }
 
+        var acquiredTimestamp = Stopwatch.GetTimestamp();
         try
         {
             await action(state, cancellationToken).ConfigureAwait(false);
@@ -321,6 +332,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         finally
         {
             gateGuard.Dispose();
+            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -345,11 +357,20 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
         CancellationToken cancellationToken)
     {
-        using var holder = await DurabilityPipeline.WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
-        await DurabilityPipeline.EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
-        var sequence = NextSequence > 0 ? NextSequence - 1UL : 0UL;
-        var barrierState = await captureUnderBarrier(state, sequence, cancellationToken).ConfigureAwait(false);
-        return (sequence, barrierState);
+        var holder = await DurabilityPipeline.WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
+        var acquiredTimestamp = Stopwatch.GetTimestamp();
+        try
+        {
+            await DurabilityPipeline.EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
+            var sequence = NextSequence > 0 ? NextSequence - 1UL : 0UL;
+            var barrierState = await captureUnderBarrier(state, sequence, cancellationToken).ConfigureAwait(false);
+            return (sequence, barrierState);
+        }
+        finally
+        {
+            holder.Dispose();
+            JournalSlowOperationDiagnostics.ReportMutationGateHold(_log, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
+        }
     }
 
     private async ValueTask JoinJournalThreadWithGraceAsync(List<Exception> failures, TimeSpan remaining)

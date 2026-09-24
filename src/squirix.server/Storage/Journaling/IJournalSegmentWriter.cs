@@ -7,7 +7,7 @@ internal interface IJournalSegmentWriter : IDisposable
 {
     long Length { get; }
 
-    void Fsync();
+    void FlushToDisk();
 
     void OpenSegment(string path, bool append);
 

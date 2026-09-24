@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -92,12 +93,10 @@ internal sealed class PendingAppendRegistry
             bytes += entries[i].FrameLength;
         }
 
-        for (var i = 0; i < maintenance.Count; i++)
-            _ = maintenance[i].TrySetException(effective);
+        maintenance.FaultAll(effective);
 
         var aborts = TakeAllAborts();
-        for (var i = 0; i < aborts.Count; i++)
-            _ = aborts[i].TrySetException(effective);
+        aborts.FaultAll(effective);
 
         if (entries.Count != 0)
             LogManager.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
