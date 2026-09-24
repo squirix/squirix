@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -223,7 +224,7 @@ public sealed class ReplicaSnapshotCatchUpTests : NodeIntegrationTestBase
         index - 1UL,
         index == 1UL ? 0UL : 1UL,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([Entry(index, term, payload)]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(Entry(index, term, payload)));
 
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) => new(index, term, Encoding.UTF8.GetBytes(payload));
 

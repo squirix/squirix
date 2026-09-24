@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -24,7 +25,7 @@ public sealed class RejoinSafetyTests : NodeIntegrationTestBase
         await using var log = new FollowerLog(dir, "rejoin-safety", GroupComposition.Create("rejoin-safety"));
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(
-            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
+            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),
             cancellationToken);
 
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);

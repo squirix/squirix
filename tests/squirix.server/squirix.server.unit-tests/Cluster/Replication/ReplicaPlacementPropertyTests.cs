@@ -208,7 +208,7 @@ public sealed class ReplicaPlacementPropertyTests
         _ = await Assert.That(group[2]).IsEqualTo("node-b");
     }
 
-    private static Task AssertGroupAsync(PhysicalNodeRing ring, string owner, int replicaCount, string[] expected)
+    private static Task AssertGroupAsync(PhysicalNodeRing ring, string owner, int replicaCount, ReadOnlySpan<string> expected)
     {
         var group = new string[replicaCount];
         ring.WriteReplicaGroup(owner, replicaCount, group);

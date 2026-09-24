@@ -235,17 +235,22 @@ public sealed class TopologyFingerprintTests
         _ = await Assert.That(left.Bytes.SequenceEqual(right.Bytes)).IsTrue();
     }
 
-    private static FingerprintInputs CreateInputs(FingerprintPeer[] peers, int replicaCount = 2) => new()
+    private static FingerprintInputs CreateInputs(ReadOnlySpan<FingerprintPeer> peers, int replicaCount = 2)
     {
-        ClusterId = "cluster",
-        ConfigurationGeneration = 1,
-        ReplicaCount = replicaCount,
-        VirtualNodes = 128,
-        Peers = peers,
-        Policy = FingerprintPolicy.Default,
-        MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
-        QuorumAckMode = PolicyOptions.QuorumAckMode,
-    };
+        var copy = new FingerprintPeer[peers.Length];
+        peers.CopyTo(copy);
+        return new()
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 1,
+            ReplicaCount = replicaCount,
+            VirtualNodes = 128,
+            Peers = copy,
+            Policy = FingerprintPolicy.Default,
+            MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+            QuorumAckMode = PolicyOptions.QuorumAckMode,
+        };
+    }
 
     private static FingerprintPeer[] CreatePeers() =>
     [

@@ -179,10 +179,10 @@ public sealed class TestClusterTests
 
     private static Task StopAsync(TestCluster<ClusterStartOptions> cluster, string nodeId) => cluster.StopNodeAsync(nodeId).AsTask();
 
-    private static TestCluster<ClusterStartOptions> CreateCluster(out Dictionary<string, FakeTestNodeHost> hosts, params string[] nodeIds) =>
+    private static TestCluster<ClusterStartOptions> CreateCluster(out Dictionary<string, FakeTestNodeHost> hosts, params ReadOnlySpan<string> nodeIds) =>
         CreateCluster(out hosts, null, nodeIds);
 
-    private static TestCluster<ClusterStartOptions> CreateCluster(out Dictionary<string, FakeTestNodeHost> hosts, TempDirectory? dataDir, params string[] nodeIds)
+    private static TestCluster<ClusterStartOptions> CreateCluster(out Dictionary<string, FakeTestNodeHost> hosts, TempDirectory? dataDir, params ReadOnlySpan<string> nodeIds)
     {
         var topology = new ClusterNode[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)

@@ -207,7 +207,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         index - 1UL,
         index == 1UL ? 0UL : 1UL,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([Entry(index, term, payload)]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(Entry(index, term, payload)));
 
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) => new(index, term, Encoding.UTF8.GetBytes(payload));
 

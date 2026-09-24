@@ -50,7 +50,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var cacheKey = new CacheKey(cacheName, key);
         return _executor.ExecuteAsync(
             cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<CacheRemoveResult<T>>.Apply()),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<CacheRemoveResult<T>>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveJournalArgs Journal, RemoveMemoryArgs Memory), CacheRemoveResult<T>>(
                 (this, new RemoveJournalArgs(cacheKey), new RemoveMemoryArgs(operationId, cacheName, key)),
                 static (s, ct) => s.Self._journal.AppendRemoveAsync(s.Journal.CacheKey, ct),
@@ -66,7 +66,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var cacheKey = new CacheKey(cacheName, key);
         return _executor.ExecuteAsync(
             cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveExpirationJournalArgs Journal, RemoveExpirationMemoryArgs Memory), bool>(
                 (this, new RemoveExpirationJournalArgs(cacheKey), new RemoveExpirationMemoryArgs(operationId, cacheName, key)),
                 static (s, ct) => s.Self._journal.AppendRemoveExpirationAsync(s.Journal.CacheKey, ct),
@@ -96,7 +96,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var expiresUtc = DateTime.UtcNow.SaturatedAdd(expiration);
         return _executor.ExecuteAsync(
             cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TouchJournalArgs Journal, TouchMemoryArgs Memory), bool>(
                 (this, new TouchJournalArgs(cacheKey, expiresUtc), new TouchMemoryArgs(operationId, cacheName, key, expiration)),
                 static (s, ct) => s.Self._journal.AppendTouchExpirationAsync(s.Journal.CacheKey, s.Journal.ExpiresUtc, ct),
@@ -140,7 +140,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var cacheKey = new CacheKey(cacheName, key);
         _ = await _executor.ExecuteAsync(
             cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, SetMemoryArgs Memory), bool>(
                 (this, new PutJournalArgs(cacheKey, payload.Memory), new SetMemoryArgs(operationId, cacheName, key, entry)),
                 static (s, ct) => s.Self._journal.AppendPutAsync(s.Journal.CacheKey, s.Journal.Payload, ct),
@@ -161,7 +161,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payload.Memory, cacheKey);
         return await _executor.ExecuteAsync(
             cacheKey,
-            ct => EvaluateTryAddPreconditionAsync(this, args, ct),
+            static (s, ct) => EvaluateTryAddPreconditionAsync(s.Self, s.Args, ct),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, TryAddMutationArgs Args), bool>(
                 (this, args),
                 static (s, ct) => s.Self._journal.AppendPutAsync(s.Args.CacheKey, s.Args.Payload, ct),
@@ -216,7 +216,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var cacheKey = new CacheKey(cacheName, key);
         return await _executor.ExecuteAsync(
             cacheKey,
-            ct => EvaluateUpdatePreconditionAsync(this, cacheName, key, ct),
+            static (s, ct) => EvaluateUpdatePreconditionAsync(s.Self, s.Memory.CacheName, s.Memory.Key, ct),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, UpdateMemoryArgs Memory), bool>(
                 (this, new PutJournalArgs(cacheKey, payload.Memory), new UpdateMemoryArgs(operationId, cacheName, key, value)),
                 static (s, ct) => s.Self._journal.AppendPutAsync(s.Journal.CacheKey, s.Journal.Payload, ct),

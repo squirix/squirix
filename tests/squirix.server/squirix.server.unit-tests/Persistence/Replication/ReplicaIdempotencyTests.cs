@@ -229,9 +229,6 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
      * reaches the truncation path. Do not replace this with FollowerFoundationScenario.Append, which derives the
      * predecessor term from the entry term and would be refused with LogMismatch.
      */
-    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload)
-    {
-        FollowerLogEntry[] array = [new(index, term, Encoding.UTF8.GetBytes(payload))];
-        return new FollowerLogAppendRequest("leader", term, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>(array));
-    }
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) =>
+        new("leader", term, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 }

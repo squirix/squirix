@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -15,7 +16,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
     /// <summary>Verifies that an unknown version is rejected.</summary>
     [Test]
-    public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.Decode(new ReadOnlyMemory<byte>([0, 0]))).IsNull();
+    public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Of(0, 0))).IsNull();
 
     /// <summary>Verifies that an empty payload is rejected.</summary>
     [Test]
@@ -76,13 +77,13 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         2,
         "op",
         "scope",
-        new ReadOnlyMemory<byte>([1]),
+        ReadOnlyMemory<byte>.Of(1),
         "kind",
         "cache",
-        new ReadOnlyMemory<byte>([2]),
+        ReadOnlyMemory<byte>.Of(2),
         "mutation",
-        new ReadOnlyMemory<byte>([3]),
-        new ReadOnlyMemory<byte>([4]),
+        ReadOnlyMemory<byte>.Of(3),
+        ReadOnlyMemory<byte>.Of(4),
         5,
         6,
         7,

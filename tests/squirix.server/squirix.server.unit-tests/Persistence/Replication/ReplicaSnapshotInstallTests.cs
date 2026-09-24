@@ -199,7 +199,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             1UL,
             1UL,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, BufferEx.CopyToOwned("b"u8))]));
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, BufferEx.CopyToOwned("b"u8))));
         _ = await log.AppendAsync(second, cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 

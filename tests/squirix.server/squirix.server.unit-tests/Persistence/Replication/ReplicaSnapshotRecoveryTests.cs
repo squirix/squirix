@@ -184,7 +184,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await source.OpenAsync(cancellationToken);
         _ = await source.AppendAsync(Append(1UL, "source-1"), cancellationToken);
         _ = await source.AppendAsync(
-            new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2"))])),
+            new FollowerLogAppendRequest("leader", 2UL, 1UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2")))),
             cancellationToken);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
         var snapshot = await source.CreateSnapshotAsync(2UL, cancellationToken);
@@ -405,7 +405,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
                     1UL,
                     1UL,
                     0UL,
-                    new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2"))])),
+                    ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("source-2")))),
                 cancellationToken);
             _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
             _ = await source.CreateSnapshotAsync(2UL, cancellationToken);
@@ -433,7 +433,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(status.LastAppliedIndex).IsEqualTo(2UL);
         _ = await Assert.That(await reopened.GetUncommittedTailAsync(cancellationToken)).IsEmpty();
 
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("resumed-3"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("resumed-3")));
         var request = new FollowerLogAppendRequest("leader", 2UL, 2UL, 2UL, 0UL, memory);
         var resumed = await reopened.AppendAsync(request, cancellationToken);
         _ = await Assert.That(resumed.Success).IsTrue();

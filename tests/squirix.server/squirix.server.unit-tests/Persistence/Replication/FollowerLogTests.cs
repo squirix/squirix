@@ -57,7 +57,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
 
-        var readOnlyMemory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c"))]);
+        var readOnlyMemory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")));
         var stale = new FollowerLogAppendRequest("leader-1", 1UL, 2UL, 1UL, 0UL, readOnlyMemory);
         var result = await log.AppendAsync(stale, cancellationToken);
 
@@ -162,7 +162,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await log.OpenAsync(cancellationToken);
 
         var payload = Encoding.UTF8.GetBytes("abcd");
-        var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, payload)]));
+        var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, payload)));
         _ = await log.AppendAsync(request, cancellationToken);
 
         payload[0] = 0xFF;
@@ -241,11 +241,9 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
         // The batch rewrites the applied entry at index 1 with a conflicting term and appends a successor.
-        var readOnlyMemory = new ReadOnlyMemory<FollowerLogEntry>(
-        [
+        var readOnlyMemory = ReadOnlyMemory<FollowerLogEntry>.Of(
             new FollowerLogEntry(1UL, 2UL, Encoding.UTF8.GetBytes("x")),
-            new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("y")),
-        ]);
+            new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("y")));
         var request = new FollowerLogAppendRequest("leader-2", 2UL, 0UL, 0UL, 0UL, readOnlyMemory);
         var result = await log.AppendAsync(request, cancellationToken);
 
@@ -270,7 +268,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
 
         // The leader claims its previous entry at the applied index 1 has a conflicting term.
-        var readOnlyMemory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("b"))]);
+        var readOnlyMemory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("b")));
         var request = new FollowerLogAppendRequest("leader-2", 2UL, 1UL, 2UL, 0UL, readOnlyMemory);
         var result = await log.AppendAsync(request, cancellationToken);
 
@@ -295,8 +293,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
 
         // Declares index 1 as predecessor but skips index 2: the batch starts at index 3.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>(
-            [new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, Encoding.UTF8.GetBytes("d"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c")), new FollowerLogEntry(4UL, 1UL, Encoding.UTF8.GetBytes("d")));
         var malformed = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
         var result = await log.AppendAsync(malformed, cancellationToken);
 
@@ -338,7 +335,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
         // The leader's previous entry at the committed index disagrees in term.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 3UL, Encoding.UTF8.GetBytes("b"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 3UL, Encoding.UTF8.GetBytes("b")));
         var request = new FollowerLogAppendRequest("leader-2", 3UL, 1UL, 2UL, 0UL, memory);
         var result = await log.AppendAsync(request, cancellationToken);
 
@@ -432,7 +429,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
         // The leader re-sends only entry 3 and claims index 4 committed; entry 4 was not validated by this request.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("c"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("c")));
         var duplicate = new FollowerLogAppendRequest("leader-3", 3UL, 2UL, 1UL, 4UL, memory);
         var result = await log.AppendAsync(duplicate, cancellationToken);
 
@@ -616,7 +613,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var compact = await log.CompactAsync(cancellationToken);
         _ = await Assert.That(compact.Success).IsTrue();
 
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict")));
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
         var result = await log.AppendAsync(request, cancellationToken);
 
@@ -735,7 +732,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         // The leader re-sends the snapshot base entry at index 2 with the same term but a different payload while the
         // local basis entry is still resident; the exact payload comparison must reject the conflict instead of the
         // snapshot-baseline term fallback acknowledging it.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("conflict")));
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 1UL, 1UL, 0UL, memory);
         var result = await log.AppendAsync(request, cancellationToken);
 
@@ -807,8 +804,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
 
         // New leader (term 2) rewrites index 2 (which conflicts) and appends index 3.
-        var memory = new ReadOnlyMemory<FollowerLogEntry>(
-            [new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("B")), new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("C"))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("B")), new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("C")));
         var batch = new FollowerLogAppendRequest("leader-2", 2UL, 1UL, 1UL, 0UL, memory);
         var result = await log.AppendAsync(batch, cancellationToken);
 
@@ -841,7 +837,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload, ulong? prevLogTerm = null)
     {
-        var memory = new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]);
+        var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload)));
         return new FollowerLogAppendRequest("leader-1", term, index - 1, prevLogTerm ?? (index == 1UL ? 0UL : term), 0UL, memory);
     }
 }

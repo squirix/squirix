@@ -191,7 +191,7 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         var mtls = new MtlsOptions();
         await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, "n1"));
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, "n1"), [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, "n1"), ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
 
         var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
 

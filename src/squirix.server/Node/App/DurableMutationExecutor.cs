@@ -29,7 +29,7 @@ internal sealed class DurableMutationExecutor
 
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
@@ -74,7 +74,7 @@ internal sealed class DurableMutationExecutor
 
     private async ValueTask<TResult> ExecuteGroupCommitAsync<TState, TResult>(
         CacheKey conflictKey,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
@@ -96,7 +96,7 @@ internal sealed class DurableMutationExecutor
     }
 
     private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
         new MonolithicWithPipelineState<TState, TResult>(this, precondition, pipeline.State, pipeline.AppendJournal, pipeline.ApplyMemory),
@@ -105,7 +105,7 @@ internal sealed class DurableMutationExecutor
 
     private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(MonolithicWithPipelineState<TState, TResult> state, CancellationToken cancellationToken)
     {
-        var decision = await state.Precondition(cancellationToken).ConfigureAwait(false);
+        var decision = await state.Precondition(state.State, cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
             return decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
 
@@ -120,7 +120,7 @@ internal sealed class DurableMutationExecutor
     private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
         CacheKey conflictKey,
         GroupCommitExecutionState state,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         TState mutationState,
         Func<TState, CancellationToken, ValueTask> appendJournal,
         CancellationToken cancellationToken)
@@ -131,7 +131,7 @@ internal sealed class DurableMutationExecutor
         state.Admitted = true;
         try
         {
-            var decision = await precondition(cancellationToken).ConfigureAwait(false);
+            var decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
             if (!decision.ShouldApply)
             {
                 _ = _inFlight.TryRemove(conflictKey, out _);
@@ -211,7 +211,7 @@ internal sealed class DurableMutationExecutor
             DurableMutationExecutor mutator,
             CacheKey conflictKey,
             GroupCommitExecutionState executionState,
-            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
             Func<TState, CancellationToken, ValueTask> appendJournal)
         {
@@ -231,7 +231,7 @@ internal sealed class DurableMutationExecutor
 
         internal DurableMutationExecutor Mutator { get; }
 
-        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+        internal Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
 
         internal TState State { get; }
     }
@@ -241,7 +241,7 @@ internal sealed class DurableMutationExecutor
     {
         internal MonolithicWithPipelineState(
             DurableMutationExecutor mutator,
-            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
             Func<TState, CancellationToken, ValueTask> appendJournal,
             Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
@@ -259,7 +259,7 @@ internal sealed class DurableMutationExecutor
 
         internal DurableMutationExecutor Mutator { get; }
 
-        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+        internal Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
 
         internal TState State { get; }
     }

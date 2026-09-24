@@ -24,7 +24,7 @@ public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-bootstrap-seed");
         var sourcePath = Path.Join(dir, "journal-000001.sqr");
-        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], cancellationToken);
+        await File.WriteAllBytesAsync(sourcePath, ReadOnlyMemory<byte>.Of(1, 3, 3, 7), cancellationToken);
         var before = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
 
         var prepared = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
@@ -38,7 +38,8 @@ public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
         _ = await Assert.That(decoded.Groups[0].GroupId).IsEqualTo("group-a");
         _ = await Assert.That(decoded.Groups[1].GroupId).IsEqualTo("group-b");
         _ = await Assert.That(decoded.Groups).All(static group => group.State == BootstrapGroupState.Pending);
-        await SequenceAssert.EqualAsync(before, await File.ReadAllBytesAsync(sourcePath, cancellationToken));
+        var after = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
 
         var resumed = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);
         _ = await Assert.That(resumed.Resumed).IsTrue();

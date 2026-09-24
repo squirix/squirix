@@ -30,7 +30,10 @@ internal sealed class JournalDurabilityCoordinator
         _snapshot = snapshot;
         _logger = logger;
         _producerGate = producerGate;
+        ThrowIfJournalThreadFailedCheck = ThrowIfJournalThreadFailed;
     }
+
+    internal Action ThrowIfJournalThreadFailedCheck { get; }
 
     internal static void ThrowDisposeFailures(List<Exception> failures)
     {
@@ -108,7 +111,7 @@ internal sealed class JournalDurabilityCoordinator
 
             try
             {
-                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailed).ConfigureAwait(false);
+                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
             }
             catch
             {
@@ -459,7 +462,7 @@ internal sealed class JournalDurabilityCoordinator
             try
             {
                 _pipeline._producerGate.ThrowIfShutdownInitiated();
-                await _pipeline._owner.Ring.EnqueueAsync(createItem(ack), cancellationToken, _pipeline.ThrowIfJournalThreadFailed).ConfigureAwait(false);
+                await _pipeline._owner.Ring.EnqueueAsync(createItem(ack), cancellationToken, _pipeline.ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
             }
             catch
             {

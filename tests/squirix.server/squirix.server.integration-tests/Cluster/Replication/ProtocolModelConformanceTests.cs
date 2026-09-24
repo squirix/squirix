@@ -48,7 +48,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"));
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(
-            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))])),
+            new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")))),
             cancellationToken);
 
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);

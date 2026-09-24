@@ -17,10 +17,14 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
 {
+    private static readonly byte[] FingerprintBytes = [9];
+
+    private static readonly string[] SingleGroup = ["node-a"];
+
     /// <summary>Verifies that an out-of-range replica count is rejected.</summary>
     [Test]
     public void BadReplicaCountIsRejected() =>
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static count => _ = new ReplicaGroupRegistry("root", ["node-a"], count, Fingerprint(), 1));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static count => _ = new ReplicaGroupRegistry("root", SingleGroup, count, Fingerprint(), 1));
 
     /// <summary>Verifies that duplicated group identifiers are rejected.</summary>
     [Test]
@@ -31,7 +35,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     [Test]
     public async Task EligibilityBeforeOpenIsRejectedAsync()
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, Fingerprint(), 1);
+        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1);
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(registry, static r => _ = r.EligibilityFor("node-a"));
     }
@@ -39,7 +43,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     /// <summary>Verifies that an empty topology fingerprint is rejected.</summary>
     [Test]
     public void EmptyFingerprintIsRejected() => _ = NodeExceptionAssert.For<ArgumentException>()
-                                                                       .Throws(static () => _ = new ReplicaGroupRegistry("root", ["node-a"], 1, ReadOnlyMemory<byte>.Empty, 1));
+                                                                       .Throws(static () => _ = new ReplicaGroupRegistry("root", SingleGroup, 1, ReadOnlyMemory<byte>.Empty, 1));
 
     /// <summary>Verifies that an empty persistence root is rejected.</summary>
     [Test]
@@ -48,7 +52,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentException>().Throws(
             string.Empty,
             Fingerprint(),
-            static (root, fingerprint) => _ = new ReplicaGroupRegistry(root, ["node-a"], 1, fingerprint, 1));
+            static (root, fingerprint) => _ = new ReplicaGroupRegistry(root, SingleGroup, 1, fingerprint, 1));
     }
 
     /// <summary>Verifies that missing group identifiers are rejected.</summary>
@@ -66,7 +70,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     public async Task OpenTwiceIsRejectedAsync(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-registry-open");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 1, Fingerprint(), 1);
+        await using var registry = new ReplicaGroupRegistry(dir, SingleGroup, 1, Fingerprint(), 1);
         await registry.OpenAsync(cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(registry.OpenAsync(cancellationToken));
@@ -76,7 +80,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
     [Test]
     public async Task UnknownGroupLookupMissesAsync()
     {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, Fingerprint(), 1);
+        await using var registry = new ReplicaGroupRegistry("test-root", SingleGroup, 1, Fingerprint(), 1);
 
         _ = await Assert.That(registry.TryGetLog("unknown-group", out var log)).IsFalse();
         _ = await Assert.That(log).IsNull();
@@ -84,5 +88,5 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
 
     /// <summary>Creates a valid topology fingerprint for registry tests.</summary>
     /// <returns>A non-empty fingerprint.</returns>
-    private static ReadOnlyMemory<byte> Fingerprint() => new([9]);
+    private static ReadOnlyMemory<byte> Fingerprint() => FingerprintBytes;
 }

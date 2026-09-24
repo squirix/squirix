@@ -50,7 +50,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="identity">Shared context for the current test case.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty or contains an empty node identifier.</exception>
-    internal static ServerPeer[] CreatePeers(ClusterNode[] topology, ref ClusterIdentity? identity)
+    internal static ServerPeer[] CreatePeers(ReadOnlySpan<ClusterNode> topology, ref ClusterIdentity? identity)
     {
         if (topology.Length == 0)
             throw new ArgumentException("Topology must not be empty.", nameof(topology));
@@ -106,12 +106,8 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="topology">Cluster members that will be started from the shared identity.</param>
     /// <param name="identity">Caller-supplied shared identity, or <see langword="null" />.</param>
     /// <returns>The supplied identity; a new shared identity for multi-node topologies; otherwise <see langword="null" />.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="topology" /> is null.</exception>
-    internal static ClusterIdentity? ResolveForTopology(ClusterNode[] topology, ClusterIdentity? identity)
-    {
-        ArgumentNullException.ThrowIfNull(topology);
-        return identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
-    }
+    internal static ClusterIdentity? ResolveForTopology(ReadOnlySpan<ClusterNode> topology, ClusterIdentity? identity) =>
+        identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
 
     /// <summary>Resolves startup overrides for a test node profile and releases its held internal port for immediate bind.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
@@ -125,7 +121,7 @@ public sealed class ClusterIdentity : IDisposable
         return result;
     }
 
-    private static HashSet<int> CollectExcludedPrimaryPorts(ClusterNode[] topology)
+    private static HashSet<int> CollectExcludedPrimaryPorts(ReadOnlySpan<ClusterNode> topology)
     {
         var ports = new HashSet<int>();
         for (var i = 0; i < topology.Length; i++)
@@ -145,7 +141,7 @@ public sealed class ClusterIdentity : IDisposable
 
     private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) => new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
 
-    private static bool HasRemotePeers(ClusterNode[] topology)
+    private static bool HasRemotePeers(ReadOnlySpan<ClusterNode> topology)
     {
         if (topology.Length <= 1)
             return false;
@@ -164,7 +160,7 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
     /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
-    private ServerPeer[] BuildPeers(ClusterNode[] topology)
+    private ServerPeer[] BuildPeers(ReadOnlySpan<ClusterNode> topology)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         var excludedPorts = CollectExcludedPrimaryPorts(topology);

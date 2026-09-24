@@ -82,7 +82,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var options = CreateOptions(Dir);
         using var manifestStore = new Ledger(options);
         var tmpPath = JournalReadPath.BuildRollTempPath(Dir, 5);
-        await File.WriteAllBytesAsync(tmpPath, [0x01, 0x02], cancellationToken);
+        await File.WriteAllBytesAsync(tmpPath, ReadOnlyMemory<byte>.Of(0x01, 0x02), cancellationToken);
 
         await using var journal = JournalCoordinatorFactory.Create(
             options,
@@ -336,7 +336,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         // Foreign torn leftover at the roll target (2 bytes, created after startup stats).
         const int tornLength = 2;
-        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), [0x53, 0x4A], cancellationToken);
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), ReadOnlyMemory<byte>.Of(0x53, 0x4A), cancellationToken);
 
         await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
@@ -436,7 +436,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         await ledger.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 2, LastSnapshot = null }, cancellationToken);
 
         // Torn roll target: 3 bytes, shorter than a valid header.
-        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), [0x53, 0x4A, 0x52], cancellationToken);
+        await File.WriteAllBytesAsync(SegmentPath(Dir, 2), ReadOnlyMemory<byte>.Of(0x53, 0x4A, 0x52), cancellationToken);
 
         await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true));
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;

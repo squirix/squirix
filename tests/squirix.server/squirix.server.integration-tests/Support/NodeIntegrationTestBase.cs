@@ -58,7 +58,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ClusterNode[] topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -170,38 +170,21 @@ public abstract class NodeIntegrationTestBase : IDisposable
         CancellationToken cancellationToken = default,
         [CallerMemberName] string? testName = null) => StartClusterAsync([node], options, cancellationToken, testName);
 
-    /// <summary>Starts one node per topology entry with a shared peer set.</summary>
+    /// <summary>Starts one node per topology entry, copying the entries so literal topologies do not allocate at the call site.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
     /// <param name="options">Optional startup knobs applied to every node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="testName">Optional persistence scope hint from the caller.</param>
     /// <returns>A started cluster owning the nodes.</returns>
-    internal async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
-        ClusterNode[] topology,
+    internal ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ReadOnlySpan<ClusterNode> topology,
         IntegrationStartOptions? options = null,
         CancellationToken cancellationToken = default,
         [CallerMemberName] string? testName = null)
     {
-        ArgumentNullException.ThrowIfNull(topology);
-        var peers = BuildClusterPeers(topology);
-        TestCluster<IntegrationStartOptions>? cluster = null;
-        try
-        {
-            cluster = TestCluster<IntegrationStartOptions>.Create(
-                topology,
-                (self, nodeTopology, nodeOptions, token) => StartClusterAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
-                peers);
-
-            var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
-                                       .ConfigureAwait(false);
-            cluster = null;
-            return started;
-        }
-        finally
-        {
-            if (cluster != null)
-                await cluster.DisposeAsync().ConfigureAwait(false);
-        }
+        var copy = new ClusterNode[topology.Length];
+        topology.CopyTo(copy);
+        return StartClusterAsync(copy, options, cancellationToken, testName);
     }
 
     internal async ValueTask<ITestNodeHost> StartClusterAsync(
@@ -320,6 +303,40 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.</exception>
     private protected static ILogicalNamespacedCache<object?> GetCache(ITestNodeHost host) => host.GetCache<object?>("default");
+
+    /// <summary>Starts one node per topology entry with a shared peer set.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="options">Optional startup knobs applied to every node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    private async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+        ClusterNode[] topology,
+        IntegrationStartOptions? options = null,
+        CancellationToken cancellationToken = default,
+        [CallerMemberName] string? testName = null)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        var peers = BuildClusterPeers(topology);
+        TestCluster<IntegrationStartOptions>? cluster = null;
+        try
+        {
+            cluster = TestCluster<IntegrationStartOptions>.Create(
+                topology,
+                (self, nodeTopology, nodeOptions, token) => StartClusterAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
+                peers);
+
+            var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
+                                       .ConfigureAwait(false);
+            cluster = null;
+            return started;
+        }
+        finally
+        {
+            if (cluster != null)
+                await cluster.DisposeAsync().ConfigureAwait(false);
+        }
+    }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {

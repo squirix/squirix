@@ -22,6 +22,8 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
 {
     private static readonly byte[] OneByteResponse = [1];
 
+    private static readonly byte[] SampleResponse = [0x08, 0x01];
+
     /// <summary>Length computation matches the documented golden size for a fixed record.</summary>
     [Test]
     public async Task ComputeEncodedLengthMatchesGolden()
@@ -29,7 +31,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         var record = new PersistedIdempotencyRecord(
             "0123456789abcdef0123456789abcdef",
             "try-add-entry-async|default|k|abc123",
-            [0x08, 0x01],
+            SampleResponse,
             new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
 
         // 1 (state) + 2 + 32 + 2 + 36 + 8 + 4 + 2.
@@ -64,7 +66,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
     public async Task LegacyCompletedRecordReads()
     {
         var createdUtc = new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc);
-        var body = LegacyWireBytes("0123456789abcdef0123456789abcdef", "try-add-entry-async|default|k|abc123", createdUtc, [0x08, 0x01]);
+        var body = LegacyWireBytes("0123456789abcdef0123456789abcdef", "try-add-entry-async|default|k|abc123", createdUtc, SampleResponse);
 
         var decoded = IdempotencyCodec.Read(body);
 
@@ -221,7 +223,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         var record = new PersistedIdempotencyRecord(
             "0123456789abcdef0123456789abcdef",
             "try-add-entry-async|default|k|abc123",
-            [0x08, 0x01],
+            SampleResponse,
             new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
         var buffer = new byte[IdempotencyCodec.ComputeEncodedLength(record) + 1];
         IdempotencyCodec.Write(record, buffer);
@@ -259,7 +261,7 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
         var record = new PersistedIdempotencyRecord(
             "0123456789abcdef0123456789abcdef",
             "try-add-entry-async|default|k|abc123",
-            [0x08, 0x01],
+            SampleResponse,
             new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
         var buffer = new byte[IdempotencyCodec.ComputeEncodedLength(record)];
 

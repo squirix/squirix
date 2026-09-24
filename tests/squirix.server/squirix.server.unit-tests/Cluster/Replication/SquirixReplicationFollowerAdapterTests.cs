@@ -81,7 +81,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         follower.Header.GroupId = "unknown-group";
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 }]);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 });
 
         var response = await follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext));
 
@@ -95,7 +95,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     public async Task InstallRejectsLengthMismatchAsync(CancellationToken cancellationToken)
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 }]);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 });
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
 
@@ -136,7 +136,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
         var dir = new TempDirectory("squirix-replication-adapter");
-        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, new ReadOnlyMemory<byte>([9]), topology.ConfigurationGeneration);
+        var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration);
         await registry.OpenAsync(cancellationToken);
         var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry);
         var header = new ReplicationEnvelopeHeader
@@ -211,6 +211,13 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         internal TestAsyncStreamReader(IEnumerable<T> items)
         {
             _items = items.GetEnumerator();
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="TestAsyncStreamReader{T}" /> class streaming a single item.</summary>
+        /// <param name="item">The item to stream.</param>
+        internal TestAsyncStreamReader(T item)
+            : this([item])
+        {
         }
 
         /// <inheritdoc />

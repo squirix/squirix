@@ -23,7 +23,7 @@ public sealed class ReplicationEnvelopeCodecTests : ServerUnitTestBase
 
         _ = await Assert.That(decoded.SchemaVersion).IsEqualTo(EnvelopeCodec.SchemaVersion);
         _ = await Assert.That(decoded.GroupId).IsEqualTo("group-a");
-        await SequenceAssert.EqualMemoryAsync(new ReadOnlyMemory<byte>([1, 2, 3, 4, 5, 6, 7, 8]), decoded.TopologyFingerprint);
+        await SequenceAssert.EqualMemoryAsync(ReadOnlyMemory<byte>.Of(1, 2, 3, 4, 5, 6, 7, 8), decoded.TopologyFingerprint);
         _ = await Assert.That(decoded.ConfigurationGeneration).IsEqualTo(9UL);
         _ = await Assert.That(decoded.Term).IsEqualTo(11UL);
         _ = await Assert.That(decoded.LeaderNodeId).IsEqualTo("leader-1");
