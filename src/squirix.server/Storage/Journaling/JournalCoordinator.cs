@@ -600,7 +600,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 // Shutdown rejection lands in the same cleanup below: the frame never entered
                 // the ring, so the buffer and the queued-append slot are released here.
                 _producerGate.ThrowIfShutdownInitiated();
-                await _owner.Ring.EnqueueAsync(item, cancellationToken, _owner.DurabilityPipeline.ThrowIfJournalThreadFailed).ConfigureAwait(false);
+                await _owner.Ring.EnqueueAsync(item, cancellationToken, _owner.DurabilityPipeline.ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
             }
             catch when (_owner.PendingAppends.Untrack(item, out _))
             {
