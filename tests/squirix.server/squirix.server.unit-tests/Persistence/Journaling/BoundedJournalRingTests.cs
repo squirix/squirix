@@ -30,6 +30,44 @@ public sealed class BoundedJournalRingTests
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
+    /// <summary>NotifyWorkAvailable must not surface ObjectDisposedException after the ring is disposed.</summary>
+    [Test]
+    public async Task NotifySafeAfterDispose()
+    {
+        var ring = new BoundedJournalRing(4);
+        ring.Dispose();
+
+        Exception? thrown = null;
+        try
+        {
+            ring.NotifyWorkAvailable();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            thrown = ex;
+        }
+
+        _ = await Assert.That(thrown).IsNull();
+    }
+
+    /// <summary>Full enqueue/dequeue drain must keep slots reusable.</summary>
+    [Test]
+    public async Task EnqueueDequeueKeepsSlots()
+    {
+        using var ring = new BoundedJournalRing(2);
+        var item = JournalWorkItem.Shutdown();
+
+        await ring.EnqueueAsync(item, CancellationToken.None);
+        _ = await Assert.That(ring.TryDequeue(out var first)).IsTrue();
+        _ = await Assert.That(first).IsEqualTo(item);
+
+        // Slots must be reusable after a full drain; a leaked slot would block this second round.
+        var second = JournalWorkItem.Shutdown();
+        await ring.EnqueueAsync(second, CancellationToken.None);
+        _ = await Assert.That(ring.TryDequeue(out var third)).IsTrue();
+        _ = await Assert.That(third).IsEqualTo(second);
+    }
+
     private sealed class PipelineFailureProbe
     {
         internal InvalidOperationException Reason { get; } = new("pipeline failed");
