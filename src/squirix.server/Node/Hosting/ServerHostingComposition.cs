@@ -147,7 +147,10 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<OwnershipGuardCacheDecorator<object?>>(),
             sp.GetRequiredService<TopologyOptions>().NodeId,
             fingerprint.AsMemory(),
-            sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration));
+            sp.GetRequiredService<TopologyOptions>().ConfigurationGeneration)
+        {
+            Log = sp.GetRequiredService<ILogger<ReplicaGroupCommitter>>(),
+        });
         _ = services.AddHostedService(static sp => new ReplicaGroupReadinessService(
             sp.GetRequiredService<ReplicaGroupCommitter>(),
             sp.GetRequiredService<ILogger<ReplicaGroupReadinessService>>(),

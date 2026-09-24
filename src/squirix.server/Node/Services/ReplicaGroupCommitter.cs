@@ -2,9 +2,11 @@ using System;
 using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
@@ -18,13 +20,14 @@ namespace Squirix.Server.Node.Services;
 /// Commits run one at a time per group under <see cref="AsyncLock" />: log indexes stay dense with no
 /// gaps, prepare-time reads stay exact through the ordered applying, and the coordinator never observes
 /// admission pressure or turn waits. The coordinator itself is never canceled; a fixed commit budget
-/// bounds every attempt and idempotent retries recover unknown outcomes.
+/// bounds every attempt up to its durable majority, and idempotent retries recover unknown outcomes.
 /// </remarks>
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
     private const int IdempotencyCapacity = 1024;
     private const int MaxInFlight = 2;
     private static readonly TimeSpan CommitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
     private readonly AsyncLock _gate = new();
@@ -71,6 +74,23 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
         _generation = generation;
+        ShutdownBudget = DefaultShutdownBudget;
+    }
+
+    /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
+    internal ILogger Log { get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
+
+    /// <summary>Gets the longest wait for an in-flight commit on dispose; 30 seconds unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan ShutdownBudget
+    {
+        get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
+
+            field = value;
+        }
     }
 
     /// <inheritdoc />
@@ -81,7 +101,24 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         // Drain in-flight committer operations holding _gate so their AsyncLockHolder can release
         // the semaphore before it is disposed of. New admissions fail closed via ThrowIfDisposed.
-        var drain = await _gate.LockAsync(CancellationToken.None).ConfigureAwait(false);
+        // Work after a durable majority ignores cancellation and can outlast a stalled disk, so the
+        // drain is bounded: on expiry the coordinator and the gate stay with the in-flight commit and
+        // are leaked loudly instead of being torn down under it. Not throwing keeps the host disposing
+        // the services behind this one (the group logs and the journal).
+        AsyncLockHolder drain;
+        using (var budget = new CancellationTokenSource(ShutdownBudget))
+        {
+            try
+            {
+                drain = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                LogManager.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
+                return;
+            }
+        }
+
         drain.Dispose();
 
         if (_coordinator != null)
@@ -293,12 +330,19 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             return await coordinator.CommitAsync(mutation, CommitTimeout, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception error) when (!IsPostAppendOutcome(error))
+        catch (Exception error) when (IsPostAppendOutcome(error))
+        {
+            // A durable majority may hold the entry: keep the reservation and sequencing untouched and
+            // report the stable contract (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop
+            // instead of retrying under a new identity. The original cause is logged before it is dropped.
+            LogManager.ReplicaCommitOutcomeUnknown(Log, error);
+            throw ServerOpContract.CommitOutcomeUnknown();
+        }
+        catch
         {
             // The local appending was refused before anything was marked appended: the reserved
             // _nextIndex no longer matches the durable log, so drop the started state and rebuild
-            // from status.LastLogIndex on the next attempt. Post-append outcomes (a durable
-            // majority may exist) keep the reservation and sequencing untouched.
+            // from status.LastLogIndex on the next attempt.
             _started = false;
             throw;
         }

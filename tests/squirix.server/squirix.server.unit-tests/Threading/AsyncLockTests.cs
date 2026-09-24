@@ -22,6 +22,18 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(asyncLock, cancellationToken, static (candidate, token) => { _ = candidate.TryLock(out _, token); });
     }
 
+    /// <summary>Releasing a holder after its lock was disposed under it (a bounded shutdown gave up waiting) is a no-op instead of a throw.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HolderReleaseAfterLockDisposeIsSafe(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var holder = await asyncLock.LockAsync(cancellationToken);
+        asyncLock.Dispose();
+
+        holder.Dispose();
+    }
+
     /// <summary>Locking a disposed lock faults with ObjectDisposedException instead of waiting on a semaphore that no longer exists.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

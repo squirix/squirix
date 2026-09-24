@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.UnitTests.Architecture;
 using Squirix.Server.UnitTests.Support;
@@ -93,6 +94,7 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
 
     /// <summary>RF=3 reads are served locally even after every follower stops.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The seed write did not commit before its bound.</exception>
     [Test]
     public async Task RfThreeReadsRemainDisabled(CancellationToken cancellationToken)
     {
@@ -115,7 +117,7 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
                 await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, seedLinked.Token);
                 break;
             }
-            catch (InvalidOperationException error) when (IsCommitOutcomeUnknown(error) && !cancellationToken.IsCancellationRequested)
+            catch (SquirixException error) when (error.Code == SquirixErrorCode.CommitOutcomeUnknown && !cancellationToken.IsCancellationRequested)
             {
                 if (seedBound.IsCancellationRequested)
                     throw new InvalidOperationException("Seed write did not reach a majority before the bound.", error);
@@ -133,7 +135,4 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         var loneValue = await Assert.That(loneRead.Value).IsTypeOf<string>();
         _ = await Assert.That(loneValue).IsEqualTo("v");
     }
-
-    private static bool IsCommitOutcomeUnknown(InvalidOperationException error) =>
-        error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 }
