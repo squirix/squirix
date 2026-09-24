@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Threading;
@@ -10,4 +11,6 @@ internal interface IJournalDurabilityCoordinator
     QuiescenceGate InFlightApplyGate { get; }
 
     ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken);
+
+    void FailJournalPipeline(Exception reason);
 }

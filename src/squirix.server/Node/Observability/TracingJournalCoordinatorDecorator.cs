@@ -148,6 +148,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
     }
 
+    public void FailJournalPipeline(Exception reason) => _inner.FailJournalPipeline(reason);
+
     public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);

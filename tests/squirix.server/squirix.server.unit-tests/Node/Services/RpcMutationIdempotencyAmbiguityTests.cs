@@ -407,6 +407,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 }
