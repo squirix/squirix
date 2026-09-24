@@ -193,7 +193,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="testName">Optional persistence scope hint from the caller.</param>
     /// <returns>A started cluster owning the nodes.</returns>
-    internal async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
+    private async ValueTask<TestCluster<IntegrationStartOptions>> StartClusterAsync(
         ClusterNode[] topology,
         IntegrationStartOptions? options = null,
         CancellationToken cancellationToken = default,

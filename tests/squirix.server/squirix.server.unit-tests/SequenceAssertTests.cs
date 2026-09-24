@@ -16,7 +16,7 @@ public sealed class SequenceAssertTests : ServerUnitTestBase
     public async Task SpanOverloadFailsOnElementMismatch()
     {
         var actual = new[] { 1, 2, 4 };
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync<int>([1, 2, 3], actual));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync([1, 2, 3], actual));
     }
 
     /// <summary>A different length fails the assertion.</summary>
@@ -24,7 +24,7 @@ public sealed class SequenceAssertTests : ServerUnitTestBase
     public async Task SpanOverloadFailsOnLengthMismatch()
     {
         var actual = new[] { 1, 2 };
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync<int>([1, 2, 3], actual));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(SequenceAssert.EqualAsync([1, 2, 3], actual));
     }
 
     /// <summary>The comparer overload honors the supplied comparer for both matches and mismatches.</summary>
@@ -41,6 +41,6 @@ public sealed class SequenceAssertTests : ServerUnitTestBase
     public Task SpanOverloadPassesOnEqualItems()
     {
         var actual = new[] { 1, 2, 3 };
-        return SequenceAssert.EqualAsync<int>([1, 2, 3], actual);
+        return SequenceAssert.EqualAsync([1, 2, 3], actual);
     }
 }
