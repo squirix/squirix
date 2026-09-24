@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -94,9 +95,7 @@ internal sealed class JournalDurabilityGroupCommit
         {
             _failure ??= reason;
             _batchDeadline.Clear();
-            for (var i = 0; i < _acks.Count; i++)
-                _ = _acks[i].TrySetException(reason);
-
+            _acks.FaultAll(reason);
             _acks.Clear();
         }
     }
@@ -120,23 +119,6 @@ internal sealed class JournalDurabilityGroupCommit
             var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
             return remaining <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(remaining.TotalMilliseconds, int.MaxValue));
         }
-    }
-
-    private static void CompleteBatchWithFailure(List<TaskCompletionSource> batch, Exception ex)
-    {
-        // Flush failures fail the whole batch so no ack observes partial durability.
-        for (var i = 0; i < batch.Count; i++)
-            _ = batch[i].TrySetException(ex);
-
-        batch.Clear();
-    }
-
-    private static void CompleteBatchWithSuccess(List<TaskCompletionSource> batch)
-    {
-        for (var i = 0; i < batch.Count; i++)
-            _ = batch[i].TrySetResult();
-
-        batch.Clear();
     }
 
     private void CancelAck(TaskCompletionSource ack, CancellationToken cancellationToken)
@@ -164,14 +146,17 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (Exception ex)
         {
-            CompleteBatchWithFailure(batch, ex);
+            // Flush failures fail the whole batch so no ack observes partial durability.
+            batch.FaultAll(ex);
+            batch.Clear();
             if (ex is not (IOException or ObjectDisposedException or InvalidOperationException))
                 throw;
 
             return;
         }
 
-        CompleteBatchWithSuccess(batch);
+        batch.CompleteAll();
+        batch.Clear();
     }
 
     private bool TryTakeDueBatch(out List<TaskCompletionSource> batch)

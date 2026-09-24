@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -25,8 +26,10 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         IJournalSegmentWriter segmentWriter,
         PersistenceOptions opt,
         JournalEventLoopStartup startup,
-        CancellationToken bgToken)
+        CancellationToken bgToken,
+        ILogger? logger = null)
     {
+        JournalLog = logger ?? LogManager.GetLogger<JournalEventLoop>();
         Host = host;
         Ring = ring;
         SegmentWriter = segmentWriter;
@@ -77,17 +80,25 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private bool IsDurabilityFlushPending { get; set; }
 
-    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalEventLoop>();
+    private ILogger JournalLog { get; }
 
     public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
 
-    public void FsyncOnJournalThread()
+    public void FlushToDisk()
     {
         if (!IsDurabilityFlushPending)
             return;
 
-        SegmentWriter.Fsync();
-        IsDurabilityFlushPending = false;
+        var startedTimestamp = Stopwatch.GetTimestamp();
+        try
+        {
+            SegmentWriter.FlushToDisk();
+            IsDurabilityFlushPending = false;
+        }
+        finally
+        {
+            JournalSlowOperationDiagnostics.ReportFsync(JournalLog, startedTimestamp);
+        }
     }
 
     public void IncrementJournalSegmentCount() => JournalSegmentCount++;
@@ -125,7 +136,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     {
         _segmentWriterOps.FlushWriteBatch();
         if (IsDurabilityFlushPending)
-            FsyncOnJournalThread();
+            FlushToDisk();
     }
 
     internal void MarkRollAborted()

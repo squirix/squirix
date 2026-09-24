@@ -77,11 +77,10 @@ internal sealed class JournalDurabilityCoordinator
         // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
         // it. Completing acks registered later (their checkpoints are still queued behind this item)
         // would report frames durable before they are written, so foreign acks must stay pending.
+        // The removal makes the ack unreachable for the failure drain, so Run faults it when
+        // the fsync fails; the rethrow still fails the pipeline, and the fsync is never retried.
         if (_owner.DurabilityAcks.Remove(ack))
-        {
-            _owner.EventLoop.FsyncOnJournalThread();
-            _ = ack.TrySetResult();
-        }
+            ack.Run(_owner.EventLoop, static loop => loop.FlushToDisk());
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
@@ -235,8 +234,7 @@ internal sealed class JournalDurabilityCoordinator
     {
         var acks = _owner.DurabilityAcks.TakeAll(reason);
 
-        for (var i = 0; i < acks.Count; i++)
-            _ = acks[i].TrySetException(reason);
+        acks.FaultAll(reason);
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }

@@ -140,13 +140,13 @@ internal static class JournalRecoveryScan
             if (length == 0)
                 WriteFreshFileHeader(writer);
 
-            writer.Fsync();
+            writer.FlushToDisk();
         }
         catch (InvalidDataException) when (writer.Length > 0)
         {
             writer.Truncate(0);
             WriteFreshFileHeader(writer);
-            writer.Fsync();
+            writer.FlushToDisk();
         }
     }
 

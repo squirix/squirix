@@ -5,6 +5,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -97,14 +98,14 @@ internal sealed class JournalEventLoopSegmentWriter
         if (item.Kind == JournalWorkKind.Shutdown)
         {
             FlushWriteBatch();
-            _owner.FsyncOnJournalThread();
+            _owner.FlushToDisk();
             return true;
         }
 
         if (item.Kind != JournalWorkKind.MaintenanceBegin)
             throw new InvalidOperationException("Unknown journal work kind.");
         FlushWriteBatch();
-        _owner.FsyncOnJournalThread();
+        _owner.FlushToDisk();
         _roll.SetActiveSegmentPath(null);
         CompleteJournalWorkItem(item);
         return false;
@@ -161,7 +162,7 @@ internal sealed class JournalEventLoopSegmentWriter
         if (_roll.SegmentRollInFlight)
             return;
 
-        _owner.FsyncOnJournalThread();
+        _owner.FlushToDisk();
 
         // The roll target segment is created durably before the manifest advertises
         // CurrentJournal = target, so a crash can never leave the manifest ahead of the last
@@ -203,7 +204,7 @@ internal sealed class JournalEventLoopSegmentWriter
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
             JournalFraming.WriteFileHeader(header);
             _owner.SegmentWriter.Write(header, 0);
-            _owner.SegmentWriter.Fsync();
+            _owner.SegmentWriter.FlushToDisk();
             _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
         }
 
@@ -286,8 +287,7 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            ReleaseQueuedAppendResources(item);
-            _ = item.Ack?.TrySetException(ex);
+            FailAppendWorkItem(item, ex);
             throw;
         }
 
@@ -310,7 +310,7 @@ internal sealed class JournalEventLoopSegmentWriter
         try
         {
             WriteAppendFrame(item);
-            _owner.FsyncOnJournalThread();
+            _owner.FlushToDisk();
             _ = ack.TrySetResult();
         }
         catch (JournalCapacityExceededException ex)
@@ -320,8 +320,7 @@ internal sealed class JournalEventLoopSegmentWriter
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            ReleaseQueuedAppendResources(item);
-            _ = ack.TrySetException(ex);
+            FailAppendWorkItem(item, ex);
             throw;
         }
 
@@ -547,7 +546,7 @@ internal sealed class JournalEventLoopSegmentWriter
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
             JournalFraming.WriteFileHeader(header);
             writer.Write(header, 0);
-            writer.Fsync();
+            writer.FlushToDisk();
         }
     }
 
@@ -589,30 +588,19 @@ internal sealed class JournalEventLoopSegmentWriter
             // against a torn layout, only the layout-wide counters are well-defined, so the per-segment
             // written-bytes counter is left alone (the next EnsureSegmentOpen overwrites it anyway) and
             // the resyncing exists for observability on an already-failed pipeline.
-            try
-            {
-                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-                _owner.SetJournalTotalBytes(totalBytes);
-                _roll.SetJournalSegmentCount(segmentCount);
-                _owner.SetDirty(false);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-                _ = item.Ack?.TrySetException(ex);
-                return;
-            }
-            catch (Exception unexpectedEx) when (unexpectedEx is not (ArgumentException or IOException or UnauthorizedAccessException))
-            {
-                // Total guard: the abort must never escape the journal thread, no matter how exotic
-                // the scan failure is. The filter also keeps CA1031 silent: the preceding catch
-                // already handles the listed types, so this arm is the documented remainder.
-                // Faulting the ack keeps the failure explicit; the producer side
-                // treats any ack failure as suppressed and still fails loudly with the original error.
-                _ = item.Ack?.TrySetException(unexpectedEx);
-                return;
-            }
+            // The abort must never escape the journal thread, no matter how exotic the scan failure is:
+            // faulting the ack keeps the failure explicit, and the producer side treats any ack failure
+            // as suppressed and still fails loudly with the original error.
+            var ack = ThrowHelper.Required(item.Ack, "maintenance abort work item is missing an ack.");
+            ack.RunIsolated(this, static completion => completion.ResyncCounters());
+        }
 
-            _ = item.Ack?.TrySetResult();
+        private void ResyncCounters()
+        {
+            var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
+            _owner.SetJournalTotalBytes(totalBytes);
+            _roll.SetJournalSegmentCount(segmentCount);
+            _owner.SetDirty(false);
         }
 
         /// <summary>Installs maintenance end reset pointers and resyncs capacity counters from the rewritten layout.</summary>

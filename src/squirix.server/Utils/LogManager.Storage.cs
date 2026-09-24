@@ -24,6 +24,12 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "Journal failure drained {Count} abandoned appends; {Bytes} bytes quarantined until the I/O thread joins")]
     internal static partial void JournalAbandonedAppendsDrained(ILogger logger, int count, long bytes);
 
+    [LoggerMessage(EventId = 1012, Level = LogLevel.Warning, Message = "Journal fsync took {ElapsedMs} ms")]
+    internal static partial void JournalFsyncSlow(ILogger logger, long elapsedMs);
+
+    [LoggerMessage(EventId = 1013, Level = LogLevel.Warning, Message = "Journal mutation gate held for {HeldMs} ms by {Holder}")]
+    internal static partial void JournalMutationGateHeldLong(ILogger logger, long heldMs, string holder);
+
     [LoggerMessage(EventId = 1009, Level = LogLevel.Warning, Message = "Manifest retention cleanup for {ArtifactKind} failed")]
     internal static partial void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind);
 

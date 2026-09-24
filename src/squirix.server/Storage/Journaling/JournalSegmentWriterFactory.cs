@@ -44,13 +44,13 @@ internal static class JournalSegmentWriterFactory
             _handle = null;
         }
 
-        public void Fsync()
+        public void FlushToDisk()
         {
             var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
-            if (OperatingSystem.IsWindows())
 
-                // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
-                // WriteThrough + FlushAsync per append (not full disk flush per op).
+            // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
+            // WriteThrough + FlushAsync per append (not full disk flush per op).
+            if (OperatingSystem.IsWindows())
                 return;
 
             RandomAccess.FlushToDisk(handle);

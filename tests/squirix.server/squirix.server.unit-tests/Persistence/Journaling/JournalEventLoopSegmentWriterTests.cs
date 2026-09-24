@@ -356,7 +356,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         /// <summary>Releases the fake segment writer.</summary>
         public void Dispose() => _segmentWriter.Dispose();
 
-        void IJournalEventLoopState.FsyncOnJournalThread()
+        void IJournalEventLoopState.FlushToDisk()
         {
         }
 
@@ -378,7 +378,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         {
         }
 
-        void IJournalSegmentWriter.Fsync()
+        void IJournalSegmentWriter.FlushToDisk()
         {
         }
 
