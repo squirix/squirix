@@ -49,8 +49,9 @@ Readiness behavior (`GET /health/ready`):
 - The route is the machine readiness probe for schedulers and load balancers.
 - When persistence is enabled, `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
   Ephemeral nodes omit journal recovery checks.
-- `journal_maintenance` is **Unhealthy** after a fatal journal periodic flush-loop failure, a failed journal compaction
-  state, or a fatal snapshot trigger failure.
+- `journal_maintenance` is **Unhealthy** while the journal pipeline is latched as failed (for example after a failed
+  fsync or flush; the node cannot commit until restart), after a failed journal compaction state, or after a fatal
+  snapshot trigger failure. The check description names the latched failure type and message.
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
   readiness by themselves.
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on

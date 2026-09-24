@@ -196,7 +196,8 @@ When `WaitForRecovery` is `false`, replay runs in the background:
 - Cache reads wait on the same gate until replay completes.
 - `/health/ready` stays **Unhealthy** until the gate opens (`journal_recovery` check).
 - `/health/ready` also reports **Unhealthy** for fatal durability maintenance failures (`journal_maintenance`),
-  including journal periodic flush-loop failure, failed journal compaction state, or fatal snapshot trigger failure.
+  including a journal pipeline latched as failed (for example a failed fsync; the node cannot commit until restart
+  and the check description names the failure), failed journal compaction state, or fatal snapshot trigger failure.
 - `/health/live` remains available for process liveness.
 
 Use non-blocking recovery only when load balancers honor `/health/ready` and callers tolerate delayed read availability

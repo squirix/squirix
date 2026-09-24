@@ -116,5 +116,8 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
 
     /// <inheritdoc />
+    public Exception? GetJournalThreadFailure() => null;
+
+    /// <inheritdoc />
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => default;
 }

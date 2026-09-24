@@ -495,6 +495,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
 
+        public Exception? GetJournalThreadFailure() => null;
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 }

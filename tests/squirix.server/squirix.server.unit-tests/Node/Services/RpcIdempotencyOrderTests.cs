@@ -209,6 +209,8 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public void FailJournalPipeline(Exception reason) => _inner.FailJournalPipeline(reason);
 
+        public Exception? GetJournalThreadFailure() => _inner.GetJournalThreadFailure();
+
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _inner.WaitForStartupAsync(cancellationToken);
     }
 
