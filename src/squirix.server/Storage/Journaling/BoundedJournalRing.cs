@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -74,16 +75,9 @@ internal sealed class BoundedJournalRing : IDisposable
         if (Volatile.Read(ref _disposed) == 1)
             return;
 
-        // Best-effort: Dispose can still win the race after the check above, and letting the
-        // exception escape would wrongly release the slot of an item that is already published.
-        try
-        {
-            _ = _workSignal.Set();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Disposed concurrently: nothing left to wake.
-        }
+        // Dispose can still win the race after the check above, and letting the exception escape
+        // would wrongly release the slot of an item that is already published.
+        _workSignal.SetIfNotDisposed();
     }
 
     internal bool TryDequeue([NotNullWhen(true)] out JournalWorkItem? item)
