@@ -10,6 +10,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -24,6 +25,8 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 {
+    private const int ApplyWaitTimedOutEventId = 3015;
+
     private const int JoinTimedOutEventId = 3013;
 
     private const int LeakedOnShutdownEventId = 3014;
@@ -104,12 +107,76 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
 
-    /// <summary>A group commit apply parked on the mutation gate after its durability ack is woken by disposal instead of hanging.</summary>
+    /// <summary>
+    /// Disposal waits for a memory apply still counted in the in-flight apply gate only up to the wait floor, then tears down and
+    /// reports the unfinished applies.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeBoundsApplyWait(CancellationToken cancellationToken)
+    {
+        var log = new LeakRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, ShutdownBudget, log, cancellationToken);
+
+        // An applier that never leaves the gate: disposal must not wait for it beyond its bound.
+        journal.Journal.InFlightApplyGate.Enter();
+        await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var gateError = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(journal.Journal.MutationGate.LockAsync(cancellationToken));
+
+        _ = await Assert.That(gateError).IsNotNull();
+        _ = await Assert.That(log.Find(ApplyWaitTimedOutEventId)?.Level).IsEqualTo(LogLevel.Error);
+    }
+
+    /// <summary>
+    /// A group commit apply parked on the mutation gate after its durability ack is still applied when the gate frees up during disposal,
+    /// so the caller of an already durable write gets a definite success.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeWaitsForInFlightApplies(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
+        var memory = new AppliedKeys();
+        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        bool completedWhileGated;
+        bool disposedWhileGated;
+        Task shutdown;
+        var gate = await journal.Journal.MutationGate.LockAsync(cancellationToken);
+        try
+        {
+            // The durability ack completes, then the apply parks on the gate held here while disposal starts.
+            journal.Writer.Flush.Release();
+            completedWhileGated = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
+            shutdown = journal.ShutdownAsync();
+            disposedWhileGated = await Task.WhenAny(shutdown, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == shutdown;
+        }
+        finally
+        {
+            gate.Dispose();
+        }
+
+        var applied = await put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await shutdown.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var replayed = journal.Recover(string.Empty, 0, cancellationToken);
+
+        _ = await Assert.That(completedWhileGated).IsFalse();
+        _ = await Assert.That(disposedWhileGated).IsFalse();
+        _ = await Assert.That(applied).IsEqualTo(1);
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(KeyA);
+        _ = await Assert.That(replayed).IsEqualTo(KeyA);
+    }
+
+    /// <summary>
+    /// A group commit apply parked on the mutation gate after its durability ack is woken by disposal instead of hanging, once the
+    /// bounded wait for in-flight applies is spent while the gate stays held.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeWakesParkedApplyOnGate(CancellationToken cancellationToken)
     {
-        await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
         var put = StartStuckPutAsync(journal, memory, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

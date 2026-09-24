@@ -25,6 +25,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
+    private static readonly TimeSpan InFlightApplyWaitFloor = TimeSpan.FromSeconds(1);
+
     private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
     {
         if (state is JournalEventLoop eventLoop)
@@ -275,6 +277,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         _segmentWriter.Dispose();
         Ring.Dispose();
         BackgroundCancellation.Dispose();
+        await AwaitInFlightAppliesAsync(RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
         MutationGate.Dispose();
         JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
 
@@ -422,6 +425,28 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public bool TrySetJournalThreadFailure(Exception reason) => _flushLoopFailure.TryWriteIfNull(reason);
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
+
+    /// <summary>
+    /// Gives callers whose frame is already durable a bounded chance to apply it to memory before the mutation gate is disposed
+    /// under them, so they get a definite success instead of a commit-unknown failure.
+    /// </summary>
+    /// <param name="remaining">Time left in the shared shutdown budget; the wait never drops below a one-second floor.</param>
+    /// <returns>A task that completes when the in-flight applies drained or the wait gave up.</returns>
+    private async ValueTask AwaitInFlightAppliesAsync(TimeSpan remaining)
+    {
+        // Called only after the journal thread joined and every durability waiter completed or faulted, so an applier still
+        // counted here waits only for the mutation gate or its own memory apply. Disposal holds that gate at no point, so the wait cannot deadlock
+        // with such an applier; a gate held elsewhere is bounded by the timeout, after which the applier fails on the disposed gate.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromTicks(Math.Max(remaining.Ticks, InFlightApplyWaitFloor.Ticks)));
+        try
+        {
+            await InFlightApplyGate.WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            LogManager.JournalInFlightApplyWaitTimedOut(_log);
+        }
+    }
 
     private async ValueTask<(ulong Sequence, TBarrier BarrierState, TaskCompletionSource Checkpoint)> CaptureSnapshotCutAsync<TState, TBarrier>(
         TState state,
