@@ -171,6 +171,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         private readonly PendingAppendRegistry _pendingAppends = new();
         private readonly BoundedJournalRing _ring;
         private readonly IJournalSegmentWriter _segmentWriter;
+        private readonly JournalStallProbe _stallProbe;
         private int _disposed;
 
         internal FakeCoordinatorState(PersistenceOptions options, int ringCapacity = 4)
@@ -186,6 +187,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
                 options,
                 new JournalEventLoopStartup(1, 0, 0),
                 _backgroundCancellation.Token);
+            _stallProbe = new JournalStallProbe(NullLogger.Instance);
         }
 
         CancellationTokenSource IJournalCoordinatorState.BackgroundCancellation => _backgroundCancellation;
@@ -209,6 +211,8 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         MutableInt32 IJournalCoordinatorState.QueuedAppendsCounter { get; } = new();
 
         BoundedJournalRing IJournalCoordinatorState.Ring => _ring;
+
+        JournalStallProbe IJournalCoordinatorState.StallProbe => _stallProbe;
 
         /// <summary>Releases the ring, ledger, and background cancellation.</summary>
         public void Dispose()

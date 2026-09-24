@@ -109,17 +109,7 @@ internal sealed class JournalDurabilityCoordinator
                 throw;
             }
 
-            try
-            {
-                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
-            }
-            catch
-            {
-                // The item never entered the ring, so the journal thread will never resolve it:
-                // detach here or the ack leaks into the registry until disposal.
-                DetachDurabilityAck(ack);
-                throw;
-            }
+            await PublishCheckpointAsync(ack, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -135,6 +125,8 @@ internal sealed class JournalDurabilityCoordinator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _owner.StallProbe.ReportWaitCanceled("durability commit");
+
             // Removal winner owns the outcome: caller cancellation wins, else the drain fault.
             if (RemoveDurabilityAck(ack, cancellationToken))
                 throw;
@@ -199,7 +191,7 @@ internal sealed class JournalDurabilityCoordinator
         // forever, before the join timeout below ever gets to report.
         try
         {
-            await EnqueueShutdownAsync(cancellationToken).ConfigureAwait(false);
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -321,9 +313,29 @@ internal sealed class JournalDurabilityCoordinator
         return remainingMs <= 0 ? throw new TimeoutException("Maintenance abort exceeded its bound.") : TimeSpan.FromMilliseconds(remainingMs);
     }
 
-    private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
+    private async ValueTask PublishCheckpointAsync(TaskCompletionSource ack, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Parked at a full ring: a stalled journal thread is not draining it.
+            DetachDurabilityAck(ack);
+            _owner.StallProbe.ReportWaitCanceled("journal ring admission");
+            throw;
+        }
+        catch
+        {
+            // The item never entered the ring, so the journal thread will never resolve it:
+            // detach here or the ack leaks into the registry until disposal.
+            DetachDurabilityAck(ack);
+            throw;
+        }
+    }
 
-    private ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
+    private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
 
     private bool RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
     {
