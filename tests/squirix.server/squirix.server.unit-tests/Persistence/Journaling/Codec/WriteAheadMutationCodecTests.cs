@@ -274,7 +274,7 @@ public sealed class WriteAheadMutationCodecTests
         MutationOperationId = OpId,
     };
 
-    private static byte[] FrameBody(byte opcodeWire, byte[] payload, string ns = "default", string key = "k")
+    private static byte[] FrameBody(byte opcodeWire, ReadOnlySpan<byte> payload, string ns = "default", string key = "k")
     {
         var nsBytes = Encoding.UTF8.GetBytes(ns);
         var keyBytes = Encoding.UTF8.GetBytes(key);
