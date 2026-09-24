@@ -21,15 +21,15 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 {
     private const int RingCapacity = 4096;
 
-    private static readonly TimeSpan GraceJoinFloor = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultGraceJoinFloor = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
 
     private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
     {
         if (state is JournalEventLoop eventLoop)
             eventLoop.Run();
     };
-
-    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(30);
 
     private readonly VolatileDouble _appendLatency = new();
 
@@ -53,6 +53,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     {
         ArgumentNullException.ThrowIfNull(segmentWriter);
         _log = log ?? LogManager.GetLogger<JournalCoordinator>();
+        GraceJoinFloor = DefaultGraceJoinFloor;
+        ShutdownBudget = DefaultShutdownBudget;
         Options = opt;
         Ledger = manifestStore;
         StartupGate = startupGate;
@@ -132,6 +134,32 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public long UsedBytes => EventLoop.JournalTotalBytes;
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
+
+    /// <summary>Gets the last join wait granted to the journal thread after the shutdown budget; 5 seconds unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The floor is not positive.</exception>
+    internal TimeSpan GraceJoinFloor
+    {
+        private get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The grace join floor must be greater than zero.");
+
+            field = value;
+        }
+    }
+
+    /// <summary>Gets the budget shared by the shutdown stages (quiescence, marker, and join); 30 seconds unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan ShutdownBudget
+    {
+        private get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
+
+            field = value;
+        }
+    }
 
     ulong IJournalCoordinatorAppendState.AllocateSequence()
     {
@@ -223,7 +251,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         // exit via OperationCanceledException while frames were still queued, silently dropping them.
         using var markerCts = new CancellationTokenSource(RemainingBeforeShutdown(shutdownDeadline));
         await DurabilityPipeline.EnqueueShutdownMarkerAsync(failures, markerCts.Token).ConfigureAwait(false);
-        await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        var joinTimedOut = await DurabilityPipeline.AwaitJournalThreadDuringDisposeAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
         try
         {
             await BackgroundCancellation.CancelAsync().ConfigureAwait(false);
@@ -234,11 +262,15 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             LogManager.JournalBackgroundCancellationDisposedOnDispose(_log);
         }
 
-        GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        // The join budget is spent: release every reachable waiter, including the callers whose fsync
+        // never returned, so no caller outlives dispose on a stuck disk.
+        var faultedInFlight = GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator))) ?? 0;
         _ = PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _log, QueuedAppendsCounter);
-        DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        faultedInFlight += DurabilityPipeline.FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        if (joinTimedOut)
+            LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight);
 
-        await JoinJournalThreadWithGraceAsync(failures, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        await JoinJournalThreadWithGraceAsync(failures, RemainingBeforeShutdown(shutdownDeadline), faultedInFlight).ConfigureAwait(false);
 
         _segmentWriter.Dispose();
         Ring.Dispose();
@@ -423,7 +455,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    private async ValueTask JoinJournalThreadWithGraceAsync(List<Exception> failures, TimeSpan remaining)
+    private async ValueTask JoinJournalThreadWithGraceAsync(List<Exception> failures, TimeSpan remaining, int faultedInFlight)
     {
         // The grace join always gets a floor: with an exhausted budget, the thread still deserves
         // a last chance before its resources are leaked.
@@ -433,7 +465,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // The join timed out: tearing down the writer, ring, or gates under a live journal
             // thread corrupts slot accounting and races in-flight writes. Leak them instead and
             // surface the timeout loudly alongside any earlier stage failures.
-            LogManager.JournalThreadLeakedOnShutdownTimeout(_log);
+            LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight);
             failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
             JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
             return;

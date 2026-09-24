@@ -68,5 +68,20 @@ internal static class TaskCompletionSourceExtensions
             for (var i = 0; i < sources.Count; i++)
                 _ = sources[i].TrySetException(exception);
         }
+
+        /// <summary>Faults every source in the list that is still pending with <paramref name="exception" /> and counts them.</summary>
+        /// <param name="exception">The failure to deliver to the awaiters.</param>
+        /// <returns>The number of sources this call faulted; sources that are already completed are left untouched and not counted.</returns>
+        internal int FaultPending(Exception exception)
+        {
+            var faulted = 0;
+            for (var i = 0; i < sources.Count; i++)
+            {
+                if (sources[i].TrySetException(exception))
+                    faulted++;
+            }
+
+            return faulted;
+        }
     }
 }

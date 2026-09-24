@@ -47,7 +47,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         var pending = pipeline.EnqueueFlushAsync(cancelled.Token);
 
         var reason = new InvalidOperationException("pipeline failed");
-        pipeline.FailPendingDurabilityAcks(reason);
+        _ = pipeline.FailPendingDurabilityAcks(reason);
         await cancelled.CancelAsync();
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pending);

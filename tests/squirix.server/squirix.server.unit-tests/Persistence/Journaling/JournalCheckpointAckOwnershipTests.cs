@@ -57,6 +57,51 @@ public sealed class JournalCheckpointAckOwnershipTests : IsolatedStorageTestBase
         _ = coordinator.DurabilityAcks.Remove(registered);
     }
 
+    /// <summary>An ack handed to the journal thread for its fsync can no longer be removed by its caller, and is released only by the thread.</summary>
+    [Test]
+    public async Task MarkInFlightRefusesCallerRemove()
+    {
+        var registry = new DurabilityAckRegistry();
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Add(ack);
+
+        var marked = registry.TryMarkInFlight(ack);
+        var removedByCaller = registry.Remove(ack);
+        var markedTwice = registry.TryMarkInFlight(ack);
+        var trackedWhileInFlight = registry.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)));
+        registry.Complete(ack);
+
+        _ = await Assert.That(marked).IsTrue();
+        _ = await Assert.That(removedByCaller).IsFalse();
+        _ = await Assert.That(markedTwice).IsFalse();
+        _ = await Assert.That(await Assert.That(trackedWhileInFlight).HasSingleItem()).IsSameReferenceAs(ack);
+    }
+
+    /// <summary>A drain takes in-flight acks together with pending ones, so shutdown and the failure latch reach a stuck fsync.</summary>
+    [Test]
+    public async Task TakeAllIncludesInFlightAcks()
+    {
+        var registry = new DurabilityAckRegistry();
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Add(pending);
+        registry.Add(inFlight);
+        _ = registry.TryMarkInFlight(inFlight);
+
+        var drained = registry.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out var inFlightCount);
+        var markedAfterDrain = registry.TryMarkInFlight(pending);
+        registry.Complete(inFlight);
+        var drainedAgain = registry.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out var inFlightAgain);
+
+        _ = await Assert.That(drained.Count).IsEqualTo(2);
+        _ = await Assert.That(drained[0]).IsSameReferenceAs(pending);
+        _ = await Assert.That(drained[1]).IsSameReferenceAs(inFlight);
+        _ = await Assert.That(inFlightCount).IsEqualTo(1);
+        _ = await Assert.That(markedAfterDrain).IsFalse();
+        _ = await Assert.That(drainedAgain).IsEmpty();
+        _ = await Assert.That(inFlightAgain).IsEqualTo(0);
+    }
+
     /// <summary>Ensures a failure drain closes the registry: pending acks drain once, late registrations fail with the recorded reason.</summary>
     [Test]
     public async Task TakeAllClosesRegistryForAdds()

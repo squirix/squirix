@@ -42,9 +42,9 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 3012, Level = LogLevel.Debug, Message = "Shutdown marker did not enter the journal ring within the shutdown budget")]
     internal static partial void JournalShutdownMarkerTimedOut(ILogger logger);
 
-    [LoggerMessage(EventId = 3013, Level = LogLevel.Debug, Message = "Journal I/O thread join timed out during dispose")]
-    internal static partial void JournalThreadJoinTimedOut(ILogger logger);
+    [LoggerMessage(EventId = 3013, Level = LogLevel.Error, Message = "Journal I/O thread join timed out during dispose; {FaultedInFlightWaiters} in-flight durability waiters faulted")]
+    internal static partial void JournalThreadJoinTimedOut(ILogger logger, int faultedInFlightWaiters);
 
-    [LoggerMessage(EventId = 3014, Level = LogLevel.Debug, Message = "Journal I/O thread still alive after shutdown; writer, ring, and gates are leaked")]
-    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger);
+    [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Journal I/O thread still alive after shutdown; writer, ring, and gates are leaked; {FaultedInFlightWaiters} in-flight durability waiters faulted")]
+    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters);
 }

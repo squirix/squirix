@@ -24,6 +24,7 @@ internal sealed class JournalDurabilityGroupCommit
     private List<TaskCompletionSource> _acks;
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
+    private List<TaskCompletionSource>? _inFlight;
 
     internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null, Action<string>? onWaitCanceled = null)
     {
@@ -86,11 +87,12 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    /// <summary>Fails any pending commit acks during shutdown or journal pipeline failure.</summary>
-    /// <param name="reason">Failure reason propagated to pending acks.</param>
-    internal void CancelPending(Exception reason) => CancelPendingCore(reason);
+    /// <summary>Fails any pending or in-flight commit acks during shutdown or journal pipeline failure.</summary>
+    /// <param name="reason">Failure reason propagated to the acks.</param>
+    /// <returns>Number of in-flight acks this call faulted.</returns>
+    internal int CancelPending(Exception reason) => CancelPendingCore(reason);
 
-    internal void CancelPendingCore(Exception reason)
+    internal int CancelPendingCore(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
         lock (_sync)
@@ -99,6 +101,10 @@ internal sealed class JournalDurabilityGroupCommit
             _batchDeadline.Clear();
             _acks.FaultAll(reason);
             _acks.Clear();
+
+            // The batch taken by the journal thread stays reachable until the thread writes its outcome:
+            // fault it without clearing, because the thread owns that list and swaps it back as the spare.
+            return _inFlight?.FaultPending(reason) ?? 0;
         }
     }
 
@@ -143,7 +149,8 @@ internal sealed class JournalDurabilityGroupCommit
     {
         try
         {
-            // One journal-thread fsync covers every ack captured in this due batch.
+            // One journal-thread fsync covers every ack captured in this due batch. It runs outside the
+            // lock, so a drain can still fault the in-flight batch while the fsync never returns.
             _journalThreadFlush();
         }
         catch (Exception ex)
@@ -151,13 +158,27 @@ internal sealed class JournalDurabilityGroupCommit
             // Flush failures fail the whole batch so no ack observes partial durability. The rethrow
             // fails the journal pipeline: a later fsync can succeed after the kernel dropped the dirty
             // pages of the failed one, so the flush must never be retried and reported as durable.
-            batch.FaultAll(ex);
-            batch.Clear();
+            lock (_sync)
+            {
+                batch.FaultAll(ex);
+                ReleaseInFlight(batch);
+            }
+
             throw;
         }
 
-        batch.CompleteAll();
+        // Completing under the lock is safe: the sources run their continuations asynchronously.
+        lock (_sync)
+        {
+            batch.CompleteAll();
+            ReleaseInFlight(batch);
+        }
+    }
+
+    private void ReleaseInFlight(List<TaskCompletionSource> batch)
+    {
         batch.Clear();
+        _inFlight = null;
     }
 
     private bool TryTakeDueBatch(out List<TaskCompletionSource> batch)
@@ -181,6 +202,7 @@ internal sealed class JournalDurabilityGroupCommit
             batch = _acks;
             _acks = _acksSpare;
             _acksSpare = batch;
+            _inFlight = batch;
             _batchDeadline.Clear();
             return true;
         }

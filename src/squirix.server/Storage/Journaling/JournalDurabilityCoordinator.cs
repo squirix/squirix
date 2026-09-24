@@ -85,17 +85,21 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
-    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
+    /// <summary>Waits for the journal thread to exit within the shutdown budget, recording a timeout as a disposal failure.</summary>
+    /// <param name="failures">Disposal failures to record a join timeout into.</param>
+    /// <param name="timeout">Time left in the shared shutdown budget.</param>
+    /// <returns>Whether the join timed out with the journal thread still alive.</returns>
+    internal async ValueTask<bool> AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
     {
         try
         {
             var work = new JoinJournalThreadWork(this, timeout);
             await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
-            if (!work.Joined)
-            {
-                LogManager.JournalThreadJoinTimedOut(_logger);
-                failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
-            }
+            if (work.Joined)
+                return false;
+
+            failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
+            return true;
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
@@ -106,6 +110,8 @@ internal sealed class JournalDurabilityCoordinator
         {
             failures.Add(ex);
         }
+
+        return false;
     }
 
     internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
@@ -116,10 +122,23 @@ internal sealed class JournalDurabilityCoordinator
         // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
         // it. Completing acks registered later (their checkpoints are still queued behind this item)
         // would report frames durable before they are written, so foreign acks must stay pending.
-        // The removal makes the ack unreachable for the failure drain, so Run faults it when
-        // the fsync fails; the rethrow still fails the pipeline, and the fsync is never retried.
-        if (_owner.DurabilityAcks.Remove(ack))
-            ack.Run(_owner.EventLoop, static loop => loop.FlushToDisk());
+        // Marking the ack in flight keeps it reachable for the failure and shutdown drains while the
+        // fsync runs, but a caller cancel can no longer win it: Remove only takes pending acks. Run
+        // faults the ack when the fsync fails; the rethrow still fails the pipeline, and the fsync is
+        // never retried. One failure per episode still holds per caller: a caller may observe the
+        // shutdown fault while the latch later records the I/O error of the same stuck fsync, but no
+        // caller observes both.
+        if (_owner.DurabilityAcks.TryMarkInFlight(ack))
+        {
+            try
+            {
+                ack.Run(_owner.EventLoop, static loop => loop.FlushToDisk());
+            }
+            finally
+            {
+                _owner.DurabilityAcks.Complete(ack);
+            }
+        }
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
@@ -189,12 +208,13 @@ internal sealed class JournalDurabilityCoordinator
         catch (OperationCanceledException)
         {
             // Without the marker, canceling or tearing down now would let the live thread exit
-            // with queued frames unwritten. Fail reachable waiters explicitly and stop instead,
-            // keeping the writer, ring, and gates alive.
+            // with queued frames unwritten. Fail reachable waiters explicitly (pending and in flight:
+            // the thread may be stuck in their fsync) and stop instead, keeping the writer, ring, and
+            // gates alive.
             LogManager.JournalShutdownMarkerTimedOut(_logger);
-            _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+            _ = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
             _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-            FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+            _ = FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
             failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
             ThrowDisposeFailures(failures);
         }
@@ -214,17 +234,21 @@ internal sealed class JournalDurabilityCoordinator
         var effective = _owner.GetJournalThreadFailure() ?? reason;
         _ = _owner.PendingAppends.FailAll(effective, _logger, _owner.QueuedAppendsCounter);
 
-        FailPendingDurabilityAcks(effective);
-        _owner.GroupCommit?.CancelPendingCore(effective);
+        _ = FailPendingDurabilityAcks(effective);
+        _ = _owner.GroupCommit?.CancelPendingCore(effective);
     }
 
-    internal void FailPendingDurabilityAcks(Exception reason)
+    /// <summary>Faults every tracked durability checkpoint, pending or in flight, and closes the registry.</summary>
+    /// <param name="reason">Failure reason propagated to the checkpoints and late arrivals.</param>
+    /// <returns>Number of drained checkpoints whose fsync was in flight.</returns>
+    internal int FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll(reason);
+        var acks = _owner.DurabilityAcks.TakeAll(reason, out var inFlightCount);
 
         acks.FaultAll(reason);
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
+        return inFlightCount;
     }
 
     internal void OnManifestRollFailed(Exception ex)
@@ -302,12 +326,12 @@ internal sealed class JournalDurabilityCoordinator
             return;
 
         // Producers never quiesced: publishing the marker now could let it overtake an admitted
-        // appending. Fail reachable waiters explicitly and stop instead of proceeding into
-        // marker/join/teardown with a broken ordering guarantee.
+        // appending. Fail reachable waiters explicitly (pending and in flight) and stop instead of
+        // proceeding into marker/join/teardown with a broken ordering guarantee.
         LogManager.JournalProducerQuiescenceTimedOut(_logger);
-        _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        _ = _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
         _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-        FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
+        _ = FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
         failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
         ThrowDisposeFailures(failures);
     }
