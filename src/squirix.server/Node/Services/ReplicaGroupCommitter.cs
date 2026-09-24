@@ -99,7 +99,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
@@ -117,7 +117,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
@@ -136,7 +136,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = factory.PrepareSet(operationId, cacheName, key, entry, index);
         AdvanceNextIndex();
@@ -154,7 +154,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
@@ -173,7 +173,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
@@ -192,7 +192,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
@@ -236,7 +236,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return ReplicaVerification.Pending;
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, _) = await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
+        var (coordinator, _) = await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false);
         var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (current.LastLogIndex != current.CommitIndex)
             return ReplicaVerification.Blocked;
@@ -245,6 +245,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
             probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, answered, members, header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+
+        // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
+        // must not demote them.
+        for (var i = 1; i < probed.Length; i++)
+        {
+            if (eligibility.CanCountInWriteQuorum(i))
+                probed[i] = default;
+        }
 
         ReplicaReadinessProbe.ApplyAll(eligibility, probed, in current, _topologyFingerprint, _generation, coordinator);
         return eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
@@ -296,17 +304,39 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
-    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(CancellationToken cancellationToken)
+    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool requireWriteMajority, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         if (!_started)
             await StartAsync(cancellationToken).ConfigureAwait(false);
+
+        if (requireWriteMajority && !HasWriteMajority())
+        {
+            // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted
+            // local tail, which blocks verification and the coordinator start until it is reconciled. Dropping the
+            // started state re-probes the followers on the next write.
+            _started = false;
+            throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append.");
+        }
 
         return (_coordinator, _factory) switch
         {
             ({ } coordinator, { } factory) => (coordinator, factory),
             _ => throw new InvalidOperationException("Replica group committer is not started."),
         };
+    }
+
+    private bool HasWriteMajority()
+    {
+        var eligibility = _registry.EligibilityFor(_selfId);
+        var ready = 0;
+        for (var i = 0; i < eligibility.ReplicaCount; i++)
+        {
+            if (eligibility.CanCountInWriteQuorum(i))
+                ready++;
+        }
+
+        return ready >= (eligibility.ReplicaCount / 2) + 1;
     }
 
     /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>

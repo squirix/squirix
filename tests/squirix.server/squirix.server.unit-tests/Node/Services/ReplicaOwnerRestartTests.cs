@@ -27,6 +27,8 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         Match = 0,
         Mismatch = 1,
         Down = 2,
+        Longer = 3,
+        Refused = 4,
     }
 
     /// <summary>Followers holding the leader tail are verified on the first write and the write commits.</summary>
@@ -131,6 +133,67 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
     }
 
+    /// <summary>A write that cannot reach a majority is refused before the local append, so it leaves no uncommitted tail behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteWithoutMajorityLeavesNoTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-restart-notail");
+        await SeedAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+        var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(refused);
+        _ = registry.TryGetLog("n1", out var log);
+        var status = await log!.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(status.CommitIndex);
+
+        gateway.Set("n2", FollowerMode.Match);
+        gateway.Set("n3", FollowerMode.Match);
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
+
+        _ = await Assert.That(registry.EligibilityFor("n1").AllCanCountInWriteQuorum()).IsTrue();
+    }
+
+    /// <summary>A follower reporting a longer log than the leader is held back for catch-up instead of counting.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongerFollowerIsNotReady(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-restart-longer");
+        await SeedAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Longer);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+
+        var eligibility = registry.EligibilityFor("n1");
+        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
+        _ = await Assert.That(eligibility.CanCountInWriteQuorum(2)).IsTrue();
+    }
+
+    /// <summary>A follower refusing for a reason unrelated to its log leaves its slot untouched.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedFollowerStaysRecovering(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-restart-refused");
+        await SeedAsync(dir, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Refused);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, gateway);
+
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+
+        _ = await Assert.That(registry.EligibilityFor("n1").StateFor(1)).IsEqualTo(ReplicaParticipantState.Recovering);
+    }
+
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
     private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) =>
@@ -188,6 +251,8 @@ public sealed class ReplicaOwnerRestartTests : ServerUnitTestBase
                 FollowerMode.Match => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
                 FollowerMode.Mismatch => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)),
                 FollowerMode.Down => Task.FromException<FollowerLogAppendResult>(new IOException("follower is down")),
+                FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
+                FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
                 _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
             };
         }

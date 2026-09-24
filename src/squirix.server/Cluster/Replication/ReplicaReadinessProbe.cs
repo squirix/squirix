@@ -49,8 +49,10 @@ internal static class ReplicaReadinessProbe
                 return;
             case ReplicaProbeKind.Accepted:
             case ReplicaProbeKind.LogMismatch:
-                // Behind, ahead, or diverged: never ready. The follower's own last index is advisory only.
-                var hint = new ReplicaProgress(result.LastLogIndex + 1, result.LastLogIndex, 0, 0, 0, fingerprint, generation, 0);
+                // Behind, ahead, or diverged: never ready. Only a prefix the accepted probe verified is recorded as
+                // progress; a reported last index that may hold divergent entries must not become a monotonic floor.
+                var verified = result.Kind == ReplicaProbeKind.Accepted ? leader.LastLogIndex : 0UL;
+                var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
                 _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
                 return;
             case ReplicaProbeKind.Unreachable:
