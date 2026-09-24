@@ -49,6 +49,42 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
+    /// <summary>Waits for the ack of a checkpoint published by <see cref="PublishFlushAsync" />.</summary>
+    /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
+    /// <param name="cancellationToken">Cancels the wait; the checkpoint itself stays on the ring.</param>
+    /// <returns>A task that completes once every frame enqueued before the checkpoint is durable.</returns>
+    internal async ValueTask AwaitFlushAsync(TaskCompletionSource ack, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ack);
+
+        // The durability wait stays outside the gate: the gate covers only the publication, so a slow
+        // journal thread never blocks shutdown drain on fsync latency.
+        try
+        {
+            await ack.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            ThrowIfJournalThreadFailed();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _owner.StallProbe.ReportWaitCanceled("durability commit");
+
+            // Removal winner owns the outcome: caller cancellation wins, else the drain fault.
+            if (_owner.DurabilityAcks.Remove(ack))
+            {
+                _ = ack.TrySetCanceled(cancellationToken);
+                throw;
+            }
+
+            // Drain won: propagate its result without the caller's token, not cancellation.
+            await ack.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            DetachDurabilityAck(ack);
+        }
+    }
+
     internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
     {
         try
@@ -88,57 +124,14 @@ internal sealed class JournalDurabilityCoordinator
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
     }
 
+    /// <summary>Stops tracking a checkpoint ack; a checkpoint already on the ring still runs, but nobody observes its outcome.</summary>
+    /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
+    internal void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
+
     internal async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        // Fail fast on a dead pipeline with the same identity as the appended path. The registry
-        // latch below (DurabilityAcks.Add) also bounds post-drain arrivals at the semaphore.
-        ThrowIfJournalThreadFailed();
-        _producerGate.Enter();
-        try
-        {
-            _producerGate.ThrowIfShutdownInitiated();
-            try
-            {
-                _owner.DurabilityAcks.Add(ack);
-            }
-            catch
-            {
-                ThrowIfJournalThreadFailed();
-                throw;
-            }
-
-            await PublishCheckpointAsync(ack, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _producerGate.Exit();
-        }
-
-        // The durability wait stays outside the gate: the gate covers only the publication, so a slow
-        // journal thread never blocks shutdown drain on fsync latency.
-        try
-        {
-            await ack.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            ThrowIfJournalThreadFailed();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _owner.StallProbe.ReportWaitCanceled("durability commit");
-
-            // Removal winner owns the outcome: caller cancellation wins, else the drain fault.
-            if (RemoveDurabilityAck(ack, cancellationToken))
-                throw;
-
-            // Drain won: propagate its result without the caller's token, not cancellation.
-            await ack.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
-        finally
-        {
-            DetachDurabilityAck(ack);
-        }
+        var ack = await PublishFlushAsync(cancellationToken).ConfigureAwait(false);
+        await AwaitFlushAsync(ack, cancellationToken).ConfigureAwait(false);
     }
 
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
@@ -247,6 +240,57 @@ internal sealed class JournalDurabilityCoordinator
         _owner.Ring.NotifyWorkAvailable();
     }
 
+    /// <summary>Publishes a durability checkpoint behind every frame already on the ring, without waiting for it.</summary>
+    /// <param name="cancellationToken">Cancels ring admission.</param>
+    /// <returns>The checkpoint ack to pass to <see cref="AwaitFlushAsync" /> or <see cref="DetachDurabilityAck" />.</returns>
+    internal async ValueTask<TaskCompletionSource> PublishFlushAsync(CancellationToken cancellationToken)
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Fail fast on a dead pipeline with the same identity as the appended path. The registry
+        // latch below (DurabilityAcks.Add) also bounds post-drain arrivals at the semaphore.
+        ThrowIfJournalThreadFailed();
+        _producerGate.Enter();
+        try
+        {
+            _producerGate.ThrowIfShutdownInitiated();
+            try
+            {
+                _owner.DurabilityAcks.Add(ack);
+            }
+            catch
+            {
+                ThrowIfJournalThreadFailed();
+                throw;
+            }
+
+            try
+            {
+                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Parked at a full ring: a stalled journal thread is not draining it.
+                DetachDurabilityAck(ack);
+                _owner.StallProbe.ReportWaitCanceled("journal ring admission");
+                throw;
+            }
+            catch
+            {
+                // The item never entered the ring, so the journal thread will never resolve it:
+                // detach here or the ack leaks into the registry until disposal.
+                DetachDurabilityAck(ack);
+                throw;
+            }
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
+
+        return ack;
+    }
+
     /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
     /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
     /// <param name="remaining">Time left in the shared shutdown budget.</param>
@@ -311,39 +355,6 @@ internal sealed class JournalDurabilityCoordinator
     {
         var remainingMs = deadline - Environment.TickCount64;
         return remainingMs <= 0 ? throw new TimeoutException("Maintenance abort exceeded its bound.") : TimeSpan.FromMilliseconds(remainingMs);
-    }
-
-    private async ValueTask PublishCheckpointAsync(TaskCompletionSource ack, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Parked at a full ring: a stalled journal thread is not draining it.
-            DetachDurabilityAck(ack);
-            _owner.StallProbe.ReportWaitCanceled("journal ring admission");
-            throw;
-        }
-        catch
-        {
-            // The item never entered the ring, so the journal thread will never resolve it:
-            // detach here or the ack leaks into the registry until disposal.
-            DetachDurabilityAck(ack);
-            throw;
-        }
-    }
-
-    private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
-
-    private bool RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
-    {
-        if (!_owner.DurabilityAcks.Remove(ack))
-            return false;
-
-        _ = ack.TrySetCanceled(cancellationToken);
-        return true;
     }
 
     /// <summary>Best-effort maintenance abort publish for observability on a failed pipeline.</summary>

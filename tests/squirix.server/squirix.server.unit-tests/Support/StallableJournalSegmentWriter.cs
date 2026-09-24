@@ -80,6 +80,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ManualResetEventSlim _released = new(true);
         private int _armed;
+        private Exception? _failure;
 
         /// <summary>Gets a task that completes once a call has blocked on this armed stall.</summary>
         internal Task Entered => _entered.Task;
@@ -101,6 +102,15 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
             _released.Set();
         }
 
+        /// <summary>Unblocks the stalled call with <paramref name="failure" />, as a disk that fails after hanging; later calls pass through.</summary>
+        /// <param name="failure">Exception the stalled call throws instead of forwarding to the real writer.</param>
+        internal void ReleaseWithFailure(Exception failure)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            _ = Interlocked.CompareExchange(ref _failure, failure, null);
+            Release();
+        }
+
         internal void BlockIfArmed()
         {
             if (Volatile.Read(ref _armed) == 0)
@@ -108,6 +118,8 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 
             _ = _entered.TrySetResult();
             _released.Wait(CancellationToken.None);
+            if (Interlocked.Exchange(ref _failure, null) is { } failure)
+                throw failure;
         }
     }
 }
