@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +24,7 @@ public sealed class FileExTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-fileex-flush");
         var filePath = Path.Join(dir, "test.bin");
-        await File.WriteAllBytesAsync(filePath, [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(filePath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
 
         FileEx.FlushDirectoryEntry(filePath);
 
@@ -38,7 +39,7 @@ public sealed class FileExTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-fileex-publish");
         var tempPath = Path.Join(dir, "temp.bin");
         var finalPath = Path.Join(dir, "final.bin");
-        await File.WriteAllBytesAsync(tempPath, [7, 8, 9], cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(7, 8, 9), cancellationToken);
 
         _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath)).IsTrue();
         _ = await Assert.That(File.Exists(tempPath)).IsFalse();
@@ -56,8 +57,8 @@ public sealed class FileExTests : ServerUnitTestBase
         var tempPath = Path.Join(dir, "temp.bin");
         var finalPath = Path.Join(dir, "final.bin");
         var backupPath = Path.Join(dir, "backup.bin");
-        await File.WriteAllBytesAsync(finalPath, [10, 20], cancellationToken);
-        await File.WriteAllBytesAsync(tempPath, [30, 40], cancellationToken);
+        await File.WriteAllBytesAsync(finalPath, ReadOnlyMemory<byte>.Of(10, 20), cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(30, 40), cancellationToken);
 
         _ = await Assert.That(FileEx.PublishFile(tempPath, finalPath, backupPath)).IsTrue();
 

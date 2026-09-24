@@ -24,7 +24,7 @@ public sealed class ReplicaBootstrapTests : NodeIntegrationTestBase
     {
         using var dir = new TempDirectory("squirix-bootstrap-seed");
         var sourcePath = Path.Join(dir, "journal-000001.sqr");
-        await File.WriteAllBytesAsync(sourcePath, [1, 3, 3, 7], cancellationToken);
+        await File.WriteAllBytesAsync(sourcePath, ReadOnlyMemory<byte>.Of(1, 3, 3, 7), cancellationToken);
         var before = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
 
         var prepared = await new BootstrapPlanner().PrepareAsync(Request(dir), cancellationToken);

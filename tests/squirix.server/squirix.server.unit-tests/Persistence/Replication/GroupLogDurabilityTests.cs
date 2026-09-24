@@ -25,7 +25,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         var finalPath = Path.Join(dir, "existing-directory");
         Directory.CreateDirectory(finalPath);
         var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
         var oldPath = Path.Join(dir, "old-group.log");
 
         using var durability = new GroupLogDurability();
@@ -48,7 +48,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-log-durability-replace");
         var finalPath = Path.Join(dir, "group.log");
         var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
 
         using var durability = new GroupLogDurability();
         durability.Replace(tempPath, finalPath, 3L);
@@ -71,7 +71,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-log-durability-no-dir");
         var tempPath = Path.Join(dir, "group.log.tmp");
-        await File.WriteAllBytesAsync(tempPath, [1, 2, 3], cancellationToken);
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
 
         using var durability = new GroupLogDurability();
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws((durability, tempPath), static state => state.durability.Replace(state.tempPath, "standalone.log", 3L));
