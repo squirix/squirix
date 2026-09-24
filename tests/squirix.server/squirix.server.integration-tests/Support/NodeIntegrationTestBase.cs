@@ -58,7 +58,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ClusterNode[] topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
