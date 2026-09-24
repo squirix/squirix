@@ -222,15 +222,25 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     {
         private readonly IReadOnlyList<ReplicaStatusSnapshot> _snapshots;
 
-        internal FixedSource(IReadOnlyList<ReplicaStatusSnapshot> snapshots)
+        internal FixedSource(ReadOnlySpan<ReplicaStatusSnapshot> snapshots)
         {
-            _snapshots = snapshots;
+            _snapshots = Copy(snapshots);
         }
 
         public ValueTask<IReadOnlyList<ReplicaStatusSnapshot>> GetSnapshotsAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             return ValueTask.FromResult(_snapshots);
+        }
+
+        private static ReplicaStatusSnapshot[] Copy(ReadOnlySpan<ReplicaStatusSnapshot> snapshots)
+        {
+            if (snapshots.IsEmpty)
+                return [];
+
+            var copy = new ReplicaStatusSnapshot[snapshots.Length];
+            snapshots.CopyTo(copy);
+            return copy;
         }
     }
 }
