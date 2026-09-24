@@ -50,22 +50,28 @@ public sealed class BoundedJournalRingTests
         _ = await Assert.That(thrown).IsNull();
     }
 
-    /// <summary>Full enqueue/dequeue drain must keep slots reusable.</summary>
+    /// <summary>A full ring drained completely must accept a full second round: no slot may leak.</summary>
     [Test]
     public async Task EnqueueDequeueKeepsSlots()
     {
         using var ring = new BoundedJournalRing(2);
-        var item = JournalWorkItem.Shutdown();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        await ring.EnqueueAsync(item, CancellationToken.None);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
         _ = await Assert.That(ring.TryDequeue(out var first)).IsTrue();
-        _ = await Assert.That(first).IsEqualTo(item);
+        _ = await Assert.That(first).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out var second)).IsTrue();
+        _ = await Assert.That(second).IsNotNull();
 
-        // Slots must be reusable after a full drain; a leaked slot would block this second round.
-        var second = JournalWorkItem.Shutdown();
-        await ring.EnqueueAsync(second, CancellationToken.None);
+        // A leaked slot would park one of these enqueues until the bounded token cancels and fails the test.
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellation.Token);
         _ = await Assert.That(ring.TryDequeue(out var third)).IsTrue();
-        _ = await Assert.That(third).IsEqualTo(second);
+        _ = await Assert.That(third).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out var fourth)).IsTrue();
+        _ = await Assert.That(fourth).IsNotNull();
+        _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
     private sealed class PipelineFailureProbe
