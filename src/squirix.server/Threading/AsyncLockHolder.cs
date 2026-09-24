@@ -26,7 +26,15 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         if (_semaphore == null || Interlocked.Exchange(ref _released, 1) == 1)
             return;
 
-        _ = _semaphore.Release();
+        try
+        {
+            _ = _semaphore.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The owning lock was disposed while this holder was still out (a bounded shutdown gave up waiting for it):
+            // nobody can wait on the semaphore anymore, so there is nothing left to release.
+        }
     }
 
     public readonly bool Equals(AsyncLockHolder other) => _semaphore.Equals(other._semaphore) && _released == other._released;

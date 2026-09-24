@@ -79,7 +79,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     /// <summary>Commits a prepared mutation or reports an ambiguous post-appended outcome.</summary>
     /// <param name="mutation">Fully prepared immutable mutation.</param>
-    /// <param name="timeout">Absolute pipeline budget.</param>
+    /// <param name="timeout">Budget for queueing, the local append, and the majority wait; work after the majority ignores it.</param>
     /// <param name="cancellationToken">Client cancellation token.</param>
     /// <returns>The exact prepared successful outcome payload.</returns>
     /// <remarks>
@@ -224,7 +224,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task ApplyPendingRangeAsync(ulong commitIndex, CancellationToken cancellationToken)
+    private async Task ApplyPendingRangeAsync(ulong commitIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
     {
         // Apply every retained entry at or below the new commit index in order, including entries
         // left behind when a prior ApplyMemoryAsync failure or cancellation interrupted the loop. (Those would otherwise be skipped by a range starting right after the previous commit index.)
@@ -248,6 +248,17 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
             await _pipeline.ApplyMemoryAsync(pending, cancellationToken).ConfigureAwait(false);
             _ = _pendingApply.Remove(index);
+            if (index == mutation.LogIndex)
+                continue;
+
+            // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and
+            // applied, so resolve them: a same-identity retry replays the outcome instead of staying unknown until the
+            // record ages out. The resolved record answers retries first, so the faulted operation is no longer needed.
+            if (!_idempotency.TryResolve(pending.OperationScope, pending.OperationId, pending.OutcomePayload.Span, pending.LogIndex, pending.Term))
+                continue;
+
+            lock (_ownedSync)
+                _ = _operations.Remove(new OperationKey(pending.OperationScope, pending.OperationId));
         }
     }
 
@@ -345,7 +356,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         PreparedReplicaMutation mutation,
         CommitAttempt attempt,
         CancellationToken preAppendCancellation,
-        CancellationToken resolutionCancellation)
+        CancellationToken majorityCancellation)
     {
         using var reservation = await _sequencer.ReserveAsync(preAppendCancellation).ConfigureAwait(false);
         if (mutation.LogIndex != reservation.Index)
@@ -362,19 +373,27 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         _pendingApply[mutation.LogIndex] = mutation;
         _turn.Advance(mutation.LogIndex);
 
-        await _faultHooks.OnStageAsync(ReplicaCommitStage.LocalAppendDurable, mutation, resolutionCancellation).ConfigureAwait(false);
+        // Between the local append and the majority a timeout is not a definite failure (a later commit can still cover the
+        // entry), so the budget expiring here yields an unknown outcome. Checks that must be able to refuse the commit belong
+        // before the decision point below, never after it.
+        await _faultHooks.OnStageAsync(ReplicaCommitStage.LocalAppendDurable, mutation, majorityCancellation).ConfigureAwait(false);
         var leader = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
         _ = _quorum.TryRecord(0, in leader, mutation);
-        await CollectMajorityAsync(mutation, resolutionCancellation).ConfigureAwait(false);
-        await _faultHooks.OnStageAsync(ReplicaCommitStage.MajorityReached, mutation, resolutionCancellation).ConfigureAwait(false);
+        await CollectMajorityAsync(mutation, majorityCancellation).ConfigureAwait(false);
+
+        // Decision point: a durable majority holds the entry, so it is committed. Neither the caller nor the budget may stop
+        // the rest; it stops only when the pipeline fails (journal failure latch) or shuts down. A failure here still reports
+        // an unknown outcome and keeps the entry in _pendingApply, so the next commit applies it in order.
+        var committed = CancellationToken.None;
+        await _faultHooks.OnStageAsync(ReplicaCommitStage.MajorityReached, mutation, committed).ConfigureAwait(false);
         var previousCommitIndex = _commitIndex;
         var commitIndex = _quorum.FindCommitIndex(previousCommitIndex, mutation.LogIndex);
-        await _pipeline.AdvanceCommitIndexAsync(commitIndex, resolutionCancellation).ConfigureAwait(false);
+        await _pipeline.AdvanceCommitIndexAsync(commitIndex, committed).ConfigureAwait(false);
         _commitIndex = commitIndex;
-        await _faultHooks.OnStageAsync(ReplicaCommitStage.CommitIndexDurable, mutation, resolutionCancellation).ConfigureAwait(false);
-        await ApplyPendingRangeAsync(commitIndex, resolutionCancellation).ConfigureAwait(false);
-        await _faultHooks.OnStageAsync(ReplicaCommitStage.MemoryApplied, mutation, resolutionCancellation).ConfigureAwait(false);
-        await _faultHooks.OnStageAsync(ReplicaCommitStage.ResponseReady, mutation, resolutionCancellation).ConfigureAwait(false);
+        await _faultHooks.OnStageAsync(ReplicaCommitStage.CommitIndexDurable, mutation, committed).ConfigureAwait(false);
+        await ApplyPendingRangeAsync(commitIndex, mutation, committed).ConfigureAwait(false);
+        await _faultHooks.OnStageAsync(ReplicaCommitStage.MemoryApplied, mutation, committed).ConfigureAwait(false);
+        await _faultHooks.OnStageAsync(ReplicaCommitStage.ResponseReady, mutation, committed).ConfigureAwait(false);
         return mutation.OutcomePayload;
     }
 
