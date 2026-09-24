@@ -14,17 +14,23 @@ namespace Squirix.Server.Storage.Snapshot;
 /// <summary>
 /// Coordinates safe snapshot creation.
 /// Background snapshots respect interval, volume, and memory-pressure throttles.
-/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag.
-/// Ordering guarantee vs writes: before taking a snapshot we flush the journal and record seqAtFlush = journal.NextSequence - 1.
+/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag, and that no journal compaction runs while a snapshot is in flight.
+/// Ordering guarantee vs writes: under the journal mutation gate we enqueue a journal checkpoint and record seqAtFlush = journal.NextSequence - 1; the checkpoint ack
+/// is awaited after the gate is released and before the snapshot is written.
 /// The snapshot reflects all effects of operations with Seq less or equal to seqAtFlush. Recovery will replay only operations with Seq > seqAtFlush.
-/// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then serialization and
-/// manifest I/O run outside the gate so large snapshots do not stop-the-world block durable memory applies.
-/// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate is released so subscribers can safely run maintenance (for example journal compaction) that
-/// re-enters the
-/// writer.
+/// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then the checkpoint wait, serialization and
+/// manifest I/O run outside the gate so a slow disk or a large snapshot does not stop-the-world block durable memory applies.
+/// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate and the in-flight flag are released so subscribers can safely run maintenance
+/// (for example journal compaction) that re-enters the writer.
 /// </summary>
 internal sealed class Coordinator
 {
+    private const int CompactionRunning = 2;
+
+    private const int Idle = 0;
+
+    private const int SnapshotRunning = 1;
+
     private readonly IBackgroundSnapshotMemoryThrottle _backgroundSnapshotMemoryThrottle;
     private readonly CaptureScratch _captureScratch = new();
     private readonly ISnapshotEntryCapture _entryCapture;
@@ -34,7 +40,7 @@ internal sealed class Coordinator
     private readonly ISnapshotWriter _snapWriter;
     private readonly ISnapshotTelemetry _telemetry;
     private readonly TriggerState _triggerState;
-    private int _snapshotInFlight;
+    private int _exclusiveOwner;
 
     internal Coordinator(TriggerOptions opt, IJournalMetrics journal, CoordinatorDependencies deps)
     {
@@ -51,7 +57,18 @@ internal sealed class Coordinator
 
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
 
-    internal bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
+    internal bool IsInFlight => Volatile.Read(ref _exclusiveOwner) == SnapshotRunning;
+
+    /// <summary>Reserves the snapshot coordinator for a journal compaction; fails while a snapshot is in flight.</summary>
+    /// <returns><see langword="true" /> when the caller owns the reservation and must release it with <see cref="ExitCompaction" />.</returns>
+    /// <remarks>
+    /// A compaction that publishes between a snapshot cut and its manifest write deletes the segments the snapshot replays from and
+    /// rewrites the state as of the compaction; the snapshot would then resurrect keys removed after its sequence.
+    /// </remarks>
+    internal bool TryEnterCompaction() => Interlocked.CompareExchange(ref _exclusiveOwner, CompactionRunning, Idle) == Idle;
+
+    /// <summary>Releases a reservation taken by <see cref="TryEnterCompaction" />.</summary>
+    internal void ExitCompaction() => _ = Interlocked.CompareExchange(ref _exclusiveOwner, Idle, CompactionRunning);
 
     internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
@@ -60,28 +77,28 @@ internal sealed class Coordinator
         if (ShouldSuppressBackgroundSnapshot())
             return;
 
-        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _exclusiveOwner, SnapshotRunning, Idle) != Idle)
             return;
 
         using var activity = _telemetry.BeginCreate();
         var started = Stopwatch.GetTimestamp();
         var result = "failure";
+        SnapshotRef? published;
         try
         {
-            var snapshotRef = await journal.ExecuteSnapshotCutAsync(
-                (Coordinator: this, Activity: activity, Journal: journal),
+            var baseline = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            published = await journal.ExecuteSnapshotCutAsync(
+                (Coordinator: this, Activity: activity, Journal: journal, Baseline: baseline),
                 static async (state, _, ct) =>
                 {
                     var captured = await state.Coordinator.CaptureSnapshotBundleAsync(state.Journal, ct).ConfigureAwait(false);
                     state.Activity?.SetTag("snapshot.items_count", InvariantDigitStrings.Format(captured.Items.Count));
                     return captured;
                 },
-                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, ct),
+                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Baseline, state.Activity, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            SnapshotCompleted?.Invoke(this, new CompletedEventArgs(snapshotRef));
-
-            result = "success";
+            result = published == null ? "aborted" : "success";
             _triggerState.ClearLatencyThrottle();
         }
         finally
@@ -92,9 +109,15 @@ internal sealed class Coordinator
             activity?.SetTag("snapshot.result", result);
             activity?.SetTag("snapshot.duration_ms", InvariantDigitStrings.Format(elapsed.TotalMilliseconds));
 
-            Volatile.Write(ref _snapshotInFlight, 0);
+            Volatile.Write(ref _exclusiveOwner, Idle);
         }
+
+        // Raised after the in-flight flag is released: a subscriber that starts a compaction must not find this snapshot still in flight.
+        if (published != null)
+            SnapshotCompleted?.Invoke(this, new CompletedEventArgs(published));
     }
+
+    private static bool ManifestMovedSince(State baseline, State current) => current.LastSnapshot != baseline.LastSnapshot || current.CurrentJournal < baseline.CurrentJournal;
 
     private async ValueTask<CapturedSnapshotBundle> CaptureSnapshotBundleAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
@@ -106,20 +129,28 @@ internal sealed class Coordinator
         return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
     }
 
-    private async ValueTask<SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<SnapshotRef?> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotBundle captured,
+        State baseline,
         ISnapshotTraceScope? currentActivity,
         CancellationToken cancellationToken)
     {
         currentActivity?.SetTag("snapshot.seq_at_flush", InvariantDigitStrings.Format(seqAtFlush));
 
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (ManifestMovedSince(baseline, prev))
+            return null;
+
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         currentActivity?.SetTag("snapshot.index", InvariantDigitStrings.Format(nextIndex));
 
         var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
         currentActivity?.SetTag("snapshot.path", path);
+
+        prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (ManifestMovedSince(baseline, prev))
+            return null;
 
         var now = DateTime.UtcNow;
         var updated = new State

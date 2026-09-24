@@ -53,6 +53,26 @@ internal sealed class AppliedKeys
             cancellationToken).AsTask();
     }
 
+    /// <summary>Runs one remove through <paramref name="executor" />: journal append of the removal, then its memory apply.</summary>
+    /// <param name="executor">Executor under test.</param>
+    /// <param name="journal">Journal the executor writes to.</param>
+    /// <param name="key">Default-namespace key to remove.</param>
+    /// <param name="cancellationToken">Caller cancellation token.</param>
+    /// <returns>The mutation task.</returns>
+    internal Task<int> RemoveAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        var cacheKey = CacheKey.Default(key);
+        return executor.ExecuteAsync(
+            cacheKey,
+            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, AppliedKeys Memory), int>(
+                (journal, cacheKey, this),
+                static (s, ct) => s.Journal.AppendRemoveAsync(s.Key, ct),
+                static (s, _) => s.Memory.UnapplyAsync(s.Key)),
+            cancellationToken).AsTask();
+    }
+
     /// <summary>Waits up to <paramref name="window" /> for <paramref name="key" /> to be applied.</summary>
     /// <param name="key">Default-namespace key.</param>
     /// <param name="window">Longest wait.</param>
@@ -64,6 +84,12 @@ internal sealed class AppliedKeys
     private ValueTask<int> ApplyAsync(CacheKey key)
     {
         _ = Signal(key).TrySetResult();
+        return ValueTask.FromResult(1);
+    }
+
+    private ValueTask<int> UnapplyAsync(CacheKey key)
+    {
+        _ = _applied.TryRemove(key.ToString(), out _);
         return ValueTask.FromResult(1);
     }
 

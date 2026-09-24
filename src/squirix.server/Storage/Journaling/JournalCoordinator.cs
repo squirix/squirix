@@ -292,7 +292,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         ArgumentNullException.ThrowIfNull(buildOutsideBarrier);
         DurabilityPipeline.ThrowIfJournalThreadFailed();
         await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var (seqAtFlush, barrierState) = await CaptureSnapshotCutAsync(state, captureUnderBarrier, cancellationToken).ConfigureAwait(false);
+        var (seqAtFlush, barrierState, checkpoint) = await CaptureSnapshotCutAsync(state, captureUnderBarrier, cancellationToken).ConfigureAwait(false);
+
+        // A faulted or canceled checkpoint aborts the cut: nothing is built or published over frames that may never become durable.
+        await DurabilityPipeline.AwaitFlushAsync(checkpoint, cancellationToken).ConfigureAwait(false);
         return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 
@@ -388,7 +391,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
 
-    private async ValueTask<(ulong Sequence, TBarrier BarrierState)> CaptureSnapshotCutAsync<TState, TBarrier>(
+    private async ValueTask<(ulong Sequence, TBarrier BarrierState, TaskCompletionSource Checkpoint)> CaptureSnapshotCutAsync<TState, TBarrier>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
         CancellationToken cancellationToken)
@@ -397,10 +400,20 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var acquiredTimestamp = StallProbe.GateAcquired(nameof(ExecuteSnapshotCutAsync));
         try
         {
-            await DurabilityPipeline.EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
-            var sequence = NextSequence > 0 ? NextSequence - 1UL : 0UL;
-            var barrierState = await captureUnderBarrier(state, sequence, cancellationToken).ConfigureAwait(false);
-            return (sequence, barrierState);
+            // Sequences are allocated and frames enqueued only under the gate, so a checkpoint published here
+            // sits on the FIFO ring behind every frame the captured sequence covers; its ack is awaited after release.
+            var checkpoint = await DurabilityPipeline.PublishFlushAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var sequence = NextSequence > 0 ? NextSequence - 1UL : 0UL;
+                var barrierState = await captureUnderBarrier(state, sequence, cancellationToken).ConfigureAwait(false);
+                return (sequence, barrierState, checkpoint);
+            }
+            catch
+            {
+                DurabilityPipeline.DetachDurabilityAck(checkpoint);
+                throw;
+            }
         }
         finally
         {

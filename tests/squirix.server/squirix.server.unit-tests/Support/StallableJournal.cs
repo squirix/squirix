@@ -16,7 +16,6 @@ namespace Squirix.Server.UnitTests.Support;
 [Mutable]
 internal sealed class StallableJournal : IAsyncDisposable
 {
-    private readonly Ledger _ledger;
     private readonly string _dataDir;
     private int _journalDisposed;
     private int _disposed;
@@ -24,10 +23,13 @@ internal sealed class StallableJournal : IAsyncDisposable
     private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal)
     {
         _dataDir = dataDir;
-        _ledger = ledger;
+        Ledger = ledger;
         Writer = writer;
         Journal = journal;
     }
+
+    /// <summary>Gets the manifest store the journal publishes to.</summary>
+    internal Ledger Ledger { get; }
 
     /// <summary>Gets the journal under test.</summary>
     internal JournalCoordinator Journal { get; }
@@ -48,7 +50,7 @@ internal sealed class StallableJournal : IAsyncDisposable
         }
         finally
         {
-            _ledger.Dispose();
+            Ledger.Dispose();
         }
     }
 

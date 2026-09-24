@@ -114,9 +114,15 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
             return AttemptResult.Skipped; // already running, skip
 
+        var reserved = false;
         try
         {
             if (DateTime.UtcNow - LastRunUtc < _opt.MinGap)
+                return AttemptResult.Skipped;
+
+            // A snapshot in flight completes its own publish first and then wakes this loop again.
+            reserved = _snap.TryEnterCompaction();
+            if (!reserved)
                 return AttemptResult.Skipped;
 
             var m = await _manifest.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -135,6 +141,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         finally
         {
+            if (reserved)
+                _snap.ExitCompaction();
+
             Volatile.Write(ref _inFlight, 0);
         }
     }
