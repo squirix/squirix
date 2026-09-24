@@ -81,7 +81,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
         follower.Header.GroupId = "unknown-group";
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 }]);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 0 });
 
         var response = await follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext));
 
@@ -95,7 +95,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     public async Task InstallRejectsLengthMismatchAsync(CancellationToken cancellationToken)
     {
         await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>([new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 }]);
+        var stream = new TestAsyncStreamReader<InstallReplicaSnapshotRequest>(new InstallReplicaSnapshotRequest { Header = follower.Header, TotalBytes = 99 });
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(follower.Adapter.InstallReplicaSnapshot(stream, new TestServerCallContext(null, follower.HttpContext)));
 
@@ -211,6 +211,13 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         internal TestAsyncStreamReader(IEnumerable<T> items)
         {
             _items = items.GetEnumerator();
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="TestAsyncStreamReader{T}" /> class streaming a single item.</summary>
+        /// <param name="item">The item to stream.</param>
+        internal TestAsyncStreamReader(T item)
+            : this([item])
+        {
         }
 
         /// <inheritdoc />
