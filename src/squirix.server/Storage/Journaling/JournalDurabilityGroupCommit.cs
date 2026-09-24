@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -146,13 +145,12 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (Exception ex)
         {
-            // Flush failures fail the whole batch so no ack observes partial durability.
+            // Flush failures fail the whole batch so no ack observes partial durability. The rethrow
+            // fails the journal pipeline: a later fsync can succeed after the kernel dropped the dirty
+            // pages of the failed one, so the flush must never be retried and reported as durable.
             batch.FaultAll(ex);
             batch.Clear();
-            if (ex is not (IOException or ObjectDisposedException or InvalidOperationException))
-                throw;
-
-            return;
+            throw;
         }
 
         batch.CompleteAll();

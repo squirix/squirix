@@ -150,7 +150,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
 
-    /// <summary>Ensures a delayed flush failure fails pending acks instead of leaving them pending.</summary>
+    /// <summary>Ensures a delayed flush failure fails pending acks and is rethrown so the journal pipeline fails.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DelayFlushFailureFailsWaiters(CancellationToken cancellationToken)
@@ -169,10 +169,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         time.Advance(options.JournalGroupCommitMaxWait);
-        groupCommit.DrainDueBatchesOnJournalThread();
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
 
         await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
         await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
         var firstFailure = await Assert.That(first.Exception?.InnerException).IsTypeOf<InvalidOperationException>();
         var secondFailure = await Assert.That(second.Exception?.InnerException).IsTypeOf<InvalidOperationException>();
 
