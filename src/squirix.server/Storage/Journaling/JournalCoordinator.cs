@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
@@ -651,6 +652,24 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return stampedOperationId != null;
         }
 
+        /// <summary>Waits for the journal thread's write ack of a frame already on the ring.</summary>
+        /// <param name="appendAck">Write ack of the enqueued frame.</param>
+        /// <returns>An asynchronous operation.</returns>
+        /// <exception cref="JournalPostEnqueueFaultException">Shutdown or the failure latch faulted the ack; the frame may still become durable.</exception>
+        /// <exception cref="JournalCapacityExceededException">The journal thread rejected the frame before writing it.</exception>
+        private static async ValueTask AwaitWriteAckAfterEnqueueAsync(TaskCompletionSource appendAck)
+        {
+            try
+            {
+                await appendAck.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not JournalCapacityExceededException)
+            {
+                // Past the ring enqueue the caller cannot treat the fault as a failed append: mark it so it is reported as commit-unknown.
+                throw new JournalPostEnqueueFaultException(JournalPostEnqueueFaultException.WriteAckFaultedMessage, ex);
+            }
+        }
+
         private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, bool idempotencyStamped, CancellationToken cancellationToken)
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
@@ -665,7 +684,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // The durability wait stays outside the gate: the gate covers only the publishing, so a
             // slow journal thread never blocks shutdown drain on fsync latency.
             if (appendAck != null)
-                await appendAck.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                await AwaitWriteAckAfterEnqueueAsync(appendAck).ConfigureAwait(false);
         }
 
         private ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, TaskCompletionSource ack, CancellationToken cancellationToken)

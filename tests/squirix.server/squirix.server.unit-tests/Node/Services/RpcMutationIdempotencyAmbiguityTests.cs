@@ -193,7 +193,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
     }
 
-    /// <summary>A retry joined to an execution that fails after stamping surfaces the unknown outcome and never executes.</summary>
+    /// <summary>An execution that fails after stamping and a retry joined to it both surface the unknown outcome; the retry never executes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task JoinerSeesUnknownAfterStampedFailure(CancellationToken cancellationToken)
@@ -227,16 +227,17 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var joinedWhileInFlight = !retry.IsCompleted;
         gate.SetResult();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(original);
+        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original);
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(retry.WaitAsync(JoinTimeout, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(joinedWhileInFlight).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
         _ = await Assert.That(flag.Value).IsFalse();
         _ = await Assert.That(store.ExecutionCount).IsEqualTo(0);
     }
 
-    /// <summary>An outcome-append failure leaves no completed record: retry surfaces unknown.</summary>
+    /// <summary>An outcome-append failure after stamping leaves no completed record: the first caller and a retry both surface unknown.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OutcomeAppendFailureStaysUnknown(CancellationToken cancellationToken)
@@ -246,7 +247,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var flag = new ExecFlag();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+        var firstError = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync<(IJournalCoordinator Journal, ExecFlag Flag), TryAddAsyncResponse>(
                 ValidOperationId,
                 "fp-1",
@@ -260,6 +261,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                 cancellationToken));
 
         _ = await Assert.That(flag.Value).IsTrue();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(firstError.Status.Detail)).IsTrue();
         _ = await Assert.That(store.TryReplay(ValidOperationId, "fp-1", TryAddAsyncResponse.Parser, out _)).IsFalse();
 
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
