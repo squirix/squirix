@@ -8,8 +8,8 @@ using Squirix.Server.Storage.Journaling;
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>
-/// Segment writer that forwards to a real writer but can block <see cref="IJournalSegmentWriter.Write" /> or
-/// <see cref="IJournalSegmentWriter.FlushToDisk" /> on the journal thread until a test releases it, simulating a stalled disk.
+/// Segment writer that forwards to a real writer but can block <see cref="IJournalSegmentWriter.Write" /> (before or after it reached the
+/// file) or <see cref="IJournalSegmentWriter.FlushToDisk" /> on the journal thread until a test releases it, simulating a stalled disk.
 /// </summary>
 [ThreadSafe]
 internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
@@ -32,6 +32,9 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
 
     long IJournalSegmentWriter.Length => _inner.Length;
 
+    /// <summary>Gets the stall switch applied after <see cref="IJournalSegmentWriter.Write" /> reached the file, as a write that lands and then hangs.</summary>
+    internal Stall AfterWrite { get; } = new();
+
     /// <summary>Gets the stall switch applied to <see cref="IJournalSegmentWriter.FlushToDisk" />.</summary>
     internal Stall Flush { get; } = new();
 
@@ -43,6 +46,7 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
     {
         ReleaseAll();
         _inner.Dispose();
+        AfterWrite.Dispose();
         Flush.Dispose();
         Write.Dispose();
     }
@@ -61,11 +65,13 @@ internal sealed class StallableJournalSegmentWriter : IJournalSegmentWriter
     {
         Write.BlockIfArmed();
         _inner.Write(buffer, fileOffset);
+        AfterWrite.BlockIfArmed();
     }
 
-    /// <summary>Releases both stall switches.</summary>
+    /// <summary>Releases every stall switch.</summary>
     internal void ReleaseAll()
     {
+        AfterWrite.Release();
         Flush.Release();
         Write.Release();
     }

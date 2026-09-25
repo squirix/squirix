@@ -4,7 +4,9 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Observability;
@@ -19,7 +21,10 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>A retry of an idempotent mutation stalled on its journal fsync joins the execution in flight instead of reporting an unknown outcome.</summary>
+/// <summary>
+/// A retry of an idempotent mutation stalled on its journal fsync joins the execution in flight instead of reporting an unknown outcome,
+/// and a retry after shutdown faulted it past its stamped frame reports the unknown outcome instead of executing again.
+/// </summary>
 [Immutable]
 public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 {
@@ -29,7 +34,13 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan JoinObservationWindow = TimeSpan.FromMilliseconds(500);
 
+    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(250);
+
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
+
+    private static readonly string KeyA = CacheKey.Default("a").ToString();
+
+    private static readonly string KeyW = CacheKey.Default("w").ToString();
 
     private readonly Meter _testMeter = new("test");
 
@@ -136,6 +147,73 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 
         _ = await Assert.That(mismatch.Message).IsEqualTo(ServerOpIdMismatchException.StableDetail);
         _ = await Assert.That(joined.Added).IsTrue();
+        _ = await Assert.That(target.Executions).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Disposal over a group commit write that reached the file and then hung faults the original while its stamped frame may already be
+    /// durable: the intent survives, so a retry reports the unknown outcome instead of executing again.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteAckShutdownKeepsIntent(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, true, ShutdownBudget, NullLogger.Instance, cancellationToken);
+
+        // The first write also writes the segment header: warm up so the armed stall catches the frame under test.
+        await journal.Journal.AppendPutAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+        var target = new PutTarget(journal.Journal, CreateStore());
+        journal.Writer.AfterWrite.Arm();
+
+        var original = target.PutAsync(Fingerprint, cancellationToken);
+        string crashImage;
+        RpcException retryError;
+        try
+        {
+            await journal.Writer.AfterWrite.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            crashImage = journal.ReadStampedPuts(cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            await journal.ReclaimLeakedAsync(StallTimeout);
+        }
+
+        _ = await Assert.That(crashImage).IsEqualTo(StallableJournal.Describe([$"{KeyA}#{OperationId}", KeyW]));
+        _ = await Assert.That(retryError.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(target.Executions).IsEqualTo(1);
+    }
+
+    /// <summary>Disposal during the outcome durability wait faults the original after stamping, so a retry reports the unknown outcome.</summary>
+    /// <param name="groupCommit">Whether the stuck fsync belongs to a group commit batch instead of a plain checkpoint.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task OutcomeWaitShutdownKeepsIntent(bool groupCommit, CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
+        var target = new PutTarget(journal.Journal, CreateStore());
+        journal.Writer.Flush.Arm();
+
+        var original = target.PutAsync(Fingerprint, cancellationToken);
+        RpcException retryError;
+        try
+        {
+            await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            await journal.ReclaimLeakedAsync(StallTimeout);
+        }
+
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
