@@ -118,6 +118,16 @@ internal sealed class GroupIdempotencyState
         }
     }
 
+    /// <summary>Determines whether an operation identity is reserved and not yet resolved, whatever its fingerprint.</summary>
+    /// <param name="scope">The operation scope.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <returns><see langword="true" /> when an unresolved record is retained for the identity.</returns>
+    internal bool IsUnresolved(string scope, string operationId)
+    {
+        lock (_sync)
+            return _records.TryGetValue(new GroupOperationKey(scope, operationId), out var record) && record.IsUnresolved;
+    }
+
     /// <summary>
     /// Looks up a resolvable outcome by operation identity, returning <see cref="GroupIdempotencyLookup.Mismatch" />
     /// when the stored fingerprint differs and <see cref="GroupIdempotencyLookup.Miss" /> when no record is retained.

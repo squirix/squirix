@@ -6,7 +6,10 @@ namespace Squirix.Server.Utils;
 /// <summary>Replica group verification, committer and follower-log lifecycle logs.</summary>
 internal static partial class LogManager
 {
-    [LoggerMessage(EventId = 4001, Level = LogLevel.Warning, Message = "Replica group verification cannot proceed: the leader log tail is not fully committed or its log is not ready")]
+    [LoggerMessage(
+        EventId = 4001,
+        Level = LogLevel.Warning,
+        Message = "Replica group verification cannot proceed: the leader log is not ready or its uncommitted tail has no entry of the current term")]
     internal static partial void ReplicaVerificationBlocked(ILogger logger);
 
     [LoggerMessage(EventId = 4002, Level = LogLevel.Information, Message = "Replica group verification is complete: every slot counts toward the write quorum")]
@@ -48,4 +51,11 @@ internal static partial class LogManager
         Message =
             "Replica group {GroupId} follower log did not drain within the shutdown budget of {Budget}; {FaultedInFlightWaiters} in-flight waiters were faulted and the log handle, its worker thread and the gate holder are leaked")]
     internal static partial void FollowerLogLeakedOnShutdownTimeout(ILogger logger, string groupId, TimeSpan budget, int faultedInFlightWaiters);
+
+    [LoggerMessage(
+        EventId = 4010,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group leader tail through index {LastIndex} holds no entry of the current term {Term}; it is not committed by counting replicas, and writes stay refused until a current-term entry commits it")]
+    internal static partial void ReplicaTailOfOlderTerm(ILogger logger, ulong lastIndex, ulong term);
 }

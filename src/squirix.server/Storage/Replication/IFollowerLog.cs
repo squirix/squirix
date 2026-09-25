@@ -12,6 +12,10 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The replica group identifier.</returns>
     string GroupId { get; }
 
+    /// <summary>Gets the idempotency state of the replica group, which durable truncation releases pins from.</summary>
+    /// <returns>The group idempotency state.</returns>
+    GroupIdempotencyState Idempotency { get; }
+
     /// <summary>
     /// Advances the applied index monotonically, never beyond the committed index, and releases the applied
     /// entry payloads from memory. The byte offsets of applied entries are retained, so a later divergence at or

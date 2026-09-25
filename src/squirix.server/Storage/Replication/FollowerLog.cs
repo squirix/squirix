@@ -118,6 +118,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public string GroupId { get; }
 
     /// <inheritdoc />
+    GroupIdempotencyState IFollowerLog.Idempotency => _idempotency;
+
+    /// <inheritdoc />
     GroupIdempotencyState IFollowerLogState.Idempotency => _idempotency;
 
     /// <inheritdoc />
