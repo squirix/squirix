@@ -767,6 +767,23 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(status.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
 
+    /// <summary>The term at an index is read from the retained entry, zero at the log origin; an index the log does not retain fails.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TermAtReadsRetainedEntries(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-term-at");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
+        await log.OpenAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 2UL, "b", 1UL), cancellationToken);
+
+        _ = await Assert.That(await log.GetTermAtAsync(0UL, cancellationToken)).IsEqualTo(0UL);
+        _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(1UL);
+        _ = await Assert.That(await log.GetTermAtAsync(2UL, cancellationToken)).IsEqualTo(2UL);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ulong>(log.GetTermAtAsync(3UL, cancellationToken));
+    }
+
     /// <summary>An uncommitted entry conflicting with the leader's batch is truncated and rewritten.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

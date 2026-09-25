@@ -20,6 +20,7 @@ internal sealed class ReplicaPendingApplies
     private readonly SortedList<ulong, PreparedReplicaMutation> _entries = [];
     private readonly GroupIdempotencyState _idempotency;
     private readonly IReplicaCommitPipeline _pipeline;
+    private readonly ReplicaRecoveredTail? _recovered;
     private readonly Action<PreparedReplicaMutation> _resolved;
     private readonly Lock _sync = new();
 
@@ -27,7 +28,16 @@ internal sealed class ReplicaPendingApplies
     /// <param name="pipeline">Pipeline that applies committed entries to memory.</param>
     /// <param name="idempotency">Group idempotency state that resolves re-applied entries.</param>
     /// <param name="resolved">Called after a re-applied entry resolved its idempotency record.</param>
-    internal ReplicaPendingApplies(IReplicaCommitPipeline pipeline, GroupIdempotencyState idempotency, Action<PreparedReplicaMutation> resolved)
+    /// <param name="recovered">
+    /// Uncommitted tail recovered at start, retained with an unresolved idempotency pin per entry, or <see langword="null" /> when the
+    /// log tail is fully committed.
+    /// </param>
+    /// <exception cref="InvalidOperationException">A recovered entry cannot be pinned: its identity is retained with another fingerprint, or the idempotency capacity is exhausted.</exception>
+    internal ReplicaPendingApplies(
+        IReplicaCommitPipeline pipeline,
+        GroupIdempotencyState idempotency,
+        Action<PreparedReplicaMutation> resolved,
+        ReplicaRecoveredTail? recovered = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(idempotency);
@@ -35,6 +45,21 @@ internal sealed class ReplicaPendingApplies
         _pipeline = pipeline;
         _idempotency = idempotency;
         _resolved = resolved;
+        _recovered = recovered;
+        if (recovered == null)
+            return;
+
+        // A same-identity retry must find the recovered entry pinned, never re-execute it: its outcome is unknown until a commit covers it.
+        foreach (var entry in recovered.Mutations)
+        {
+            var kind = string.Equals(entry.OperationScope, ReplicaExpirationOperationId.OperationScope, StringComparison.Ordinal) ? GroupRecordKind.Expiration
+                : GroupRecordKind.UserMutation;
+            var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term);
+            if (reserved != GroupIdempotencyReserveResult.Success)
+                throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
+
+            _entries[entry.LogIndex] = entry;
+        }
     }
 
     /// <summary>Gets a value indicating whether every locally appended entry is applied.</summary>
@@ -70,6 +95,9 @@ internal sealed class ReplicaPendingApplies
         while (TryPeekDue(commitIndex, out var pending))
         {
             var foreign = !ReferenceEquals(pending, own);
+
+            // A recovered entry's record does not carry its outcome: read it from the memory the entry is about to be applied to.
+            var outcome = _recovered?.Covers(pending.LogIndex) == true ? await _recovered.ReadOutcomeAsync(pending).ConfigureAwait(false) : pending.OutcomePayload;
             if (foreign)
                 await ApplyForeignAsync(pending).ConfigureAwait(false);
             else
@@ -80,10 +108,21 @@ internal sealed class ReplicaPendingApplies
 
             // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and applied,
             // so resolve them: a same-identity retry replays the outcome instead of staying unknown until the record ages out.
-            if (foreign && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, pending.OutcomePayload.Span, pending.LogIndex, pending.Term))
+            if (foreign && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome.Span, pending.LogIndex, pending.Term))
                 _resolved(pending);
         }
     }
+
+    /// <summary>Clamps a majority-backed commit candidate to the current-term commit rule of the recovered tail.</summary>
+    /// <param name="commitIndex">Current durable group commit index.</param>
+    /// <param name="candidate">Highest index a recorded majority backs.</param>
+    /// <returns><paramref name="candidate" /> when it may be committed; otherwise <paramref name="commitIndex" />.</returns>
+    /// <remarks>
+    /// Recovered entries of an older term are not committed by counting replicas: they wait until a current-term entry above them
+    /// commits them transitively.
+    /// </remarks>
+    internal ulong CommittableIndex(ulong commitIndex, ulong candidate) =>
+        candidate > commitIndex && _recovered?.CanCommitThrough(candidate) == false ? commitIndex : candidate;
 
     /// <summary>Determines whether some retained entry is at or below <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">Commit index a majority backs.</param>

@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -11,7 +10,6 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Node.Services;
 
@@ -24,7 +22,6 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
-    private const int IdempotencyCapacity = 1024;
     private const int MaxInFlight = 2;
     private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan CommitTimeout = TimeSpan.FromSeconds(5);
@@ -137,12 +134,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return await DecodeRemoveAsync(outcome).ConfigureAwait(false);
+        return await ReplicaOutcomeCodec.DecodeRemoveAsync(outcome).ConfigureAwait(false);
     }
 
     /// <summary>Commits a replicated expiration removal.</summary>
@@ -155,12 +152,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((ReplicaExpirationOperationId.OperationScope, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return DecodeApplied(outcome);
+        return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
 
     /// <summary>Commits a replicated unconditional writing.</summary>
@@ -174,7 +171,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = factory.PrepareSet(operationId, cacheName, key, entry, index);
         AdvanceNextIndex();
@@ -192,12 +189,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return DecodeApplied(outcome);
+        return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
 
     /// <summary>Commits a replicated conditional adding and returns whether the key was absent.</summary>
@@ -211,12 +208,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return DecodeApplied(outcome);
+        return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
 
     /// <summary>Commits a replicated value replacement.</summary>
@@ -230,21 +227,25 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         ThrowIfDisposed();
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var (coordinator, factory) = await EnsureStartedAsync(true, cancellationToken).ConfigureAwait(false);
+        var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
         AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-        return DecodeApplied(outcome);
+        return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
 
     /// <summary>Verifies non-ready replica slots against the leader log so a restarted group regains its write quorum.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The verification state; <see cref="ReplicaVerification.Pending" /> while some follower is not yet verified.</returns>
+    /// <returns>
+    /// The verification state: <see cref="ReplicaVerification.Pending" /> while some follower is not yet verified or an uncommitted
+    /// tail is not yet committed; <see cref="ReplicaVerification.Blocked" /> while the log is not ready or its uncommitted tail holds
+    /// no entry of the current term.
+    /// </returns>
     /// <remarks>
-    /// Unreachable followers are probed without holding the commit gate, so a dead peer never delays writes. Only
-    /// when some follower answered does the gate get taken to start the coordinator, re-check that the leader
-    /// tail did not move, and admit the verified slots.
+    /// Followers are probed, and re-sent the leader's uncommitted tail when they lack it, without holding the commit gate, so a dead
+    /// or slow peer never delays writes. Only when some follower answered does the gate get taken to start the coordinator (which
+    /// recovers the tail), re-check that the leader tail did not move, admit the verified slots, and commit what they now cover.
     /// </remarks>
     internal async Task<ReplicaVerification> VerifyReplicasAsync(CancellationToken cancellationToken)
     {
@@ -253,15 +254,27 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return ReplicaVerification.Blocked;
 
         var eligibility = _registry.EligibilityFor(_selfId);
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (status.Readiness != FollowerLogReadiness.Ready || status.LastLogIndex != status.CommitIndex)
+        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
+        var status = read.Status;
+        if (status.Readiness != FollowerLogReadiness.Ready)
             return ReplicaVerification.Blocked;
 
-        if (eligibility.AllCanCountInWriteQuorum())
+        var term = Math.Max(1UL, status.CurrentTerm);
+        var tail = ReplicaLeaderTail.From(read);
+        if (!tail.IsCommittableIn(term))
+        {
+            // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively.
+            LogManager.ReplicaTailOfOlderTerm(Log, tail.LastIndex, term);
+            return ReplicaVerification.Blocked;
+        }
+
+        if (tail.IsEmpty && eligibility.AllCanCountInWriteQuorum())
             return ReplicaVerification.AllReady;
 
-        var (members, header) = BuildMembership(Math.Max(1UL, status.CurrentTerm));
-        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+        var membership = BuildMembership(term);
+        var probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), membership.Members, membership.Header, status, ProbeTimeout, cancellationToken)
+                                               .ConfigureAwait(false);
+        probed = await ReplicaReadinessProbe.RedriveTailAsync(_gateway, probed, membership.Members, membership.Header, tail, ProbeTimeout, cancellationToken).ConfigureAwait(false);
         var answered = new bool[probed.Length];
         var anyAnswered = false;
         for (var i = 1; i < probed.Length; i++)
@@ -270,28 +283,47 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             anyAnswered |= answered[i];
         }
 
-        if (!anyAnswered)
+        if (!anyAnswered && !eligibility.AllCanCountInWriteQuorum())
             return ReplicaVerification.Pending;
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await AdmitVerifiedAsync(log, status, probed, answered, membership, cancellationToken).ConfigureAwait(false);
+    }
 
-        // Entries still unapplied refuse writes and a resync: report that as blocked, like an uncommitted tail, instead of
-        // failing the verification loop with the write-path refusal from the coordinator start.
-        if (!await TryApplyPendingAsync().ConfigureAwait(false))
-            return ReplicaVerification.Blocked;
+    private static bool IsPostAppendOutcome(Exception error) =>
+        error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-        var (coordinator, _) = await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false);
+    /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>
+    /// <param name="log">The owned group log.</param>
+    /// <param name="status">The log status the verdicts were built from.</param>
+    /// <param name="probed">Per-slot verdicts.</param>
+    /// <param name="answered">Slots whose follower answered, probed again when the leader tail moved.</param>
+    /// <param name="membership">Group members and replication envelope identity.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The verification state.</returns>
+    /// <remarks>Runs under the commit gate.</remarks>
+    private async Task<ReplicaVerification> AdmitVerifiedAsync(
+        IFollowerLog log,
+        FollowerLogStatus status,
+        ReplicaProbeResult[] probed,
+        bool[] answered,
+        (string[] Members, ReplicaRpcHeader Header) membership,
+        CancellationToken cancellationToken)
+    {
+        // A coordinator that still retains entries is never replaced (its restart refuses): the verified slots are admitted into it,
+        // and its resolver commits and applies what they now cover. Otherwise the coordinator starts here, recovering the log tail.
+        var coordinator = !await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained ? retained
+            : (await EnsureStartedAsync(null, cancellationToken).ConfigureAwait(false)).Coordinator;
         var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        if (current.LastLogIndex != current.CommitIndex)
-            return ReplicaVerification.Blocked;
 
         // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
         // an older tail, so the slots that answered are probed again against the current one.
         if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, answered, members, header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, answered, membership.Members, membership.Header, current, ProbeTimeout, cancellationToken).ConfigureAwait(false);
 
         // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
         // must not demote them.
+        var eligibility = _registry.EligibilityFor(_selfId);
         for (var i = 1; i < probed.Length; i++)
         {
             if (eligibility.CanCountInWriteQuorum(i))
@@ -299,30 +331,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         ReplicaReadinessProbe.ApplyAll(eligibility, probed, in current, _topologyFingerprint, _generation, coordinator);
-        return eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
+        var applied = await TryApplyPendingAsync().ConfigureAwait(false);
+        return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
     }
-
-    private static bool DecodeApplied(ReadOnlyMemory<byte> outcome)
-    {
-        const string message = "Committed outcome payload is malformed.";
-        return !ReplicaOutcomeCodec.TryDecode(outcome, out var applied, out _) ? throw new InvalidOperationException(message) : applied;
-    }
-
-    private static async Task<CacheRemoveResult<object?>> DecodeRemoveAsync(ReadOnlyMemory<byte> outcome)
-    {
-        if (!ReplicaOutcomeCodec.TryDecode(outcome, out var removed, out var previous) || (removed && previous.IsEmpty))
-            throw new InvalidOperationException("Committed remove outcome payload is malformed.");
-
-        if (!removed)
-            return new CacheRemoveResult<object?>(false, null);
-
-        var entry = CacheEntryWire.Parser.ParseFrom(new ReadOnlySequence<byte>(previous));
-        var mapped = await entry.MapFromProtoAsync<object?>().ConfigureAwait(false);
-        return new CacheRemoveResult<object?>(true, mapped.Value);
-    }
-
-    private static bool IsPostAppendOutcome(Exception error) =>
-        error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
     /// <summary>Consumes the next group log index after a mutation prepared successfully.</summary>
     /// <remarks>
@@ -355,31 +366,49 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
-    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(bool requireWriteMajority, CancellationToken cancellationToken)
+    /// <summary>Starts the coordinator when needed and, for a write, checks that it may be prepared and appended now.</summary>
+    /// <param name="write">The operation identity of the write, or <see langword="null" /> for verification.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The running coordinator and mutation factory.</returns>
+    /// <exception cref="SquirixException">
+    /// An appended entry is not yet applied (too many requests), or the write retries an operation whose entry is not yet committed
+    /// (commit outcome unknown).
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The write has no verified majority, or the committer is not started.</exception>
+    private async Task<(ReplicaCommitCoordinator Coordinator, ReplicaMutationFactory Factory)> EnsureStartedAsync(
+        (string Scope, string OperationId)? write,
+        CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        if (!_started)
-            await StartAsync(cancellationToken).ConfigureAwait(false);
-
-        if (requireWriteMajority && !HasWriteMajority())
+        try
         {
-            // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted
-            // local tail, which blocks verification and the coordinator start until it is reconciled. Dropping the
-            // started state re-probes the followers on the next write.
-            _started = false;
-            throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append.");
+            if (!_started)
+                await StartAsync(cancellationToken).ConfigureAwait(false);
+
+            // Refused before anything is appended: a write that cannot reach a majority would leave an uncommitted local tail.
+            // Dropping the started state re-probes the followers on the next write. Outcomes are prepared from live memory, so an
+            // entry that is appended but not yet applied would make the prepared outcome disagree with the log-order apply: such a
+            // write fails definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
+            var majority = write == null || HasWriteMajority();
+            var applied = write == null || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
+            if (!majority)
+                _started = false;
+
+            return (majority, applied, _coordinator, _factory) switch
+            {
+                (false, _, _, _) => throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append."),
+                (true, false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
+                (true, true, { } coordinator, { } factory) => (coordinator, factory),
+                _ => throw new InvalidOperationException("Replica group committer is not started."),
+            };
         }
-
-        // Outcomes are prepared from live memory, so an entry that is appended but not yet applied would make the prepared
-        // outcome disagree with the log-order apply. Refused before the prepare and the local append, the write fails
-        // definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
-        var applied = !requireWriteMajority || await TryApplyPendingAsync().ConfigureAwait(false);
-        return (applied, _coordinator, _factory) switch
+        catch (Exception) when (write is { } retry && _registry.TryGetLog(_selfId, out var log) && log.Idempotency.IsUnresolved(retry.Scope, retry.OperationId))
         {
-            (false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
-            (true, { } coordinator, { } factory) => (coordinator, factory),
-            _ => throw new InvalidOperationException("Replica group committer is not started."),
-        };
+            // A retry of an operation whose entry is appended but not yet committed (possibly by the process before a restart) must
+            // neither re-execute nor be told it failed: its outcome stays unknown until a commit resolves the entry, which the retry
+            // then replays. Whatever refused this attempt, only the unknown outcome is true for the operation.
+            throw ServerOpContract.CommitOutcomeUnknown();
+        }
     }
 
     private bool HasWriteMajority()
@@ -415,34 +444,40 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             await _coordinator.DisposeAsync().ConfigureAwait(false);
         }
 
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
+        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
+        var status = read.Status;
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = BuildMembership(term);
+        var tail = ReplicaLeaderTail.From(read);
 
-        // A restart with durable progress leaves every slot recovering. Verify the leader's own tail and every
-        // follower against it before the first commit, so the quorum is built from verified slots only. A tail
-        // that is not fully committed cannot start the coordinator below and is left untouched here.
+        // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
+        // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
+        // coordinator and commits once verified slots hold it; followers lacking it are re-sent it by verification, outside this gate.
         var eligibility = _registry.EligibilityFor(_selfId);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, in status, _topologyFingerprint, _generation);
-        if (eligibility.CanCountInWriteQuorum(0))
-        {
-            var candidates = ReplicaReadinessProbe.NonReadyFollowers(eligibility);
-            var results = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, candidates, members, header, status, ProbeTimeout, cancellationToken).ConfigureAwait(false);
-            ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, null);
-        }
+        var results = eligibility.CanCountInWriteQuorum(0)
+            ? await ReplicaReadinessProbe.ProbeAllAsync(_gateway, ReplicaReadinessProbe.NonReadyFollowers(eligibility), members, header, status, ProbeTimeout, cancellationToken)
+                                         .ConfigureAwait(false)
+            : [];
 
+        // The coordinator pins the tail in the log's idempotency state, which durable truncation releases pins from.
         var pipeline = new ReplicaGroupCommitPipeline(_local, log, _gateway, members, _selfId, status, header);
-        var idempotency = new GroupIdempotencyState(IdempotencyCapacity, GroupIdempotencyState.DefaultRetention);
+        var factory = new ReplicaMutationFactory(_local, _selfId, term);
         _coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(_locator.ReplicaCount, status.LastLogIndex, status.CommitIndex, MaxInFlight),
             pipeline,
             NoOpCommitHooks.Instance,
-            idempotency,
-            eligibility)
+            log.Idempotency,
+            eligibility,
+            tail.IsEmpty ? null : new ReplicaRecoveredTail(tail.Entries, term, factory))
         {
             ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
         };
-        _factory = new ReplicaMutationFactory(_local, _selfId, term);
+
+        // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
+        ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
+        _factory = factory;
         _nextIndex = status.LastLogIndex + 1;
         _started = true;
     }

@@ -22,7 +22,6 @@ internal sealed record ReplicaCommitCoordinatorOptions(int ReplicaCount, ulong I
         : throw new ArgumentOutOfRangeException(nameof(InitialCommitIndex), "Commit index cannot exceed the last log index.");
 
     /// <summary>Gets the durable group commit index at coordinator start.</summary>
-    internal ulong InitialCommitIndex { get; } = InitialCommitIndex == InitialLogIndex
-        ? InitialCommitIndex
-        : throw new ArgumentException("The durable log tail must be reconciled to the commit index before the coordinator starts.", nameof(InitialLogIndex));
+    /// <remarks>Entries above it form an uncommitted tail, which the coordinator must be given as a <see cref="ReplicaRecoveredTail" />.</remarks>
+    internal ulong InitialCommitIndex { get; } = InitialCommitIndex;
 }

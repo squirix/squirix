@@ -44,33 +44,54 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// contribute neither acknowledgements nor write-quorum copies until a repair session marks them ready.
     /// Activation wiring (RF&gt;1) owns the shared instance; <see langword="null" /> preserves the pre-activation behavior.
     /// </param>
+    /// <param name="recoveredTail">
+    /// The durable entries above <see cref="ReplicaCommitCoordinatorOptions.InitialCommitIndex" />, or <see langword="null" /> when the log
+    /// tail is fully committed. They are retained with their idempotency pins, and the leader's own slot is admitted at their last index;
+    /// <see cref="ApplyCommittedAsync" /> commits and applies them once a recorded majority covers them.
+    /// </param>
+    /// <exception cref="InvalidOperationException">
+    /// The recovered tail does not cover exactly the entries above the initial commit index, as when the options and the tail were read
+    /// from different states of the log; reading both again may succeed.
+    /// </exception>
     internal ReplicaCommitCoordinator(
         ReplicaCommitCoordinatorOptions options,
         IReplicaCommitPipeline pipeline,
         IReplicaCommitFaultHooks faultHooks,
         GroupIdempotencyState idempotency,
-        ReplicaEligibility? eligibility = null)
+        ReplicaEligibility? eligibility = null,
+        ReplicaRecoveredTail? recoveredTail = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(faultHooks);
         ArgumentNullException.ThrowIfNull(idempotency);
+        var coversTail = recoveredTail == null ? options.InitialLogIndex == options.InitialCommitIndex
+            : recoveredTail.FirstIndex == options.InitialCommitIndex + 1 && recoveredTail.LastIndex == options.InitialLogIndex;
+        if (!coversTail)
+            throw new InvalidOperationException("The recovered tail must hold exactly the durable entries above the initial commit index.");
+
+        // The resolved record answers retries first, so the faulted operation of a re-applied entry is no longer needed.
+        _pendingApply = new ReplicaPendingApplies(
+            pipeline,
+            idempotency,
+            resolved =>
+            {
+                lock (_ownedSync)
+                    _ = _operations.Remove(new OperationKey(resolved.OperationScope, resolved.OperationId));
+            },
+            recoveredTail);
 
         _pipeline = pipeline;
         _faultHooks = faultHooks;
         _idempotency = idempotency;
         _quorum = new ReplicaCommitQuorum(options.ReplicaCount, options.InitialCommitIndex, eligibility);
+
+        // The leader durably holds its whole log: its own slot counts through the recovered tail, followers only once verified.
+        _quorum.Admit(0, options.InitialLogIndex);
         _sequencer = new ReplicaLogIndexSequencer(options.InitialLogIndex);
         _turn = new ReplicaLogTurn(options.InitialLogIndex);
         _admission = new ReplicaMutationGate(options.MaxInFlight);
         _commitIndex = options.InitialCommitIndex;
-
-        // The resolved record answers retries first, so the faulted operation of a re-applied entry is no longer needed.
-        _pendingApply = new ReplicaPendingApplies(pipeline, idempotency, resolved =>
-        {
-            lock (_ownedSync)
-                _ = _operations.Remove(new OperationKey(resolved.OperationScope, resolved.OperationId));
-        });
         ShutdownBudget = ObserveTimeout;
     }
 
@@ -178,10 +199,11 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <returns><see langword="true" /> when no locally appended entry is left unapplied.</returns>
     /// <remarks>
     /// Drives entries whose own commit gave up after the local append: a majority that arrived late, or an apply that failed after
-    /// the majority. Every such entry is past its decision point, so the work runs on <see cref="CancellationToken.None" /> under the
-    /// commit gate, ordered with commit bodies; it resolves the idempotency record of each applied entry. An entry no recorded
-    /// majority covers stays retained. Prepared outcomes are computed from live memory, so callers that prepare mutations must not
-    /// prepare while this returns <see langword="false" />.
+    /// the majority, or an uncommitted tail recovered at start. Every such entry is past its decision point once a majority covers
+    /// it, so the work runs on <see cref="CancellationToken.None" /> under the commit gate, ordered with commit bodies; it resolves the
+    /// idempotency record of each applied entry. An entry no recorded majority covers stays retained, and so does a recovered entry
+    /// of an older term that no current-term entry reaches yet. Prepared outcomes are computed from live memory, so callers that
+    /// prepare mutations must not prepare while this returns <see langword="false" />.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The coordinator is disposed.</exception>
     internal async Task<bool> ApplyCommittedAsync()
@@ -190,7 +212,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             return true;
 
         using var commitGuard = await _commitGate.LockAsync(CancellationToken.None).ConfigureAwait(false);
-        var commitIndex = _quorum.FindCommitIndex(_commitIndex, _pendingApply.LastIndex);
+        var commitIndex = _pendingApply.CommittableIndex(_commitIndex, _quorum.FindCommitIndex(_commitIndex, _pendingApply.LastIndex));
         if (commitIndex > _commitIndex)
         {
             await _pipeline.AdvanceCommitIndexAsync(commitIndex, CancellationToken.None).ConfigureAwait(false);
