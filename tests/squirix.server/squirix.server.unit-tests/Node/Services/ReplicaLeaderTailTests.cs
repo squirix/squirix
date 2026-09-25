@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -212,5 +213,66 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
+    }
+
+    /// <summary>
+    /// A commit that advances the leader log while the coordinator starts, as one a disposed coordinator left running does, does not
+    /// fault verification: the start reads the status and the tail as one view, so the tail never falls short of the status.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The owned group log is not open.</exception>
+    [Test]
+    public async Task VerifyToleratesMovingTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-tail-moving");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 1, cancellationToken, "k1", "k2");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { FaultHooks = hooks }, cancellationToken);
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        // From the first probe on, a stalled commit holds the log gate, so the coordinator start queues its first log read behind it.
+        Task<FollowerLogCommitResult>? stalled = null;
+        var gateway = new FirstCallGateway(
+            new ScriptedGateway(),
+            () =>
+            {
+                hooks.StallNextMetaWrite();
+                stalled = log.AdvanceCommitAsync(2, cancellationToken);
+            });
+        await using var committer = CreateCommitter(registry, gateway);
+
+        var verify = committer.VerifyReplicasAsync(cancellationToken);
+        _ = await Assert.That(verify.IsCompleted).IsFalse();
+
+        // Queued after the start's first log read and ahead of any later one: the tail moves right after that read.
+        var moved = log.AdvanceCommitAsync(3, cancellationToken);
+        await hooks.Entered;
+        hooks.Release();
+
+        _ = await Assert.That((await stalled!).Success).IsTrue();
+        _ = await Assert.That((await moved).Success).IsTrue();
+        _ = await Assert.That(await verify).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(3UL);
+    }
+
+    /// <summary>Follower double that runs a scripted action on the first request, before answering it like the wrapped gateway.</summary>
+    private sealed class FirstCallGateway : IReplicaRpcGateway
+    {
+        private readonly IReplicaRpcGateway _inner;
+        private Action? _onFirstCall;
+
+        internal FirstCallGateway(IReplicaRpcGateway inner, Action onFirstCall)
+        {
+            _inner = inner;
+            _onFirstCall = onFirstCall;
+        }
+
+        public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            Interlocked.Exchange(ref _onFirstCall, null)?.Invoke();
+            return _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
+        }
     }
 }

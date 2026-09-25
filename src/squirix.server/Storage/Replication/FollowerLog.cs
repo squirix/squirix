@@ -261,55 +261,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken)
+    public async ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
-        var lastLogTerm = 0UL;
-        if (_lastLogIndex == 0UL)
-        {
-            return new FollowerLogStatus(
-                GroupId,
-                _meta.TopologyFingerprint,
-                _meta.ConfigurationGeneration,
-                _meta.CurrentTerm,
-                _meta.VotedFor,
-                _lastLogIndex,
-                lastLogTerm,
-                _meta.CommitIndex,
-                _meta.LastAppliedIndex,
-                Readiness);
-        }
+        // One gate acquisition: a commit advancing between the status and the tail would pair the status with a shorter tail.
+        var status = CaptureStatus();
+        return status.LastLogIndex == status.CommitIndex ? new FollowerLogTail(status, 0UL, [])
+            : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+    }
 
-        if (_journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
-            lastLogTerm = location.Term;
-        else if (_journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex)
-            lastLogTerm = _journal.SnapshotBaseline.LastIncludedTerm;
-
-        return new FollowerLogStatus(
-            GroupId,
-            _meta.TopologyFingerprint,
-            _meta.ConfigurationGeneration,
-            _meta.CurrentTerm,
-            _meta.VotedFor,
-            _lastLogIndex,
-            lastLogTerm,
-            _meta.CommitIndex,
-            _meta.LastAppliedIndex,
-            Readiness);
+    /// <inheritdoc />
+    public async ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return CaptureStatus();
     }
 
     /// <inheritdoc />
     public async ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return logIndex switch
-        {
-            0UL => 0UL,
-            _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
-            _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
-            _ => 0UL,
-        };
+        return TermAt(logIndex);
     }
 
     /// <inheritdoc />
@@ -545,6 +518,44 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _durability.Open(_journal.Paths.LogPath, _logLength);
         Readiness = FollowerLogReadiness.Ready;
     }
+
+    /// <summary>Builds the status of the durable log state.</summary>
+    /// <returns>The durable log status.</returns>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    private FollowerLogStatus CaptureStatus()
+    {
+        var lastLogTerm = 0UL;
+        if (_lastLogIndex != 0UL && _journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
+            lastLogTerm = location.Term;
+        else if (_lastLogIndex != 0UL && _journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex)
+            lastLogTerm = _journal.SnapshotBaseline.LastIncludedTerm;
+
+        return new FollowerLogStatus(
+            GroupId,
+            _meta.TopologyFingerprint,
+            _meta.ConfigurationGeneration,
+            _meta.CurrentTerm,
+            _meta.VotedFor,
+            _lastLogIndex,
+            lastLogTerm,
+            _meta.CommitIndex,
+            _meta.LastAppliedIndex,
+            Readiness);
+    }
+
+    /// <summary>Returns the term the log retains for an index.</summary>
+    /// <param name="logIndex">The log index; zero is the log origin.</param>
+    /// <returns>The term of the retained entry or snapshot baseline at <paramref name="logIndex" />; zero at the log origin.</returns>
+    /// <exception cref="InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
+    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
+    private ulong TermAt(ulong logIndex) =>
+        logIndex switch
+        {
+            0UL => 0UL,
+            _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
+            _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
+            _ => throw new InvalidDataException($"Replica group '{GroupId}' retains no term for log index '{logIndex}'."),
+        };
 
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend

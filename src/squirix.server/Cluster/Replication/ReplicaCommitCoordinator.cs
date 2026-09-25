@@ -49,7 +49,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// tail is fully committed. They are retained with their idempotency pins, and the leader's own slot is admitted at their last index;
     /// <see cref="ApplyCommittedAsync" /> commits and applies them once a recorded majority covers them.
     /// </param>
-    /// <exception cref="ArgumentException">The recovered tail does not cover exactly the entries above the initial commit index.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The recovered tail does not cover exactly the entries above the initial commit index, as when the options and the tail were read
+    /// from different states of the log; reading both again may succeed.
+    /// </exception>
     internal ReplicaCommitCoordinator(
         ReplicaCommitCoordinatorOptions options,
         IReplicaCommitPipeline pipeline,
@@ -65,7 +68,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         var coversTail = recoveredTail == null ? options.InitialLogIndex == options.InitialCommitIndex
             : recoveredTail.FirstIndex == options.InitialCommitIndex + 1 && recoveredTail.LastIndex == options.InitialLogIndex;
         if (!coversTail)
-            throw new ArgumentException("The recovered tail must hold exactly the durable entries above the initial commit index.", nameof(recoveredTail));
+            throw new InvalidOperationException("The recovered tail must hold exactly the durable entries above the initial commit index.");
 
         // The resolved record answers retries first, so the faulted operation of a re-applied entry is no longer needed.
         _pendingApply = new ReplicaPendingApplies(

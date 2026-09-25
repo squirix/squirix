@@ -54,6 +54,16 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The committed entries not yet applied.</returns>
     ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads the durable log status, its uncommitted tail, and the term at its commit index as one consistent view.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The status with exactly the durable entries above its commit index.</returns>
+    /// <exception cref="System.IO.InvalidDataException">The log retains no term for its commit index.</exception>
+    /// <remarks>
+    /// A leader reads its tail through this call instead of a status followed by separate tail reads: a commit that advances between
+    /// separate reads would pair a status with a shorter tail than it reports.
+    /// </remarks>
+    ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken);
+
     /// <summary>Gets a snapshot of the durable log state.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A snapshot of the durable log state.</returns>
@@ -62,7 +72,8 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <summary>Returns the term of the entry at a log index, or of the installed snapshot baseline at that index.</summary>
     /// <param name="logIndex">The log index; zero is the log origin.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The term at <paramref name="logIndex" />; zero at the log origin or when the log retains no term for the index.</returns>
+    /// <returns>The term at <paramref name="logIndex" />; zero at the log origin.</returns>
+    /// <exception cref="System.IO.InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
     ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken);
 
     /// <summary>Returns the durable entries above the committed index, in index order.</summary>

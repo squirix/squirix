@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -25,19 +23,12 @@ internal sealed record ReplicaLeaderTail(ulong CommitIndex, ulong CommitTerm, IR
     /// <returns><see langword="true" /> when the tail is empty or a current-term entry reaches its last index.</returns>
     internal bool IsCommittableIn(ulong currentTerm) => IsEmpty || ElectionCommitRule.HasCurrentTermEntryThrough(Entries, currentTerm, LastIndex);
 
-    /// <summary>Reads the uncommitted tail a log status reports.</summary>
-    /// <param name="log">The leader's own group log.</param>
-    /// <param name="status">A status of that log; the tail is read only when it reports entries above the commit index.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The tail; callers holding no commit gate re-check the status before acting on it.</returns>
-    internal static async Task<ReplicaLeaderTail> ReadAsync(IFollowerLog log, FollowerLogStatus status, CancellationToken cancellationToken)
+    /// <summary>Creates the tail from a leader log read that paired its status with its uncommitted entries.</summary>
+    /// <param name="read">The leader's own group log tail, read in one step.</param>
+    /// <returns>The tail at the commit index of <paramref name="read" />; callers holding no commit gate re-check the status before acting on it.</returns>
+    internal static ReplicaLeaderTail From(FollowerLogTail read)
     {
-        ArgumentNullException.ThrowIfNull(log);
-        if (status.LastLogIndex == status.CommitIndex)
-            return new ReplicaLeaderTail(status.CommitIndex, 0, []);
-
-        var entries = await log.GetUncommittedTailAsync(cancellationToken).ConfigureAwait(false);
-        var commitTerm = await log.GetTermAtAsync(status.CommitIndex, cancellationToken).ConfigureAwait(false);
-        return new ReplicaLeaderTail(status.CommitIndex, commitTerm, entries);
+        ArgumentNullException.ThrowIfNull(read);
+        return new ReplicaLeaderTail(read.Status.CommitIndex, read.CommitTerm, read.Entries);
     }
 }

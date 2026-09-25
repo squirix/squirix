@@ -254,12 +254,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return ReplicaVerification.Blocked;
 
         var eligibility = _registry.EligibilityFor(_selfId);
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
+        var status = read.Status;
         if (status.Readiness != FollowerLogReadiness.Ready)
             return ReplicaVerification.Blocked;
 
         var term = Math.Max(1UL, status.CurrentTerm);
-        var tail = await ReplicaLeaderTail.ReadAsync(log, status, cancellationToken).ConfigureAwait(false);
+        var tail = ReplicaLeaderTail.From(read);
         if (!tail.IsCommittableIn(term))
         {
             // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively.
@@ -443,10 +444,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             await _coordinator.DisposeAsync().ConfigureAwait(false);
         }
 
-        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
+        var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
+        var status = read.Status;
         var term = Math.Max(1UL, status.CurrentTerm);
         var (members, header) = BuildMembership(term);
-        var tail = await ReplicaLeaderTail.ReadAsync(log, status, cancellationToken).ConfigureAwait(false);
+        var tail = ReplicaLeaderTail.From(read);
 
         // A restart with durable progress leaves every slot recovering. Verify the leader's own log and every follower against its
         // last entry before the first commit, so the quorum is built from verified slots only. An uncommitted tail is recovered by the
