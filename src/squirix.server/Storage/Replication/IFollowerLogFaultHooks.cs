@@ -6,6 +6,9 @@ internal interface IFollowerLogFaultHooks
     /// <summary>Invoked after frame bytes are written to the log stream, before they are flushed.</summary>
     void OnFrameWritten();
 
+    /// <summary>Invoked after metadata bytes are written to the temporary metadata file, before they are flushed and published.</summary>
+    void OnMetaWritten();
+
     /// <summary>Invoked after a durable flush of log or metadata bytes.</summary>
     void OnFlushed();
 

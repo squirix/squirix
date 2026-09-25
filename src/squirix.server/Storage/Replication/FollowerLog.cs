@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
@@ -50,6 +51,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
+    private readonly FollowerLogAckRegistry _acks = new();
     private readonly GroupComposition _composition;
     private readonly GroupLogDurability _durability = new();
     private readonly IFollowerLogFaultHooks _faults;
@@ -57,12 +59,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     [SuppressMessage(
         "Reliability",
         "CA2213:Disposable fields should be disposed",
-        Justification = "Disposing _gate would fault callers queued on LockAsync with ObjectDisposedException; idempotent disposal guarded by _disposed.")]
+        Justification = "A drained dispose keeps _gate open so later callers get NotReady; only a dispose past its shutdown budget disposes it to fault the callers queued behind a stuck holder.")]
     private readonly AsyncLock _gate = new();
 
     private readonly GroupIdempotencyState _idempotency;
 
     private readonly FollowerLogJournal _journal;
+    private readonly ILogger _log;
+    private readonly TimeSpan _shutdownBudget;
 
     private int _disposed;
     private ulong _lastLogIndex;
@@ -84,6 +88,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _composition = composition;
         var settings = options ?? new FollowerLogOptions();
         _faults = settings.FaultHooks ?? DefaultFaults;
+        _log = settings.Log ?? LogManager.GetLogger<FollowerLog>();
+        _shutdownBudget = settings.ShutdownBudget;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, settings.MaxSnapshotBytes);
@@ -99,6 +105,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         : this(persistenceRoot, groupId, composition, new FollowerLogOptions { FaultHooks = faultHooks })
     {
     }
+
+    /// <inheritdoc />
+    FollowerLogAckRegistry IFollowerLogDurability.Acks => _acks;
 
     /// <inheritdoc />
     GroupLogDurability IFollowerLogDurability.Durability => _durability;
@@ -210,9 +219,33 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        using var lockGuard = await _gate.LockAsync(CancellationToken.None).ConfigureAwait(false);
-        _durability.Dispose();
-        _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
+        // A durable flush cannot be canceled and may never return on a stalled disk, so the drain is bounded. On
+        // expiry the in-flight waiter is faulted with ObjectDisposedException, the callers queued behind the stuck
+        // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
+        // loudly: the handle is never closed under a running flush. Not throwing keeps the host disposing the rest.
+        AsyncLockHolder lockGuard;
+        using (var budget = new CancellationTokenSource(_shutdownBudget))
+        {
+            try
+            {
+                lockGuard = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                var faulted = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
+                _gate.Dispose();
+                LogManager.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
+                return;
+            }
+        }
+
+        using (lockGuard)
+        {
+            // Closing the registry makes a later durable operation fail fast instead of parking on a closed handle.
+            _ = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
+            _durability.Dispose();
+            _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
+        }
     }
 
     /// <inheritdoc />
@@ -624,11 +657,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             try
             {
-                await FollowerLogDurable.PersistMetaAsync(journal, candidate, cancellationToken).ConfigureAwait(false);
+                await FollowerLogDurable.PersistMetaAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
             {
-                // Cancellation is not a publication failure; preserve readiness so the caller can retry.
+                // Neither is a publication failure, so readiness is preserved. Cancellation lets the caller retry;
+                // a dispose that faulted the in-flight write on shutdown says nothing about the storage, the write
+                // itself may still land, and restart recovery reconciles it.
                 throw;
             }
             catch
@@ -854,11 +889,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 position += encodedLength;
             }
 
-            // The durability worker flushes the exact-size buffer and propagates any I/O faults. The buffer is
-            // owned by the work item and returned only inside its Execute; scheduling with a non-cancelable token
-            // after the explicit check guarantees the callback always runs and the buffer is always returned.
-            var work = new AppendDurableWork(owner.Durability, buffer, startOffset, totalLength, owner.Faults);
-            await WorkPool.RunAsync(work, TaskCreationOptions.None, CancellationToken.None).ConfigureAwait(false);
+            // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
+            // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
+            // token after the explicit check guarantees the callback always runs and the buffer is always returned.
+            var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
+            await work.RunTrackedAsync().ConfigureAwait(false);
 
             // Only after the durable writing succeeds do the in-memory indexes gain the entries,
             // so a crash mid-appending can never leave the index ahead of the file.
@@ -870,17 +905,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             owner.SetMeta(owner.Meta with { LastLogIndex = owner.LastLogIndex });
         }
 
-        internal static Task PersistMetaAsync(FollowerLogJournal journal, GroupLogMetadata meta, CancellationToken cancellationToken)
+        internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata meta, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var encodedLength = GroupLogCodec.ComputeMetaEncodedLength(meta);
             var buffer = ArrayPool<byte>.Shared.Rent(encodedLength);
             GroupLogCodec.EncodeMeta(meta, buffer.AsSpan(0, encodedLength));
-            var work = new MetaDurableWork(journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength);
+            var work = new MetaDurableWork(owner.Acks, journal.Paths.MetadataTempPath, journal.Paths.MetadataPath, buffer, encodedLength, owner.Faults);
 
             // The buffer is returned only inside MetaDurableWork.Execute; a non-cancelable scheduling token
             // after the explicit check guarantees the worker always runs and the buffer is always returned.
-            return WorkPool.RunAsync(work, TaskCreationOptions.None, CancellationToken.None);
+            return work.RunTrackedAsync();
         }
 
         internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
@@ -889,22 +924,25 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             List<FollowerLogEntry> tail,
             CancellationToken cancellationToken)
         {
-            var work = new ReplaceDurableWork(owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults);
+            var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.LogTempPath, journal.Paths.LogPath, tail, owner.Faults);
             cancellationToken.ThrowIfCancellationRequested();
+            Task durable;
             try
             {
-                await WorkPool.RunAsync(work, TaskCreationOptions.None, CancellationToken.None).ConfigureAwait(false);
+                durable = work.RunTrackedAsync();
             }
             catch
             {
                 // Execute returns every rented buffer in its final block once it starts; return them here only
-                // when the work item never ran, so the pool never sees a double Return.
+                // when the work item never ran, so the pool never sees a double Return. A shutdown fault of the
+                // awaited ack below may race a running Execute, so it never touches the buffers.
                 if (!work.Started)
                     work.ReturnBuffers();
 
                 throw;
             }
 
+            await durable.ConfigureAwait(false);
             return (work.Length, work.Offsets);
         }
 
@@ -918,10 +956,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             try
             {
                 var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                var work = new TruncateDurableWork(owner.Durability, location.Offset, owner.Faults, durable);
+                var work = new TruncateDurableWork(owner.Acks, owner.Durability, location.Offset, owner.Faults, durable);
                 try
                 {
-                    await WorkPool.RunAsync(work, TaskCreationOptions.None, CancellationToken.None).ConfigureAwait(false);
+                    await work.RunTrackedAsync().ConfigureAwait(false);
                 }
                 finally
                 {
@@ -946,9 +984,64 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return released;
         }
 
+        /// <summary>Durable work whose caller awaits a tracked ack instead of the pool task.</summary>
+        /// <remarks>
+        /// The pool thread owns the outcome of the operation: it completes the ack with the result or the failure of
+        /// <see cref="Run" /> and then untracks it. The only other writer is the shutdown drain of the owning log, which
+        /// faults the ack with <see cref="ObjectDisposedException" />; the first writer wins, so a late outcome is a no-op.
+        /// </remarks>
+        [Immutable]
+        private abstract class TrackedDurableWork : IWorkPoolItem
+        {
+            private readonly TaskCompletionSource _ack = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly FollowerLogAckRegistry _acks;
+
+            protected TrackedDurableWork(FollowerLogAckRegistry acks)
+            {
+                _acks = acks;
+            }
+
+            void IWorkPoolItem.Execute()
+            {
+                // Outcome first, then untrack: an ack is never untracked before its outcome is written, and a drain
+                // that takes an already completed ack leaves it as is and does not count it.
+                try
+                {
+                    _ack.RunIsolated(this, static work => work.Run());
+                }
+                finally
+                {
+                    _acks.Complete(_ack);
+                }
+            }
+
+            /// <summary>Tracks the ack and schedules the work item on a pool thread.</summary>
+            /// <returns>The ack task; the discarded pool task never faults because <see cref="IWorkPoolItem.Execute" /> reports through the ack.</returns>
+            /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
+            [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
+            internal Task RunTrackedAsync()
+            {
+                _acks.Track(_ack);
+                try
+                {
+                    _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
+                }
+                catch
+                {
+                    _acks.Complete(_ack);
+                    throw;
+                }
+
+                return _ack.Task;
+            }
+
+            /// <summary>Performs the durable operation on the pool thread.</summary>
+            protected abstract void Run();
+        }
+
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
         [Immutable]
-        private sealed class AppendDurableWork : IWorkPoolItem
+        private sealed class AppendDurableWork : TrackedDurableWork
         {
             private readonly byte[] _buffer;
             private readonly GroupLogDurability _durability;
@@ -956,7 +1049,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             private readonly int _length;
             private readonly long _startOffset;
 
-            internal AppendDurableWork(GroupLogDurability durability, byte[] buffer, long startOffset, int length, IFollowerLogFaultHooks faults)
+            internal AppendDurableWork(FollowerLogAckRegistry acks, GroupLogDurability durability, byte[] buffer, long startOffset, int length, IFollowerLogFaultHooks faults)
+                : base(acks)
             {
                 _durability = durability;
                 _buffer = buffer;
@@ -965,7 +1059,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _faults = faults;
             }
 
-            void IWorkPoolItem.Execute()
+            protected override void Run()
             {
                 try
                 {
@@ -984,22 +1078,25 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         /// <summary>Background work that writes and atomically publishes metadata.</summary>
         [Immutable]
-        private sealed class MetaDurableWork : IWorkPoolItem
+        private sealed class MetaDurableWork : TrackedDurableWork
         {
             private readonly byte[] _buffer;
+            private readonly IFollowerLogFaultHooks _faults;
             private readonly int _length;
             private readonly string _metaPath;
             private readonly string _metaTempPath;
 
-            internal MetaDurableWork(string metaTempPath, string metaPath, byte[] buffer, int length)
+            internal MetaDurableWork(FollowerLogAckRegistry acks, string metaTempPath, string metaPath, byte[] buffer, int length, IFollowerLogFaultHooks faults)
+                : base(acks)
             {
                 _metaTempPath = metaTempPath;
                 _metaPath = metaPath;
                 _buffer = buffer;
                 _length = length;
+                _faults = faults;
             }
 
-            void IWorkPoolItem.Execute()
+            protected override void Run()
             {
                 try
                 {
@@ -1007,6 +1104,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     using (var handle = File.OpenHandle(_metaTempPath, FileMode.Create, FileAccess.Write, FileShare.None, options))
                     {
                         RandomAccess.Write(handle, _buffer.AsSpan(0, _length), 0);
+                        _faults.OnMetaWritten();
                         if (!OperatingSystem.IsWindows())
                             RandomAccess.FlushToDisk(handle);
                     }
@@ -1025,7 +1123,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// Frames are encoded into short-lived pooled buffers one at a time, so the retained tail is never materialized into a
         /// single contiguous array (which could overflow <see cref="int" /> or exhaust contiguous memory for a large tail).
         /// </remarks>
-        private sealed class ReplaceDurableWork : IWorkPoolItem
+        private sealed class ReplaceDurableWork : TrackedDurableWork
         {
             private readonly GroupLogDurability _durability;
             private readonly IFollowerLogFaultHooks _faults;
@@ -1034,7 +1132,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             private readonly string _tempPath;
             private byte[]? _headerBuffer;
 
-            internal ReplaceDurableWork(GroupLogDurability durability, string tempPath, string finalPath, List<FollowerLogEntry> tail, IFollowerLogFaultHooks faults)
+            internal ReplaceDurableWork(
+                FollowerLogAckRegistry acks,
+                GroupLogDurability durability,
+                string tempPath,
+                string finalPath,
+                List<FollowerLogEntry> tail,
+                IFollowerLogFaultHooks faults)
+                : base(acks)
             {
                 _durability = durability;
                 _tempPath = tempPath;
@@ -1049,7 +1154,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             internal bool Started { get; private set; }
 
-            void IWorkPoolItem.Execute()
+            internal void ReturnBuffers()
+            {
+                if (_headerBuffer == null)
+                    return;
+                ArrayPool<byte>.Shared.ReturnCleared(_headerBuffer);
+                _headerBuffer = null;
+            }
+
+            protected override void Run()
             {
                 Started = true;
                 var published = false;
@@ -1079,14 +1192,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
                     ReturnBuffers();
                 }
-            }
-
-            internal void ReturnBuffers()
-            {
-                if (_headerBuffer == null)
-                    return;
-                ArrayPool<byte>.Shared.ReturnCleared(_headerBuffer);
-                _headerBuffer = null;
             }
 
             private (List<long> Offsets, int Length) WriteTail(byte[] headerBuffer, int headerLength, long total, FileOptions options)
@@ -1128,14 +1233,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         /// <summary>Background work that durably truncates the log before a conflicting tail is rewritten.</summary>
         [Immutable]
-        private sealed class TruncateDurableWork : IWorkPoolItem
+        private sealed class TruncateDurableWork : TrackedDurableWork
         {
             private readonly GroupLogDurability _durability;
             private readonly TaskCompletionSource<bool> _durable;
             private readonly IFollowerLogFaultHooks _faults;
             private readonly long _length;
 
-            internal TruncateDurableWork(GroupLogDurability durability, long length, IFollowerLogFaultHooks faults, TaskCompletionSource<bool> durable)
+            internal TruncateDurableWork(FollowerLogAckRegistry acks, GroupLogDurability durability, long length, IFollowerLogFaultHooks faults, TaskCompletionSource<bool> durable)
+                : base(acks)
             {
                 _durability = durability;
                 _length = length;
@@ -1143,7 +1249,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _durable = durable;
             }
 
-            void IWorkPoolItem.Execute()
+            protected override void Run()
             {
                 _durability.Truncate(_length);
                 _durability.Flush();
@@ -2283,6 +2389,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         public void OnFrameWritten()
+        {
+        }
+
+        public void OnMetaWritten()
         {
         }
     }
