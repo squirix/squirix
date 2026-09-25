@@ -18,7 +18,7 @@
         <PackageVersion Include="Roslynator.Analyzers" Version="5.0.0"/>
         <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.34.0.3385"/>
         <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556"/>
-        <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3"/>
+        <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.4"/>
         <PackageVersion Include="NsDepCop" Version="3.1.0"/>
         <PackageVersion Include="squirix.analyzers" Version="0.1.8"/>
     </ItemGroup>
