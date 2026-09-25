@@ -141,5 +141,9 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         public void OnFrameWritten()
         {
         }
+
+        public void OnMetaWritten()
+        {
+        }
     }
 }

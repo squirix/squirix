@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>Replica group verification and committer lifecycle logs.</summary>
+/// <summary>Replica group verification, committer and follower-log lifecycle logs.</summary>
 internal static partial class LogManager
 {
     [LoggerMessage(EventId = 4001, Level = LogLevel.Warning, Message = "Replica group verification cannot proceed: the leader log tail is not fully committed or its log is not ready")]
@@ -41,4 +41,11 @@ internal static partial class LogManager
         Level = LogLevel.Error,
         Message = "Replica commit coordinator did not drain within the shutdown budget of {Budget}; the in-flight commit keeps its gates and log-index sequencer, which are leaked")]
     internal static partial void ReplicaCoordinatorLeakedOnShutdown(ILogger logger, TimeSpan budget);
+
+    [LoggerMessage(
+        EventId = 4009,
+        Level = LogLevel.Error,
+        Message =
+            "Replica group {GroupId} follower log did not drain within the shutdown budget of {Budget}; {FaultedInFlightWaiters} in-flight waiters were faulted and the log handle, its worker thread and the gate holder are leaked")]
+    internal static partial void FollowerLogLeakedOnShutdownTimeout(ILogger logger, string groupId, TimeSpan budget, int faultedInFlightWaiters);
 }

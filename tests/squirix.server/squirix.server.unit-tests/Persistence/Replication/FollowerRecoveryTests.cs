@@ -416,6 +416,10 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         public void OnFrameWritten()
         {
         }
+
+        public void OnMetaWritten()
+        {
+        }
     }
 
     /// <summary>Fault hooks that fault right after a frame write, before the flush, exactly once.</summary>
@@ -443,6 +447,10 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _fired = true;
             throw new IOException("simulated failure after the frame write.");
         }
+
+        public void OnMetaWritten()
+        {
+        }
     }
 
     /// <summary>Fault hooks that throw from the flush boundary once armed, exactly once.</summary>
@@ -469,6 +477,10 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         }
 
         public void OnFrameWritten()
+        {
+        }
+
+        public void OnMetaWritten()
         {
         }
 
