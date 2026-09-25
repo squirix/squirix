@@ -116,7 +116,7 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(static sp => sp.GetRequiredService<PersistenceRuntime>().Retention);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Ledger);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Gate);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator);
+        _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator.AttachLog(sp.GetService<ILoggerFactory>()));
 
         _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
             sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
