@@ -50,4 +50,7 @@ internal static partial class LogManager
 
     [LoggerMessage(EventId = 3015, Level = LogLevel.Error, Message = "In-flight memory applies did not finish within the shutdown budget; their callers may fail although their journal frames may be durable")]
     internal static partial void JournalInFlightApplyWaitTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3016, Level = LogLevel.Error, Message = "Journal dispose failed during host shutdown; host disposal continues with the manifest ledger and the remaining services")]
+    internal static partial void JournalDisposeFailedOnHostShutdown(ILogger logger, Exception exception);
 }
