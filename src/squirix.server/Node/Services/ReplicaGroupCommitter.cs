@@ -438,7 +438,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             pipeline,
             NoOpCommitHooks.Instance,
             idempotency,
-            eligibility);
+            eligibility)
+        {
+            ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(Log, budget),
+        };
         _factory = new ReplicaMutationFactory(_local, _selfId, term);
         _nextIndex = status.LastLogIndex + 1;
         _started = true;

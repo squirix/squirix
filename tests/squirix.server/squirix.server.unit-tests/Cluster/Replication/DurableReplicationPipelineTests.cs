@@ -147,10 +147,10 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             await coordinator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             // Budget expiry faults the parked resolution after abandonment, running the attached observer.
-            // Unwinding through the disposed gates surfaces ObjectDisposedException inside the outcome-unknown fault.
+            // Disposal left the gates with the running commit, so it unwinds with its own budget expiry, not ObjectDisposedException.
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
-            _ = await Assert.That(error.InnerException).IsTypeOf<ObjectDisposedException>();
+            _ = await Assert.That(error.InnerException).IsAssignableTo<OperationCanceledException>();
         }
         finally
         {

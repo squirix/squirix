@@ -71,15 +71,37 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             lock (_ownedSync)
                 _ = _operations.Remove(new OperationKey(resolved.OperationScope, resolved.OperationId));
         });
+        ShutdownBudget = ObserveTimeout;
     }
 
     /// <summary>Gets the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
     internal TimeProvider ObserveTimeProvider { get; init; } = TimeProvider.System;
 
+    /// <summary>Gets the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan ShutdownBudget
+    {
+        private get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+
+            field = value;
+        }
+    }
+
+    /// <summary>Gets the owner callback that reports, with the shutdown budget, a dispose that leaked the gates to a running commit.</summary>
+    /// <remarks>This namespace does not log; the owner turns the report into an error log. Unset, the leak is not reported.</remarks>
+    internal Action<TimeSpan>? ShutdownLeakReporter { private get; init; }
+
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>
     /// <returns>An asynchronous operation.</returns>
-    /// <remarks>Failures already delivered via <see cref="CommitAsync" /> are observed, not rethrown.</remarks>
+    /// <remarks>
+    /// Failures already delivered via <see cref="CommitAsync" /> are observed, not rethrown. The wait is bounded by
+    /// <see cref="ShutdownBudget" />; a commit still running after it keeps its gates and sequencer, which are leaked and reported
+    /// through <see cref="ShutdownLeakReporter" /> instead of being disposed under it.
+    /// </remarks>
     public ValueTask DisposeAsync()
     {
         lock (_ownedSync)
@@ -208,17 +230,18 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     /// <summary>Takes the next completed task, removing it from the pending list.</summary>
     /// <param name="pending">Remaining tasks to observe.</param>
+    /// <param name="timeout">The longest wait for any task to complete.</param>
     /// <param name="timeProvider">The time source bounding the wait.</param>
     /// <returns>The completed task.</returns>
     /// <exception cref="TimeoutException">
     /// The bound expired before any task completed; every remaining task got a fault-only exception
     /// observer, so abandoned follower work never surfaces unobserved exceptions.
     /// </exception>
-    private static async Task<Task> TakeNextCompletedAsync(List<Task> pending, TimeProvider timeProvider)
+    private static async Task<Task> TakeNextCompletedAsync(List<Task> pending, TimeSpan timeout, TimeProvider timeProvider)
     {
         try
         {
-            var completed = await Task.WhenAny(pending).WaitAsync(ObserveTimeout, timeProvider, CancellationToken.None).ConfigureAwait(false);
+            var completed = await Task.WhenAny(pending).WaitAsync(timeout, timeProvider, CancellationToken.None).ConfigureAwait(false);
             _ = pending.Remove(completed);
             return completed;
         }
@@ -325,7 +348,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     Task completed;
                     try
                     {
-                        completed = await TakeNextCompletedAsync(tasks, TimeProvider.System).ConfigureAwait(false);
+                        completed = await TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System).ConfigureAwait(false);
                     }
                     catch (TimeoutException)
                     {
@@ -338,9 +361,26 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
         finally
         {
-            _sequencer.Dispose();
-            _admission.Dispose();
-            _commitGate.Dispose();
+            // A commit still running here made no progress within the budget and, past its majority, ignores cancellation. It holds or
+            // waits on the admission gate, the commit gate, and the sequencer, so they stay with it and are leaked loudly instead of
+            // being disposed under it (a disposed semaphore strands its waiters). No new commit can start once admission is closed.
+            var running = false;
+            lock (_ownedSync)
+            {
+                foreach (var operation in _operations.Values)
+                    running |= !operation.Resolution.IsCompleted;
+            }
+
+            if (running)
+            {
+                ShutdownLeakReporter?.Invoke(ShutdownBudget);
+            }
+            else
+            {
+                _sequencer.Dispose();
+                _admission.Dispose();
+                _commitGate.Dispose();
+            }
         }
     }
 

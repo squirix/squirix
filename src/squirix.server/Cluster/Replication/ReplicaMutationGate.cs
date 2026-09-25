@@ -56,10 +56,24 @@ internal sealed class ReplicaMutationGate : IDisposable
         return new ReplicaMutationLease(this, stripe);
     }
 
+    /// <summary>Returns a lease's stripe and capacity slot.</summary>
+    /// <param name="stripe">The stripe the lease holds.</param>
+    /// <remarks>
+    /// Never throws: once the gate was disposed while the lease was still out, its semaphores are gone, so there is nothing left to
+    /// release. A disposed <see cref="SemaphoreSlim" /> never completes a queued wait, even a canceled one, so owners dispose the gate
+    /// only when no entry can still be waiting.
+    /// </remarks>
     internal void Exit(SemaphoreSlim stripe)
     {
         _ = Interlocked.Decrement(ref _activeCount);
-        _ = stripe.Release();
-        _ = _capacity.Release();
+        try
+        {
+            _ = stripe.Release();
+            _ = _capacity.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The gate was disposed under this lease; see the remarks.
+        }
     }
 }
