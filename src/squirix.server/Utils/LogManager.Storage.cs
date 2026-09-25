@@ -21,6 +21,12 @@ internal static partial class LogManager
     [LoggerMessage(EventId = 1001, Level = LogLevel.Debug, Message = "Compaction state {Prev} -> {Next}")]
     internal static partial void CompactionStateChanged(ILogger logger, string prev, string next);
 
+    [LoggerMessage(
+        EventId = 1015,
+        Level = LogLevel.Warning,
+        Message = "Durable mutation outcome is unknown after its journal frame entered the ring; the cause is reported here and the caller gets COMMIT_OUTCOME_UNKNOWN")]
+    internal static partial void DurableMutationOutcomeUnknown(ILogger logger, Exception exception);
+
     [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "Journal failure drained {Count} abandoned appends; {Bytes} bytes quarantined until the I/O thread joins")]
     internal static partial void JournalAbandonedAppendsDrained(ILogger logger, int count, long bytes);
 
