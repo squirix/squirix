@@ -26,6 +26,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
     private const int IdempotencyCapacity = 1024;
     private const int MaxInFlight = 2;
+    private const string PendingApplyRefusalReason = "replica_apply_pending";
     private static readonly TimeSpan CommitTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
@@ -273,6 +274,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return ReplicaVerification.Pending;
 
         using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // Entries still unapplied refuse writes and a resync: report that as blocked, like an uncommitted tail, instead of
+        // failing the verification loop with the write-path refusal from the coordinator start.
+        if (!await TryApplyPendingAsync().ConfigureAwait(false))
+            return ReplicaVerification.Blocked;
+
         var (coordinator, _) = await EnsureStartedAsync(false, cancellationToken).ConfigureAwait(false);
         var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (current.LastLogIndex != current.CommitIndex)
@@ -363,9 +370,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             throw new InvalidOperationException("Replica group has no verified write majority; the write was refused before the local append.");
         }
 
-        return (_coordinator, _factory) switch
+        // Outcomes are prepared from live memory, so an entry that is appended but not yet applied would make the prepared
+        // outcome disagree with the log-order apply. Refused before the prepare and the local append, the write fails
+        // definitely and may be retried; only this gate appends, so the check cannot go stale before the prepare.
+        var applied = !requireWriteMajority || await TryApplyPendingAsync().ConfigureAwait(false);
+        return (applied, _coordinator, _factory) switch
         {
-            ({ } coordinator, { } factory) => (coordinator, factory),
+            (false, _, _) => throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason),
+            (true, { } coordinator, { } factory) => (coordinator, factory),
             _ => throw new InvalidOperationException("Replica group committer is not started."),
         };
     }
@@ -392,7 +404,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             throw new InvalidOperationException($"This node does not serve its owned replica group '{_selfId}'.");
 
         if (_coordinator != null)
+        {
+            // The old coordinator's retained entries are not recovered by the new one (it starts from the durable log status, with
+            // an empty apply queue), so disposing it with entries still unapplied would lose them from memory. Apply the committed
+            // ones first; while any stays pending (the apply keeps failing, or no majority covers it yet) refuse the resync and
+            // keep the old coordinator, whose late-majority path and the next attempt can still apply them.
+            if (!await TryApplyPendingAsync().ConfigureAwait(false))
+                throw ServerOpContract.TooManyRequests(PendingApplyRefusalReason);
+
             await _coordinator.DisposeAsync().ConfigureAwait(false);
+        }
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         var term = Math.Max(1UL, status.CurrentTerm);
@@ -432,6 +453,28 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
+    /// <summary>Applies the committed entries the current coordinator still retains.</summary>
+    /// <returns><see langword="true" /> when no coordinator retains an unapplied entry.</returns>
+    /// <remarks>
+    /// An apply failure is logged and reported as <see langword="false" />: the entry stays retained and the caller refuses
+    /// definitely, before anything of its own is appended.
+    /// </remarks>
+    private async Task<bool> TryApplyPendingAsync()
+    {
+        if (_coordinator == null)
+            return true;
+
+        try
+        {
+            return await _coordinator.ApplyCommittedAsync().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not ObjectDisposedException)
+        {
+            LogManager.ReplicaPendingApplyFailed(Log, error);
+            return false;
+        }
+    }
+
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
     [Immutable]
     private sealed class NoOpCommitHooks : IReplicaCommitFaultHooks
@@ -443,7 +486,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Owner-side commit pipeline: local durable append, follower fan-out, and memory apply.</summary>
     /// <remarks>
-    /// All calls originate from the single owning coordinator's serialized ordered body, except
+    /// All calls originate from the single owning coordinator under its commit gate (ordered commit bodies, and
+    /// the commit-and-apply of entries a late majority or a later drive covers), except
     /// <see cref="RecordLaggingReplica" />, which the coordinator also invokes from background follower
     /// observation. The coordinator serializes whole commit bodies under its commit gate, and the committer
     /// drives one commit at a time, so the fan-out for mutation N always runs between the local appending
