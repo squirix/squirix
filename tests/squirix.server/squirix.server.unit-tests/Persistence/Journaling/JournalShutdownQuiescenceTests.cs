@@ -28,7 +28,10 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 {
-    /// <summary>Appends issued after disposal fail explicitly instead of hanging or vanishing.</summary>
+    /// <summary>
+    /// Appends issued after disposal fail explicitly instead of hanging or vanishing: the disposed mutation gate refuses them with the
+    /// <see cref="ObjectDisposedException" /> as the cause, and the durability wait throws it directly.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task AppendAfterDisposeThrowsObjectDisposed(CancellationToken cancellationToken)
@@ -50,7 +53,8 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await journal.DisposeAsync();
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(journal.AppendPutAsync(CacheKey.Default("late"), payload, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("late"), payload, cancellationToken));
+        _ = await Assert.That(refused.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 
@@ -176,10 +180,15 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             try
             {
                 // Phase 1 (counted): publish the frame. The gate orders it ahead of the shutdown
-                // marker, so disposal flushes it: durable. ODE means shutdown won the race.
-                await journal.AppendPutAsync(CacheKey.Default(key), payload, CancellationToken.None);
+                // marker, so disposal flushes it: durable. ODE means shutdown won the race, raw
+                // from the producer gate or as the cause of the disposed mutation gate's refusal.
+                await journal.AppendPutUnderGateAsync(CacheKey.Default(key), payload, CancellationToken.None);
             }
             catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is ObjectDisposedException)
             {
                 return;
             }

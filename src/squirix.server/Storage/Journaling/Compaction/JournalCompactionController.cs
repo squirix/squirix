@@ -12,24 +12,33 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
 /// On-demand compaction runner. Uses semaphore to ensure only one compaction runs at a time.
-/// Safe to co-exist with a periodic compaction service if that service also guards concurrency.
+/// Every run holds the snapshot coordinator's compaction reservation, like the periodic compaction service, so it never overlaps a
+/// snapshot in flight or another compaction.
 /// </summary>
 internal sealed class JournalCompactionController : IDisposable
 {
-    private readonly IJournalCoordinator _journalWriter;
     private readonly AsyncLock _lock = new();
     private readonly ILogger<JournalCompactionController> _log;
+    private readonly IExclusiveMaintenanceExecutor _maintenance;
     private readonly PersistenceOptions _opt;
     private readonly ISnapshotReader _reader;
+    private readonly Coordinator _snapshots;
     private readonly Ledger _store;
     private int _disposed;
 
-    internal JournalCompactionController(PersistenceOptions opt, Ledger store, ISnapshotReader reader, IJournalCoordinator journalWriter, ILogger<JournalCompactionController> log)
+    internal JournalCompactionController(
+        PersistenceOptions opt,
+        Ledger store,
+        ISnapshotReader reader,
+        IExclusiveMaintenanceExecutor maintenance,
+        Coordinator snapshots,
+        ILogger<JournalCompactionController> log)
     {
         _opt = opt;
         _store = store;
         _reader = reader;
-        _journalWriter = journalWriter;
+        _maintenance = maintenance;
+        _snapshots = snapshots;
         _log = log;
     }
 
@@ -48,12 +57,24 @@ internal sealed class JournalCompactionController : IDisposable
             return false;
         using (lockGuard)
         {
-            var manifest = await _store.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            LogManager.ManualCompactionStart(_log, manifest.LastSnapshot?.Index ?? 0);
-            await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _store, _reader, ct)), cancellationToken)
-                                .ConfigureAwait(false);
-            LogManager.ManualCompactionFinished(_log);
-            return true;
+            // A compaction publishing between a snapshot cut and its manifest write would delete the segments the snapshot replays from:
+            // skip while a snapshot (or the periodic compaction) holds the reservation, as the periodic compaction service does.
+            if (!_snapshots.TryEnterCompaction())
+                return false;
+
+            try
+            {
+                var manifest = await _store.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                LogManager.ManualCompactionStart(_log, manifest.LastSnapshot?.Index ?? 0);
+                await _maintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _store, _reader, ct)), cancellationToken)
+                                  .ConfigureAwait(false);
+                LogManager.ManualCompactionFinished(_log);
+                return true;
+            }
+            finally
+            {
+                _snapshots.ExitCompaction();
+            }
         }
     }
 }

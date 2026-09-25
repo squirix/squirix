@@ -50,7 +50,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
-        await traced.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await traced.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         await traced.AwaitDurabilityCommitAsync(cancellationToken);
 
         var result = await CreateCheck(traced).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
@@ -66,7 +66,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
         journal.Writer.Flush.Arm();
-        await traced.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await traced.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         var commit = traced.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));

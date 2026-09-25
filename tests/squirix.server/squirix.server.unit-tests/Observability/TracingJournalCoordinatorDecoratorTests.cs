@@ -38,7 +38,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         var (_, context) = await Assert.That(tracer.BeginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
@@ -71,7 +71,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
         if (groupCommitMaxWaitMilliseconds > 0)
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
 

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -43,7 +44,7 @@ public class JournalDurabilityCommitBenchmarks
     {
         var coordinator = ThrowHelper.Required(_host, "Benchmark host was not initialized.").Coordinator;
         for (var i = 0; i < OperationsPerSequentialInvoke; i++)
-            await coordinator.AppendPutAndAwaitDurabilityAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutDurablyUnderGateAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Awaits durability commits from concurrent writers (shared group-commit batches).</summary>

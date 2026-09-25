@@ -8,6 +8,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.Utils;
 
@@ -70,7 +71,7 @@ public class ManifestSegmentRollBenchmarks
         for (var i = 0; i < _rollsPerInvoke; i++)
         {
             await FillActiveSegmentNearCapacityAsync(coordinator, overflowFrameLen, CancellationToken.None).ConfigureAwait(false);
-            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutUnderGateAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
             await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -84,7 +85,7 @@ public class ManifestSegmentRollBenchmarks
         const long maxBytes = 1024L * 1024L;
 
         while (pipelined.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
-            await pipelined.AppendPutAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
+            await pipelined.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
 
         await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }

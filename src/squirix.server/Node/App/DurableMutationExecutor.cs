@@ -218,8 +218,9 @@ internal sealed class DurableMutationExecutor
             RollbackGroupCommitBarrierState(conflictKey, state);
             throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException or JournalCapacityExceededException)
         {
+            // A capacity rejection is definite: the journal thread dropped the frame before writing it, so it never becomes durable.
             RollbackGroupCommitBarrierState(conflictKey, state);
             throw;
         }

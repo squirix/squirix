@@ -39,7 +39,17 @@ internal sealed class AppliedKeys
     /// <param name="key">Default-namespace key to put.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
     /// <returns>The mutation task.</returns>
-    internal Task<int> PutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, CancellationToken cancellationToken)
+    internal Task<int> PutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, CancellationToken cancellationToken) =>
+        PutAsync(executor, journal, key, key, cancellationToken);
+
+    /// <summary>Runs one put of <paramref name="value" /> under <paramref name="key" /> through <paramref name="executor" />.</summary>
+    /// <param name="executor">Executor under test.</param>
+    /// <param name="journal">Journal the executor writes to.</param>
+    /// <param name="key">Default-namespace key to put.</param>
+    /// <param name="value">Cache value encoded into the put frame.</param>
+    /// <param name="cancellationToken">Caller cancellation token.</param>
+    /// <returns>The mutation task.</returns>
+    internal Task<int> PutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, string value, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(executor);
         var cacheKey = CacheKey.Default(key);
@@ -47,7 +57,7 @@ internal sealed class AppliedKeys
             cacheKey,
             static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, AppliedKeys Memory), int>(
-                (journal, cacheKey, JournalEntryPayloadKit.EncodePut(key), this),
+                (journal, cacheKey, JournalEntryPayloadKit.EncodePut(value), this),
                 static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
                 static (s, _) => s.Memory.ApplyAsync(s.Key)),
             cancellationToken).AsTask();

@@ -50,7 +50,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
         for (var i = 0; i < 8; i++)
         {
             var key = CacheKey.Default($"drain{i}");
-            await journal.AppendPutAsync(key, JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+            await journal.AppendPutUnderGateAsync(key, JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         }
 
         // Dispose explicitly before reading: shutdown must drain the ring. The trailing await-using

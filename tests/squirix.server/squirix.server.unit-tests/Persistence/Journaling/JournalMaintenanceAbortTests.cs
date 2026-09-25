@@ -49,7 +49,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
 
         using var cts = new CancellationTokenSource();
         var gate = new TornLayoutAction(Dir, new InvalidOperationException("compaction canceled"));
@@ -64,7 +64,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         _ = await Assert.That(pipelined.EventLoop.JournalSegmentCount).IsEqualTo(cancelSegmentCount);
         _ = await Assert.That(pipelined.UsedBytes).IsEqualTo(cancelTotalBytes);
 
-        var appendError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutAsync(CacheKey.Default("post-cancel"), payload, cancellationToken));
+        var appendError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("post-cancel"), payload, cancellationToken));
         _ = await Assert.That(appendError.InnerException).IsNotNull();
     }
 
@@ -93,7 +93,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
 
         var gate = new TornLayoutAction(Dir, new InvalidOperationException("compaction failed on shutdown"));
         var pending = journal.ExecuteMaintenanceExclusiveAsync(gate.RunAsync, cancellationToken);
@@ -143,7 +143,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
 
         var failure = new TornLayoutFailure(Dir, new InvalidOperationException("compaction failed"));
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.ExecuteMaintenanceExclusiveAsync(failure.ThrowAsync, cancellationToken));
@@ -157,7 +157,7 @@ public sealed class JournalMaintenanceAbortTests : IsolatedStorageTestBase
         _ = await Assert.That(pipelined.EventLoop.JournalSegmentCount).IsEqualTo(segmentCount);
         _ = await Assert.That(pipelined.UsedBytes).IsEqualTo(totalBytes);
 
-        var appendError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutAsync(CacheKey.Default("post-failure"), payload, cancellationToken));
+        var appendError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("post-failure"), payload, cancellationToken));
         _ = await Assert.That(appendError.InnerException).IsSameReferenceAs(failure.Original);
     }
 

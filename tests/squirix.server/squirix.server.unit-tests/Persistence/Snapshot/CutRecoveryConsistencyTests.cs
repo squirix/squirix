@@ -68,7 +68,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
         var overflowFrameLen = PutFrameLength(overflowPayload, OverflowKey);
 
-        await journal.AppendPutAsync(BaseKey, JournalEntryPayloadKit.EncodePut("base"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(BaseKey, JournalEntryPayloadKit.EncodePut("base"), cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
         await FillSegmentOneForRollAsync(coordinator, overflowFrameLen, cancellationToken);
 
@@ -123,8 +123,8 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             cancellationToken).AsTask();
 
         await buildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        await journal.AppendPutAsync(TailKey, JournalEntryPayloadKit.EncodePut("tail"), cancellationToken);
-        await journal.AppendPutAsync(OverflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(TailKey, JournalEntryPayloadKit.EncodePut("tail"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(OverflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
         _ = await Assert.That(journal.CurrentSegmentIndex >= 2).IsTrue();
         releaseBuild.SetResult();
@@ -140,7 +140,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         while (journal.CurrentSegmentIndex == 1 && journal.ActiveSegmentWrittenBytes + overflowFrameLen <= maxSegmentBytes &&
                journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxSegmentBytes)
         {
-            await journal.AppendPutAsync(FillKey, fillPayload, cancellationToken);
+            await journal.AppendPutUnderGateAsync(FillKey, fillPayload, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 

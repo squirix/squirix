@@ -59,7 +59,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         var opsBefore = journal.AppendedOps;
 
         // The pool/counter must still be intact: a clean durable mutation completes promptly.
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, cancellationToken).AsTask()
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("final"), payload, cancellationToken).AsTask()
                      .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(journal.AppendedOps > opsBefore).IsTrue();
@@ -98,7 +98,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         var deadline = Environment.TickCount64 + 30_000;
         for (var i = 0; pipelined.CurrentSegmentIndex == 1 && Environment.TickCount64 < deadline;)
         {
-            await journal.AppendPutAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, cancellationToken);
+            await journal.AppendPutUnderGateAsync(CacheKey.Default(NodeInvariantIndexStrings.Format(i)), payload, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             i++;
         }
@@ -111,7 +111,11 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(cancelAfterMs));
         try
         {
-            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, cts.Token);
+            // Only the admission runs under the gate: the durability waits overlap, so a cancellation can still land after the enqueue.
+            await journal.AppendAdmittedUnderGateAsync(
+                (Key: key, Payload: payload),
+                static (appender, s, ct) => appender.AppendPutAndAwaitDurabilityAsync(s.Key, s.Payload, ct),
+                cts.Token);
         }
         catch (OperationCanceledException ex)
         {

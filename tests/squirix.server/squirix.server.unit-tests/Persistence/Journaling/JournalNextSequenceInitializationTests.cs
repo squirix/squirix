@@ -97,7 +97,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
                          new AsyncManualResetEvent(true)))
         {
             var p = JournalEntryPayloadKit.EncodePut("keep");
-            await journal.AppendPutAsync(CacheKey.Default("keep"), p, cancellationToken);
+            await journal.AppendPutUnderGateAsync(CacheKey.Default("keep"), p, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
@@ -202,7 +202,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
         _ = await Assert.That(journal.CurrentSegmentIndex).IsEqualTo(2);
 
         var payload = JournalEntryPayloadKit.EncodePut("after");
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("after"), payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(5UL);
     }
