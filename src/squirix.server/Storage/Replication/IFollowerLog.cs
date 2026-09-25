@@ -55,6 +55,17 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>A snapshot of the durable log state.</returns>
     ValueTask<FollowerLogStatus> GetStatusAsync(CancellationToken cancellationToken);
 
+    /// <summary>Returns the term of the entry at a log index, or of the installed snapshot baseline at that index.</summary>
+    /// <param name="logIndex">The log index; zero is the log origin.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The term at <paramref name="logIndex" />; zero at the log origin or when the log retains no term for the index.</returns>
+    ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken);
+
+    /// <summary>Returns the durable entries above the committed index, in index order.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The uncommitted tail entries.</returns>
+    ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken);
+
     /// <summary>Installs a validated snapshot through atomic storage publication.</summary>
     /// <param name="snapshot">Snapshot to install.</param>
     /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>

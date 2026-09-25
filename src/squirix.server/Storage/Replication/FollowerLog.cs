@@ -296,6 +296,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             Readiness);
     }
 
+    /// <inheritdoc />
+    public async ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return logIndex switch
+        {
+            0UL => 0UL,
+            _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
+            _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
+            _ => 0UL,
+        };
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _journal.CollectUncommittedTail(_meta.CommitIndex);
+    }
+
     /// <summary>Installs a validated snapshot, resetting the journal to start at its included index plus one.</summary>
     /// <param name="snapshot">The snapshot to install.</param>
     /// <param name="leaderTerm">Leader term authorizing the installation; stale terms are refused.</param>
@@ -386,12 +406,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // so publication records the baseline alone instead of pruning the indexes.
         _journal.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
         return snapshot;
-    }
-
-    internal async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return _journal.CollectUncommittedTail(_meta.CommitIndex);
     }
 
     internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
