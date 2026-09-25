@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Storage.Replication;
 
@@ -10,7 +9,6 @@ namespace Squirix.Server.Storage.Replication;
 /// the leader log holds a current-term entry at or before the candidate index, so committing it transitively
 /// commits the older prefix. This mirrors <c language="csharp">HasCurrentTermEntryThrough</c> of the protocol model.
 /// </remarks>
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only safety seam until failover activation wires the current-term commit gate in a follow-up milestone.")]
 internal static class ElectionCommitRule
 {
     /// <summary>Determines whether the leader log holds a current-term entry at or before <paramref name="index" />.</summary>

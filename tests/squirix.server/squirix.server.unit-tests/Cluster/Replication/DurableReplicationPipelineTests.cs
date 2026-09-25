@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Rocks;
@@ -8,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -18,6 +20,9 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 {
+    private const string TailOperationA = "0000000000000000000000000000000a";
+    private const string TailOperationB = "0000000000000000000000000000000b";
+
     /// <summary>The golden trace proves every durable and memory boundary is ordered.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -362,21 +367,130 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A recovered uncommitted tail must be reconciled before new writes are admitted.</summary>
+    /// <summary>
+    /// An uncommitted tail recovered at start stays retained while only the leader holds it, commits and applies in log order once a
+    /// verified follower is admitted at its last index, and new writes continue after it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public void RejectsUnreconciledDurableTail()
+    public async Task RecoveredTailCommitsOnAdmission(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1);
-        var hooks = new RecordingHooks(pipeline.Trace);
-
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA), TailEntry(3, 1, TailOperationB)], 1, TailRebuilder.Instance);
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 3, 1, 4),
             pipeline,
-            hooks,
-            static (value, faultHooks) => _ = new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(3, 2, 1, 4),
-                value,
-                faultHooks,
-                new GroupIdempotencyState(10, TimeSpan.MaxValue)));
+            new RecordingHooks(pipeline.Trace),
+            new GroupIdempotencyState(10, TimeSpan.MaxValue),
+            null,
+            tail);
+        try
+        {
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsFalse();
+            _ = await Assert.That(pipeline.Trace).IsEmpty();
+
+            coordinator.AdmitReplica(1, 3);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
+            _ = await coordinator.CommitAsync(CreateMutation(4), TimeSpan.FromSeconds(5), cancellationToken);
+
+            IReadOnlyList<string> list =
+            [
+                "commit:3",
+                "apply:2",
+                "apply:3",
+                "stage:Prepared",
+                "local:4",
+                "stage:LocalAppendDurable",
+                "send:1",
+                "send:2",
+                "stage:FollowerFanOutStarted",
+                "stage:MajorityReached",
+                "commit:4",
+                "stage:CommitIndexDurable",
+                "apply:4",
+                "stage:MemoryApplied",
+                "stage:ResponseReady",
+            ];
+            await SequenceAssert.EqualAsync(list, pipeline.Trace, StringComparer.Ordinal);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A recovered entry keeps its idempotency pin: a same-identity retry before the commit reports an unknown outcome without
+    /// appending anything, and after the commit it replays the outcome read right before the entry's apply.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredTailKeepsPinsUntilCommit(CancellationToken cancellationToken)
+    {
+        var pipeline = new RecordingPipeline(1);
+        var idempotency = new GroupIdempotencyState(10, TimeSpan.MaxValue);
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 1, TailRebuilder.Instance);
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 2, 1, 4), pipeline, new RecordingHooks(pipeline.Trace), idempotency, null, tail);
+        var retry = CreateMutation(3, TailOperationA);
+        try
+        {
+            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken));
+            _ = await Assert.That(unknown.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(idempotency.Lookup(retry.OperationScope, retry.OperationId, retry.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+
+            coordinator.AdmitReplica(1, 2);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
+            var replayed = await coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken);
+
+            await SequenceAssert.EqualAsync<byte>([102], replayed.ToArray());
+            await SequenceAssert.EqualAsync(["commit:2", "apply:2"], pipeline.Trace, StringComparer.Ordinal);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A recovered tail of an older term is not committed by counting replicas, even on a majority; a current-term entry above it
+    /// commits it transitively, in log order.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredOlderTermTailWaits(CancellationToken cancellationToken)
+    {
+        var pipeline = new RecordingPipeline(1);
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 2, TailRebuilder.Instance);
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 2, 1, 4),
+            pipeline,
+            new RecordingHooks(pipeline.Trace),
+            new GroupIdempotencyState(10, TimeSpan.MaxValue),
+            null,
+            tail);
+        try
+        {
+            coordinator.AdmitReplica(1, 2);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsFalse();
+            _ = await Assert.That(pipeline.Trace).IsEmpty();
+
+            var current = new PreparedReplicaMutation(
+                new ReplicaOperationIdentity("group-a", "client", TailOperationB, new byte[] { 1, 2, 3 }),
+                2,
+                3,
+                new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
+            _ = await coordinator.CommitAsync(current, TimeSpan.FromSeconds(5), cancellationToken);
+
+            _ = await Assert.That(pipeline.Trace).Contains("commit:3");
+            await SequenceAssert.EqualAsync([2UL, 3UL], pipeline.AppliedIndexes);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
     }
 
     /// <summary>One shared task instance cannot count as acknowledgements from multiple replicas.</summary>
@@ -441,6 +555,13 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         1,
         logIndex,
         new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
+
+    private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)
+    {
+        // The canonical record carries the identity CreateMutation uses, so a same-identity retry matches the recovered pin.
+        var record = new ReplicaLogRecord(logIndex, term, operationId, "client", new byte[] { 1, 2, 3 }, "UserMutation", "cache", Encoding.UTF8.GetBytes("k"), "Set", new byte[] { 4 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0);
+        return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
+    }
 
     private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm) => new(
         nextIndex,
@@ -666,6 +787,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _blockLocalAppend = blockLocalAppend;
         }
 
+        internal List<ulong> AppliedIndexes { get; } = [];
+
         internal int FollowerCalls { get; private set; }
 
         internal List<int> LaggingReplicas { get; } = [];
@@ -701,6 +824,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             MemoryApplyCount++;
+            AppliedIndexes.Add(mutation.LogIndex);
             Trace.Add($"apply:{mutation.LogIndex}");
             return ValueTask.CompletedTask;
         }
@@ -768,6 +892,23 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             mutation.PayloadChecksum,
             true,
             true);
+    }
+
+    /// <summary>Rebuilds recovered entries from their canonical record; the outcome read before the apply is the log index plus 100.</summary>
+    [Immutable]
+    private sealed class TailRebuilder : IReplicaTailRebuilder
+    {
+        internal static TailRebuilder Instance { get; } = new();
+
+        public ValueTask<ReadOnlyMemory<byte>> ReadOutcomeAsync(PreparedReplicaMutation entry, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<ReadOnlyMemory<byte>>(new[] { Convert.ToByte(entry.LogIndex + 100) });
+
+        public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
+        {
+            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("Test tail entry is undecodable."));
+            var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);
+            return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, ReadOnlyMemory<byte>.Empty, 42));
+        }
     }
 
     private sealed class ThrowOnFanOutHooks : IReplicaCommitFaultHooks
