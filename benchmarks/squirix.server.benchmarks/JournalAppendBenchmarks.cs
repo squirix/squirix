@@ -48,7 +48,7 @@ public class JournalAppendBenchmarks
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
-            await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await host.Coordinator.AppendPutUnderGateAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
             await host.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }

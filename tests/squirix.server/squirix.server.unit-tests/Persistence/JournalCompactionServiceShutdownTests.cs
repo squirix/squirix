@@ -41,7 +41,7 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 1000 };
         using var store = new Ledger(persistence);
         await using var journal = JournalCoordinatorFactory.Create(persistence, await store.ReadCurrentOrDefaultAsync(cancellationToken), store, new AsyncManualResetEvent(true));
-        await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };

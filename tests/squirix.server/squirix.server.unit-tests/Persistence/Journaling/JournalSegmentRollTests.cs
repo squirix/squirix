@@ -64,7 +64,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
         var block = CountManifestDataFiles(Dir);
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
         await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
         _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
@@ -109,7 +109,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, cancellationToken);
 
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         await ledger.WaitUntilValueAsync(ConditionAsync, cancellationToken);
@@ -152,7 +152,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         var payload = new byte[LargePayloadSize];
         Array.Fill(payload, Convert.ToByte('y'));
         var key = CacheKey.Default("overflow-key");
-        await restarted.AppendPutAsync(key, payload, cancellationToken);
+        await restarted.AppendPutUnderGateAsync(key, payload, cancellationToken);
         await restarted.AwaitDurabilityCommitAsync(cancellationToken);
 
         await ledger.WaitUntilValueAsync(RolledToTwoAsync, cancellationToken);
@@ -210,7 +210,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         var payload = new byte[LargePayloadSize];
         Array.Fill(payload, Convert.ToByte('y'));
-        await restarted.AppendPutAsync(CacheKey.Default("overflow-key"), payload, cancellationToken);
+        await restarted.AppendPutUnderGateAsync(CacheKey.Default("overflow-key"), payload, cancellationToken);
         await restarted.AwaitDurabilityCommitAsync(cancellationToken);
 
         await manifestStore.WaitUntilValueAsync(RolledToTwoAsync, cancellationToken);
@@ -263,7 +263,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         rollError.ThrowIfFaulted();
 
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, StoreTestSupport.ManifestDataFileName(2)), [], cancellationToken);
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
 
         await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
         _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
@@ -298,7 +298,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         // the provisioner, which must fall back to replacing the target.
         await File.WriteAllBytesAsync(SegmentPath(Dir, 2), new byte[JournalFraming.FileHeaderSize], cancellationToken);
 
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         await ledger.WaitUntilValueAsync(ConditionAsync, cancellationToken);
@@ -338,7 +338,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         const int tornLength = 2;
         await File.WriteAllBytesAsync(SegmentPath(Dir, 2), ReadOnlyMemory<byte>.Of(0x53, 0x4A), cancellationToken);
 
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         await manifestStore.WaitUntilValueAsync(RolledToTwoAsync, cancellationToken);
@@ -387,7 +387,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         if (!TryMakeUnreadable(targetPath))
             throw new SkipTestException("This environment cannot deny file reads (needs POSIX permissions).");
 
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
         await ledger.WaitUntilValueAsync(ConditionAsync, cancellationToken);
 
@@ -417,7 +417,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
             new AsyncManualResetEvent(true));
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
-        await journal.AppendPutAsync(CacheKey.Default("k"), new byte[] { 1, 2, 3 }, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), new byte[] { 1, 2, 3 }, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         _ = await Assert.That(Directory.Exists(dataDir)).IsTrue();
@@ -517,7 +517,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
             if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                 break;
 
-            await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
+            await journal.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 

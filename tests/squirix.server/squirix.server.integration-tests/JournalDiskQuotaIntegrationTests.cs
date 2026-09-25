@@ -54,7 +54,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         // Node remains usable for another capacity-miss after the first rejection (pipeline not failed).
         var cacheKey = new CacheKey(ServerCacheNames.DefaultNamespace, "quota:again");
         var second = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-            journal.AppendPutAndAwaitDurabilityAsync(cacheKey, new byte[200 * 1024], cancellationToken));
+            journal.AppendPutDurablyUnderGateAsync(cacheKey, new byte[200 * 1024], cancellationToken));
         _ = await Assert.That(second).IsNotNull();
     }
 
@@ -65,7 +65,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         {
             try
             {
-                await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, cancellationToken).ConfigureAwait(false);
+                await journal.AppendPutDurablyUnderGateAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, cancellationToken).ConfigureAwait(false);
             }
             catch (JournalCapacityExceededException ex)
             {

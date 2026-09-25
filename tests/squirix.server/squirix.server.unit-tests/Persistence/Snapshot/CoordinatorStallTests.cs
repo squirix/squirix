@@ -159,7 +159,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     private static async Task StallNextFlushAsync(StallableJournal journal, CancellationToken cancellationToken)
     {
         // An unflushed frame makes the cut's checkpoint issue a real fsync, which is what the stall blocks.
-        await journal.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         journal.Writer.Flush.Arm();
     }
 

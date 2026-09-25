@@ -49,7 +49,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
         var baseline = pipelined.QueuedAppendsCounter.Value;
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -68,8 +68,8 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         // bypass the staging deferral path and fail the pipeline with a roll error instead of
         // parking. The durable followers queue behind it in ring order and never dequeue while
         // it is parked, so the drain below faults all of them.
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
-        var pending = StartDurableAppends(journal, payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
+        var pending = StartDurableAppends(journal, payload, AppendDurableAsync, cancellationToken);
 
         await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
         _ = await Assert.That(journal.HasFlushLoopFailure).IsTrue();
@@ -105,7 +105,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("seed"), payload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
         var baseline = pipelined.QueuedAppendsCounter.Value;
 
         var overflowPayload = new byte[LargePayloadSize];
@@ -124,9 +124,10 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         await BlockManifestFileAsync(Dir, 2, cancellationToken);
 
         // Non-durable overflow (see above): it parks on the roll-deferred frame while the
-        // durable followers stay queued behind it for the drain.
+        // durable followers stay queued behind it for the drain. The maintenance holds the
+        // mutation gate, so these appends run inside its hold on purpose, not through the gate.
         await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
-        var pending = StartDurableAppends(journal, payload, cancellationToken);
+        var pending = StartDurableAppends(journal, payload, AppendDurableInsideHeldGateAsync, cancellationToken);
         QueueFlushWait(pending, journal, cancellationToken);
 
         _ = gate.Release.TrySetResult();
@@ -150,7 +151,30 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         _ = await Assert.That(pipelined.QueuedAppendsCounter.Value).IsEqualTo(baseline);
     }
 
-    private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
+    /// <summary>
+    /// Starts a durable append with only its admission under the gate, so every frame queues on the ring behind the parked one while its
+    /// durability wait runs outside the gate. The roll may fail fast on the blocked file while this thread is still queueing: the pipeline
+    /// may already be dead, and the refusal faults the returned task like the async drain path does; the asserts only require every append
+    /// to fault.
+    /// </summary>
+    /// <param name="journal">Journal to append to.</param>
+    /// <param name="key">Cache key.</param>
+    /// <param name="payload">Encoded cache entry.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The durable append.</returns>
+    private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken) =>
+        journal.AppendAdmittedUnderGateAsync(
+            (Key: key, Payload: payload),
+            static (appender, s, ct) => appender.AppendPutAndAwaitDurabilityAsync(s.Key, s.Payload, ct),
+            cancellationToken);
+
+    /// <summary>Starts a durable append while another flow (the maintenance) holds the mutation gate, so it queues on the ring behind the parked frame.</summary>
+    /// <param name="journal">Journal to append to.</param>
+    /// <param name="key">Cache key.</param>
+    /// <param name="payload">Encoded cache entry.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The durable append.</returns>
+    private static Task AppendDurableInsideHeldGateAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
     {
         ValueTask pending;
         try
@@ -230,7 +254,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                 break;
 
-            await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
+            await journal.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken);
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
@@ -254,11 +278,15 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
         pending.Add(AwaitFlushAsync(journal, cancellationToken));
 
-    private static List<Task> StartDurableAppends(IJournalCoordinator journal, byte[] payload, CancellationToken cancellationToken)
+    private static List<Task> StartDurableAppends(
+        IJournalCoordinator journal,
+        byte[] payload,
+        Func<IJournalCoordinator, CacheKey, byte[], CancellationToken, Task> append,
+        CancellationToken cancellationToken)
     {
         var pending = new List<Task>(PendingAppends);
         for (var i = 0; i < PendingAppends; i++)
-            pending.Add(AppendDurableAsync(journal, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
+            pending.Add(append(journal, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
 
         return pending;
     }

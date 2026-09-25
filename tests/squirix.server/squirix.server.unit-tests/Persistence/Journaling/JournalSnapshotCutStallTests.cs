@@ -32,7 +32,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
 
         // An unflushed frame makes the cut's checkpoint issue a real fsync, which is what the stall blocks.
-        await journal.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         var cut = journal.Journal.ExecuteSnapshotCutAsync(
             0,
             static (_, sequence, _) => ValueTask.FromResult(sequence),
@@ -59,8 +59,8 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         journal.Writer.Flush.Arm();
-        await journal.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
-        await journal.Journal.AppendPutAsync(CacheKey.Default("b"), JournalEntryPayloadKit.EncodePut("b"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("b"), JournalEntryPayloadKit.EncodePut("b"), cancellationToken);
         var cut = journal.Journal.ExecuteSnapshotCutAsync(
             0,
             static (_, sequence, _) => ValueTask.FromResult(sequence),
@@ -100,7 +100,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
         _ = await memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
 
         // An unflushed frame makes the cut's checkpoint issue a real fsync; re-putting an applied key keeps memory and the WAL equal.
-        await journal.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         journal.Writer.Flush.Arm();
         var cut = journal.Journal.ExecuteSnapshotCutAsync(
             memory,

@@ -41,7 +41,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
 
         using var waiterCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var pending = journal.AwaitDurabilityCommitAsync(waiterCancellation.Token).AsTask();
@@ -75,7 +75,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true),
             writer);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
 

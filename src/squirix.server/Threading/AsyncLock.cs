@@ -32,6 +32,13 @@ internal sealed class AsyncLock : IDisposable
     private Waiter? _head;
     private Waiter? _tail;
 
+    /// <summary>Gets a value indicating whether some holder owns the lock.</summary>
+    /// <remarks>
+    /// The lock tracks no owner: <see langword="true"/> is guaranteed while the calling flow holds the lock, but it may also belong to
+    /// another flow, so a <see langword="false"/> proves only that the caller does not hold it.
+    /// </remarks>
+    internal bool IsHeld => Volatile.Read(ref _held);
+
     /// <summary>Refuses further acquisitions and faults every queued waiter with <see cref="ObjectDisposedException"/>; idempotent.</summary>
     /// <remarks>The current holder, if any, is unaffected and can still release.</remarks>
     public void Dispose()

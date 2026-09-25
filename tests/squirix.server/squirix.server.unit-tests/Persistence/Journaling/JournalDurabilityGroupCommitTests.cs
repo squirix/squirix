@@ -348,8 +348,8 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             manifestStore,
             new AsyncManualResetEvent(true));
 
-        await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), cancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
 
         var firstCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
         var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
@@ -379,7 +379,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         try
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+            await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
             await journal.DisposeAsync();
             await durability.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);

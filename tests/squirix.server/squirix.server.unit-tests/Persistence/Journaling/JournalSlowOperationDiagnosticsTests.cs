@@ -170,7 +170,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
         using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
@@ -194,7 +194,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
         using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
@@ -222,7 +222,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, cancellationToken);
         using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
 
@@ -247,7 +247,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        await journal.AppendPutAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
+        await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), new byte[] { 1 }, cancellationToken);
         await writer.WriteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         for (var i = 0; i < RingCapacity; i++)
             await journal.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)), cancellationToken);

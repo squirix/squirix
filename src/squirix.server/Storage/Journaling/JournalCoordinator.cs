@@ -166,6 +166,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     ulong IJournalCoordinatorAppendState.AllocateSequence()
     {
+        // A snapshot cut reads its watermark under the gate and relies on every covered frame being on the ring ahead of its checkpoint,
+        // so a sequence is allocated (and its frame enqueued) only by a caller holding the gate. The gate tracks no owner: this catches a
+        // caller appending while the gate is free, before anything is allocated or enqueued.
+        if (!MutationGate.IsHeld)
+            throw new InvalidOperationException("journal appends must hold the mutation gate (ExecuteUnderSnapshotBarrierAsync).");
+
         while (true)
         {
             var current = Volatile.Read(ref _nextSequence);
@@ -517,8 +523,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         internal JournalRecord AllocateIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes)
         {
+            // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
+            var sequence = _owner.AllocateSequence();
             var record = JournalRecord.RentForAppend();
-            record.Sequence = _owner.AllocateSequence();
+            record.Sequence = sequence;
             record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             record.Operation = JournalOperationKind.IdempotencyOutcome;
             record.Key = new CacheKey(string.Empty, string.Empty);
@@ -530,8 +538,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
         internal JournalRecord AllocateRecord(CacheKey key, JournalOperationKind operation, ReadOnlyMemory<byte> putEntryBytes = default, DateTime? touchExpirationUtc = null)
         {
+            // Allocated before renting: a caller refused for not holding the gate leaves no record out of the pool.
+            var sequence = _owner.AllocateSequence();
             var record = JournalRecord.RentForAppend();
-            record.Sequence = _owner.AllocateSequence();
+            record.Sequence = sequence;
             record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             record.Operation = operation;
             record.Key = key;

@@ -101,7 +101,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             new AsyncManualResetEvent(true));
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("before"), payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("before"), payload, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<IOException, SnapshotRef>(
             journal.ExecuteSnapshotCutAsync(
@@ -110,7 +110,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
                 static (_, _, _, _) => ValueTask.FromException<SnapshotRef>(new IOException("simulated snapshot failure")),
                 cancellationToken));
 
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("after"), payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         _ = await Assert.That(journal.AppendedOps).IsEqualTo(2);

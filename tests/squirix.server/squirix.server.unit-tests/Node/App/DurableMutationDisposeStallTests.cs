@@ -49,7 +49,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     public async Task CallerCancelDoesNotWinInFlightAck(CancellationToken cancellationToken)
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        await journal.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
         journal.Writer.Flush.Arm();
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var failure = new IOException("fsync failed after the caller canceled");

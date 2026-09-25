@@ -7,6 +7,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
@@ -31,7 +32,7 @@ public class JournalTracingBenchmarks
         var coordinator = ThrowHelper.Required(_decorated, "Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
-            await coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutUnderGateAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
             await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }

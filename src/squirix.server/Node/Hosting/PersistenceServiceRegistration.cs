@@ -103,7 +103,8 @@ internal static class PersistenceServiceRegistration
             sp.GetRequiredService<PersistenceOptions>(),
             sp.GetRequiredService<Ledger>(),
             sp.GetRequiredService<ISnapshotReader>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<IExclusiveMaintenanceExecutor>(),
+            sp.GetRequiredService<Coordinator>(),
             sp.GetRequiredService<ILogger<JournalCompactionController>>()));
 
         _ = services.AddHostedService<JournalMetricsExporterService>();

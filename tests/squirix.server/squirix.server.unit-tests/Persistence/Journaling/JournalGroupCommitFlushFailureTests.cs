@@ -43,7 +43,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
             writer);
         var key = new CacheKey("ns", "k");
 
-        await journal.AppendPutAsync(key, Payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
         var first = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = await Assert.That(first).IsSameReferenceAs(writer.Failure);
 
@@ -57,7 +57,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
 
     private static async Task CommitAgainAsync(JournalCoordinator journal, CacheKey key, CancellationToken cancellationToken)
     {
-        await journal.AppendPutAsync(key, Payload, cancellationToken);
+        await journal.AppendPutUnderGateAsync(key, Payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
     }
 

@@ -105,7 +105,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
             try
             {
-                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+                await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             }
             finally
             {
@@ -151,7 +151,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
             RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
             try
             {
-                await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
+                await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
             }
             finally
             {
@@ -227,7 +227,7 @@ public sealed class JournalCompactorIdempotencyTests : IsolatedStorageTestBase
     {
         var readCurrentOrDefaultAsync = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, readCurrentOrDefaultAsync, manifestStore, new AsyncManualResetEvent(true));
-        await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         var bytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         await journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, bytes, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);

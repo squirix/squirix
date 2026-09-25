@@ -28,7 +28,7 @@ public sealed class JournalBackendContractTests
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
         var payload = JournalEntryPayloadKit.EncodePut(1);
-        await context.Coordinator.AppendPutAsync(key, payload, CancellationToken.None);
+        await context.Coordinator.AppendPutUnderGateAsync(key, payload, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
@@ -42,7 +42,7 @@ public sealed class JournalBackendContractTests
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-key");
-        await context.Coordinator.AppendRemoveAsync(key, CancellationToken.None);
+        await context.Coordinator.AppendRemoveUnderGateAsync(key, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
@@ -57,7 +57,7 @@ public sealed class JournalBackendContractTests
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-exp-key");
-        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
+        await context.Coordinator.AppendRemoveExpirationUnderGateAsync(key, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
@@ -73,7 +73,7 @@ public sealed class JournalBackendContractTests
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "touch-key");
         var expiresUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc);
-        await context.Coordinator.AppendTouchExpirationAsync(key, expiresUtc, CancellationToken.None);
+        await context.Coordinator.AppendTouchExpirationUnderGateAsync(key, expiresUtc, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);

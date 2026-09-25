@@ -215,7 +215,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         try
         {
             // The first write also writes the segment header: warm up so an armed write stall catches the frame under test.
-            await journal.Journal.AppendPutAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+            await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
             return journal;
         }
         catch

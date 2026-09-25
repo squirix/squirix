@@ -165,7 +165,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, true, ShutdownBudget, NullLogger.Instance, cancellationToken);
 
         // The first write also writes the segment header: warm up so the armed stall catches the frame under test.
-        await journal.Journal.AppendPutAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("w"), JournalEntryPayloadKit.EncodePut("w"), cancellationToken);
         var target = new PutTarget(journal.Journal, CreateStore());
         journal.Writer.AfterWrite.Arm();
 

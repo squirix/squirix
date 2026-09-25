@@ -6,6 +6,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
@@ -42,7 +43,7 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             manifestStore,
             new AsyncManualResetEvent(true));
 
-        await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, cancellationToken);
+        await journal.AppendPutDurablyUnderGateAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, cancellationToken);
 
         _ = await Assert.That(journal.UsedBytes >= JournalFraming.FileHeaderSize).IsTrue();
         _ = await Assert.That(journal.UsedBytes > JournalFraming.FileHeaderSize).IsTrue();
