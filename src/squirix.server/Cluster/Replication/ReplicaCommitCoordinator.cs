@@ -18,6 +18,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     private readonly ReplicaMutationGate _admission;
     private readonly AsyncLock _commitGate = new();
+
+    /// <summary>Completed when disposal starts: admission then refuses new commits and background follower observation stops waiting.</summary>
+    private readonly TaskCompletionSource _disposing = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IReplicaCommitFaultHooks _faultHooks;
     private readonly GroupIdempotencyState _idempotency;
     private readonly Dictionary<OperationKey, CommitOperation> _operations = [];
@@ -28,7 +31,6 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     private readonly ReplicaCommitQuorum _quorum;
     private readonly ReplicaLogIndexSequencer _sequencer;
     private readonly ReplicaLogTurn _turn;
-    private bool _accepting = true;
     private ulong _commitIndex;
     private Task? _disposeTask;
 
@@ -71,6 +73,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         });
     }
 
+    /// <summary>Gets the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
+    /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
+    internal TimeProvider ObserveTimeProvider { get; init; } = TimeProvider.System;
+
     /// <summary>Observes all owned post-appending work before releasing resources.</summary>
     /// <returns>An asynchronous operation.</returns>
     /// <remarks>Failures already delivered via <see cref="CommitAsync" /> are observed, not rethrown.</remarks>
@@ -78,7 +84,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     {
         lock (_ownedSync)
         {
-            _accepting = false;
+            _ = _disposing.TrySetResult();
             _disposeTask ??= DisposeCoreAsync();
             return new ValueTask(_disposeTask);
         }
@@ -105,7 +111,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         Task<Task<ReadOnlyMemory<byte>>>? pendingStarter = null;
         lock (_ownedSync)
         {
-            ObjectDisposedException.ThrowIf(!_accepting, this);
+            ObjectDisposedException.ThrowIf(_disposing.Task.IsCompleted, this);
 
             var lookup = _idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out var retained);
             if (lookup == GroupIdempotencyLookup.Found)
@@ -429,16 +435,34 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     private async Task ObserveRemainingFollowersAsync(List<Task<FollowerCompletion>> pending, PreparedReplicaMutation mutation)
     {
+        // A follower answering after the bounded wait can still complete the majority of a retained entry, and the committer refuses
+        // writes while one stays unapplied, so observation goes on unbounded; it ends once every follower task completes (they never
+        // fault) or when disposal starts, which keeps the drain in DisposeCoreAsync bounded.
+        var bounded = true;
+        var disposing = _disposing.Task;
         while (pending.Count > 0)
         {
             Task<FollowerCompletion> completed;
-            try
+            if (bounded)
             {
-                completed = await TakeNextCompletedAsync(pending, TimeProvider.System).ConfigureAwait(false);
+                try
+                {
+                    completed = await TakeNextCompletedAsync(pending, ObserveTimeProvider).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    bounded = false;
+                    continue;
+                }
             }
-            catch (TimeoutException)
+            else
             {
-                break;
+                var next = Task.WhenAny(pending);
+                if (await Task.WhenAny(next, disposing).ConfigureAwait(false) != next)
+                    return;
+
+                completed = await next.ConfigureAwait(false);
+                _ = pending.Remove(completed);
             }
 
             var follower = await completed.ConfigureAwait(false);

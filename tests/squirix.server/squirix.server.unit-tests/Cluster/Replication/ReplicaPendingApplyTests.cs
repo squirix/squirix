@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Runtime;
@@ -22,7 +23,79 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 
     private static readonly TimeSpan CommitBudget = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>Below the coordinator's 5 s disposal drain bound, so disposal must stop the observer instead of abandoning it on the bound.</summary>
+    private static readonly TimeSpan DisposeBound = TimeSpan.FromSeconds(3);
+
+    /// <summary>Past the coordinator's 5 s bound on the first wait of background follower observation.</summary>
+    private static readonly TimeSpan PastObserveBound = TimeSpan.FromSeconds(6);
+
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Disposal stops background follower observation that is still waiting, past its first bound, for a follower that never answers,
+    /// instead of waiting out the drain bound.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeStopsUnboundedFollowerObserver(CancellationToken cancellationToken)
+    {
+        var pipeline = new ScriptedPipeline(false);
+        var clock = new FakeTimeProvider();
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
+            pipeline,
+            NoOpHooks.Instance,
+            new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        {
+            ObserveTimeProvider = clock,
+        };
+        try
+        {
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
+                coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), CommitBudget, cancellationToken));
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            clock.Advance(PastObserveBound);
+
+            await coordinator.DisposeAsync().AsTask().WaitAsync(DisposeBound, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.ReleaseFollower();
+        }
+    }
+
+    /// <summary>
+    /// A follower acknowledgement arriving after background observation's first bounded wait expired still completes the majority: the
+    /// entry is applied and its idempotency record resolved, nothing stays pending, and the coordinator commits the next write.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LateAckAfterObserveTimeoutResolves(CancellationToken cancellationToken)
+    {
+        var pipeline = new ScriptedPipeline(false);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
+        var clock = new FakeTimeProvider();
+        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, NoOpHooks.Instance, idempotency)
+        {
+            ObserveTimeProvider = clock,
+        };
+        var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+        _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+
+        clock.Advance(PastObserveBound);
+        pipeline.ReleaseFollower();
+        await pipeline.FirstApplied.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        // The committer's pre-prepare drive: nothing is left pending, so writes are accepted again.
+        _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
+        _ = await coordinator.CommitAsync(CreateMutation(2, ForeignOperationId, 12), StallTimeout, cancellationToken);
+
+        var lookup = idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out var record);
+        _ = await Assert.That(lookup).IsEqualTo(GroupIdempotencyLookup.Found);
+        await SequenceAssert.EqualMemoryAsync(mutation.OutcomePayload, record.OutcomePayload);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes());
+    }
 
     /// <summary>
     /// A follower acknowledgement arriving after the commit budget gave up on the majority commits and applies the entry in the
@@ -114,6 +187,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     [ThreadSafe]
     private sealed class ScriptedPipeline : IReplicaCommitPipeline
     {
+        private readonly TaskCompletionSource _firstApplied = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _followerReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _failFirstApply;
 
@@ -125,6 +199,8 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         internal ConcurrentQueue<(ulong Index, string? OperationId)> Applied { get; } = new();
 
         internal ConcurrentQueue<ulong> CommitIndexes { get; } = new();
+
+        internal Task FirstApplied => _firstApplied.Task;
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
@@ -147,6 +223,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
             Applied.Enqueue((mutation.LogIndex, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue));
+            _ = _firstApplied.TrySetResult();
             return ValueTask.CompletedTask;
         }
 
