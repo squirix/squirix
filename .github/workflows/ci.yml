@@ -1690,11 +1690,6 @@ jobs:
                       failed=1
                     }
 
-                    assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
-                    # PR fast path: skipped on pull_request, required otherwise.
-                    assert_success_or_skipped "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
-                    assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
-                    assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
                     assert_success_or_skipped() {
                       local name="$1"
                       local required="$2"
@@ -1710,6 +1705,12 @@ jobs:
                       echo "FAIL $name result=$result" >&2
                       failed=1
                     }
+
+                    assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
+                    assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
+                    assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
                     # PR fast path: skipped on pull_request, required otherwise.
