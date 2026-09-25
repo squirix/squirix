@@ -574,9 +574,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 }
 
                 var startedMs = Environment.TickCount64;
-                await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
-                if (idempotencyStamped)
-                    RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+                await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cancellationToken).ConfigureAwait(false);
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
@@ -653,11 +651,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return stampedOperationId != null;
         }
 
-        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
+        private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, bool idempotencyStamped, CancellationToken cancellationToken)
         {
             var appendAck = _owner.Options.IsJournalGroupCommitEnabled ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) : null;
             var item = JournalWorkItem.Append(frameBytes, frameLength, appendAck);
             await EnqueueTrackedAppendAsync(item, frameBytes, frameLength, appendAck, cancellationToken).ConfigureAwait(false);
+
+            // The frame is on the ring and may become durable even if the write ack below faults (shutdown or the failure latch after the
+            // write reached the file), so the stamp is reported before that wait: the idempotency intent must survive such a fault.
+            if (idempotencyStamped)
+                RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
 
             // The durability wait stays outside the gate: the gate covers only the publishing, so a
             // slow journal thread never blocks shutdown drain on fsync latency.

@@ -168,6 +168,26 @@ internal sealed class StallableJournal : IAsyncDisposable
         return Describe(keys);
     }
 
+    /// <summary>
+    /// Lists the put frames the segments hold right now, as a crash at this point would leave them for replay; readable while the journal
+    /// thread is stalled. A frame stamped with an idempotency operation id is listed as <c language="text">key#operationId</c>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The put frames in <see cref="Describe" /> form.</returns>
+    internal string ReadStampedPuts(CancellationToken cancellationToken)
+    {
+        var puts = new List<string>();
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                puts.Add(record.MutationOperationId is { } operationId ? $"{record.Key}#{operationId}" : record.Key.ToString());
+        }
+
+        return Describe(puts);
+    }
+
     /// <summary>Releases every stall and shuts the journal down so its segments can be replayed.</summary>
     /// <returns>An asynchronous operation.</returns>
     internal async Task ShutdownAsync()
