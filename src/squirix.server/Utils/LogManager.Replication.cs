@@ -35,4 +35,10 @@ internal static partial class LogManager
         Level = LogLevel.Warning,
         Message = "Replica group entries past their majority could not be applied to memory yet; new writes and resyncs are refused until they are")]
     internal static partial void ReplicaPendingApplyFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4008,
+        Level = LogLevel.Error,
+        Message = "Replica commit coordinator did not drain within the shutdown budget of {Budget}; the in-flight commit keeps its gates and log-index sequencer, which are leaked")]
+    internal static partial void ReplicaCoordinatorLeakedOnShutdown(ILogger logger, TimeSpan budget);
 }

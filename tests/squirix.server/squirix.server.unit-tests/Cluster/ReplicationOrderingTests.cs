@@ -111,6 +111,22 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         retry.MarkAppended();
     }
 
+    /// <summary>A lease that outlives the gate's disposal frees its slot quietly instead of throwing <see cref="ObjectDisposedException" />.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseReleaseAfterGateDisposeDoesNotThrow(CancellationToken cancellationToken)
+    {
+        using var gate = new ReplicaMutationGate(1, 1);
+        using var lease = await gate.EnterAsync(7, cancellationToken);
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early dispose: the lease must outlive the gate.
+        gate.Dispose();
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts it succeeds after the gate is gone.
+        lease.Dispose();
+        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _concurrentSequencer.Dispose();
 
