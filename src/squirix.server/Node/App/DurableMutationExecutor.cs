@@ -127,7 +127,15 @@ internal sealed class DurableMutationExecutor
         if (!decision.ShouldApply)
             return decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
 
-        await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
+        }
+        catch (JournalPostEnqueueFaultException ex)
+        {
+            // Shutdown or the failure latch faulted the write ack of a frame already on the ring: the outcome is unknown, not failed.
+            throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
+        }
 
         // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
         if (!IsIdempotentDurabilityDeferred())
@@ -202,6 +210,13 @@ internal sealed class DurableMutationExecutor
             state.PendingMemoryApply = true;
             await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
+        }
+        catch (JournalPostEnqueueFaultException ex)
+        {
+            // The frame is on the ring, but shutdown or the failure latch closed the journal, so its memory apply never runs in this process:
+            // release the apply slot and the key exactly once, as for a failed append, yet report the outcome as unknown, not failed.
+            RollbackGroupCommitBarrierState(conflictKey, state);
+            throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
         {

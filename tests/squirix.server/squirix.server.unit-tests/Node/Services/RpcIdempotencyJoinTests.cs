@@ -1,9 +1,11 @@
 using System;
 using System.Diagnostics.Metrics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -28,6 +30,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
 {
+    private const int CommitUnknownEventId = 1015;
+
     private const string Fingerprint = "fp-1";
 
     private const string OperationId = "0123456789abcdef0123456789abcdef";
@@ -217,6 +221,73 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         _ = await Assert.That(target.Executions).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// Disposal during the outcome durability wait faults the first caller after its mutation frame was stamped: it gets the stable
+    /// commit-unknown contract with the shutdown fault logged as the cause, and a retry stays unknown without executing again.
+    /// </summary>
+    /// <param name="groupCommit">Whether the stuck fsync belongs to a group commit batch instead of a plain checkpoint.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FirstCallerOutcomeFaultIsUnknown(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
+        var target = new PutTarget(journal.Journal, CreateStore(), log);
+        journal.Writer.Flush.Arm();
+
+        var original = target.PutAsync(Fingerprint, cancellationToken);
+        RpcException originalError;
+        RpcException retryError;
+        try
+        {
+            await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.DisposeStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            await journal.ReclaimLeakedAsync(StallTimeout);
+        }
+
+        var logged = log.Find(CommitUnknownEventId);
+
+        _ = await Assert.That(originalError.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
+        _ = await Assert.That(logged?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(logged?.Cause).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(target.Executions).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// A journal failure before the mutation frame is stamped keeps the first caller's definite failure and releases the intent, so a
+    /// retry executes again instead of reporting an unknown outcome.
+    /// </summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FirstCallerPreStampStaysDefinite(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var log = new EventRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
+        var target = new PutTarget(journal.Journal, CreateStore(), log);
+        var reason = new IOException("journal device lost");
+        journal.Journal.FailJournalPipeline(reason);
+
+        var originalError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var retryError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(target.PutAsync(Fingerprint, cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(originalError).IsTypeOf<InvalidOperationException>().Because(originalError.ToString());
+        _ = await Assert.That(retryError).IsTypeOf<InvalidOperationException>().Because(retryError.ToString());
+        _ = await Assert.That(log.Find(CommitUnknownEventId)).IsNull();
+        _ = await Assert.That(target.Executions).IsEqualTo(2);
+    }
+
     /// <summary>A started intent rebuilt from the journal has no execution to join, so a retry reports the unknown outcome at once.</summary>
     /// <param name="withFingerprint">Whether the restored intent carries a fingerprint.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -257,10 +328,15 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         private readonly AppliedKeys _memory = new();
 
         internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store)
+            : this(journal, store, NullLogger.Instance)
+        {
+        }
+
+        internal PutTarget(IJournalCoordinator journal, RpcMutationIdempotencyStore store, ILogger log)
         {
             _journal = journal;
-            _executor = new DurableMutationExecutor(journal);
-            _coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
+            _executor = new DurableMutationExecutor(journal) { Log = log };
+            _coordinator = new RpcMutationIdempotencyCoordinator(store, journal) { Log = log };
         }
 
         /// <summary>Gets how many times the mutation handler ran.</summary>

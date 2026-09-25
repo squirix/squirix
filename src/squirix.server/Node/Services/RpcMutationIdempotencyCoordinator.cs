@@ -2,10 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Grpc.Core;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -28,6 +31,9 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
     }
+
+    /// <summary>Gets the logger for commit-unknown causes; the host logger unless set.</summary>
+    internal ILogger Log { private get; init; } = LogManager.GetLogger<RpcMutationIdempotencyCoordinator>();
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
         string rawOperationId,
@@ -117,9 +123,8 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
             // A stamped mutation frame is the decision point: from here only a journal failure or shutdown may stop the
             // outcome from being recorded, never the caller, so a retry replays it instead of seeing COMMIT_OUTCOME_UNKNOWN.
-            var outcomeToken = RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope) ? CancellationToken.None : cancellationToken;
-            var responseBytes = await scope.AppendOutcomeAsync(durableResponse, outcomeToken).ConfigureAwait(false);
-            await journal.AwaitDurabilityCommitAsync(outcomeToken).ConfigureAwait(false);
+            var stamped = RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope);
+            var responseBytes = await RecordOutcomeDurablyAsync(journal, scope, durableResponse, stamped, cancellationToken).ConfigureAwait(false);
 
             // The in-memory outcome is recorded only after the outcome frame is appended and
             // durability is confirmed: a failure above must leave no Completed record so that
@@ -137,6 +142,39 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             if (!RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(scope))
                 _store.ReleaseIntent(operationId, fingerprint);
             throw;
+        }
+    }
+
+    /// <summary>Appends the outcome frame and waits for its durability.</summary>
+    /// <typeparam name="TResponse">Response type.</typeparam>
+    /// <param name="journal">Journal the outcome is appended to.</param>
+    /// <param name="scope">Execution scope of the operation.</param>
+    /// <param name="response">Response of the executed mutation.</param>
+    /// <param name="stamped">Whether a mutation frame of this operation was stamped (and may be durable).</param>
+    /// <param name="cancellationToken">Caller cancellation token; honored only before stamping.</param>
+    /// <returns>The recorded response bytes.</returns>
+    /// <exception cref="RpcException">A stamped mutation whose outcome could not be recorded: COMMIT_OUTCOME_UNKNOWN.</exception>
+    private async Task<byte[]> RecordOutcomeDurablyAsync<TResponse>(
+        IJournalCoordinator journal,
+        RpcMutationIdempotencyExecutionScope scope,
+        TResponse response,
+        bool stamped,
+        CancellationToken cancellationToken)
+        where TResponse : class, IMessage<TResponse>
+    {
+        var outcomeToken = stamped ? CancellationToken.None : cancellationToken;
+        try
+        {
+            var responseBytes = await scope.AppendOutcomeAsync(response, outcomeToken).ConfigureAwait(false);
+            await journal.AwaitDurabilityCommitAsync(outcomeToken).ConfigureAwait(false);
+            return responseBytes;
+        }
+        catch (Exception ex) when (stamped)
+        {
+            // The stamped mutation frame may be durable while its outcome is not (shutdown, the failure latch, a rejected outcome
+            // frame), so the first caller gets the same unknown outcome a retry gets, never a definite failure.
+            LogManager.DurableMutationOutcomeUnknown(Log, ex);
+            throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
         }
     }
 
