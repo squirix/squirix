@@ -65,6 +65,11 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     internal IReadOnlyList<string> GroupIds => _groupIds;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The logs are disposed concurrently, so they share one shutdown budget instead of stacking theirs, and a log stuck in a
+    /// flush neither delays nor hides the disposal of the others; each log reports its own leak. Every log is disposed even when
+    /// another fails, and such a failure surfaces only after all of them finished.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -74,8 +79,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         if (groups == null)
             return;
 
-        foreach (var state in groups.Values)
-            await state.Log.DisposeAsync().ConfigureAwait(false);
+        var logs = groups.Values;
+        var disposals = new Task[logs.Length];
+        for (var i = 0; i < logs.Length; i++)
+            disposals[i] = logs[i].Log.DisposeAsync().AsTask();
+
+        await Task.WhenAll(disposals).ConfigureAwait(false);
     }
 
     /// <summary>Gets the participation gate for a served group.</summary>
