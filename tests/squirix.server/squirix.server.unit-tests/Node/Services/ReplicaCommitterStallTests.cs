@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -25,9 +28,15 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 {
     private const int CommitUnknownEventId = 4006;
+    private const string IdleGroup = "g2";
     private const int LeakedOnShutdownEventId = 4005;
+    private const int LogLeakedOnShutdownEventId = 4009;
+    private const string OwnedGroup = "n1";
+    private const string StalledGroup = "g1";
 
     private static readonly byte[] Fingerprint = [9, 8, 7];
+
+    private static readonly TimeSpan LogShutdownBudget = TimeSpan.FromMilliseconds(200);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
@@ -95,6 +104,125 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             local.ReleaseApply();
             await committer.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// A write stuck in its commit-index advance after the majority, left behind by the committer's shutdown leak, is released by the
+    /// registry dispose within the log budget: the caller gets COMMIT_OUTCOME_UNKNOWN caused by the dispose, and the log reports its leak.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LogDisposeReleasesLeakedCommit(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var log = new LeakRecordingLogger();
+        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks, log), cancellationToken);
+        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log, new AcceptingGateway(hooks.StallNextMetaWrite));
+        try
+        {
+            var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            await registry.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+            _ = await Assert.That(log.UnknownCause?.InnerException).IsTypeOf<ObjectDisposedException>();
+            _ = await Assert.That(log.Count(LeakedOnShutdownEventId)).IsEqualTo(1);
+            _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
+            _ = await Assert.That(log.FaultedWaiters).IsEqualTo(1);
+        }
+        finally
+        {
+            await ReleaseStallAsync(hooks, committer, registry, OwnedGroup);
+        }
+    }
+
+    /// <summary>
+    /// A write stuck in its local frame flush, before the append counts, is released by the registry dispose after the committer's
+    /// shutdown leak with the raw <see cref="ObjectDisposedException" />, not COMMIT_OUTCOME_UNKNOWN.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LogDisposeReleasesPreAppendStall(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var log = new LeakRecordingLogger();
+        var registry = await OpenRegistryAsync([OwnedGroup], StallOptions(hooks, log), cancellationToken);
+        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
+        try
+        {
+            hooks.StallNextFrameWrite();
+            var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            await registry.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
+            _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
+            _ = await Assert.That(log.FaultedWaiters).IsEqualTo(1);
+        }
+        finally
+        {
+            await ReleaseStallAsync(hooks, committer, registry, OwnedGroup);
+        }
+    }
+
+    /// <summary>
+    /// With one group log stuck in a flush, the registry dispose closes the other log without waiting for the stuck one's budget and
+    /// returns once that single budget expired; the other group's directory can be reopened.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The stalled group log is not open.</exception>
+    [Test]
+    public async Task RegistryDisposeBoundedWithStalledLog(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var log = new LeakRecordingLogger();
+        var registry = await OpenRegistryAsync([StalledGroup, IdleGroup], StallOptions(hooks, log), cancellationToken);
+        var idleLogPath = FollowerLogPaths.Create(Dir, IdleGroup).LogPath;
+        try
+        {
+            if (!registry.TryGetLog(StalledGroup, out var stalled))
+                throw new InvalidOperationException("The stalled group log is not open.");
+
+            hooks.StallNextFrameWrite();
+            var append = stalled.AppendAsync(FirstAppend(), cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(IsReleased(idleLogPath)).IsFalse();
+
+            // The leak event is logged before the stuck log's dispose returns, so seeing the idle log closed without it proves the idle
+            // log was not queued behind the stuck one.
+            var idleClosedWhileStuck = false;
+            var disposing = registry.DisposeAsync().AsTask();
+            var idleClosed = SpinWait.SpinUntil(
+                () =>
+                {
+                    if (!IsReleased(idleLogPath))
+                        return false;
+
+                    idleClosedWhileStuck = log.Count(LogLeakedOnShutdownEventId) == 0;
+                    return true;
+                },
+                StallTimeout);
+            await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            _ = await Assert.That(idleClosed).IsTrue();
+            _ = await Assert.That(idleClosedWhileStuck).IsTrue();
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
+        }
+        finally
+        {
+            await ReleaseStallAsync(hooks, null, registry, StalledGroup);
+        }
+
+        await using var reopened = new FollowerLog(Dir, IdleGroup, GroupComposition.Create(IdleGroup));
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
 
     /// <summary>
@@ -188,8 +316,12 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         return status.LastLogIndex;
     }
 
-    private static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ILogicalNamespacedCache<object?> local, ILogger? log = null) =>
-        new(registry, new TwoNodeLocator(), new AcceptingGateway(), local, "n1", Fingerprint, 1)
+    private static ReplicaGroupCommitter CreateCommitter(
+        ReplicaGroupRegistry registry,
+        ILogicalNamespacedCache<object?> local,
+        ILogger? log = null,
+        IReplicaRpcGateway? gateway = null) =>
+        new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, "n1", Fingerprint, 1)
         {
             Log = log ?? new LeakRecordingLogger(),
             ShutdownBudget = TimeSpan.FromMilliseconds(200),
@@ -197,11 +329,66 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private static NodeCacheEntry<object?> Entry() => new() { Value = "v", Version = 1 };
 
+    private static FollowerLogAppendRequest FirstAppend() => new(
+        "leader-1",
+        1UL,
+        0UL,
+        0UL,
+        0UL,
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a"))));
+
+    /// <summary>Tells whether the log file can be opened exclusively, which holds only once its follower log closed its handle.</summary>
+    /// <param name="path">The follower log file path.</param>
+    /// <returns><see langword="true" /> when no follower log holds the file open.</returns>
+    private static bool IsReleased(string path)
+    {
+        try
+        {
+            using var probe = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
-    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken)
+    private static FollowerLogOptions StallOptions(StallableFollowerLogFaultHooks hooks, ILogger log) =>
+        new() { FaultHooks = hooks, Log = log, ShutdownBudget = LogShutdownBudget };
+
+    private Task<ReplicaGroupRegistry> OpenRegistryAsync(CancellationToken cancellationToken) => OpenRegistryAsync([OwnedGroup], null, cancellationToken);
+
+    /// <summary>
+    /// Releases the stall, disposes the committer and the registry, and closes the log handle a timed-out dispose leaked, as the
+    /// process exit would.
+    /// </summary>
+    /// <param name="hooks">The stall hooks of the registry logs.</param>
+    /// <param name="committer">The committer to dispose, if any.</param>
+    /// <param name="registry">The registry to dispose.</param>
+    /// <param name="groupId">The group whose log may have been leaked.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter? committer, ReplicaGroupRegistry registry, string groupId)
     {
-        var registry = new ReplicaGroupRegistry(Dir, ["n1"], 2, Fingerprint, 1);
+        hooks.Release();
+        if (hooks.Entered.IsCompleted)
+            await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, CancellationToken.None);
+
+        // A released metadata write still publishes the file; it must finish before the directory is removed.
+        var metadataTempPath = FollowerLogPaths.Create(Dir, groupId).MetadataTempPath;
+        _ = SpinWait.SpinUntil(() => !File.Exists(metadataTempPath), StallTimeout);
+        if (committer != null)
+            await committer.DisposeAsync();
+
+        await registry.DisposeAsync();
+        if (registry.TryGetLog(groupId, out var log) && log is IFollowerLogDurability durable)
+            durable.Durability.Dispose();
+    }
+
+    private async Task<ReplicaGroupRegistry> OpenRegistryAsync(string[] groupIds, FollowerLogOptions? options, CancellationToken cancellationToken)
+    {
+        var registry = new ReplicaGroupRegistry(Dir, groupIds, 2, Fingerprint, 1, options);
         try
         {
             await registry.OpenAsync(cancellationToken);
@@ -227,12 +414,20 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>Follower double that always holds the leader batch.</summary>
+    /// <summary>Follower double that always holds the leader batch; an optional callback runs on each append, after the local append.</summary>
     [Immutable]
     private sealed class AcceptingGateway : IReplicaRpcGateway
     {
+        private readonly Action? _onAppend;
+
+        internal AcceptingGateway(Action? onAppend = null)
+        {
+            _onAppend = onAppend;
+        }
+
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
+            _onAppend?.Invoke();
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
         }
@@ -263,27 +458,20 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         private static RpcException Unknown() => ServerOpContract.CommitOutcomeUnknown().ToRpcException();
     }
 
-    /// <summary>Logger double counting the committer's shutdown leak event and capturing its commit-unknown warning.</summary>
+    /// <summary>
+    /// Logger double counting events, capturing the committer's commit-unknown warning and the faulted waiter count of the follower-log
+    /// leak event.
+    /// </summary>
     [ThreadSafe]
     private sealed class LeakRecordingLogger : ILogger
     {
         private readonly ConcurrentQueue<EventId> _events = new();
+        private readonly ConcurrentQueue<object?> _faultedWaiters = new();
         private readonly ConcurrentQueue<(LogLevel Level, Exception? Cause)> _unknowns = new();
 
-        internal int LeakCount
-        {
-            get
-            {
-                var count = 0;
-                foreach (var eventId in _events)
-                {
-                    if (eventId.Id == LeakedOnShutdownEventId)
-                        count++;
-                }
+        internal object? FaultedWaiters => _faultedWaiters.TryPeek(out var faulted) ? faulted : null;
 
-                return count;
-            }
-        }
+        internal int LeakCount => Count(LeakedOnShutdownEventId);
 
         internal Exception? UnknownCause => _unknowns.TryPeek(out var unknown) ? unknown.Cause : null;
 
@@ -297,10 +485,31 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             _events.Enqueue(eventId);
+            if (eventId.Id == LogLeakedOnShutdownEventId && state is IReadOnlyList<KeyValuePair<string, object?>> values)
+            {
+                foreach (var value in values)
+                {
+                    if (string.Equals(value.Key, "FaultedInFlightWaiters", StringComparison.Ordinal))
+                        _faultedWaiters.Enqueue(value.Value);
+                }
+            }
+
             if (eventId.Id != CommitUnknownEventId)
                 return;
 
             _unknowns.Enqueue((logLevel, exception));
+        }
+
+        internal int Count(int id)
+        {
+            var count = 0;
+            foreach (var eventId in _events)
+            {
+                if (eventId.Id == id)
+                    count++;
+            }
+
+            return count;
         }
     }
 
