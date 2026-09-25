@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -83,15 +84,18 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal.Journal);
 
-        var put = coordinator.ExecuteAsync(
-            OperationId,
-            "fingerprint",
-            (Executor: executor, journal.Journal, Memory: memory),
-            static async (s, ct) => new TryAddAsyncResponse { Added = await s.Memory.PutAsync(s.Executor, s.Journal, "big", OversizedValue(), ct).ConfigureAwait(false) == 1 },
-            cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(put);
+        var attempts = new int[1];
+
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteOversizedAsync(coordinator, executor, journal.Journal, memory, attempts, cancellationToken));
+
+        // Accepted conservative side effect (#702): the mutation is stamped at the ring enqueue, before the write ack delivers the
+        // rejection, so the intent stays started. A retry with the same identity answers unknown without running the handler again, until
+        // the record ages out or a restart rebuilds it; the outcome is never replayed as a success.
+        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteOversizedAsync(coordinator, executor, journal.Journal, memory, attempts, cancellationToken));
         await journal.ShutdownAsync();
 
+        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
+        _ = await Assert.That(attempts[0]).IsEqualTo(1);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
         _ = await Assert.That(ReadOperations(cancellationToken)).IsEmpty();
     }
@@ -102,6 +106,31 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
         base.DisposeManaged();
         _testMeter.Dispose();
     }
+
+    /// <summary>Runs one idempotent put of an oversized value under the fixed operation identity and counts each handler invocation.</summary>
+    /// <param name="coordinator">Idempotency coordinator under test.</param>
+    /// <param name="executor">Durable mutation executor.</param>
+    /// <param name="journal">Journal the put is appended to.</param>
+    /// <param name="memory">Memory the put applies to.</param>
+    /// <param name="attempts">Single-element counter incremented on every handler invocation.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The response of the idempotent call.</returns>
+    private static Task<TryAddAsyncResponse> ExecuteOversizedAsync(
+        RpcMutationIdempotencyCoordinator coordinator,
+        DurableMutationExecutor executor,
+        IJournalCoordinator journal,
+        AppliedKeys memory,
+        int[] attempts,
+        CancellationToken cancellationToken) => coordinator.ExecuteAsync(
+        OperationId,
+        "fingerprint",
+        (Executor: executor, Journal: journal, Memory: memory, Attempts: attempts),
+        static async (s, ct) =>
+        {
+            _ = Interlocked.Increment(ref s.Attempts[0]);
+            return new TryAddAsyncResponse { Added = await s.Memory.PutAsync(s.Executor, s.Journal, "big", OversizedValue(), ct).ConfigureAwait(false) == 1 };
+        },
+        cancellationToken);
 
     /// <summary>Gets a value whose put frame exceeds the whole journal capacity.</summary>
     /// <returns>The oversized value.</returns>
