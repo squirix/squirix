@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaCommitDisposeTests
 {
-    private const int LeakedOnShutdownEventId = 4007;
+    private const int LeakedOnShutdownEventId = 4008;
 
     private static readonly TimeSpan QueuedBudget = TimeSpan.FromMilliseconds(300);
 
