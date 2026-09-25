@@ -21,11 +21,17 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
-    /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
+    /// <summary>
+    /// Ensures a failed in-memory apply after durable journal is not retried, and reaches the caller as its own failure rather than as
+    /// commit-unknown.
+    /// </summary>
+    /// <param name="groupCommit">Whether the mutation runs through the group commit path, which applies under a re-acquired gate.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
     [Test]
-    public async Task MemoryFailureAfterJournalNotRetried(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MemoryFailureAfterJournalNotRetried(bool groupCommit, CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -33,6 +39,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
             JournalMaxSegmentMb = 1,
             FlushInterval = 5,
             ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
 
         using var manifestStore = new Ledger(options);
@@ -45,7 +52,7 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, int>(
                 executor.ExecuteAsync(
-                    null,
+                    groupCommit ? CacheKey.Default("k") : null,
                     static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),

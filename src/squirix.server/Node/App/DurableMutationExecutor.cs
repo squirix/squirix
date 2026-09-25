@@ -3,8 +3,10 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
@@ -26,6 +28,9 @@ internal sealed class DurableMutationExecutor
         ArgumentNullException.ThrowIfNull(journal);
         _journal = journal;
     }
+
+    /// <summary>Gets the logger for commit-unknown causes; the host logger unless set.</summary>
+    internal ILogger Log { private get; init; } = LogManager.GetLogger<DurableMutationExecutor>();
 
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
@@ -62,9 +67,21 @@ internal sealed class DurableMutationExecutor
                 await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
 
             // The state is applied to memory right here; only the durability commit above was conditional.
-            var applyState = new GroupCommitApplyWithState<TState, TResult>(this, mutationState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyState, static (s, _) => s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory), CancellationToken.None)
+            var applyState = new GroupCommitApplyWithState<TState, TResult>(this, state, mutationState, applyMemory);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(
+                    applyState,
+                    static (s, _) =>
+                    {
+                        s.ExecutionState.MemoryApplyStarted = true;
+                        return s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory);
+                    },
+                    CancellationToken.None)
                 .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!state.MemoryApplyStarted)
+        {
+            // Shutdown or the failure latch ended the durability wait or the gate re-acquire: the outcome is unknown, not failed.
+            throw ReportCommitOutcomeUnknown(ex);
         }
         finally
         {
@@ -114,9 +131,35 @@ internal sealed class DurableMutationExecutor
 
         // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller.
         if (!IsIdempotentDurabilityDeferred())
-            await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
+            await AwaitDurabilityAfterRingEntryAsync().ConfigureAwait(false);
 
         return await ApplyAfterRingEntryAsync(state.State, state.ApplyMemory).ConfigureAwait(false);
+    }
+
+    private async ValueTask AwaitDurabilityAfterRingEntryAsync()
+    {
+        try
+        {
+            await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Only shutdown or the failure latch ends this wait: the outcome is unknown, not failed.
+            throw ReportCommitOutcomeUnknown(ex);
+        }
+    }
+
+    /// <summary>
+    /// Logs why a mutation whose frame entered the ring ended before its memory apply, and returns the stable commit-unknown contract (gRPC
+    /// Unavailable with COMMIT_OUTCOME_UNKNOWN) for the caller.
+    /// </summary>
+    /// <param name="cause">Shutdown or journal failure that ended the wait.</param>
+    /// <returns>The exception to throw instead of <paramref name="cause" />.</returns>
+    /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
+    private SquirixException ReportCommitOutcomeUnknown(Exception cause)
+    {
+        LogManager.DurableMutationOutcomeUnknown(Log, cause);
+        return ServerOpContract.CommitOutcomeUnknown();
     }
 
     private async ValueTask<TResult> ApplyAfterRingEntryAsync<TState, TResult>(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
@@ -209,14 +252,21 @@ internal sealed class DurableMutationExecutor
     [Immutable]
     private sealed record GroupCommitApplyWithState<TState, TResult>
     {
-        internal GroupCommitApplyWithState(DurableMutationExecutor mutator, TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+        internal GroupCommitApplyWithState(
+            DurableMutationExecutor mutator,
+            GroupCommitExecutionState executionState,
+            TState state,
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
             Mutator = mutator;
+            ExecutionState = executionState;
             State = state;
             ApplyMemory = applyMemory;
         }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
+
+        internal GroupCommitExecutionState ExecutionState { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
@@ -286,6 +336,9 @@ internal sealed class DurableMutationExecutor
     private sealed class GroupCommitExecutionState
     {
         internal bool Admitted { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the memory apply began, so its own failures are not reported as commit-unknown.</summary>
+        internal bool MemoryApplyStarted { get; set; }
 
         internal bool PendingMemoryApply { get; set; }
     }

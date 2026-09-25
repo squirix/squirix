@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
@@ -78,7 +79,10 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         _ = await Assert.That(memory.Snapshot).IsEqualTo(replayed);
     }
 
-    /// <summary>Journal disposal faults a durability wait the caller already canceled instead of leaving it parked.</summary>
+    /// <summary>
+    /// Journal disposal faults a durability wait the caller already canceled instead of leaving it parked; the frame is on the ring, so the
+    /// caller gets commit-unknown.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeFaultsUncancellableWaitInBudget(CancellationToken cancellationToken)
@@ -93,12 +97,13 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
         var completedAfterCancel = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
         await journal.ShutdownAsync();
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(completedAfterCancel).IsFalse();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
     }
 
-    /// <summary>A journal pipeline failure faults a durability wait the caller already canceled with the latched error.</summary>
+    /// <summary>A journal pipeline failure faults a durability wait the caller already canceled; the frame is on the ring, so the caller gets commit-unknown.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task PipelineFailureFaultsUncancellableWait(CancellationToken cancellationToken)
@@ -114,10 +119,10 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
         var completedAfterCancel = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
         journal.Journal.FailJournalPipeline(reason);
-        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(completedAfterCancel).IsFalse();
-        _ = await Assert.That(ReferenceEquals(error, reason) || ReferenceEquals(error.InnerException, reason)).IsTrue().Because(error.ToString());
+        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
 

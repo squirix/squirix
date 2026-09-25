@@ -4,10 +4,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -26,6 +28,8 @@ namespace Squirix.Server.UnitTests.Node.App;
 public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 {
     private const int ApplyWaitTimedOutEventId = 3015;
+
+    private const int CommitUnknownEventId = 1015;
 
     private const int JoinTimedOutEventId = 3013;
 
@@ -79,14 +83,120 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (disposeError, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
 
         _ = await Assert.That(IsShutdownTimeout(disposeError)).IsTrue().Because(disposeError.ToString());
-        _ = await Assert.That(putError).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(putError).IsTypeOf<SquirixException>();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
+    }
+
+    /// <summary>
+    /// A caller whose frame is on the ring and whose durability wait is faulted by disposal gets the stable commit-unknown contract (gRPC
+    /// Unavailable with COMMIT_OUTCOME_UNKNOWN) instead of the raw shutdown fault, which is logged as the cause at warning level.
+    /// </summary>
+    /// <param name="groupCommit">Whether the stuck fsync belongs to a taken group commit batch instead of a plain checkpoint.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PostRingShutdownMapsToUnknown(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var log = new LeakRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
+        var memory = new AppliedKeys();
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
+        var transport = ToTransport(putError);
+        var replayed = journal.Recover(string.Empty, 0, cancellationToken);
+
+        _ = await Assert.That(putError).IsTypeOf<SquirixException>().Because(putError.ToString());
+        _ = await Assert.That(transport?.StatusCode).IsEqualTo(StatusCode.Unavailable);
+        _ = await Assert.That(transport?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(memory.Snapshot).IsEmpty();
+        _ = await Assert.That(replayed).IsEqualTo(KeyA);
+    }
+
+    /// <summary>
+    /// The pipeline failure latch that faults a caller whose frame is on the ring surfaces as the stable commit-unknown contract, with the
+    /// latch reason logged as the cause at warning level.
+    /// </summary>
+    /// <param name="groupCommit">Whether the stuck fsync belongs to a taken group commit batch instead of a plain checkpoint.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PostRingLatchMapsToUnknown(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var log = new LeakRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
+        var memory = new AppliedKeys();
+        var reason = new IOException("journal device lost");
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        Exception error;
+        try
+        {
+            journal.Journal.FailJournalPipeline(reason);
+            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            journal.Writer.Flush.Release();
+        }
+
+        var cause = log.Cause(CommitUnknownEventId);
+
+        _ = await Assert.That(error).IsTypeOf<SquirixException>().Because(error.ToString());
+        _ = await Assert.That(ToTransport(error)?.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(ReferenceEquals(cause, reason) || ReferenceEquals(cause?.InnerException, reason)).IsTrue().Because(cause?.ToString() ?? "no cause logged");
+        _ = await Assert.That(memory.Snapshot).IsEmpty();
+    }
+
+    /// <summary>
+    /// A caller still parked on the mutation gate when disposal starts has no frame on the ring: it keeps the definite disposal failure, is
+    /// not reported as commit-unknown, and leaves nothing to replay.
+    /// </summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PreRingShutdownStaysDefinite(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var log = new LeakRecordingLogger();
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, cancellationToken);
+        var memory = new AppliedKeys();
+
+        Exception error;
+        var gate = await journal.Journal.MutationGate.LockAsync(cancellationToken);
+        try
+        {
+            // The put parks on the gate held here, before its frame is encoded or enqueued.
+            var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal) { Log = log }, journal.Journal, "a", cancellationToken);
+            await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        }
+        finally
+        {
+            gate.Dispose();
+        }
+
+        var replayed = journal.Recover(string.Empty, 0, cancellationToken);
+
+        _ = await Assert.That(error).IsTypeOf<InvalidOperationException>().Because(error.ToString());
+        _ = await Assert.That(error.InnerException).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(log.Find(CommitUnknownEventId)).IsNull();
+        _ = await Assert.That(memory.Snapshot).IsEmpty();
+        _ = await Assert.That(replayed).IsEmpty();
     }
 
     /// <summary>A frame whose caller was faulted by disposal over a stuck fsync is still replayed after a restart, while memory never applied it.</summary>
@@ -96,13 +206,13 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
-        _ = await Assert.That(putError).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(putError).IsTypeOf<SquirixException>();
         _ = await Assert.That(replayed).IsEqualTo(KeyA);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
@@ -137,7 +247,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, NullLogger.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         bool completedWhileGated;
@@ -170,19 +280,20 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A group commit apply parked on the mutation gate after its durability ack is woken by disposal instead of hanging, once the
-    /// bounded wait for in-flight applies is spent while the gate stays held.
+    /// bounded wait for in-flight applies is spent while the gate stays held; its frame is on the ring, so the caller gets commit-unknown.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeWakesParkedApplyOnGate(CancellationToken cancellationToken)
     {
+        var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, true, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         bool completedWhileGated;
-        InvalidOperationException error;
+        SquirixException error;
         var gate = await journal.Journal.MutationGate.LockAsync(cancellationToken);
         try
         {
@@ -190,7 +301,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             journal.Writer.Flush.Release();
             completedWhileGated = await Task.WhenAny(put, Task.Delay(CancelObservationWindow, TimeProvider.System, cancellationToken)) == put;
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
         finally
         {
@@ -200,7 +311,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var replayed = journal.Recover(string.Empty, 0, cancellationToken);
 
         _ = await Assert.That(completedWhileGated).IsFalse();
-        _ = await Assert.That(error.InnerException).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(log.Cause(CommitUnknownEventId)?.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(replayed).IsEqualTo(KeyA);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
@@ -210,24 +322,26 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     [Test]
     public async Task LatchFaultsInFlightBatch(CancellationToken cancellationToken)
     {
+        var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, true, cancellationToken);
         var memory = new AppliedKeys();
         var reason = new IOException("journal device lost");
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        Exception error;
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
         }
         finally
         {
             journal.Writer.Flush.Release();
         }
 
-        _ = await Assert.That(ReferenceEquals(error, reason) || ReferenceEquals(error.InnerException, reason)).IsTrue().Because(error.ToString());
+        var cause = log.Cause(CommitUnknownEventId);
+
+        _ = await Assert.That(ReferenceEquals(cause, reason) || ReferenceEquals(cause?.InnerException, reason)).IsTrue().Because(cause?.ToString() ?? "no cause logged");
         _ = await Assert.That(memory.Snapshot).IsEmpty();
     }
 
@@ -239,15 +353,17 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     [Arguments(true)]
     public async Task LateFsyncFailureKeepsDisposeFault(bool groupCommit, CancellationToken cancellationToken)
     {
+        var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
         var lateFailure = new IOException("fsync failed after disposal");
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, lateFailure, cancellationToken);
 
-        _ = await Assert.That(putError).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(putError).IsTypeOf<SquirixException>();
+        _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(put.Exception?.InnerException).IsSameReferenceAs(putError);
         _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsSameReferenceAs(lateFailure);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
@@ -261,14 +377,16 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     [Arguments(true)]
     public async Task LateFsyncSuccessAfterDisposeIsNoOp(bool groupCommit, CancellationToken cancellationToken)
     {
+        var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, cancellationToken);
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
 
-        _ = await Assert.That(putError).IsTypeOf<ObjectDisposedException>();
+        _ = await Assert.That(putError).IsTypeOf<SquirixException>();
+        _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(put.Exception?.InnerException).IsSameReferenceAs(putError);
         _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNull();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
@@ -284,7 +402,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, log, cancellationToken);
-        var put = StartStuckPutAsync(journal, new AppliedKeys(), cancellationToken);
+        var put = StartStuckPutAsync(journal, new AppliedKeys(), NullLogger.Instance, cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
@@ -339,13 +457,19 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <summary>Arms the fsync stall and starts a put of key <c language="text">a</c>; wait for the stall to be entered before acting on it.</summary>
     /// <param name="journal">Journal under test.</param>
     /// <param name="memory">Memory model the put applies to.</param>
+    /// <param name="log">Logger of the executor running the put.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
     /// <returns>The put, stuck in its durability wait once the stall is entered.</returns>
-    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, CancellationToken cancellationToken)
+    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, ILogger log, CancellationToken cancellationToken)
     {
         journal.Writer.Flush.Arm();
-        return memory.PutAsync(new DurableMutationExecutor(journal.Journal), journal.Journal, "a", cancellationToken);
+        return memory.PutAsync(new DurableMutationExecutor(journal.Journal) { Log = log }, journal.Journal, "a", cancellationToken);
     }
+
+    /// <summary>Maps a caller-visible failure to the gRPC status the transport boundary sends, or <see langword="null" /> when it is no stable contract.</summary>
+    /// <param name="error">Failure the caller observed.</param>
+    /// <returns>The mapped RPC failure.</returns>
+    private static RpcException? ToTransport(Exception error) => error is SquirixException contract ? contract.ToRpcException() : null;
 
     /// <summary>Logger double recording the level and the faulted in-flight waiter count of each journal shutdown event.</summary>
     [ThreadSafe]
@@ -353,7 +477,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         private const string FaultedWaitersKey = "FaultedInFlightWaiters";
 
-        private readonly ConcurrentQueue<(int EventId, LogLevel Level, int? FaultedWaiters)> _events = new();
+        private readonly ConcurrentQueue<(int EventId, LogLevel Level, int? FaultedWaiters, Exception? Cause)> _events = new();
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -361,7 +485,18 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            _events.Enqueue((eventId.Id, logLevel, FaultedWaiters(state)));
+            _events.Enqueue((eventId.Id, logLevel, FaultedWaiters(state), exception));
+
+        internal Exception? Cause(int eventId)
+        {
+            foreach (var recorded in _events)
+            {
+                if (recorded.EventId == eventId)
+                    return recorded.Cause;
+            }
+
+            return null;
+        }
 
         internal (LogLevel Level, int? FaultedWaiters)? Find(int eventId)
         {
