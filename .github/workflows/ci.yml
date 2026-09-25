@@ -1,12 +1,11 @@
 name: CI
 
 on:
-    # main push/PR: Windows/macOS builds/tests run on main only (release branch), not on develop.
-    # Ubuntu (x64) and Ubuntu ARM builds/tests run on every code change.
+    # Pull requests run the ubuntu-only fast path: x64 build, smoke, and tests without
+    # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks.
+    # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
+    # Windows/macOS builds/tests run on main only (release branch), not on develop.
     # Builds/tests are split per OS so ubuntu smoke/tests/Sonar are not gated on Windows/macOS build.
-    # Fast e2e wire-alloc benchmarks remain develop-only.
-    # Weekly schedule and manual dispatch also run the full cross-OS matrix.
-    # Develop runs the ubuntu-only fast path (x64 + ARM); the full cross-OS matrix runs on main.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     # PVS-Studio (Team): same-repo code changes; requires secrets.PVS_STUDIO_CREDENTIALS ("name key").
@@ -129,17 +128,18 @@ jobs:
                     config: .markdownlint-cli2.jsonc
 
     # dotnet format is slow; run it once on the cheapest runner instead of every matrix cell.
-    # Pull requests: changed solution .cs files only (full solution on global config / project changes).
-    # Push, schedule, and workflow_dispatch: full solution.
+    # PR fast path: skipped on pull_request; push, schedule, and workflow_dispatch check the full solution.
     verify-coding-conventions:
         name: Verify Coding Conventions (.editorconfig)
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: changes
         if: |
+            github.event_name != 'pull_request' && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
+            )
         steps:
             -   name: Checkout
                 uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -330,10 +330,13 @@ jobs:
         runs-on: ubuntu-26.04-arm
         timeout-minutes: 60
         needs: changes
+        # PR fast path: ARM build runs on push/schedule/dispatch only.
         if: |
+            github.event_name != 'pull_request' && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
+            )
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -425,14 +428,25 @@ jobs:
                 shell: bash
                 run: |
                     set -o pipefail
-                    mkdir -p coverage/smoke
+                    # PR fast path: coverage is collected on push/schedule/dispatch only.
+                    COVERAGE_ARGS=()
+                    if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+                      mkdir -p coverage/smoke
+                      COVERAGE_ARGS=(
+                        --report-trx --report-trx-filename smoke.trx
+                        --results-directory "${{ github.workspace }}/coverage/smoke"
+                        --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+                      )
+                    else
+                      COVERAGE_ARGS=(--report-trx --report-trx-filename smoke.trx)
+                    fi
                     dotnet test --project tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj --framework net10.0 --configuration Release --no-build --verbosity normal \
-                      --report-trx --report-trx-filename smoke.trx \
-                      --results-directory "${{ github.workspace }}/coverage/smoke" \
-                      --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
+                      "${COVERAGE_ARGS[@]}" \
                       --timeout 20m 2>&1 | tee test-output-smoke.log
 
             -   name: Verify Smoke Coverage Was Collected
+                # PR fast path: coverage gate runs on push/schedule/dispatch only.
+                if: github.event_name != 'pull_request'
                 shell: bash
                 run: |
                     mapfile -t files < <(find coverage/smoke -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -445,7 +459,8 @@ jobs:
                     fi
 
             -   name: Upload Smoke Coverage Files
-                if: always()
+                # PR fast path: coverage upload runs on push/schedule/dispatch only.
+                if: github.event_name != 'pull_request'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-net10.0-smoke
@@ -474,7 +489,7 @@ jobs:
                       echo "No gRPC cancellation errors detected."
                     fi
 
-    # Fast BenchmarkDotNet gate for develop (PR + push). Job.ShortRun unless SQUIRIX_E2E_BENCHMARK_LONG=1;
+    # Fast BenchmarkDotNet gate for develop push. Job.ShortRun unless SQUIRIX_E2E_BENCHMARK_LONG=1;
     # CI overrides warmup/iterations and runs a smoke subset (GetValue + Set × scalar/structured × durability).
     # Full 52-row wire-alloc matrix stays local — docs/benchmarks/e2e-benchmarks.md / wire-alloc-baseline.md.
     benchmarks-fast:
@@ -485,6 +500,7 @@ jobs:
             contents: read
         needs: [ changes, build-ubuntu ]
         if: |
+            github.event_name != 'pull_request' &&
             needs.changes.outputs.code == 'true' && (
               github.ref == 'refs/heads/develop' ||
               github.base_ref == 'develop' ||
@@ -596,7 +612,8 @@ jobs:
                     os: ubuntu-latest
                     framework: net10.0
                     suite: ${{ matrix.suite }}
-                    collect-coverage: "true"
+                    # PR fast path: no coverage on pull_request.
+                    collect-coverage: ${{ github.event_name != 'pull_request' }}
 
     test-windows:
         name: Test (windows-latest / net10.0 / ${{ matrix.suite }})
@@ -681,10 +698,13 @@ jobs:
         runs-on: ubuntu-26.04-arm
         timeout-minutes: 30
         needs: [ build-arm ]
+        # PR fast path: ARM tests run on push/schedule/dispatch only.
         if: |
+            github.event_name != 'pull_request' && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
+            )
         strategy:
             fail-fast: ${{ github.event_name == 'pull_request' }}
             max-parallel: 7
@@ -719,6 +739,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: [ build-ubuntu, smoke-fast-fail ]
+        # PR fast path: explorer runs on push/schedule/dispatch only.
+        if: github.event_name != 'pull_request'
         steps:
             -   name: Set Git Options
                 run: |
@@ -817,6 +839,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [ build-ubuntu, smoke-fast-fail ]
+        # PR fast path: discovery check runs on push/schedule/dispatch only.
+        if: github.event_name != 'pull_request'
         steps:
             -   name: Set Git Options
                 run: |
@@ -908,7 +932,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: [ changes, markdownlint, verify-coding-conventions, smoke-fast-fail, test-ubuntu, verify-test-discovery ]
+        # PR fast path: coverage report runs on push/schedule/dispatch only.
         if: |
+            github.event_name != 'pull_request' &&
             always() &&
             needs.markdownlint.result != 'failure' &&
             (needs.changes.outputs.code == 'true' ||
@@ -1111,7 +1137,9 @@ jobs:
             contents: read
             pull-requests: read
         needs: [ changes, smoke-fast-fail, test-ubuntu ]
+        # PR fast path: SonarCloud runs on push/schedule/dispatch only.
         if: |
+            github.event_name != 'pull_request' &&
             (needs.changes.outputs.code == 'true' ||
              github.event_name == 'schedule' ||
              github.event_name == 'workflow_dispatch') &&
@@ -1478,7 +1506,9 @@ jobs:
             actions: read
             pull-requests: write
         needs: [ changes ]
+        # PR fast path: NDepend runs on push/schedule/dispatch only.
         if: |
+            github.event_name != 'pull_request' &&
             (needs.changes.outputs.code == 'true' ||
              needs.changes.outputs.ndepend == 'true' ||
              github.event_name == 'schedule' ||
@@ -1661,7 +1691,8 @@ jobs:
                     }
 
                     assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
-                    assert_success "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
                     assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
                     assert_success_or_skipped() {
@@ -1681,22 +1712,27 @@ jobs:
                     }
 
                     assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
-                    assert_success "build-arm" "$require_code" "$RESULT_BUILD_ARM"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "build-arm" "$require_code" "$RESULT_BUILD_ARM"
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
-                    assert_success "benchmarks-fast" "$require_benchmarks" "$RESULT_BENCHMARKS"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "benchmarks-fast" "$require_benchmarks" "$RESULT_BENCHMARKS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
-                    assert_success "test-arm" "$require_code" "$RESULT_TEST_ARM"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "test-arm" "$require_code" "$RESULT_TEST_ARM"
                     assert_success_or_skipped "test-windows" "$require_code" "$RESULT_TEST_WINDOWS"
                     assert_success_or_skipped "test-macos" "$require_code" "$RESULT_TEST_MACOS"
-                    assert_success "protocol-model-explorer" "$require_code" "$RESULT_PROTOCOL_MODEL_EXPLORER"
-                    assert_success "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
-                    assert_success "coverage" "$require_code" "$RESULT_COVERAGE"
-                    assert_success "sonarcloud" "$require_sonar" "$RESULT_SONAR"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "protocol-model-explorer" "$require_code" "$RESULT_PROTOCOL_MODEL_EXPLORER"
+                    assert_success_or_skipped "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
+                    # PR fast path: skipped on pull_request, required otherwise.
+                    assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
+                    assert_success_or_skipped "sonarcloud" "$require_sonar" "$RESULT_SONAR"
                     # TODO(.NET 11): back to assert_success when the pvs-studio job is re-enabled.
                     assert_success_or_skipped "pvs-studio" "$require_pvs" "$RESULT_PVS"
-                    assert_success "ndepend" "$require_ndepend" "$RESULT_NDEPEND"
+                    assert_success_or_skipped "ndepend" "$require_ndepend" "$RESULT_NDEPEND"
 
                     if [[ "$failed" -ne 0 ]]; then
                       exit 1
