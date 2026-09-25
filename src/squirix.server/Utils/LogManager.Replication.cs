@@ -29,4 +29,10 @@ internal static partial class LogManager
         Level = LogLevel.Warning,
         Message = "Replica commit outcome is unknown after the local append; the cause is reported here and the caller gets COMMIT_OUTCOME_UNKNOWN")]
     internal static partial void ReplicaCommitOutcomeUnknown(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4007,
+        Level = LogLevel.Warning,
+        Message = "Replica group entries past their majority could not be applied to memory yet; new writes and resyncs are refused until they are")]
+    internal static partial void ReplicaPendingApplyFailed(ILogger logger, Exception exception);
 }
