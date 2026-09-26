@@ -262,13 +262,18 @@ jobs:
                     # Pull requests build the test artifact without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: ${{ github.event_name != 'pull_request' }}
 
-    # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
+    # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. The analyzed build is a
+    # serial chain of large projects, so it runs sharded (tools/ci/analyze-shards.py) and uploads nothing.
     analyze-ubuntu:
-        name: Analyze (ubuntu-latest / net10.0)
+        name: Analyze (ubuntu-latest / net10.0 / ${{ matrix.shard }})
         runs-on: ubuntu-latest
         timeout-minutes: 45
         needs: changes
         if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [ server-unit, server-integration, server, clients ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -284,12 +289,10 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Analyzed Release Build
-                uses: ./.github/actions/build-release
+            -   name: Analyze Shard
+                uses: ./.github/actions/analyze-shard
                 with:
-                    artifact-os: ubuntu-latest
-                    framework: net10.0
-                    upload-outputs: "false"
+                    shard: ${{ matrix.shard }}
 
     build-windows:
         name: Build (windows-latest / net10.0)

@@ -1,0 +1,71 @@
+name: Analyze Shard
+description: Compile one shard of the solution with Roslyn analyzers on, on top of an analyzer-free build of its dependencies.
+
+inputs:
+  shard:
+    description: Shard id from tools/ci/analyze-shards.py.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-quality: preview
+        global-json-file: global.json
+
+    - name: Cache NuGet Packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-dotnet10-nuget-
+
+    - name: Ensure Local Package Feed Exists
+      shell: bash
+      run: mkdir -p artifacts/packages
+
+    - name: Restore
+      shell: bash
+      run: dotnet restore squirix.slnx
+
+    - name: Verify Shards Cover The Solution
+      shell: bash
+      run: python3 tools/ci/analyze-shards.py verify
+
+    - name: Build Dependencies Without Analyzers
+      shell: bash
+      env:
+        SHARD: ${{ inputs.shard }}
+      run: |
+        set -euo pipefail
+        # Analyzers only report diagnostics, so the shard's dependencies come out the same and compile quickly.
+        while IFS= read -r project; do
+          dotnet build "$project" --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+        done < <(python3 tools/ci/analyze-shards.py list "$SHARD")
+
+    - name: Analyze Shard Projects
+      shell: bash
+      env:
+        SHARD: ${{ inputs.shard }}
+      run: |
+        set -euo pipefail
+        # Re-compile only the shard's own projects (dependencies are used as built above) with analyzers and
+        # TreatWarningsAsErrors. --no-incremental is required: analyzer settings are not an incremental-build input,
+        # so an up-to-date project would otherwise be skipped without running any analyzer.
+        while IFS= read -r project; do
+          extra=()
+          case "$project" in
+            tests/*|benchmarks/*)
+              # The AOT/trim analyzer only matters for the shipped libraries under src/.
+              extra=(-p:IsAotCompatible=false)
+              ;;
+          esac
+          started=$SECONDS
+          echo "::group::Analyze $project"
+          dotnet build "$project" --configuration Release --no-restore --no-dependencies --no-incremental "${extra[@]}"
+          echo "::endgroup::"
+          echo "Analyzed $project in $((SECONDS - started))s."
+        done < <(python3 tools/ci/analyze-shards.py list "$SHARD")
