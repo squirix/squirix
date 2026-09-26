@@ -32,128 +32,6 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
     private static readonly TimeSpan PastThreshold = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 200);
 
-    /// <summary>A fast fsync does not log a slow-fsync warning.</summary>
-    [Test]
-    public async Task FastFsyncDoesNotWarn()
-    {
-        var logger = new RecordingLogger();
-        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
-        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
-
-        loop.EventLoop.SetDirty(true);
-        loop.EventLoop.FlushToDisk();
-
-        _ = await Assert.That(writer.FsyncCount).IsEqualTo(1);
-        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(0);
-    }
-
-    /// <summary>A gate holder action that fails after a long hold still surfaces its own exception when the log sink throws.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LongGateHoldKeepsActionFailure(CancellationToken cancellationToken)
-    {
-        var logger = new RecordingLogger(true);
-        var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
-        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
-        await using var journal = new JournalCoordinator(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            writer,
-            logger);
-        var failure = new InvalidOperationException("action failed");
-
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.ExecuteUnderSnapshotBarrierAsync(
-            failure,
-            static async (reason, ct) =>
-            {
-                await Task.Delay(PastThreshold, TimeProvider.System, ct);
-                throw reason;
-            },
-            cancellationToken));
-
-        _ = await Assert.That(thrown).IsSameReferenceAs(failure);
-        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
-    }
-
-    /// <summary>A mutation gate held past the threshold logs a long-hold warning.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LongGateHoldWarns(CancellationToken cancellationToken)
-    {
-        var logger = new RecordingLogger();
-        var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
-        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
-        await using var journal = new JournalCoordinator(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            writer,
-            logger);
-
-        await journal.ExecuteUnderSnapshotBarrierAsync(
-            PastThreshold,
-            static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct),
-            cancellationToken);
-
-        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
-    }
-
-    /// <summary>An fsync slower than the threshold logs a slow-fsync warning.</summary>
-    [Test]
-    public async Task SlowFsyncWarns()
-    {
-        var logger = new RecordingLogger();
-        using var writer = new SleepingFsyncSegmentWriter(PastThreshold);
-        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
-
-        loop.EventLoop.SetDirty(true);
-        loop.EventLoop.FlushToDisk();
-
-        _ = await Assert.That(writer.FsyncCount).IsEqualTo(1);
-        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
-    }
-
-    /// <summary>An fsync that is slow and then fails is still reported, and its failure is preserved.</summary>
-    [Test]
-    public async Task SlowFailingFsyncWarns()
-    {
-        var logger = new RecordingLogger();
-        using var writer = new SleepingFsyncSegmentWriter(PastThreshold, true);
-        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
-        loop.EventLoop.SetDirty(true);
-
-        _ = NodeExceptionAssert.For<IOException>().Throws(loop, static l => l.EventLoop.FlushToDisk());
-
-        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
-    }
-
-    /// <summary>A maintenance action that holds the mutation gate past the threshold logs a long-hold warning.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LongMaintenanceGateHoldWarns(CancellationToken cancellationToken)
-    {
-        var logger = new RecordingLogger();
-        var options = CreateOptions();
-        using var manifestStore = new Ledger(options);
-        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
-        await using var journal = new JournalCoordinator(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            writer,
-            logger);
-
-        await journal.ExecuteMaintenanceExclusiveAsync(static async ct => await Task.Delay(PastThreshold, TimeProvider.System, ct), cancellationToken);
-
-        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
-    }
-
     /// <summary>A durability wait canceled while an fsync is stalled reports the stall at the moment of cancellation.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -198,6 +76,33 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(waitBudget.Token).AsTask());
+
+        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A gate wait canceled while another holder keeps the gate past the threshold reports the stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledGateWaitReportsHolder(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        var holdFor = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800);
+        var holder = HoldGateAsync(journal, holdFor, cancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
+        await holder;
 
         _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
     }
@@ -259,10 +164,57 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
     }
 
-    /// <summary>A gate wait canceled while another holder keeps the gate past the threshold reports the stall.</summary>
+    /// <summary>A fast fsync does not log a slow-fsync warning.</summary>
+    [Test]
+    public async Task FastFsyncDoesNotWarn()
+    {
+        var logger = new RecordingLogger();
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
+
+        loop.EventLoop.SetDirty(true);
+        loop.EventLoop.FlushToDisk();
+
+        _ = await Assert.That(writer.FsyncCount).IsEqualTo(1);
+        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(0);
+    }
+
+    /// <summary>A gate holder action that fails after a long hold still surfaces its own exception when the log sink throws.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CanceledGateWaitReportsHolder(CancellationToken cancellationToken)
+    public async Task LongGateHoldKeepsActionFailure(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger(true);
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+        var failure = new InvalidOperationException("action failed");
+
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
+            journal.ExecuteUnderSnapshotBarrierAsync(
+                failure,
+                static async (reason, ct) =>
+                {
+                    await Task.Delay(PastThreshold, TimeProvider.System, ct);
+                    throw reason;
+                },
+                cancellationToken));
+
+        _ = await Assert.That(thrown).IsSameReferenceAs(failure);
+        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A mutation gate held past the threshold logs a long-hold warning.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongGateHoldWarns(CancellationToken cancellationToken)
     {
         var logger = new RecordingLogger();
         var options = CreateOptions();
@@ -275,19 +227,65 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        var holdFor = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800);
-        var holder = HoldGateAsync(journal, holdFor, cancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
-        using var waitBudget = new CancellationTokenSource(TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 150));
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
-        await holder;
+        await journal.ExecuteUnderSnapshotBarrierAsync(PastThreshold, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken);
 
-        _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
+        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
 
-    private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) =>
-        journal.ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
+    /// <summary>A maintenance action that holds the mutation gate past the threshold logs a long-hold warning.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongMaintenanceGateHoldWarns(CancellationToken cancellationToken)
+    {
+        var logger = new RecordingLogger();
+        var options = CreateOptions();
+        using var manifestStore = new Ledger(options);
+        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
+        await using var journal = new JournalCoordinator(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            writer,
+            logger);
+
+        await journal.ExecuteMaintenanceExclusiveAsync(static async ct => await Task.Delay(PastThreshold, TimeProvider.System, ct), cancellationToken);
+
+        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>A fsync that is slow and then fails is still reported, and its failure is preserved.</summary>
+    [Test]
+    public async Task SlowFailingFsyncWarns()
+    {
+        var logger = new RecordingLogger();
+        using var writer = new SleepingFsyncSegmentWriter(PastThreshold, true);
+        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
+        loop.EventLoop.SetDirty(true);
+
+        _ = NodeExceptionAssert.For<IOException>().Throws(loop, static l => l.EventLoop.FlushToDisk());
+
+        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>An fsync slower than the threshold logs a slow-fsync warning.</summary>
+    [Test]
+    public async Task SlowFsyncWarns()
+    {
+        var logger = new RecordingLogger();
+        using var writer = new SleepingFsyncSegmentWriter(PastThreshold);
+        using var loop = new EventLoopSetup(CreateOptions(), writer, logger);
+
+        loop.EventLoop.SetDirty(true);
+        loop.EventLoop.FlushToDisk();
+
+        _ = await Assert.That(writer.FsyncCount).IsEqualTo(1);
+        _ = await Assert.That(logger.Count(FsyncSlowEventId)).IsEqualTo(1);
+    }
+
+    private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) => journal
+       .ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
 
     private PersistenceOptions CreateOptions() => new()
     {
@@ -304,14 +302,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
         internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
         {
-            EventLoop = new JournalEventLoop(
-                new FakeEventLoopHost(),
-                _ring,
-                writer,
-                options,
-                new JournalEventLoopStartup(1, 0, 0),
-                _backgroundCancellation.Token,
-                logger);
+            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0), _backgroundCancellation.Token, logger);
         }
 
         internal JournalEventLoop EventLoop { get; }
@@ -390,8 +381,8 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
     private sealed class SleepingFsyncSegmentWriter : IJournalSegmentWriter
     {
-        private readonly TimeSpan _fsyncDelay;
         private readonly bool _failAfterDelay;
+        private readonly TimeSpan _fsyncDelay;
         private readonly TimeSpan _writeDelay;
         private int _fsyncCount;
 

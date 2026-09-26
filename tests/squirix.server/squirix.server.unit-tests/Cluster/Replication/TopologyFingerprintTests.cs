@@ -239,7 +239,7 @@ public sealed class TopologyFingerprintTests
     {
         var copy = new FingerprintPeer[peers.Length];
         peers.CopyTo(copy);
-        return new()
+        return new FingerprintInputs
         {
             ClusterId = "cluster",
             ConfigurationGeneration = 1,

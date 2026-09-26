@@ -64,24 +64,23 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
             // Execution is in flight in this process: wait for it under this caller's own deadline. The completion never
             // faults; it only signals that the record is settled.
-            if (reservation == IdempotencyReserveResult.AlreadyStarted && inFlight != null)
+            if (reservation != IdempotencyReserveResult.AlreadyStarted || inFlight == null)
             {
-                await inFlight.WaitAsync(cancellationToken).ConfigureAwait(false);
-                continue;
+                return reservation switch
+                {
+                    // A concurrent call completed between the replay probe and the reservation; replay its outcome.
+                    IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
+                        : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
+                    IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false),
+
+                    // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown
+                    // value: the outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
+                    IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
+                    _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
+                };
             }
 
-            return reservation switch
-            {
-                // A concurrent call completed between the replay probe and the reservation; replay its outcome.
-                IdempotencyReserveResult.AlreadyCompleted => _store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var completed) ? completed!
-                    : throw new InvalidOperationException("Idempotency reservation completed without a replayed outcome."),
-                IdempotencyReserveResult.Acquired => await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false),
-
-                // Started with no execution to join (rebuilt from the journal, or stamped and then failed), or an unknown
-                // value: the outcome is unknown to this caller, so surface COMMIT_OUTCOME_UNKNOWN instead of re-executing.
-                IdempotencyReserveResult.AlreadyStarted => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-                _ => throw ServerOpContract.CommitOutcomeUnknown().ToRpcException(),
-            };
+            await inFlight.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -96,8 +95,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     {
         try
         {
-            return _journal != null
-                ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false)
+            return _journal != null ? await ExecuteDurableAsync(_journal, operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false)
                 : await ExecuteInMemoryAsync(operationId, fingerprint, state, execute, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -145,6 +143,28 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         }
     }
 
+    private async Task<TResponse> ExecuteInMemoryAsync<TState, TResponse>(
+        string operationId,
+        string fingerprint,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : class, IMessage<TResponse>, new()
+    {
+        try
+        {
+            var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+            _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
+            return memoryOnlyResponse;
+        }
+        catch
+        {
+            // The in-memory path never produces a durable outcome, so releasing the reservation is safe.
+            _store.ReleaseIntent(operationId, fingerprint);
+            throw;
+        }
+    }
+
     /// <summary>Appends the outcome frame and waits for its durability.</summary>
     /// <typeparam name="TResponse">Response type.</typeparam>
     /// <param name="journal">Journal the outcome is appended to.</param>
@@ -175,28 +195,6 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
             // frame), so the first caller gets the same unknown outcome a retry gets, never a definite failure.
             LogManager.DurableMutationOutcomeUnknown(Log, ex);
             throw ServerOpContract.CommitOutcomeUnknown().ToRpcException();
-        }
-    }
-
-    private async Task<TResponse> ExecuteInMemoryAsync<TState, TResponse>(
-        string operationId,
-        string fingerprint,
-        TState state,
-        Func<TState, CancellationToken, Task<TResponse>> execute,
-        CancellationToken cancellationToken)
-        where TResponse : class, IMessage<TResponse>, new()
-    {
-        try
-        {
-            var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-            _store.RecordSuccess(operationId, fingerprint, IdempotencyResponseCodec.SerializeResponseBytes(memoryOnlyResponse));
-            return memoryOnlyResponse;
-        }
-        catch
-        {
-            // The in-memory path never produces a durable outcome, so releasing the reservation is safe.
-            _store.ReleaseIntent(operationId, fingerprint);
-            throw;
         }
     }
 

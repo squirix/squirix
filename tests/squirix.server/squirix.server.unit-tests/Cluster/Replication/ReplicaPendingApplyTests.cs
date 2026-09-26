@@ -169,7 +169,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1 }),
         1,
         logIndex,
-        new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { outcome }, 4));
+        new ReplicaMutationPayload(new byte[] { 2 }, new[] { outcome }, 4));
 
     /// <summary>Fault hooks that inject nothing.</summary>
     [Immutable]

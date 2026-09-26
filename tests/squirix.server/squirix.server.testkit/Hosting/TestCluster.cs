@@ -22,7 +22,8 @@ namespace Squirix.Server.TestKit.Hosting;
 /// The topology belongs to the cluster, so callers start, stop, and restart nodes by identifier and never
 /// pass the topology again. The project supplies a starter that starts one topology entry.
 /// <see cref="DisposeAsync" /> waits for every <see cref="StopNodeAsync" /> call already in flight when it starts
-/// before releasing the shared identity and data directory. A <see cref="StopNodeAsync" /> call that begins after
+/// before releasing the shared identity and data directory, and it releases the held listen port of every
+/// topology entry that never started, so a test may start only part of the topology. A <see cref="StopNodeAsync" /> call that begins after
 /// <see cref="DisposeAsync" /> has started tearing the cluster down is not linearized against it and should be
 /// avoided: dispose the cluster only once every intended <see cref="StopNodeAsync" /> and
 /// <see cref="RestartNodeAsync" /> call for the test has returned. Concurrent <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />
@@ -323,6 +324,12 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         }
 
         _nodes.Clear();
+
+        // A topology entry that never started still holds the listen port reserved for it; node startup
+        // releases the hold before binding, so this is a no-op for every entry that ever started.
+        for (var i = 0; i < _topology.Length; i++)
+            ListenPortPool.ReleaseHeldPrimary(_topology[i].Uri);
+
         _identity?.Dispose();
         DataDir?.Dispose();
 
@@ -372,6 +379,20 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             sharedIdentity,
             dir == null ? null : new TempDirectory(dir, string.Empty));
     }
+
+    /// <summary>Creates a single-node cluster from the supplied node starter.</summary>
+    /// <param name="node">The only topology entry.</param>
+    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
+    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
+    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
+    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
+    /// <returns>A cluster that starts the node through <paramref name="startNode" />.</returns>
+    internal static TestCluster<TOptions> Create(
+        ClusterNode node,
+        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
+        ServerPeer[]? peers = null,
+        ClusterIdentity? identity = null,
+        TempDirectory? dataDir = null) => new(node, startNode, peers, identity, dataDir);
 
     /// <summary>Creates a cluster from the supplied topology and node starter.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>

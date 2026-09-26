@@ -24,6 +24,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TestCluster<ClusterStartOptions> _cluster;
+    private readonly Dictionary<string, ISquirixClient> _nodeClients = [with(StringComparer.Ordinal)];
     private int _disposed;
 
     private HostedCluster(TestCluster<ClusterStartOptions> cluster)
@@ -40,6 +41,10 @@ internal sealed class HostedCluster : IAsyncDisposable
             await _clients[i].DisposeAsync();
 
         _clients.Clear();
+        foreach (var client in _nodeClients.Values)
+            await client.DisposeAsync();
+
+        _nodeClients.Clear();
         await _cluster.DisposeAsync();
     }
 
@@ -85,22 +90,73 @@ internal sealed class HostedCluster : IAsyncDisposable
         return client;
     }
 
-    /// <summary>Gets a started node by identifier.</summary>
+    /// <summary>Shuts one running node down abruptly, without a graceful drain, leaving it registered until it is stopped or restarted.</summary>
     /// <param name="nodeId">Node identifier.</param>
-    /// <returns>The started test node host.</returns>
-    internal ITestNodeHost GetNode(string nodeId) => _cluster[nodeId];
+    /// <returns>A task that completes when the node has shut down.</returns>
+    internal ValueTask AbruptShutdownNodeAsync(string nodeId) => _cluster[nodeId].AbruptShutdownAsync();
+
+    /// <summary>Gets a typed cache facade through the node's cluster-owned client, connecting it on first use.</summary>
+    /// <remarks>
+    /// The client belongs to the node: <see cref="StopNodeAsync" /> and <see cref="RestartNodeAsync" /> dispose it
+    /// before the node stops, and the next call reconnects to the restarted node.
+    /// </remarks>
+    /// <typeparam name="T">Cached value type.</typeparam>
+    /// <param name="cacheName">Cache name.</param>
+    /// <param name="nodeId">Node identifier the client connects to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The cache facade.</returns>
+    internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, string nodeId = "nodeA", CancellationToken cancellationToken = default)
+    {
+        if (_nodeClients.TryGetValue(nodeId, out var client))
+            return await client.GetCacheAsync<T>(cacheName, cancellationToken);
+
+        client = await LoopbackConnect.ConnectAsync(_cluster[nodeId].Uri, cancellationToken);
+        _nodeClients[nodeId] = client;
+        return await client.GetCacheAsync<T>(cacheName, cancellationToken);
+    }
+
+    /// <summary>Gets the persistence data directory of a node; it stays valid while the node is stopped.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>The node data directory path.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the cluster was started without persistence.</exception>
+    internal string GetDataDir(string nodeId) => NodePathKit.Combine(E2EThrowHelper.Required(_cluster.DataDir, "The cluster was started without persistence."), nodeId);
 
     internal Uri GetUri(string nodeId) => _cluster[nodeId].Uri;
+
+    /// <summary>Gets a value indicating whether a running node opened the internode mTLS listener.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns><see langword="true" /> when the node listens for internode mTLS traffic.</returns>
+    internal bool HasInterNodeMtlsListener(string nodeId) => _cluster[nodeId].HasInterNodeMtlsListener;
 
     /// <summary>Stops one node and starts it again on the same data directory and listen address.</summary>
     /// <param name="id">Node identifier to restart.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the node is running again.</returns>
-    internal async ValueTask RestartNodeAsync(string id, CancellationToken cancellationToken = default) => _ = await _cluster.RestartNodeAsync(id, null, cancellationToken);
+    internal async ValueTask RestartNodeAsync(string id, CancellationToken cancellationToken = default)
+    {
+        // The stop must complete before the restart: a canceled wait would leave the previous host
+        // shutting down while the new one binds the same URI and data directory.
+        await StopNodeAsync(id);
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = await _cluster.RestartNodeAsync(id, null, cancellationToken);
+    }
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
+    /// <remarks>The node's client from <see cref="GetCacheAsync{T}" /> is disposed before the node stops.</remarks>
     /// <param name="id">Node identifier to stop.</param>
-    internal ValueTask StopNodeAsync(string id) => _cluster.StopNodeAsync(id);
+    /// <returns>A task that completes when the node is stopped.</returns>
+    internal async ValueTask StopNodeAsync(string id)
+    {
+        try
+        {
+            if (_nodeClients.Remove(id, out var client))
+                await client.DisposeAsync();
+        }
+        finally
+        {
+            await _cluster.StopNodeAsync(id);
+        }
+    }
 
     private static string BuildDataDir(TempDirectory dir, string nodeId)
     {
