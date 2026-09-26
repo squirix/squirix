@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -8,10 +9,10 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaMutationLease : IDisposable
 {
-    private readonly SemaphoreSlim _stripe;
+    private readonly AsyncLockHolder _stripe;
     private ReplicaMutationGate? _owner;
 
-    internal ReplicaMutationLease(ReplicaMutationGate owner, SemaphoreSlim stripe)
+    internal ReplicaMutationLease(ReplicaMutationGate owner, AsyncLockHolder stripe)
     {
         _owner = owner;
         _stripe = stripe;

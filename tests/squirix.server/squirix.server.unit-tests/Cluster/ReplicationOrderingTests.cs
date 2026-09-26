@@ -45,6 +45,38 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         _ = await Assert.That(gate.StripeCount).IsEqualTo(2);
     }
 
+    /// <summary>Disposing the gate faults an entry queued on the capacity and one queued on a key stripe, and a lease still out returns its slot without a throw.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeFaultsQueuedEntries(CancellationToken cancellationToken)
+    {
+        var gate = new ReplicaMutationGate(2, 2);
+        using var first = await gate.EnterAsync(0, cancellationToken);
+        using var second = await gate.EnterAsync(1, cancellationToken);
+        var onCapacity = gate.EnterAsync(0, CancellationToken.None);
+        _ = await Assert.That(onCapacity.IsCompleted).IsFalse();
+
+        // Capacity of one more slot: the next entry passes the capacity and queues behind the first lease on its stripe.
+        var stripeGate = new ReplicaMutationGate(2, 1);
+        using var holder = await stripeGate.EnterAsync(0, cancellationToken);
+        var onStripe = stripeGate.EnterAsync(0, CancellationToken.None);
+        _ = await Assert.That(onStripe.IsCompleted).IsFalse();
+        _ = await Assert.That(stripeGate.ActiveCount).IsEqualTo(1);
+
+        gate.Dispose();
+        stripeGate.Dispose();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onCapacity);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onStripe);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(gate.EnterAsync(0, cancellationToken));
+
+        first.Dispose();
+        second.Dispose();
+        holder.Dispose();
+        _ = await Assert.That(gate.ActiveCount).IsEqualTo(0);
+        _ = await Assert.That(stripeGate.ActiveCount).IsEqualTo(0);
+    }
+
     /// <summary>The final index cannot complete an append; the boundary stays refused.</summary>
     [Test]
     public void CompleteFinalIndexAppendThrows()
