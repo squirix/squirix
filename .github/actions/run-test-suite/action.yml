@@ -107,7 +107,8 @@ runs:
 
         if [ "$DIRECT" = "true" ]; then
           # The test host is named after its project; it accepts the same Microsoft.Testing.Platform options and exit codes.
-          "$(dirname "$PROJECT")/bin/Release/${{ inputs.framework }}/$(basename "$PROJECT" .csproj)" \
+          # Tiered PGO instrumentation only pays off in long-running processes; a test run is short, so skip its JIT overhead.
+          DOTNET_TieredPGO=0 "$(dirname "$PROJECT")/bin/Release/${{ inputs.framework }}/$(basename "$PROJECT" .csproj)" \
             "${FILTER_ARGS[@]}" \
             --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
             --results-directory "${{ github.workspace }}/TestResults" \
