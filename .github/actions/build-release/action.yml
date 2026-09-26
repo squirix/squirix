@@ -61,6 +61,8 @@ runs:
       with:
         name: build-output-${{ inputs.artifact-os }}-${{ inputs.framework }}
         retention-days: 1
+        # Level 1: the payload is mostly DLLs that barely shrink further, so the extra CPU of the default level is wasted.
+        compression-level: 1
         path: |
           src/**/bin/Release/${{ inputs.framework }}/
           src/**/obj/Release/${{ inputs.framework }}/
