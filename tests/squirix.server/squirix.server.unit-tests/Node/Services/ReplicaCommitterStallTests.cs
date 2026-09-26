@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -24,7 +25,10 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>An RF=2 group owner whose memory apply fails or stalls after the majority acknowledged the write.</summary>
+/// <summary>
+/// An RF=2 group owner whose follower stalls before the majority, or whose memory apply fails or stalls after the majority acknowledged
+/// the write.
+/// </summary>
 public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 {
     private const int CommitUnknownEventId = 4006;
@@ -37,6 +41,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     private static readonly byte[] Fingerprint = [9, 8, 7];
 
     private static readonly TimeSpan LogShutdownBudget = TimeSpan.FromMilliseconds(200);
+
+    private static readonly TimeSpan ShortCommitBudget = TimeSpan.FromMilliseconds(200);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
@@ -72,6 +78,48 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = await Assert.That(remote.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(log.UnknownCause?.InnerException?.Message).IsEqualTo("Injected memory apply failure after the majority.");
+    }
+
+    /// <summary>
+    /// A write whose follower never answers ends with COMMIT_OUTCOME_UNKNOWN once a shortened commit budget expires, well before the
+    /// default budget of 5 seconds, with its entry kept in the local log.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShortCommitBudgetYieldsUnknownFast(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        var log = new LeakRecordingLogger();
+        var gateway = new StalledGateway();
+        await using var registry = await OpenRegistryAsync(cancellationToken);
+        await using var defaults = CreateCommitter(registry, local, log);
+        await using var committer = new ReplicaGroupCommitter(registry, new TwoNodeLocator(), gateway, local, OwnedGroup, Fingerprint, 1)
+        {
+            CommitBudget = ShortCommitBudget,
+            Log = log,
+            ShutdownBudget = LogShutdownBudget,
+        };
+        try
+        {
+            var started = Stopwatch.GetTimestamp();
+            var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
+            await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var elapsed = Stopwatch.GetElapsedTime(started);
+
+            _ = await Assert.That(defaults.CommitBudget).IsEqualTo(TimeSpan.FromSeconds(5));
+            _ = await Assert.That(committer.CommitBudget).IsEqualTo(ShortCommitBudget);
+            _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+            _ = await Assert.That(elapsed < defaults.CommitBudget).IsTrue();
+            _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
+            _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
+            _ = await Assert.That(local.Applied.IsEmpty).IsTrue();
+        }
+        finally
+        {
+            gateway.Release();
+        }
     }
 
     /// <summary>
@@ -431,6 +479,25 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
         }
+    }
+
+    /// <summary>Follower double whose appends stay unanswered until released, and then fail the transport.</summary>
+    [ThreadSafe]
+    private sealed class StalledGateway : IReplicaRpcGateway
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task Entered => _entered.Task;
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            _ = _entered.TrySetResult();
+            await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            throw new IOException("follower is down");
+        }
+
+        internal void Release() => _ = _released.TrySetResult();
     }
 
     /// <summary>Remote owner double that reports the stable commit-unknown contract over gRPC.</summary>

@@ -24,7 +24,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 {
     private const int MaxInFlight = 2;
     private const string PendingApplyRefusalReason = "replica_apply_pending";
-    private static readonly TimeSpan CommitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultCommitBudget = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
@@ -72,7 +72,25 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _topologyFingerprint = topologyFingerprint.IsEmpty ? throw new ArgumentException("Topology fingerprint must not be empty.", nameof(topologyFingerprint))
             : topologyFingerprint;
         _generation = generation;
+        CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
+    }
+
+    /// <summary>Gets the budget of one commit attempt up to its durable majority; 5 seconds unless set.</summary>
+    /// <remarks>
+    /// It bounds queueing, the local appending and the majority wait; an attempt that runs out of it after the local appending
+    /// ends with an unknown outcome.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan CommitBudget
+    {
+        get;
+        init
+        {
+            value.ThrowIfNegativeOrZero(nameof(value), "The commit budget must be greater than zero.");
+
+            field = value;
+        }
     }
 
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
@@ -346,7 +364,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         try
         {
-            return await coordinator.CommitAsync(mutation, CommitTimeout, CancellationToken.None).ConfigureAwait(false);
+            return await coordinator.CommitAsync(mutation, CommitBudget, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception error) when (IsPostAppendOutcome(error))
         {
