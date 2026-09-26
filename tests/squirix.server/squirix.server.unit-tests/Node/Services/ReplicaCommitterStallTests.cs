@@ -111,7 +111,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             _ = await Assert.That(defaults.CommitBudget).IsEqualTo(TimeSpan.FromSeconds(5));
             _ = await Assert.That(committer.CommitBudget).IsEqualTo(ShortCommitBudget);
             _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-            _ = await Assert.That(elapsed < defaults.CommitBudget).IsTrue();
+            _ = await Assert.That(elapsed < ShortCommitBudget + TimeSpan.FromSeconds(2)).IsTrue().Because($"the shortened budget ended the commit in {elapsed}");
             _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
             _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
             _ = await Assert.That(local.Applied.IsEmpty).IsTrue();
