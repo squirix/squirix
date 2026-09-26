@@ -24,11 +24,13 @@ runs:
       id: mode
       shell: bash
       run: |
-        # Pull requests run without coverage. `dotnet test` needs a package restore (hence the NuGet cache) only to
-        # discover the project; the built test host in bin is self-contained, so that path runs it directly.
-        echo "direct=${{ github.event_name == 'pull_request' && inputs.collect-coverage != 'true' }}" >> "$GITHUB_OUTPUT"
+        # Linux pull request jobs run without coverage. `dotnet test` needs a package restore (hence the NuGet cache) only to
+        # discover the project; the built test host in bin is self-contained, so that path runs it directly. The runner image
+        # already ships the .NET runtime the host needs, so it also skips installing the SDK pinned in global.json.
+        echo "direct=${{ github.event_name == 'pull_request' && inputs.collect-coverage != 'true' && runner.os == 'Linux' }}" >> "$GITHUB_OUTPUT"
 
     - name: Setup .NET
+      if: steps.mode.outputs.direct != 'true'
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-quality: preview
@@ -65,8 +67,16 @@ runs:
         chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ inputs.framework }}/Squirix.ProtocolModel.Tests || true
 
     - name: Ensure Dev HTTPS Certificate
+      if: steps.mode.outputs.direct != 'true'
       shell: bash
       run: bash tools/ci/ensure-dev-https-cert.sh
+
+    - name: Ensure Dev HTTPS Certificate (Runner SDK)
+      if: steps.mode.outputs.direct == 'true'
+      shell: bash
+      # The SDK pinned in global.json is not installed on this path; run outside the repository so the runner's SDK is used.
+      working-directory: ${{ runner.temp }}
+      run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
     - name: Shim python3 On Windows
       if: runner.os == 'Windows'
