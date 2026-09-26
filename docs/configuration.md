@@ -198,6 +198,9 @@ When `WaitForRecovery` is `false`, replay runs in the background:
 - `/health/ready` also reports **Unhealthy** for fatal durability maintenance failures (`journal_maintenance`),
   including a journal pipeline latched as failed (for example a failed fsync; the node cannot commit until restart
   and the check description names the failure), failed journal compaction state, or fatal snapshot trigger failure.
+- `/health/ready` reports **Degraded** (HTTP `200`, body `Degraded`) while one journal write or flush has been in
+  progress for at least `JournalStallDegradedThreshold`, and returns to **Healthy** once it completes. See
+  [diagnostics.md](diagnostics.md).
 - `/health/live` remains available for process liveness.
 
 Use non-blocking recovery only when load balancers honor `/health/ready` and callers tolerate delayed read availability
@@ -247,6 +250,8 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
 - `RetentionCleanupDegradedWrites` — `3`; consecutive retention-cleanup write failures before degraded readiness
 - `RetentionCleanupDegradedWindowFailures` — `5`; failures inside the sliding window before degraded readiness
 - `RetentionCleanupDegradedWindowMinutes` — `15`; sliding window used with `RetentionCleanupDegradedWindowFailures`
+- `JournalStallDegradedThreshold` — `5` seconds; `> 0`; how long one journal write or flush may stay in progress before
+  `journal_maintenance` reports readiness **Degraded**
 
 `JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
 that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness

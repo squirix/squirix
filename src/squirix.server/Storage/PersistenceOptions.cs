@@ -55,6 +55,12 @@ internal sealed record PersistenceOptions
     internal JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
 
     /// <summary>
+    /// Gets how long one journal segment I/O call (a write or a flush) may stay in progress before readiness reports the node
+    /// degraded. Internal host default only: not bound from configuration.
+    /// </summary>
+    internal TimeSpan JournalStallDegradedThreshold { get; init; } = PersistenceOptionsDefaults.JournalStallDegradedThreshold;
+
+    /// <summary>
     /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is allocated lazily on the first-staged appending.
     /// Frames larger than this value bypass coalescing and are written directly.
     /// </summary>
@@ -103,6 +109,8 @@ internal sealed record PersistenceOptions
             throw new InvalidOperationException("Persistence JournalMaxSegmentMb must be greater than zero.");
         if (JournalMaxTotalBytesMb <= 0)
             throw new InvalidOperationException("Persistence JournalMaxTotalBytesMb must be greater than zero.");
+        if (JournalStallDegradedThreshold <= TimeSpan.Zero)
+            throw new InvalidOperationException("Persistence JournalStallDegradedThreshold must be greater than zero.");
         if (JournalWriteBatch <= 0)
             throw new InvalidOperationException("Persistence JournalWriteBatch must be greater than zero.");
         if (ManifestRetentionCount <= 0)
@@ -139,5 +147,8 @@ internal sealed record PersistenceOptions
 
         /// <summary>Default maximum wait for an additional journal appends before a shared durability flush; zero disables group commit.</summary>
         internal static readonly TimeSpan JournalGroupCommitMaxWait = TimeSpan.Zero;
+
+        /// <summary>Default journal I/O stall duration before readiness reports degraded; the same order as the replication commit budget.</summary>
+        internal static readonly TimeSpan JournalStallDegradedThreshold = TimeSpan.FromSeconds(5);
     }
 }
