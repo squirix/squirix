@@ -17,6 +17,10 @@ inputs:
     description: When false, build with Roslyn analyzers and code-style enforcement off. Used for the test artifact on pull requests; a separate job runs the analyzed build.
     required: false
     default: "true"
+  upload-outputs:
+    description: When false, skip the build output artifact upload (analyzer-only build).
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -71,6 +75,7 @@ runs:
       run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
 
     - name: Upload Build Outputs For Tests
+      if: inputs.upload-outputs == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: build-output-${{ inputs.artifact-os }}-${{ inputs.framework }}
