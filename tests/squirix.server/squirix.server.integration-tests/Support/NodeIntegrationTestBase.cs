@@ -55,11 +55,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
-
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
@@ -187,61 +182,31 @@ public abstract class NodeIntegrationTestBase : IDisposable
         return StartClusterAsync(copy, options, cancellationToken, testName);
     }
 
-    internal async ValueTask<ITestNodeHost> StartClusterAsync(
-        Uri uri,
-        IReadOnlyList<ServerPeer> peers,
-        IntegrationStartOptions? options = null,
-        CancellationToken cancellationToken = default,
-        [CallerMemberName] string? testName = null)
+    /// <summary>Creates a cluster for the supplied topology without starting any node.</summary>
+    /// <remarks>
+    /// Use it when a test starts only part of the topology or asserts on a failed start: nodes start through
+    /// <see cref="TestCluster{TOptions}.StartNodeAsync(string, TOptions, CancellationToken)" />, and disposing the
+    /// cluster stops started nodes and releases the held listen ports of entries that never started.
+    /// </remarks>
+    /// <param name="topology">Node identifiers paired with their listen URIs, copied so literal topologies do not allocate at the call site.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <returns>An unstarted cluster owning the topology.</returns>
+    internal TestCluster<IntegrationStartOptions> CreateCluster(ReadOnlySpan<ClusterNode> topology, [CallerMemberName] string? testName = null)
     {
-        options ??= new IntegrationStartOptions();
-        Helpers.ThrowIfUnsupportedClusterStartOptions(options);
-        ArgumentNullException.ThrowIfNull(uri);
-        var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
-        var selfNodeId = Helpers.FindSelfNodeId(peers, canonicalUri) ??
-                         ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
-
-        var config = new TopologyOptions(peers)
-        {
-            NodeId = selfNodeId,
-            Uri = canonicalUri,
-            VirtualNodes = 128,
-            ReplicaCount = options.ReplicaCount,
-            ReplicationEnabled = options.EnableReplication,
-            ConfigurationGeneration = options.ConfigurationGeneration,
-        };
-
-        try
-        {
-            var name = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
-            PersistenceOptions? po = null;
-            var dir = string.Empty;
-            if (options.UsePersistence || options.PersistenceOptions != null)
-            {
-                po = await GetPersistenceOptionsAsync(
-                    options.PersistenceOptions,
-                    selfNodeId,
-                    Helpers.BuildTestScope(name, options.ExtraScope),
-                    options.CleanTestDir,
-                    cancellationToken);
-                dir = po.DataDir;
-            }
-
-            (_identity, var mtlsOptions, var mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_identity, config, cancellationToken);
-
-            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
-            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
-            var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
-            return new TestNodeHost(application, canonicalUri, dir, po != null);
-        }
-        catch
-        {
-            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
-            throw;
-        }
+        var copy = new ClusterNode[topology.Length];
+        topology.CopyTo(copy);
+        return TestCluster<IntegrationStartOptions>.Create(
+            copy,
+            (self, nodeTopology, nodeOptions, token) => StartNodeHostAsync(
+                self.Uri,
+                nodeOptions is { OmitClusterMtls: true } ? Helpers.CreatePlainPeers(nodeTopology) : BuildClusterPeers(nodeTopology),
+                nodeOptions,
+                testName,
+                token),
+            BuildClusterPeers(copy));
     }
 
-    /// <summary>Allocates a dedicated port, held bound until <see cref="StartClusterAsync(System.Uri,System.Collections.Generic.IReadOnlyList{Squirix.Server.Cluster.ServerPeer},Squirix.Server.IntegrationTests.Support.IntegrationStartOptions?,System.Threading.CancellationToken,string?)" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a dedicated port, held bound until node startup releases it for the real bind.</summary>
     /// <returns>A held loopback port; the hold is released by node startup, disposing it earlier releases it manually.</returns>
     protected static HeldPort AllocateDedicatedPort() => ListenPortPool.IntegrationTests.HoldPort();
 
@@ -257,7 +222,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="StartClusterAsync(System.Uri,System.Collections.Generic.IReadOnlyList{Squirix.Server.Cluster.ServerPeer},Squirix.Server.IntegrationTests.Support.IntegrationStartOptions?,System.Threading.CancellationToken,string?)" /> releases it for the real bind.</summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until node startup (or disposal of a cluster whose node never started) releases it.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.HoldHttpUri();
 
@@ -317,15 +282,10 @@ public abstract class NodeIntegrationTestBase : IDisposable
         [CallerMemberName] string? testName = null)
     {
         ArgumentNullException.ThrowIfNull(topology);
-        var peers = BuildClusterPeers(topology);
         TestCluster<IntegrationStartOptions>? cluster = null;
         try
         {
-            cluster = TestCluster<IntegrationStartOptions>.Create(
-                topology,
-                (self, nodeTopology, nodeOptions, token) => StartClusterAsync(self.Uri, BuildClusterPeers(nodeTopology), nodeOptions, token, testName),
-                peers);
-
+            cluster = CreateCluster(topology, testName);
             var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
                                        .ConfigureAwait(false);
             cluster = null;
@@ -335,6 +295,78 @@ public abstract class NodeIntegrationTestBase : IDisposable
         {
             if (cluster != null)
                 await cluster.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <returns>ServerPeer entries for host startup.</returns>
+    private ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
+
+    /// <summary>Starts one cluster node; the per-node starter behind <see cref="CreateCluster" />.</summary>
+    /// <param name="uri">Listen URI of the node being started; must match one of <paramref name="peers" />.</param>
+    /// <param name="peers">Peer set presented to the node.</param>
+    /// <param name="options">Optional startup knobs applied to the node.</param>
+    /// <param name="testName">Optional persistence scope hint from the caller.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host.</returns>
+    private async ValueTask<ITestNodeHost> StartNodeHostAsync(
+        Uri uri,
+        IReadOnlyList<ServerPeer> peers,
+        IntegrationStartOptions? options,
+        string? testName,
+        CancellationToken cancellationToken)
+    {
+        options ??= new IntegrationStartOptions();
+        Helpers.ThrowIfUnsupportedClusterStartOptions(options);
+        ArgumentNullException.ThrowIfNull(uri);
+        var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
+        var selfNodeId = Helpers.FindSelfNodeId(peers, canonicalUri) ??
+                         ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
+
+        var config = new TopologyOptions(peers)
+        {
+            NodeId = selfNodeId,
+            Uri = canonicalUri,
+            VirtualNodes = 128,
+            ReplicaCount = options.ReplicaCount,
+            ReplicationEnabled = options.EnableReplication,
+            ConfigurationGeneration = options.ConfigurationGeneration,
+        };
+
+        try
+        {
+            var name = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
+            PersistenceOptions? po = null;
+            var dir = string.Empty;
+            if (options.UsePersistence || options.PersistenceOptions != null)
+            {
+                po = await GetPersistenceOptionsAsync(
+                    options.PersistenceOptions,
+                    selfNodeId,
+                    Helpers.BuildTestScope(name, options.ExtraScope),
+                    options.CleanTestDir,
+                    cancellationToken);
+                dir = po.DataDir;
+            }
+
+            // Omitted cluster mTLS still passes explicit empty options: null would fall back to environment-provided mTLS settings.
+            MtlsOptions? mtlsOptions;
+            MtlsCertificate? mtlsMaterial = null;
+            if (options.OmitClusterMtls)
+                mtlsOptions = new MtlsOptions();
+            else
+                (_identity, mtlsOptions, mtlsMaterial) = await ClusterIdentity.ResolveForBindAsync(_identity, config, cancellationToken);
+
+            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial);
+            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
+            var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
+            return new TestNodeHost(application, canonicalUri, dir, po != null);
+        }
+        catch
+        {
+            ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
+            throw;
         }
     }
 
@@ -433,6 +465,18 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 Certificate = certificate,
                 FoundationOnly = options.FoundationOnly,
             };
+        }
+
+        /// <summary>Builds peer entries without internode mTLS URLs, as a hand-written plain topology would.</summary>
+        /// <param name="topology">Cluster members for peer configuration.</param>
+        /// <returns>ServerPeer entries carrying only the node identifier and primary listen URI.</returns>
+        internal static ServerPeer[] CreatePlainPeers(ClusterNode[] topology)
+        {
+            var peers = new ServerPeer[topology.Length];
+            for (var i = 0; i < topology.Length; i++)
+                peers[i] = new ServerPeer { NodeId = topology[i].NodeId, Uri = topology[i].Uri };
+
+            return peers;
         }
 
         internal static string? FindSelfNodeId(IReadOnlyList<ServerPeer> peers, Uri uri)

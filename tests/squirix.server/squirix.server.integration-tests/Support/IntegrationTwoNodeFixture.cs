@@ -9,7 +9,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Shared two-node fixture for integration test classes.
-/// Starts two <see cref="ITestNodeHost" /> instances in <see cref="InitializeAsync" /> and disposes them in <see cref="DisposeAsync" />.
+/// Starts a two-node <see cref="TestCluster{TOptions}" /> in <see cref="InitializeAsync" /> and disposes it in <see cref="DisposeAsync" />.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -25,18 +25,14 @@ public sealed class IntegrationTwoNodeFixture : NodeIntegrationTestBase, IAsyncI
     private TestCluster<IntegrationStartOptions>? _cluster;
 
     /// <summary>Gets the listen URI of the first node.</summary>
-    public Uri UriA => NodeA.Uri;
+    public Uri UriA => Cluster["node-a"].Uri;
 
     /// <summary>Gets the listen URI of the second node.</summary>
-    public Uri UriB => NodeB.Uri;
+    public Uri UriB => Cluster["node-b"].Uri;
 
-    /// <summary>Gets the first node host.</summary>
+    /// <summary>Gets the started two-node cluster.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private ITestNodeHost NodeA => ThrowHelper.Required(_cluster, "Fixture is not initialized.")["node-a"];
-
-    /// <summary>Gets the second node host.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    private ITestNodeHost NodeB => ThrowHelper.Required(_cluster, "Fixture is not initialized.")["node-b"];
+    private TestCluster<IntegrationStartOptions> Cluster => ThrowHelper.Required(_cluster, "Fixture is not initialized.");
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
@@ -48,20 +49,24 @@ public sealed class ReplicaBootstrapE2ETests : EndToEndTestBase
 
     private static async Task SeedAndVerifyAsync(string nodeName, string cacheName, int targetReplicaCount, ulong targetGeneration, CancellationToken cancellationToken)
     {
-        await using var node = await RestartableNode.StartAsync(nodeName, cancellationToken);
-        var cache = await node.GetCacheAsync<string>(cacheName, cancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nodeName,
+            persistence: true,
+            timeProvider: TimeProvider.System,
+            cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<string>(cacheName, cancellationToken: cancellationToken);
         await cache.SetAsync("seeded", "value", cancellationToken: cancellationToken);
-        await node.StopAsync();
+        await cluster.StopNodeAsync("nodeA");
 
-        var summary = await OfflineBootstrapTestKit.PrepareAsync(node.DataDir, ["group-a", "group-b"], targetReplicaCount, targetGeneration, cancellationToken);
+        var summary = await OfflineBootstrapTestKit.PrepareAsync(cluster.GetDataDir("nodeA"), ["group-a", "group-b"], targetReplicaCount, targetGeneration, cancellationToken);
 
         _ = await Assert.That(summary.TargetReplicaCount).IsEqualTo(targetReplicaCount);
         _ = await Assert.That(summary.TargetGeneration).IsEqualTo(targetGeneration);
         await SequenceAssert.EqualAsync(["group-a:Pending", "group-b:Pending"], summary.PendingGroups, StringComparer.Ordinal);
         _ = await Assert.That(summary.Resumed).IsFalse();
 
-        await node.RestartAsync(cancellationToken);
-        var restarted = await node.GetCacheAsync<string>(cacheName, cancellationToken);
+        await cluster.RestartNodeAsync("nodeA", cancellationToken);
+        var restarted = await cluster.GetCacheAsync<string>(cacheName, cancellationToken: cancellationToken);
         var result = await restarted.GetValueAsync("seeded", cancellationToken);
 
         _ = await Assert.That(result.Found).IsTrue().Because("Seeded entry was not visible after the restart.");

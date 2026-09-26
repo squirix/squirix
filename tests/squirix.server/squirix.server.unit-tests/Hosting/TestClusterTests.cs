@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -175,6 +178,30 @@ public sealed class TestClusterTests
 
         _ = await Assert.That(Directory.Exists(dataPath)).IsFalse();
         _ = await Assert.That(hosts["n1"].ShutdownCallCount).IsEqualTo(1);
+    }
+
+    /// <summary>Disposal releases the held listen port of a topology entry that never started.</summary>
+    [Test]
+    public async Task DisposeReleasesUnstartedHeldPort()
+    {
+        var uri = ListenPortPool.ServerUnitTests.HoldHttpUri();
+        var cluster = TestCluster<ClusterStartOptions>.Create(
+            new ClusterNode("n1", uri),
+            static (node, _, _, _) => ValueTask.FromException<ITestNodeHost>(new InvalidOperationException($"'{node.NodeId}' must not start.")));
+
+        await cluster.DisposeAsync();
+
+        // Throws while the reservation still holds the port bound with exclusive address use.
+        BindExclusively(uri.Port);
+    }
+
+    private static void BindExclusively(int port)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Server.ExclusiveAddressUse = true;
+        listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+        listener.Start();
+        listener.Stop();
     }
 
     private static Task StopAsync(TestCluster<ClusterStartOptions> cluster, string nodeId) => cluster.StopNodeAsync(nodeId).AsTask();

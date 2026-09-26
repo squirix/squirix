@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -35,11 +34,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfTwoReportsMissingPersistenceFirst(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            StartClusterAsync(uriA, peers, new IntegrationStartOptions { ReplicaCount = 2 }, cancellationToken));
+            cluster.StartNodeAsync("n1", new IntegrationStartOptions { ReplicaCount = 2 }, cancellationToken));
         _ = await Assert.That(ex.Message).Contains(ReplicationActivationGuard.PersistenceRequired, StringComparison.Ordinal);
     }
 
@@ -48,27 +45,11 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfTwoRequiresMtlsBeforeActivation(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        var peers = new[]
-        {
-            new ServerPeer { NodeId = "n1", Uri = uri },
-            new ServerPeer { NodeId = "n2", Uri = GetNextHttpUri() },
-        };
-        using var dir = new TempDirectory("squirix-rf2-mtls");
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            NodeHost.StartAsync(
-                new TopologyOptions(peers)
-                {
-                    ClusterId = "c1",
-                    NodeId = "n1",
-                    Uri = uri,
-                    ReplicaCount = 2,
-                },
-                new NodeHostStartOptions
-                {
-                    PersistenceOptions = new PersistenceOptions { DataDir = dir },
-                    MtlsOptions = new MtlsOptions(),
-                },
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            cluster.StartNodeAsync(
+                "n1",
+                new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, OmitClusterMtls = true, ExtraScope = "rf2-mtls" },
                 cancellationToken));
         _ = await Assert.That(ex.Message).Contains(ReplicationActivationGuard.MtlsRequired, StringComparison.Ordinal);
     }
@@ -78,12 +59,9 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfTwoStartsWithPrerequisites(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
-        await using var host = await StartClusterAsync(
-            uriA,
-            peers,
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
+        var host = await cluster.StartNodeAsync(
+            "n1",
             new IntegrationStartOptions
             {
                 ReplicaCount = 2,

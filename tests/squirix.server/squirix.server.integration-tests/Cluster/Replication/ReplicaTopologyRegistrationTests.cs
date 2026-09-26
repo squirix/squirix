@@ -18,18 +18,17 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
     [Test]
     public async Task PeerOrderDoesNotChangeFingerprint(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peersAb = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
-        var peersBa = BuildClusterPeers([new ClusterNode("n2", uriB), new ClusterNode("n1", uriA)]);
+        var nodeA = new ClusterNode("n1", GetNextHttpUri());
+        var nodeB = new ClusterNode("n2", GetNextHttpUri());
+        await using var cluster = CreateCluster([nodeA, nodeB]);
 
-        string fingerprintAb;
-        await using (var hostAb = await StartClusterAsync(uriA, peersAb, cancellationToken: cancellationToken))
-            fingerprintAb = hostAb.GetRequiredService<TopologyFingerprint>().ToString();
+        var hostAb = await cluster.StartNodeAsync("n1", cancellationToken: cancellationToken);
+        var fingerprintAb = hostAb.GetRequiredService<TopologyFingerprint>().ToString();
+        await cluster.StopNodeAsync("n1");
 
-        string fingerprintBa;
-        await using (var hostBa = await StartClusterAsync(uriA, peersBa, cancellationToken: cancellationToken))
-            fingerprintBa = hostBa.GetRequiredService<TopologyFingerprint>().ToString();
+        // The same node restarted against the reversed peer order.
+        var hostBa = await cluster.StartNodeAsync(nodeA, [nodeB, nodeA], cancellationToken: cancellationToken);
+        var fingerprintBa = hostBa.GetRequiredService<TopologyFingerprint>().ToString();
 
         _ = await Assert.That(fingerprintBa).IsEqualTo(fingerprintAb);
     }

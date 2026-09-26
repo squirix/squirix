@@ -32,11 +32,9 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
     [Test]
     public async Task RfTwoActivatesWithOptIn(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
         var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = true, ExtraScope = "rf2-optin-active" };
-        await using var host = await StartClusterAsync(uriA, peers, options, cancellationToken);
+        var host = await cluster.StartNodeAsync("n1", options, cancellationToken);
         var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsTrue();
         _ = host.GetRequiredService<IReplicaGroupLocator>();
@@ -47,12 +45,9 @@ public sealed class ReplicaOptInTests : NodeIntegrationTestBase
     [Test]
     public async Task RfTwoRefusesWithoutOptIn(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([new ClusterNode("n1", uriA), new ClusterNode("n2", uriB)]);
-        var task = StartClusterAsync(
-            uriA,
-            peers,
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
+        var task = cluster.StartNodeAsync(
+            "n1",
             new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, EnableReplication = false, ExtraScope = "rf2-optin-refused" },
             cancellationToken);
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(task);

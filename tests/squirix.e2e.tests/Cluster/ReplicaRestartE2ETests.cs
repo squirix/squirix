@@ -59,7 +59,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
         await cluster.StopNodeAsync("nodeB");
         await cluster.StopNodeAsync("nodeC");
         _ = await NodeAsyncAssert.ThrowsAsync<CommitOutcomeUnknownException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken));
-        await cluster.GetNode("nodeA").AbruptShutdownAsync();
+        await cluster.AbruptShutdownNodeAsync("nodeA");
         await cluster.RestartNodeAsync("nodeB", cancellationToken);
         await cluster.RestartNodeAsync("nodeC", cancellationToken);
         await cluster.RestartNodeAsync("nodeA", cancellationToken);

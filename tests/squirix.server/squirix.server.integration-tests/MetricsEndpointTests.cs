@@ -18,19 +18,14 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
     [Test]
     public async Task MetricsEndpointServesReplicationGauges(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([new ClusterNode("node-metrics-a", uriA), new ClusterNode("node-metrics-b", uriB)]);
-        await using var node = await StartClusterAsync(
-            uriA,
-            peers,
-            new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" },
-            cancellationToken);
+        await using var cluster = CreateCluster([new ClusterNode("node-metrics-a", GetNextHttpUri()), new ClusterNode("node-metrics-b", GetNextHttpUri())]);
+        var options = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = "replication-gauges" };
+        var uri = (await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken)).Uri;
 
-        using (var ready = await HttpClient.GetAsync(new Uri(node.Uri, "/health/ready"), cancellationToken))
+        using (var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken))
             _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
-        using var response = await HttpClient.GetAsync(new Uri(node.Uri, "/metrics"), cancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(uri, "/metrics"), cancellationToken);
         _ = await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);

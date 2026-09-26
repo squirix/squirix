@@ -22,7 +22,7 @@ public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
     public async Task RfOneDoesNotOpenReplicationListener(CancellationToken cancellationToken)
     {
         await using var cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        _ = await Assert.That(cluster.GetNode("nodeA").HasInterNodeMtlsListener).IsFalse();
+        _ = await Assert.That(cluster.HasInterNodeMtlsListener("nodeA")).IsFalse();
     }
 
     /// <summary>RF=1 multi-node set/get through a non-owner matches preview.7 routing.</summary>
