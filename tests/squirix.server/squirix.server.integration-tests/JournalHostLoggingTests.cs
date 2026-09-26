@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,22 +11,26 @@ using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Exceptions;
 
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// The journal is built while the host is being composed, before the host logger exists. Its diagnostics must still reach the logger the host
-/// registers, not a null logger (issue 715). Not run in parallel: the server logging bridge is process-wide, so a concurrently starting host
+/// The journal and the manifest ledger are built while the host is being composed, before the host logger exists. Their diagnostics must still
+/// reach the logger the host registers, not a null logger (issues 715 and 728). Not run in parallel: the server logging bridge is process-wide, so a concurrently starting host
 /// would take over the journal's diagnostics.
 /// </summary>
 [NotInParallel]
 public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 {
     private const int JournalWaitCanceledWhileStalledEventId = 1014;
+    private const int ManifestRetentionDeleteFailedEventId = 1008;
 
     /// <summary>A stall warning logged by the host journal reaches the host logger under the journal coordinator category.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -57,6 +62,47 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         }
 
         _ = await Assert.That(recorder.FindCategory(JournalWaitCanceledWhileStalledEventId)).IsEqualTo(typeof(JournalCoordinator).FullName);
+    }
+
+    /// <summary>A manifest retention warning logged by the host ledger reaches the host logger under the ledger category.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Thrown when the platform lets an open file be deleted.</exception>
+    [Test]
+    public async Task RetentionWarningReachesHostLogger(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new SkipTestException("Blocking a delete by holding the file open is Windows-specific.");
+
+        using var recorder = new CategoryRecordingLoggerProvider();
+        var options = new IntegrationStartOptions
+        {
+            PersistenceOptions = new PersistenceOptions { ManifestRetentionCount = 1 },
+            ServicesConfigure = recorder.Register,
+        };
+        await using var cluster = await StartClusterAsync("node_ledger_logging", options, cancellationToken);
+        var node = cluster["node_ledger_logging"];
+        var ledger = node.GetRequiredService<Ledger>();
+        var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
+        var current = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+
+        // A manifest the host cannot delete: it is stale once newer manifests are published, so retention cleanup must report the failure.
+        await ledger.WriteAsync(current, cancellationToken);
+        var stalest = string.Empty;
+        foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}"))
+        {
+            if (stalest.Length == 0 || string.CompareOrdinal(path, stalest) < 0)
+                stalest = path;
+        }
+
+        using var held = File.OpenHandle(stalest, FileMode.Open, FileAccess.Read, FileShare.None);
+        await ledger.WriteAsync(current, cancellationToken);
+        await ledger.WriteAsync(current, cancellationToken);
+
+        var started = Stopwatch.GetTimestamp();
+        while (recorder.FindCategory(ManifestRetentionDeleteFailedEventId) == null && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(30))
+            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(recorder.FindCategory(ManifestRetentionDeleteFailedEventId)).IsEqualTo(typeof(Ledger).FullName);
     }
 
     /// <summary>Logger provider recording the event id and category of every entry the host logs.</summary>
