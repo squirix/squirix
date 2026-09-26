@@ -21,10 +21,6 @@ inputs:
     description: When false, skip the build output artifact upload (analyzer-only build).
     required: false
     default: "true"
-  analysis-projects:
-    description: Path to a file listing projects (one per line) to analyze. When set, their dependencies build without analyzers and only these projects are compiled with analyzers.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -61,30 +57,8 @@ runs:
         # The compiler server is a fresh process that JITs Roslyn (and the analyzers); skipping tiered-PGO instrumentation
         # makes that startup faster and does not change the build result.
         DOTNET_TieredPGO: "0"
-        ANALYSIS_PROJECTS: ${{ inputs.analysis-projects }}
       run: |
-        if [ -n "$ANALYSIS_PROJECTS" ]; then
-          # Only the listed projects need analysis: build them (and their dependencies) without analyzers first, then
-          # re-compile just the listed ones with analyzers, using the dependencies as built. --no-incremental is required:
-          # analyzer settings are not an incremental-build input, so an up-to-date project would otherwise be skipped
-          # without running any analyzer. The projects run one after another because each rewrites its own outputs.
-          set -euo pipefail
-          while IFS= read -r project; do
-            dotnet build "$project" --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
-          done < "$ANALYSIS_PROJECTS"
-          while IFS= read -r project; do
-            extra=()
-            case "$project" in
-              tests/*|benchmarks/*)
-                # The AOT/trim analyzer only matters for the shipped libraries under src/.
-                extra=(-p:IsAotCompatible=false)
-                ;;
-            esac
-            echo "::group::Analyze $project"
-            dotnet build "$project" --configuration Release --no-restore --no-dependencies --no-incremental "${extra[@]}"
-            echo "::endgroup::"
-          done < "$ANALYSIS_PROJECTS"
-        elif [ "${{ inputs.analyzers }}" = "true" ]; then
+        if [ "${{ inputs.analyzers }}" = "true" ]; then
           dotnet build squirix.slnx --configuration Release --no-restore
         else
           # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
