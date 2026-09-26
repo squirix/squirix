@@ -101,7 +101,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         {
             if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             {
-                AccountInsert(keyValue, entry);
+                AccountReplaceOrInsert(keyValue, entry);
                 return;
             }
 
@@ -147,7 +147,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         if (!await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             return false;
 
-        AccountInsert(keyValue, entry);
+        AccountReplaceOrInsert(keyValue, entry);
         return true;
     }
 
@@ -184,19 +184,19 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         existing.Expiration,
         existing.Tags);
 
-    private void AccountInsert(CacheKey key, NodeCacheEntry<T> entry)
-    {
-        var bytes = _estimator.EstimateBytes(key, entry, false);
-        _accounting.AddEntry(bytes);
-        _accountedEntryBytes[key] = bytes;
-    }
-
     private void AccountRemove(CacheKey key)
     {
         if (_accountedEntryBytes.TryRemove(key, out var accountedBytes))
             _accounting.RemoveEntry(accountedBytes);
     }
 
+    /// <summary>Accounts an entry that was written to the inner cache, whether it inserted the key or replaced its value.</summary>
+    /// <param name="key">The written key.</param>
+    /// <param name="replacement">The entry now stored under <paramref name="key" />.</param>
+    /// <remarks>
+    /// The key is claimed in the accounting map before it is counted, so writers racing on one key (an insert that won the physical add and a
+    /// set that lost it) count the entry once: the one that claims the key adds it, the others replace its size.
+    /// </remarks>
     private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T> replacement)
     {
         var newBytes = _estimator.EstimateBytes(key, replacement, false);
