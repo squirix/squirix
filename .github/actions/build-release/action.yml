@@ -13,6 +13,14 @@ inputs:
     description: When true, run external package smoke (ubuntu push/schedule only).
     required: false
     default: "false"
+  analyzers:
+    description: When false, build with Roslyn analyzers and code-style enforcement off. Used for the test artifact on pull requests; a separate job runs the analyzed build.
+    required: false
+    default: "true"
+  upload-outputs:
+    description: When false, skip the build output artifact upload (analyzer-only build).
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -45,7 +53,13 @@ runs:
 
     - name: Build
       shell: bash
-      run: dotnet build squirix.slnx --configuration Release --no-restore
+      run: |
+        if [ "${{ inputs.analyzers }}" = "true" ]; then
+          dotnet build squirix.slnx --configuration Release --no-restore
+        else
+          # Analyzers only report diagnostics (source generators still run), so the binaries are the same and compile much faster.
+          dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+        fi
 
     - name: Ensure Dev HTTPS Certificate
       shell: bash
@@ -57,6 +71,7 @@ runs:
       run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
 
     - name: Upload Build Outputs For Tests
+      if: inputs.upload-outputs == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: build-output-${{ inputs.artifact-os }}-${{ inputs.framework }}

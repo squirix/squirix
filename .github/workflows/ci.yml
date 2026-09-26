@@ -2,7 +2,8 @@ name: CI
 
 on:
     # Pull requests run the ubuntu-only fast path: x64 build and tests (smoke included) without
-    # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks.
+    # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks. The test artifact is built
+    # without analyzers; the analyzed build runs in parallel as analyze-ubuntu and gates ci-success.
     # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
     # Windows/macOS builds/tests run on main only (release branch), not on develop.
     # Builds/tests are split per OS so ubuntu tests/Sonar are not gated on Windows/macOS build.
@@ -258,6 +259,37 @@ jobs:
                     artifact-os: ubuntu-latest
                     framework: net10.0
                     run-package-smoke: ${{ github.event_name != 'pull_request' }}
+                    # Pull requests build the test artifact without analyzers; analyze-ubuntu runs the analyzed build in parallel.
+                    analyzers: ${{ github.event_name != 'pull_request' }}
+
+    # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
+    analyze-ubuntu:
+        name: Analyze (ubuntu-latest / net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        needs: changes
+        if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Analyzed Release Build
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net10.0
+                    upload-outputs: "false"
 
     build-windows:
         name: Build (windows-latest / net10.0)
@@ -1453,6 +1485,7 @@ jobs:
             - verify-line-endings
             - docker-build
             - build-ubuntu
+            - analyze-ubuntu
             - build-arm
             - build-windows
             - build-macos
@@ -1492,6 +1525,7 @@ jobs:
                     RESULT_LINE_ENDINGS: ${{ needs.verify-line-endings.result }}
                     RESULT_DOCKER: ${{ needs.docker-build.result }}
                     RESULT_BUILD_UBUNTU: ${{ needs.build-ubuntu.result }}
+                    RESULT_ANALYZE_UBUNTU: ${{ needs.analyze-ubuntu.result }}
                     RESULT_BUILD_ARM: ${{ needs.build-arm.result }}
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
                     RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
@@ -1581,6 +1615,12 @@ jobs:
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
 
                     assert_success "build-ubuntu" "$require_code" "$RESULT_BUILD_UBUNTU"
+                    # Pull requests build the test artifact without analyzers, so the analyzed build is required there (and only there).
+                    require_analyze=false
+                    if [[ "$require_code" == "true" && "$EVENT_NAME" == "pull_request" ]]; then
+                      require_analyze=true
+                    fi
+                    assert_success "analyze-ubuntu" "$require_analyze" "$RESULT_ANALYZE_UBUNTU"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "build-arm" "$require_code" "$RESULT_BUILD_ARM"
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
