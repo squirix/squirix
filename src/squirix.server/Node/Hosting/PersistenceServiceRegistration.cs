@@ -20,6 +20,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -192,7 +193,7 @@ internal static class PersistenceServiceRegistration
         private PersistenceRuntime(PersistenceOptions options, ManifestRetentionFailureMetrics failureMetrics)
         {
             Retention = new RetentionCleanupReadiness(options);
-            Ledger = new Ledger(options, retentionReadiness: Retention, failureMetrics: failureMetrics);
+            Ledger = new Ledger(options, LogManager.GetLogger<Ledger>(), Retention, failureMetrics);
             Gate = new AsyncManualResetEvent();
             JournalCoordinator = new JournalCoordinatorHost();
         }
