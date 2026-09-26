@@ -39,7 +39,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
-    private ulong _nextIndex;
+    private ReplicaGroupCommitPipeline? _pipeline;
     private bool _started;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
@@ -155,7 +155,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
-        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return await ReplicaOutcomeCodec.DecodeRemoveAsync(outcome).ConfigureAwait(false);
     }
@@ -173,7 +172,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((ReplicaExpirationOperationId.OperationScope, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareRemoveExpirationAsync(operationId, cacheName, key, index, cancellationToken).ConfigureAwait(false);
-        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
@@ -192,7 +190,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = factory.PrepareSet(operationId, cacheName, key, entry, index);
-        AdvanceNextIndex();
         _ = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
     }
 
@@ -210,7 +207,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTouchAsync(operationId, cacheName, key, expiration, index, cancellationToken).ConfigureAwait(false);
-        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
@@ -229,7 +225,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareTryAddAsync(operationId, cacheName, key, entry, index, cancellationToken).ConfigureAwait(false);
-        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
@@ -248,7 +243,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var (coordinator, factory) = await EnsureStartedAsync((cacheName, operationId), cancellationToken).ConfigureAwait(false);
         var index = PeekNextIndex();
         var mutation = await factory.PrepareUpdateAsync(operationId, cacheName, key, value, index, cancellationToken).ConfigureAwait(false);
-        AdvanceNextIndex();
         var outcome = await CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
         return ReplicaOutcomeCodec.DecodeApplied(outcome);
     }
@@ -353,13 +347,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return applied && eligibility.AllCanCountInWriteQuorum() ? ReplicaVerification.AllReady : ReplicaVerification.Pending;
     }
 
-    /// <summary>Consumes the next group log index after a mutation prepared successfully.</summary>
-    /// <remarks>
-    /// The index is advanced only once preparation succeeds, so a cancelled or failed prepare leaves the
-    /// reservation for the retry and the durable log stays dense regardless of how the caller observed it.
-    /// </remarks>
-    private void AdvanceNextIndex() => _nextIndex++;
-
     private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
     {
         try
@@ -376,9 +363,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
         catch
         {
-            // The local appending was refused before anything was marked appended: the reserved
-            // _nextIndex no longer matches the durable log, so drop the started state and rebuild
-            // from status.LastLogIndex on the next attempt.
+            // The local appending was refused before anything was marked appended: an interrupted
+            // append may leave the durable log ahead of the pipeline positions, so drop the started
+            // state and rebuild from status.LastLogIndex on the next attempt.
             _started = false;
             throw;
         }
@@ -442,8 +429,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         return ready >= (eligibility.ReplicaCount / 2) + 1;
     }
 
-    /// <summary>Returns the next group log index to prepare with, without consuming it.</summary>
-    private ulong PeekNextIndex() => _nextIndex;
+    /// <summary>Returns the next group log index to prepare with: the one after the last entry appended to the local log.</summary>
+    /// <remarks>
+    /// The index follows the local appends of the running pipeline, so it moves only when an entry is appended: a prepare that fails, a
+    /// refusal before the append, and a retry the coordinator answers from the idempotency state without appending all leave it for the
+    /// next write, and the durable log stays dense.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The committer is not started.</exception>
+    private ulong PeekNextIndex() => ThrowHelper.Required(_pipeline, "Replica group committer is not started.").NextLogIndex;
 
     private async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -496,7 +489,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
         ReplicaReadinessProbe.ApplyAll(eligibility, results, in status, _topologyFingerprint, _generation, _coordinator);
         _factory = factory;
-        _nextIndex = status.LastLogIndex + 1;
+        _pipeline = pipeline;
         _started = true;
     }
 
@@ -600,6 +593,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             _prevLogTerm = status.LastLogTerm;
             _commitIndex = status.CommitIndex;
         }
+
+        /// <summary>Gets the group log index after the last entry this pipeline appended locally, or after the seeded status.</summary>
+        /// <remarks>Read by the committer under its gate, between commits, once the commit that last appended has completed.</remarks>
+        internal ulong NextLogIndex => _prevLogIndex + 1;
 
         /// <inheritdoc />
         public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)

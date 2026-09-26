@@ -117,6 +117,27 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["k1"], cache.Applied.ToArray(), StringComparer.Ordinal);
     }
 
+    /// <summary>A replayed retry of a committed tail entry leaves the log dense: the next new write commits right after the tail.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TailReplayThenNewWriteSucceeds(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-tail-replay");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 1, cancellationToken, "k1");
+        var cache = new StubCache();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That(await committer.CommitTryAddAsync(TailOperationId("k1"), "cache", "k1", Entry("k1"), cancellationToken)).IsTrue();
+
+        await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken);
+
+        var status = await StatusAsync(registry, cancellationToken);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((3UL, 3UL));
+        await SequenceAssert.EqualAsync(["k1", "k2"], cache.Applied.ToArray(), StringComparer.Ordinal);
+    }
+
     /// <summary>
     /// A same-identity retry of a tail entry that is not committed yet reports the unknown outcome on every attempt, never a definite
     /// failure and never a re-execution.
