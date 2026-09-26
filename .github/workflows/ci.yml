@@ -457,7 +457,7 @@ jobs:
         timeout-minutes: 20
         needs: [ build-ubuntu ]
         strategy:
-            fail-fast: ${{ github.event_name == 'pull_request' }}
+            fail-fast: false
             max-parallel: 8
             matrix:
                 suite: [ smoke, unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
