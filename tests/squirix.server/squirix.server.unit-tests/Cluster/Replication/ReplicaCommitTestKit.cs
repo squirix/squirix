@@ -12,12 +12,20 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 /// <summary>Focused majority-pipeline doubles shared by contract-named tests.</summary>
 internal static class ReplicaCommitTestKit
 {
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null)
+    /// <summary>Creates a coordinator over the supplied pipeline.</summary>
+    /// <param name="pipeline">The majority pipeline double.</param>
+    /// <param name="idempotency">Optional group idempotency state.</param>
+    /// <param name="shutdownBudget">Optional dispose drain bound; the coordinator default (5 s) when <see langword="null" />.</param>
+    /// <returns>The coordinator.</returns>
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null, TimeSpan? shutdownBudget = null)
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        var state = idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue);
+        return shutdownBudget is { } budget
+            ? new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), state) { ShutdownBudget = budget }
+            : new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), state);
     }
 
     internal static PreparedReplicaMutation CreateMutation()

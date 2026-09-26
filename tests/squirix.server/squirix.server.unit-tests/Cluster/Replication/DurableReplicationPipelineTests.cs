@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -141,14 +142,16 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task DisposeDrainExpiresOnStalledFollowers(CancellationToken cancellationToken)
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(false, true);
-        var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
+
+        // A short drain bound instead of the 5 s default: the commit budget below stays well above it, so the bound still expires first.
+        var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, shutdownBudget: TimeSpan.FromMilliseconds(200));
         try
         {
             // No follower ever answers: the commit parks in the majority wait while disposal drains it.
-            var commit = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(8), cancellationToken);
+            var commit = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
 
             // The drain bound expires in real time; disposal completes instead of hanging on the parked commit.
-            // The test-side bound only guards against a drain regression; it sits far above the production bound.
+            // The test-side bound only guards against a drain regression; it sits far above the drain bound.
             await coordinator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             // Budget expiry faults the parked resolution after abandonment, running the attached observer.
@@ -345,7 +348,10 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+
+        // The observe bound runs on an injected clock, so the test moves it past the 5 s bound instead of waiting in real time.
+        var observeClock = new FakeTimeProvider();
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue)) { ObserveTimeProvider = observeClock };
         try
         {
             // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
@@ -354,7 +360,13 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
             // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
             var disposal = coordinator.DisposeAsync().AsTask();
-            await Task.Delay(TimeSpan.FromSeconds(6), TimeProvider.System, cancellationToken);
+
+            // The observer registers its bound timer in the background, so keep advancing the clock briefly instead of assuming it exists yet.
+            for (var i = 0; i < 20; i++)
+            {
+                observeClock.Advance(TimeSpan.FromSeconds(6));
+                await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
+            }
 
             // The bound already attached fault observers; faulting the laggard runs them for cleanup.
             pipeline.FailFollowers(new TimeoutException("Lagging follower fault."));
