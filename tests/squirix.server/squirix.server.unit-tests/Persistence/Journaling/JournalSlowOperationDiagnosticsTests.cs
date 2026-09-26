@@ -61,6 +61,11 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             await writer.FsyncEntered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
             waitBudget.CancelAfter(StallBudget);
 
+            // The checkpoint's fsync is in flight, so a caller cancel cannot win it: the canceled wait settles only once that fsync
+            // returns. The stall is reported at the moment of cancellation, so release the writer once the warning is recorded.
+            await logger.WaitForWarningAsync(WaitCanceledEventId, EntryTimeout, cancellationToken);
+            writer.Release();
+
             _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
         }
         finally
@@ -400,6 +405,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
     private sealed class RecordingLogger : ILogger
     {
+        private readonly ConcurrentDictionary<int, TaskCompletionSource> _signals = new();
         private readonly bool _throwOnLog;
         private readonly ConcurrentQueue<(EventId EventId, Dictionary<string, object?> Values)> _warnings = new();
 
@@ -416,7 +422,10 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (logLevel == LogLevel.Warning)
+            {
                 _warnings.Enqueue((eventId, CaptureValues(state)));
+                _ = SignalFor(eventId.Id).TrySetResult();
+            }
 
             if (_throwOnLog)
                 throw new InvalidOperationException("log sink failed");
@@ -445,6 +454,9 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             throw new InvalidOperationException($"no warning with event id {eventId} was logged.");
         }
 
+        internal Task WaitForWarningAsync(int eventId, TimeSpan timeout, CancellationToken cancellationToken) =>
+            SignalFor(eventId).Task.WaitAsync(timeout, TimeProvider.System, cancellationToken);
+
         private static Dictionary<string, object?> CaptureValues<TState>(TState state)
         {
             var values = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -456,6 +468,8 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
             return values;
         }
+
+        private TaskCompletionSource SignalFor(int eventId) => _signals.GetOrAdd(eventId, static _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
     }
 
     private sealed class SleepingFsyncSegmentWriter : IJournalSegmentWriter
