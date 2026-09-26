@@ -10,7 +10,7 @@ inputs:
     required: false
     default: net10.0
   suite:
-    description: Suite id (unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model).
+    description: Suite id (unit, client-integration, server-unit, server-integration, smoke, e2e-single-node, e2e-multi-node, protocol-model).
     required: true
   collect-coverage:
     description: When true, collect Coverlet coverage (Ubuntu only).
