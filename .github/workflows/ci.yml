@@ -284,12 +284,37 @@ jobs:
                 with:
                     persist-credentials: false
 
+            # Analyzers only need to run on the projects the pull request changed and on the projects that reference them;
+            # tools/ci/select-analysis-scope.py decides. Any doubt (shared settings, the CI itself, a failure here) analyzes everything.
+            -   name: Select Analysis Scope
+                id: scope
+                env:
+                    BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                run: |
+                    git fetch --no-tags --depth=1 origin "$BASE_SHA" || true
+                    python3 tools/ci/select-analysis-scope.py "$BASE_SHA" > "$RUNNER_TEMP/scope.txt" || echo full > "$RUNNER_TEMP/scope.txt"
+                    tail -n +2 "$RUNNER_TEMP/scope.txt" > "$RUNNER_TEMP/analysis-projects.txt"
+                    echo "scope=$(head -n 1 "$RUNNER_TEMP/scope.txt")" >> "$GITHUB_OUTPUT"
+                    echo "projects=$RUNNER_TEMP/analysis-projects.txt" >> "$GITHUB_OUTPUT"
+                    cat "$RUNNER_TEMP/scope.txt"
+
             -   name: Analyzed Release Build
+                # Anything other than an explicit subset or none (including an empty or unexpected value) analyzes everything.
+                if: steps.scope.outputs.scope != 'subset' && steps.scope.outputs.scope != 'none'
                 uses: ./.github/actions/build-release
                 with:
                     artifact-os: ubuntu-latest
                     framework: net10.0
                     upload-outputs: "false"
+
+            -   name: Analyzed Release Build (Affected Projects)
+                if: steps.scope.outputs.scope == 'subset'
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net10.0
+                    upload-outputs: "false"
+                    analysis-projects: ${{ steps.scope.outputs.projects }}
 
     build-windows:
         name: Build (windows-latest / net10.0)
