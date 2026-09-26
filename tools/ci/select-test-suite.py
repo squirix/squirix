@@ -28,6 +28,7 @@ SUITES = {
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", ""),
     "server-unit": ("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", ""),
     "server-integration": ("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", ""),
+    "smoke": ("tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", ""),
     "e2e-single-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
         "/*/Squirix.E2ETests.Cache.SingleNode*/*/*",

@@ -10,7 +10,7 @@ inputs:
     required: false
     default: net10.0
   suite:
-    description: Suite id (unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model).
+    description: Suite id (unit, client-integration, server-unit, server-integration, smoke, e2e-single-node, e2e-multi-node, protocol-model).
     required: true
   collect-coverage:
     description: When true, collect Coverlet coverage (Ubuntu only).
@@ -20,13 +20,24 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Select Runner Mode
+      id: mode
+      shell: bash
+      run: |
+        # Linux pull request jobs run without coverage. `dotnet test` needs a package restore (hence the NuGet cache) only to
+        # discover the project; the built test host in bin is self-contained, so that path runs it directly. The runner image
+        # already ships the .NET runtime the host needs, so it also skips installing the SDK pinned in global.json.
+        echo "direct=${{ github.event_name == 'pull_request' && inputs.collect-coverage != 'true' && runner.os == 'Linux' }}" >> "$GITHUB_OUTPUT"
+
     - name: Setup .NET
+      if: steps.mode.outputs.direct != 'true'
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-quality: preview
         global-json-file: global.json
 
     - name: Cache NuGet Packages
+      if: steps.mode.outputs.direct != 'true'
       uses: actions/cache@v6
       with:
         path: ~/.nuget/packages
@@ -41,6 +52,7 @@ runs:
         path: .
 
     - name: Restore (Resolve Packages For Collectors)
+      if: steps.mode.outputs.direct != 'true'
       shell: bash
       run: dotnet restore squirix.slnx
 
@@ -55,8 +67,16 @@ runs:
         chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ inputs.framework }}/Squirix.ProtocolModel.Tests || true
 
     - name: Ensure Dev HTTPS Certificate
+      if: steps.mode.outputs.direct != 'true'
       shell: bash
       run: bash tools/ci/ensure-dev-https-cert.sh
+
+    - name: Ensure Dev HTTPS Certificate (Runner SDK)
+      if: steps.mode.outputs.direct == 'true'
+      shell: bash
+      # The SDK pinned in global.json is not installed on this path; run outside the repository so the runner's SDK is used.
+      working-directory: ${{ runner.temp }}
+      run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
     - name: Shim python3 On Windows
       if: runner.os == 'Windows'
@@ -76,6 +96,7 @@ runs:
       env:
         PROJECT: ${{ steps.select.outputs.project }}
         FILTER: ${{ steps.select.outputs.filter }}
+        DIRECT: ${{ steps.mode.outputs.direct }}
       run: |
         set -o pipefail
         echo "Suite '${{ inputs.suite }}': project '$PROJECT', filter '${FILTER:-<none>}'."
@@ -84,7 +105,14 @@ runs:
           FILTER_ARGS=(--treenode-filter "$FILTER")
         fi
 
-        if [ "${{ inputs.collect-coverage }}" = "true" ]; then
+        if [ "$DIRECT" = "true" ]; then
+          # The test host is named after its project; it accepts the same Microsoft.Testing.Platform options and exit codes.
+          "$(dirname "$PROJECT")/bin/Release/${{ inputs.framework }}/$(basename "$PROJECT" .csproj)" \
+            "${FILTER_ARGS[@]}" \
+            --report-trx --report-trx-filename ${{ inputs.suite }}.trx \
+            --results-directory "${{ github.workspace }}/TestResults" \
+            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+        elif [ "${{ inputs.collect-coverage }}" = "true" ]; then
           mkdir -p "coverage/${{ inputs.suite }}"
           dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
             "${FILTER_ARGS[@]}" \

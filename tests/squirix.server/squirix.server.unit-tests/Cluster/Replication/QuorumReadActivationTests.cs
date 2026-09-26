@@ -105,22 +105,32 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
         var key = nodeA.FindKeyOwnedBy("quorum-read", "nodeA");
 
         // The seed write races leader election: under parallel CI load the fixed commit budget can
-        // expire after the local append, surfacing an ambiguous outcome for a fresh operation id.
-        // Retry the seed with a fresh identity until it commits; the read assertions below still
-        // verify the test's contract, and a stall past the bound fails loudly instead of hanging.
+        // expire after the local append, surfacing an ambiguous outcome (CommitOutcomeUnknown).
+        // Until that appended entry is applied the committer also refuses the next write outright
+        // (TooManyRequests, "replica_apply_pending"); that refusal is definite and retryable by contract.
+        // Retry the seed under the SAME operation identity: the committer reports the ambiguous outcome so callers
+        // stop retrying under a new identity, and a replay of the same identity resolves the retained entry, whereas a
+        // fresh identity would collide with it. The read assertions below still verify the test's contract, and a stall
+        // past the bound fails loudly instead of hanging.
+        var seedOperationId = Guid.NewGuid().ToString();
+        var seedEntry = new NodeCacheEntry<object?> { Value = "v" };
         using var seedBound = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var seedLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, seedBound.Token);
         while (true)
         {
             try
             {
-                await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, seedLinked.Token);
+                await cache.SetEntryAsync(seedOperationId, "quorum-read", key, seedEntry, seedLinked.Token);
                 break;
             }
-            catch (SquirixException error) when (error.Code == SquirixErrorCode.CommitOutcomeUnknown && !cancellationToken.IsCancellationRequested)
+            catch (SquirixException error) when ((error.Code == SquirixErrorCode.CommitOutcomeUnknown || error.Code == SquirixErrorCode.TooManyRequests) &&
+                                                 !cancellationToken.IsCancellationRequested)
             {
                 if (seedBound.IsCancellationRequested)
                     throw new InvalidOperationException("Seed write did not reach a majority before the bound.", error);
+
+                // A refused write returns immediately; pause so the retry does not spin and starve the pending apply of CPU.
+                await Task.Delay(TimeSpan.FromMilliseconds(20), TimeProvider.System, seedLinked.Token);
             }
         }
 
