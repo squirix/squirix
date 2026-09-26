@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -48,8 +49,9 @@ public sealed class ClusterIdentityInternalPortTests
     }
 
     /// <summary>An allocated internal port must stay bound until released, so a parallel test cannot grab it between probing and Kestrel bind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InternalPortStaysBoundUntilReleased()
+    public async Task InternalPortStaysBoundUntilReleased(CancellationToken cancellationToken)
     {
         using var identity = new ClusterIdentity();
         using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
@@ -60,7 +62,7 @@ public sealed class ClusterIdentityInternalPortTests
         _ = NodeExceptionAssert.For<SocketException>().Throws(internalPort, static port => BindExclusively(port));
 
         identity.Dispose();
-        BindExclusively(internalPort);
+        await BindExclusivelyEventuallyAsync(internalPort, cancellationToken);
 
         _ = await Assert.That(GetInterNodePort(peers[1]) != internalPort).IsTrue().Because("Sibling nodes must not share one internal listener port.");
     }
@@ -118,7 +120,7 @@ public sealed class ClusterIdentityInternalPortTests
         _ = await Assert.That(second.Options!.InternalListenPort).IsEqualTo(firstPort).Because("Retry certificate generation must reuse the preserved internal port.");
 
         // The retry releases the reacquired hold for the real bind, so the port is bindable again.
-        BindExclusively(firstPort);
+        await BindExclusivelyEventuallyAsync(firstPort, cancellationToken);
     }
 
     /// <summary>A disposed identity refuses to build peers instead of reallocating internal ports nothing would release.</summary>
@@ -160,6 +162,27 @@ public sealed class ClusterIdentityInternalPortTests
         listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
         listener.Start();
         listener.Stop();
+    }
+
+    /// <summary>Binds the port once its hold is released, tolerating the short delay some systems (macOS) need to free a closed listener's port.</summary>
+    /// <param name="port">The port that must become bindable.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes once the port was bound; it fails when the port stays busy for five seconds.</returns>
+    private static async Task BindExclusivelyEventuallyAsync(int port, CancellationToken cancellationToken)
+    {
+        var started = Stopwatch.GetTimestamp();
+        while (true)
+        {
+            try
+            {
+                BindExclusively(port);
+                return;
+            }
+            catch (SocketException) when (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+            }
+        }
     }
 
     private static ServerPeer[] CreateTwoNodePeers(ClusterIdentity? identity, Uri[] primaries) => ClusterIdentity.CreatePeers(
