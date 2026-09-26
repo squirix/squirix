@@ -2,15 +2,17 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Bounds in-flight group mutations and serializes conflicts through a fixed number of key stripes.</summary>
+/// <remarks>Disposing the gate faults every entry still queued on the capacity or on a stripe with <see cref="ObjectDisposedException" />.</remarks>
 [ThreadSafe]
 internal sealed class ReplicaMutationGate : IDisposable
 {
-    private readonly SemaphoreSlim _capacity;
-    private readonly SemaphoreSlim[] _stripes;
+    private readonly AsyncSemaphore _capacity;
+    private readonly AsyncLock[] _stripes;
     private int _activeCount;
 
     internal ReplicaMutationGate(int maxInFlight, int stripeCount = 64)
@@ -19,10 +21,10 @@ internal sealed class ReplicaMutationGate : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(stripeCount);
 
         MaxInFlight = maxInFlight;
-        _capacity = new SemaphoreSlim(maxInFlight, maxInFlight);
-        _stripes = new SemaphoreSlim[stripeCount];
+        _capacity = new AsyncSemaphore(maxInFlight);
+        _stripes = new AsyncLock[stripeCount];
         for (var i = 0; i < _stripes.Length; i++)
-            _stripes[i] = new SemaphoreSlim(1, 1);
+            _stripes[i] = new AsyncLock();
     }
 
     internal int ActiveCount => Volatile.Read(ref _activeCount);
@@ -38,17 +40,22 @@ internal sealed class ReplicaMutationGate : IDisposable
             _stripes[i].Dispose();
     }
 
+    /// <summary>Waits for a capacity slot and the key's stripe.</summary>
+    /// <param name="keyHash">Hash of the key whose mutations are serialized.</param>
+    /// <param name="cancellationToken">Cancels the wait while it is still queued.</param>
+    /// <returns>The lease that returns the stripe and the slot when disposed.</returns>
+    /// <exception cref="ObjectDisposedException">The gate was disposed before or while the entry was queued.</exception>
     internal async ValueTask<ReplicaMutationLease> EnterAsync(int keyHash, CancellationToken cancellationToken)
     {
         await _capacity.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var stripe = _stripes[(keyHash & int.MaxValue) % _stripes.Length];
+        AsyncLockHolder stripe;
         try
         {
-            await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
+            stripe = await _stripes[(keyHash & int.MaxValue) % _stripes.Length].LockAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            _ = _capacity.Release();
+            _capacity.Release();
             throw;
         }
 
@@ -57,23 +64,12 @@ internal sealed class ReplicaMutationGate : IDisposable
     }
 
     /// <summary>Returns a lease's stripe and capacity slot.</summary>
-    /// <param name="stripe">The stripe the lease holds.</param>
-    /// <remarks>
-    /// Never throws: once the gate was disposed while the lease was still out, its semaphores are gone, so there is nothing left to
-    /// release. A disposed <see cref="SemaphoreSlim" /> never completes a queued wait, even a canceled one, so owners dispose the gate
-    /// only when no entry can still be waiting.
-    /// </remarks>
-    internal void Exit(SemaphoreSlim stripe)
+    /// <param name="stripe">The stripe holder the lease owns.</param>
+    /// <remarks>Never throws: a lease still out when the gate was disposed keeps its stripe and slot until it returns them here.</remarks>
+    internal void Exit(AsyncLockHolder stripe)
     {
         _ = Interlocked.Decrement(ref _activeCount);
-        try
-        {
-            _ = stripe.Release();
-            _ = _capacity.Release();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The gate was disposed under this lease; see the remarks.
-        }
+        stripe.Dispose();
+        _capacity.Release();
     }
 }
