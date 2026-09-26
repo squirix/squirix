@@ -5,7 +5,8 @@ on:
     # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks. The test artifact is built
     # without analyzers; the analyzed build runs in parallel as analyze-ubuntu and gates ci-success.
     # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
-    # Windows/macOS builds/tests run on main only (release branch), not on develop.
+    # Windows/macOS builds/tests run on pushes to main and develop, on pull requests into main, and on schedule/dispatch, not on
+    # pull requests into develop. They build without analyzers (the ubuntu build already ran them) and run the test hosts directly.
     # Builds/tests are split per OS so ubuntu tests/Sonar are not gated on Windows/macOS build.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
@@ -261,6 +262,7 @@ jobs:
                     run-package-smoke: ${{ github.event_name != 'pull_request' }}
                     # Pull requests build the test artifact without analyzers; analyze-ubuntu runs the analyzed build in parallel.
                     analyzers: ${{ github.event_name != 'pull_request' }}
+                    test-only-artifact: ${{ github.event_name == 'pull_request' }}
 
     # Pull request only: the analyzed (TreatWarningsAsErrors) build that build-ubuntu skips for speed. It uploads nothing.
     analyze-ubuntu:
@@ -297,7 +299,7 @@ jobs:
         timeout-minutes: 45
         needs: changes
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main')) && (
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
@@ -323,6 +325,9 @@ jobs:
                     artifact-os: windows-latest
                     framework: net10.0
                     run-package-smoke: "false"
+                    # The ubuntu build already runs the analyzers; here only compiling matters.
+                    analyzers: "false"
+                    test-only-artifact: "true"
 
     build-macos:
         name: Build (macos-latest / net10.0)
@@ -330,7 +335,7 @@ jobs:
         timeout-minutes: 45
         needs: changes
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main')) && (
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
@@ -356,6 +361,9 @@ jobs:
                     artifact-os: macos-latest
                     framework: net10.0
                     run-package-smoke: "false"
+                    # The ubuntu build already runs the analyzers; here only compiling matters.
+                    analyzers: "false"
+                    test-only-artifact: "true"
 
     build-arm:
         name: Build (ubuntu-26.04-arm / net10.0)
@@ -523,7 +531,7 @@ jobs:
         timeout-minutes: 20
         needs: [ build-windows ]
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main')) && (
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
@@ -562,7 +570,7 @@ jobs:
         timeout-minutes: 20
         needs: [ build-macos ]
         if: |
-            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main')) && (
+            ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.base_ref == 'main')) && (
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'

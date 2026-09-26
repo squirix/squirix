@@ -70,7 +70,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 
     /// <summary>A manifest retention cleanup failure logged by the host ledger reaches the host logger under the ledger category.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="SkipTestException">Thrown when the platform has no directory ACL to deny listing with.</exception>
+    /// <exception cref="SkipTestException">Thrown when the platform has no directory ACL to deny listing with, or the account can list despite it.</exception>
     [Test]
     [SupportedOSPlatform("windows")]
     public async Task RetentionFailureReachesHostLogger(CancellationToken cancellationToken)
@@ -97,6 +97,11 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         directory.SetAccessControl(security);
         try
         {
+            // An elevated administrator (as on hosted CI runners) can still list the directory despite the deny entry; the cleanup
+            // failure cannot be provoked there, and waiting for it would only time out.
+            if (CanListDirectory(directory))
+                throw new SkipTestException("This account can list the directory despite the deny entry, so the cleanup failure cannot be provoked.");
+
             await ledger.WriteAsync(current, cancellationToken);
 
             var started = Stopwatch.GetTimestamp();
@@ -152,6 +157,19 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(recorder.FindCategory(ManifestRetentionDeleteFailedEventId)).IsEqualTo(typeof(Ledger).FullName);
+    }
+
+    private static bool CanListDirectory(DirectoryInfo directory)
+    {
+        try
+        {
+            _ = directory.GetFileSystemInfos();
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Logger provider recording the event id and category of every entry the host logs.</summary>
