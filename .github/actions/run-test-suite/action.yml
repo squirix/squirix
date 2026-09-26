@@ -83,8 +83,12 @@ runs:
       if: runner.os == 'Windows'
       shell: bash
       run: |
+        # Newer images already ship python3.exe next to python; copying over it fails with "are the same file".
         python="$(type -p python)"
-        cp "$python" "$(dirname "$python")"/python3
+        dir="$(dirname "$python")"
+        if [ ! -e "$dir/python3" ] && [ ! -e "$dir/python3.exe" ]; then
+          cp "$python" "$dir/python3"
+        fi
 
     - name: Select Test Suite
       id: select
