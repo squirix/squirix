@@ -65,7 +65,9 @@ runs:
           dotnet build squirix.slnx --configuration Release --no-restore -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
         fi
 
+    # Only the package smoke needs the certificate here; every test job creates its own.
     - name: Ensure Dev HTTPS Certificate
+      if: inputs.run-package-smoke == 'true'
       shell: bash
       run: bash tools/ci/ensure-dev-https-cert.sh
 
