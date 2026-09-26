@@ -52,6 +52,12 @@ Readiness behavior (`GET /health/ready`):
 - `journal_maintenance` is **Unhealthy** while the journal pipeline is latched as failed (for example after a failed
   fsync or flush; the node cannot commit until restart), after a failed journal compaction state, or after a fatal
   snapshot trigger failure. The check description names the latched failure type and message.
+- `journal_maintenance` is **Degraded** while one journal segment I/O call (a write or a flush) has been in progress
+  for at least 5 seconds (for example a stalled disk): commits wait until it returns. The check description names the
+  operation and how long it has been running; the check returns to **Healthy** once the call completes. A latched
+  failure (**Unhealthy**) takes precedence. The host keeps the default ASP.NET Core status mapping, so a **Degraded**
+  readiness answers HTTP `200` with the body `Degraded` (**Healthy** answers `200` with `Healthy`, **Unhealthy** `503`
+  with `Unhealthy`): a probe that checks only the status code does not see it.
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
   readiness by themselves.
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on

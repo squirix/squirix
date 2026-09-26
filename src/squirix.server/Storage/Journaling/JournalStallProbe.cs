@@ -31,6 +31,12 @@ internal sealed class JournalStallProbe
     /// <summary>Records that the journal segment I/O operation finished.</summary>
     internal void IoFinished() => _io.End();
 
+    /// <summary>Reads the journal segment I/O operation in progress, if any; lock-free and allocation-free, safe from any thread.</summary>
+    /// <param name="operation">The operation name, when one is in progress.</param>
+    /// <param name="startedTimestamp">The <see cref="Stopwatch.GetTimestamp" /> value taken when the operation started.</param>
+    /// <returns><see langword="true" /> when an operation is in progress; <see langword="false" /> when none is or the read kept racing a writer.</returns>
+    internal bool TryReadIo(out string? operation, out long startedTimestamp) => _io.TryRead(out operation, out startedTimestamp);
+
     /// <summary>Logs the stall state when a wait on the journal was canceled while journal I/O or the gate is stalled.</summary>
     /// <param name="waitingFor">What the canceled wait was waiting for.</param>
     internal void ReportWaitCanceled(string waitingFor)

@@ -158,12 +158,17 @@ internal static class PersistenceServiceRegistration
             static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<AsyncManualResetEvent>()),
             HealthStatus.Unhealthy,
             ReadyHealthCheckTags);
+
+        // The stall probe records Stopwatch timestamps: measure them with the system clock, never a clock a test registered.
         var journalMaintenance = new HealthCheckRegistration(
             "journal_maintenance",
             static sp => new JournalMaintenanceReadinessHealthCheck(
                 sp.GetRequiredService<IJournalCoordinator>(),
                 sp.GetRequiredService<IJournalCompactionStatus>(),
-                sp.GetRequiredService<ISnapshotReadinessStatus>()),
+                sp.GetRequiredService<ISnapshotReadinessStatus>(),
+                FindStallProbe(sp.GetRequiredService<JournalCoordinatorHost>().Coordinator),
+                sp.GetRequiredService<PersistenceOptions>().JournalStallDegradedThreshold,
+                TimeProvider.System),
             HealthStatus.Unhealthy,
             ReadyHealthCheckTags);
         var storageRetentionCleanup = new HealthCheckRegistration(
@@ -173,6 +178,11 @@ internal static class PersistenceServiceRegistration
             ReadyHealthCheckTags);
         _ = services.AddHealthChecks().Add(journalRecovery).Add(journalMaintenance).Add(storageRetentionCleanup);
     }
+
+    /// <summary>Finds the segment I/O stall probe of the owned journal; a coordinator without one reports no stall.</summary>
+    /// <param name="coordinator">The journal coordinator owned by the host.</param>
+    /// <returns>The probe, or <see langword="null" /> when the coordinator does not record its segment I/O.</returns>
+    private static JournalStallProbe? FindStallProbe(IJournalCoordinator coordinator) => coordinator is IJournalCoordinatorState state ? state.StallProbe : null;
 
     [Mutable]
     private sealed class PersistenceRuntime : IAsyncDisposable

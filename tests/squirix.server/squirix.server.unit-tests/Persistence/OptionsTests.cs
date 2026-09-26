@@ -91,6 +91,7 @@ public sealed class OptionsTests
     [Arguments(nameof(PersistenceOptions.FlushInterval))]
     [Arguments(nameof(PersistenceOptions.ManifestRetentionCount))]
     [Arguments(nameof(PersistenceOptions.SnapshotRetentionCount))]
+    [Arguments(nameof(PersistenceOptions.JournalStallDegradedThreshold))]
     public async Task ValidateRejectsNonPositiveScalars(string propertyName)
     {
         var options = CreateWithInvalidScalar(propertyName);
@@ -129,6 +130,7 @@ public sealed class OptionsTests
         nameof(PersistenceOptions.FlushInterval) => new PersistenceOptions { FlushInterval = 0 },
         nameof(PersistenceOptions.ManifestRetentionCount) => new PersistenceOptions { ManifestRetentionCount = 0 },
         nameof(PersistenceOptions.SnapshotRetentionCount) => new PersistenceOptions { SnapshotRetentionCount = 0 },
+        nameof(PersistenceOptions.JournalStallDegradedThreshold) => new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.Zero },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),
     };
 }
