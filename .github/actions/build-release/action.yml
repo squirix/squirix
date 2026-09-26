@@ -82,8 +82,9 @@ runs:
         retention-days: 1
         # Level 1: the payload is mostly DLLs that barely shrink further, so the extra CPU of the default level is wasted.
         compression-level: 1
-        # Linux pull request jobs run the test hosts directly and do not use the benchmark outputs or the testkit library
-        # outputs (each test project already carries a copy of its testkit), so leaving them out shrinks the artifact by about a third.
+        # Linux pull request jobs run the test hosts directly and do not use the benchmark outputs, the testkit library
+        # outputs (each test project already carries a copy of its testkit) or the obj intermediates, so leaving them out
+        # shrinks the artifact by about a third. The .pdb files stay: they give failing tests file and line numbers.
         path: |
           src/**/bin/Release/${{ inputs.framework }}/
           src/**/obj/Release/${{ inputs.framework }}/
@@ -93,6 +94,7 @@ runs:
           ${{ (github.event_name != 'pull_request' || runner.os != 'Linux') && format('benchmarks/**/obj/Release/{0}/', inputs.framework) || '' }}
           ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!tests/squirix/squirix.testkit/**' || '' }}
           ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!tests/squirix.server/squirix.server.testkit/**' || '' }}
+          ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!**/obj/**' || '' }}
           !**/*.xml
           !**/ref/**
           !**/*.cache
