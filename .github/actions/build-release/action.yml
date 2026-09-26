@@ -21,6 +21,10 @@ inputs:
     description: When false, skip the build output artifact upload (analyzer-only build).
     required: false
     default: "true"
+  test-only-artifact:
+    description: When true, leave the benchmark outputs, the testkit library outputs and the obj intermediates out of the artifact, because the consuming jobs run the test hosts straight from bin.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -84,19 +88,19 @@ runs:
         retention-days: 1
         # Level 1: the payload is mostly DLLs that barely shrink further, so the extra CPU of the default level is wasted.
         compression-level: 1
-        # Linux pull request jobs run the test hosts directly and do not use the benchmark outputs, the testkit library
-        # outputs (each test project already carries a copy of its testkit) or the obj intermediates, so leaving them out
-        # shrinks the artifact by about a third. The .pdb files stay: they give failing tests file and line numbers.
+        # Jobs that run the test hosts directly do not use the benchmark outputs, the testkit library outputs (each test project
+        # already carries a copy of its testkit) or the obj intermediates, so leaving them out shrinks the artifact by about a third.
+        # The .pdb files stay: they give failing tests file and line numbers.
         path: |
           src/**/bin/Release/${{ inputs.framework }}/
           src/**/obj/Release/${{ inputs.framework }}/
           tests/**/bin/Release/${{ inputs.framework }}/
           tests/**/obj/Release/${{ inputs.framework }}/
-          ${{ (github.event_name != 'pull_request' || runner.os != 'Linux') && format('benchmarks/**/bin/Release/{0}/', inputs.framework) || '' }}
-          ${{ (github.event_name != 'pull_request' || runner.os != 'Linux') && format('benchmarks/**/obj/Release/{0}/', inputs.framework) || '' }}
-          ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!tests/squirix/squirix.testkit/**' || '' }}
-          ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!tests/squirix.server/squirix.server.testkit/**' || '' }}
-          ${{ github.event_name == 'pull_request' && runner.os == 'Linux' && '!**/obj/**' || '' }}
+          ${{ inputs.test-only-artifact != 'true' && format('benchmarks/**/bin/Release/{0}/', inputs.framework) || '' }}
+          ${{ inputs.test-only-artifact != 'true' && format('benchmarks/**/obj/Release/{0}/', inputs.framework) || '' }}
+          ${{ inputs.test-only-artifact == 'true' && '!tests/squirix/squirix.testkit/**' || '' }}
+          ${{ inputs.test-only-artifact == 'true' && '!tests/squirix.server/squirix.server.testkit/**' || '' }}
+          ${{ inputs.test-only-artifact == 'true' && '!**/obj/**' || '' }}
           !**/*.xml
           !**/ref/**
           !**/*.cache
