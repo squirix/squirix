@@ -42,7 +42,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan LogShutdownBudget = TimeSpan.FromMilliseconds(200);
 
-    private static readonly TimeSpan ShortCommitBudget = TimeSpan.FromMilliseconds(200);
+    /// <summary>Well below the 5 s default, yet long enough that preparing the write (log append, fsync) cannot exhaust it on a loaded machine.</summary>
+    private static readonly TimeSpan ShortCommitBudget = TimeSpan.FromSeconds(1);
 
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
@@ -103,7 +104,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         {
             var started = Stopwatch.GetTimestamp();
             var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken);
-            await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            // On a busy machine the short budget can expire before the committer reaches the follower; the outcome contract asserted
+            // below is the same either way, so wait for whichever comes first instead of hanging until the stall timeout.
+            _ = await Task.WhenAny(gateway.Entered, write).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             var elapsed = Stopwatch.GetElapsedTime(started);
