@@ -31,6 +31,10 @@ GLOBAL_BASENAME_PREFIXES = ("Directory.Build.", "Directory.Packages.", "BannedSy
 # The CI mechanism itself: never trust a partial analysis of a change to it.
 GLOBAL_PREFIXES = (".github/", "tools/ci/")
 
+# Trees whose files can end up in a compilation. A tracked file under one of them that no solution project owns is treated as
+# affecting everything; only paths elsewhere (docs, tools other than tools/ci, root files) are safe to ignore.
+COMPILED_ROOTS = ("src/", "tests/", "benchmarks/", "samples/")
+
 # Squirix.Server is the root of the heavy serial chain: touching it reaches almost everything.
 HEAVY_ROOT = "src/squirix.server/Squirix.Server.csproj"
 FULL_WHEN_AT_LEAST = 12
@@ -87,7 +91,15 @@ def scope_for(changed: list[str]) -> tuple[str, list[str]]:
     if any(is_global(c) for c in changed):
         return "full", []
 
-    direct = {p for p in (owner(c, projects) for c in changed) if p is not None}
+    direct: set[str] = set()
+    for path in changed:
+        project = owner(path, projects)
+        if project is not None:
+            direct.add(project)
+        elif path.startswith(COMPILED_ROOTS):
+            # Outside every solution project directory but under a compiled root, for example src/shared, whose files are linked
+            # into several projects: it can change any project's diagnostics, so it is never safe to skip.
+            return "full", []
 
     # Reverse closure: a project is affected when it references an affected one.
     referenced_by: dict[str, set[str]] = {p: set() for p in projects}
