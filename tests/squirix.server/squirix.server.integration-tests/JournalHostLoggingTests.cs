@@ -2,6 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +33,7 @@ namespace Squirix.Server.IntegrationTests;
 public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 {
     private const int JournalWaitCanceledWhileStalledEventId = 1014;
+    private const int ManifestRetentionCleanupFailedEventId = 1009;
     private const int ManifestRetentionDeleteFailedEventId = 1008;
 
     /// <summary>A stall warning logged by the host journal reaches the host logger under the journal coordinator category.</summary>
@@ -62,6 +66,51 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         }
 
         _ = await Assert.That(recorder.FindCategory(JournalWaitCanceledWhileStalledEventId)).IsEqualTo(typeof(JournalCoordinator).FullName);
+    }
+
+    /// <summary>A manifest retention cleanup failure logged by the host ledger reaches the host logger under the ledger category.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Thrown when the platform has no directory ACL to deny listing with.</exception>
+    [Test]
+    [SupportedOSPlatform("windows")]
+    public async Task RetentionFailureReachesHostLogger(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new SkipTestException("Denying directory listing through an ACL is Windows-specific.");
+
+        using var recorder = new CategoryRecordingLoggerProvider();
+        var options = new IntegrationStartOptions { PersistenceOptions = new PersistenceOptions(), ServicesConfigure = recorder.Register };
+        await using var cluster = await StartClusterAsync("node_ledger_cleanup_logging", options, cancellationToken);
+        var node = cluster["node_ledger_cleanup_logging"];
+        var ledger = node.GetRequiredService<Ledger>();
+        var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
+        var current = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+
+        // The first write scans the data directory for the next manifest index; do it before listing is denied.
+        await ledger.WriteAsync(current, cancellationToken);
+
+        // Retention cleanup lists the data directory; once listing is denied (files stay readable and writable) it fails with an exception.
+        var directory = new DirectoryInfo(dataDir);
+        var deny = new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, InheritanceFlags.None, PropagationFlags.None, AccessControlType.Deny);
+        var security = directory.GetAccessControl();
+        security.AddAccessRule(deny);
+        directory.SetAccessControl(security);
+        try
+        {
+            await ledger.WriteAsync(current, cancellationToken);
+
+            var started = Stopwatch.GetTimestamp();
+            while (recorder.FindCategory(ManifestRetentionCleanupFailedEventId) == null && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(30))
+                await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            security = directory.GetAccessControl();
+            _ = security.RemoveAccessRule(deny);
+            directory.SetAccessControl(security);
+        }
+
+        _ = await Assert.That(recorder.FindCategory(ManifestRetentionCleanupFailedEventId)).IsEqualTo(typeof(Ledger).FullName);
     }
 
     /// <summary>A manifest retention warning logged by the host ledger reaches the host logger under the ledger category.</summary>
