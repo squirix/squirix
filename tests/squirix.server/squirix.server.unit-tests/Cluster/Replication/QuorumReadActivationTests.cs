@@ -106,6 +106,8 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
 
         // The seed write races leader election: under parallel CI load the fixed commit budget can
         // expire after the local append, surfacing an ambiguous outcome for a fresh operation id.
+        // Until that appended entry is applied the committer also refuses the next write outright
+        // (TooManyRequests, "replica_apply_pending"); that refusal is definite and retryable by contract.
         // Retry the seed with a fresh identity until it commits; the read assertions below still
         // verify the test's contract, and a stall past the bound fails loudly instead of hanging.
         using var seedBound = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -117,10 +119,14 @@ public sealed class QuorumReadActivationTests : ServerUnitTestBase
                 await cache.SetEntryAsync(Guid.NewGuid().ToString(), "quorum-read", key, new NodeCacheEntry<object?> { Value = "v" }, seedLinked.Token);
                 break;
             }
-            catch (SquirixException error) when (error.Code == SquirixErrorCode.CommitOutcomeUnknown && !cancellationToken.IsCancellationRequested)
+            catch (SquirixException error) when ((error.Code == SquirixErrorCode.CommitOutcomeUnknown || error.Code == SquirixErrorCode.TooManyRequests) &&
+                                                 !cancellationToken.IsCancellationRequested)
             {
                 if (seedBound.IsCancellationRequested)
                     throw new InvalidOperationException("Seed write did not reach a majority before the bound.", error);
+
+                // A refused write returns immediately; pause so the retry does not spin and starve the pending apply of CPU.
+                await Task.Delay(TimeSpan.FromMilliseconds(20), TimeProvider.System, seedLinked.Token);
             }
         }
 
