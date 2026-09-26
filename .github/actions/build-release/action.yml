@@ -49,6 +49,10 @@ runs:
 
     - name: Build
       shell: bash
+      env:
+        # The compiler server is a fresh process that JITs Roslyn (and the analyzers); skipping tiered-PGO instrumentation
+        # makes that startup faster and does not change the build result.
+        DOTNET_TieredPGO: "0"
       run: |
         if [ "${{ inputs.analyzers }}" = "true" ]; then
           dotnet build squirix.slnx --configuration Release --no-restore
