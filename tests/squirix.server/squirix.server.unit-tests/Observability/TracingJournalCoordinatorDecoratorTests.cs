@@ -46,6 +46,48 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         _ = await Assert.That(context.PayloadBytes).IsEqualTo(payload.Length);
     }
 
+    /// <summary>Disposing the decorator leaves the journal it does not own open for its owner.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeLeavesInnerJournalOpen(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
+        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        var journal = new TracingJournalCoordinatorDecorator(core, new RecordingJournalOperationTracer());
+
+        await journal.DisposeAsync();
+        await core.AppendPutUnderGateAsync(CacheKey.Default("owner-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await core.AwaitDurabilityCommitAsync(cancellationToken);
+
+        _ = await Assert.That(core.AppendedOps).IsEqualTo(1L);
+    }
+
+    /// <summary>Disposing the decorator detaches it: appends to the journal no longer reach the decorator's subscribers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeStopsForwardingAppends(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16, FlushInterval = 600_000 };
+        using var manifestStore = new Ledger(options);
+        var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
+        await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
+        var journal = new TracingJournalCoordinatorDecorator(core, new RecordingJournalOperationTracer());
+        var forwarded = 0;
+        journal.OnAppended += (_, _) => Interlocked.Increment(ref forwarded);
+
+        // The journal raises to append to its handlers in subscription order: once this later handler ran, the decorator's would have too.
+        var appended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        core.OnAppended += (_, _) => appended.TrySetResult();
+
+        await journal.DisposeAsync();
+        await core.AppendPutUnderGateAsync(CacheKey.Default("detached-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await appended.Task.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(Volatile.Read(ref forwarded)).IsEqualTo(0);
+    }
+
     /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>
     /// <param name="groupCommitMaxWaitMilliseconds">Group-commit wait window; zero disables group commit.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>

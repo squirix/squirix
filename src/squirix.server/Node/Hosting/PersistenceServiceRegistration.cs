@@ -119,11 +119,14 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().Gate);
         _ = services.AddSingleton(static sp => sp.GetRequiredService<PersistenceRuntime>().JournalCoordinator.AttachLog(sp.GetService<ILoggerFactory>()));
 
+        // The journal host is the only owner of the journal lifetime. The container disposes every disposable a factory
+        // returns, so no other registration may hand out the raw journal: each goes through the decorator, which does not
+        // dispose it. Otherwise, one of them would dispose the journal before the host and abort the container on its failure.
         _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
             sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
             sp.GetRequiredService<IJournalOperationTracer>()));
 
-        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
+        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<IJournalCoordinator>());
         _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
 
         RegisterRuntimeHealthChecks(services);
