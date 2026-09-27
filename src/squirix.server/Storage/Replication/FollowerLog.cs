@@ -1034,12 +1034,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// faults the ack with <see cref="ObjectDisposedException" />; the first writer wins, so a late outcome is a no-op.
         /// </remarks>
         [Immutable]
-        private abstract class TrackedDurableWork : IWorkPoolItem
+        private abstract class TrackedDurableWorkBase : IWorkPoolItem
         {
             private readonly TaskCompletionSource _ack = new(TaskCreationOptions.RunContinuationsAsynchronously);
             private readonly FollowerLogAckRegistry _acks;
 
-            protected TrackedDurableWork(FollowerLogAckRegistry acks)
+            protected TrackedDurableWorkBase(FollowerLogAckRegistry acks)
             {
                 _acks = acks;
             }
@@ -1084,7 +1084,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         /// <summary>Background work that durably writes appended frames and flushes them.</summary>
         [Immutable]
-        private sealed class AppendDurableWork : TrackedDurableWork
+        private sealed class AppendDurableWork : TrackedDurableWorkBase
         {
             private readonly byte[] _buffer;
             private readonly GroupLogDurability _durability;
@@ -1121,7 +1121,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         /// <summary>Background work that writes and atomically publishes metadata.</summary>
         [Immutable]
-        private sealed class MetaDurableWork : TrackedDurableWork
+        private sealed class MetaDurableWork : TrackedDurableWorkBase
         {
             private readonly byte[] _buffer;
             private readonly IFollowerLogFaultHooks _faults;
@@ -1166,7 +1166,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         /// Frames are encoded into short-lived pooled buffers one at a time, so the retained tail is never materialized into a
         /// single contiguous array (which could overflow <see cref="int" /> or exhaust contiguous memory for a large tail).
         /// </remarks>
-        private sealed class ReplaceDurableWork : TrackedDurableWork
+        private sealed class ReplaceDurableWork : TrackedDurableWorkBase
         {
             private readonly GroupLogDurability _durability;
             private readonly IFollowerLogFaultHooks _faults;
@@ -1276,7 +1276,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         /// <summary>Background work that durably truncates the log before a conflicting tail is rewritten.</summary>
         [Immutable]
-        private sealed class TruncateDurableWork : TrackedDurableWork
+        private sealed class TruncateDurableWork : TrackedDurableWorkBase
         {
             private readonly GroupLogDurability _durability;
             private readonly TaskCompletionSource<bool> _durable;

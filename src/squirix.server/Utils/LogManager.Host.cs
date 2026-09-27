@@ -37,7 +37,7 @@ internal static partial class LogManager
     /// factory stays the same; discards entries while none is configured or once the configured one is disposed.
     /// </summary>
     [ThreadSafe]
-    private abstract class HostLogger : ILogger
+    private abstract class HostLoggerBase : ILogger
     {
         private HostLoggerBinding? _binding;
 
@@ -84,7 +84,7 @@ internal static partial class LogManager
     /// <summary>Host logger for the category of <typeparamref name="T" />.</summary>
     /// <typeparam name="T">The logger category type.</typeparam>
     [ThreadSafe]
-    private sealed class HostLogger<T> : HostLogger, ILogger<T>
+    private sealed class HostLogger<T> : HostLoggerBase, ILogger<T>
         where T : class
     {
         protected override ILogger Create(ILoggerFactory factory) => factory.CreateLogger<T>();
@@ -92,7 +92,7 @@ internal static partial class LogManager
 
     /// <summary>Host logger for a named category.</summary>
     [ThreadSafe]
-    private sealed class NamedHostLogger : HostLogger
+    private sealed class NamedHostLogger : HostLoggerBase
     {
         private readonly string _categoryName;
 
