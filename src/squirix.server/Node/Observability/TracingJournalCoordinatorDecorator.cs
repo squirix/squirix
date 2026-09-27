@@ -58,13 +58,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
-    {
-        var traceContext = JournalCoordinatorTracing.ForKey(_inner, key, entryBytes.Length);
-        using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAndAwaitDurabilityAsync(ownership, key, entryBytes, cancellationToken).ConfigureAwait(false);
-    }
-
     public async ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         var traceContext = JournalCoordinatorTracing.ForKey(_inner, key, entryBytes.Length);

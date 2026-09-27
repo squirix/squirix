@@ -210,14 +210,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             cancellationToken);
     }
 
-    public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
-    {
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
-        var record = _appendPipeline.AllocateRecord(in ownership, key, JournalOperationKind.Put, entryBytes);
-        return Options.IsJournalGroupCommitEnabled ? _appendPipeline.AppendPutAndAwaitDurabilityAsync(record, cancellationToken)
-            : _appendPipeline.AppendRecordWithDurabilityCoreAsync(record, cancellationToken);
-    }
-
     public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
@@ -608,18 +600,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             return record;
         }
 
-        internal async ValueTask AppendPutAndAwaitDurabilityAsync(JournalRecord record, CancellationToken cancellationToken)
-        {
-            await AppendRecordCoreAsync(record, cancellationToken).ConfigureAwait(false);
-            if (_owner.GroupCommit != null)
-            {
-                await _owner.GroupCommit.AwaitCommitAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            await _owner.DurabilityPipeline.EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         internal async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
         {
             var idempotencyStamped = StampIdempotencyOperationId(record);
@@ -647,46 +627,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
                 var startedMs = Environment.TickCount64;
                 await EnqueueAppendAsync(frameBytes, frameLen, idempotencyStamped, cancellationToken).ConfigureAwait(false);
-                _owner.RecordAppendMetrics(frameLen, startedMs);
-            }
-            finally
-            {
-                record.ReturnToAppendPool();
-            }
-        }
-
-        internal async ValueTask AppendRecordWithDurabilityCoreAsync(JournalRecord record, CancellationToken cancellationToken)
-        {
-            var idempotencyStamped = StampIdempotencyOperationId(record);
-            _owner.DurabilityPipeline.ThrowIfJournalThreadFailed();
-            await _owner.StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var encode = BinaryJournalCodec.PrepareEncode(record);
-                var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
-
-                // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
-                _owner.EnsureAppendAdmission(frameLen);
-                var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
-                const int bodyOffset = JournalFraming.FrameHeaderSize;
-                try
-                {
-                    _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
-                    JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
-                }
-                catch
-                {
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBytes);
-                    throw;
-                }
-
-                var startedMs = Environment.TickCount64;
-                var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, ack, cancellationToken).ConfigureAwait(false);
-                if (idempotencyStamped)
-                    RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
-                await ack.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-
                 _owner.RecordAppendMetrics(frameLen, startedMs);
             }
             finally
@@ -759,12 +699,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // slow journal thread never blocks shutdown drain on fsync latency.
             if (appendAck != null)
                 await AwaitWriteAckAfterEnqueueAsync(appendAck).ConfigureAwait(false);
-        }
-
-        private ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, TaskCompletionSource ack, CancellationToken cancellationToken)
-        {
-            var item = JournalWorkItem.AppendWithDurability(ack, frameBytes, frameLength);
-            return EnqueueTrackedAppendAsync(item, frameBytes, frameLength, ack, cancellationToken);
         }
 
         private async ValueTask EnqueueTrackedAppendAsync(JournalWorkItem item, byte[] frameBytes, int frameLength, TaskCompletionSource? trackAck, CancellationToken cancellationToken)

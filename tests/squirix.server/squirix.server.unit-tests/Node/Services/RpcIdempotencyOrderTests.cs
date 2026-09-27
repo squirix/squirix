@@ -163,9 +163,6 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
         }
 
-        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
-            _inner.AppendPutAndAwaitDurabilityAsync(ownership, key, entryBytes, cancellationToken);
-
         public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
         {
             _trace.Record(OrderingStep.Put);

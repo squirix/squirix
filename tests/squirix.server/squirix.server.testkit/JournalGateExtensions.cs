@@ -36,8 +36,21 @@ internal static class JournalGateExtensions
         internal ValueTask AppendPutDurablyUnderGateAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             journal.ExecuteUnderSnapshotBarrierAsync(
                 (Journal: journal, Key: key, EntryBytes: entryBytes),
-                static (s, ownership, ct) => s.Journal.AppendPutAndAwaitDurabilityAsync(ownership, s.Key, s.EntryBytes, ct),
+                static (s, ownership, ct) => s.Journal.AppendPutAndAwaitCommitAsync(ownership, s.Key, s.EntryBytes, ct),
                 cancellationToken);
+
+        /// <summary>
+        /// Appends a put frame with <paramref name="ownership" />, then awaits a durability commit covering it, the way the durable mutation
+        /// executor pairs an append with its durability wait. A refusal of the append itself (for example a caller not holding the gate)
+        /// throws synchronously; failures after that fault the returned task.
+        /// </summary>
+        /// <param name="ownership">Gate ownership the caller appends with.</param>
+        /// <param name="key">Cache key.</param>
+        /// <param name="entryBytes">Encoded cache entry.</param>
+        /// <param name="cancellationToken">Cancels the append admission and the durability wait.</param>
+        /// <returns>The append followed by its durability commit.</returns>
+        internal ValueTask AppendPutAndAwaitCommitAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+            AwaitCommitAfterAsync(journal, journal.AppendPutAsync(ownership, key, entryBytes, cancellationToken), cancellationToken);
 
         /// <summary>Appends a remove frame under the mutation gate.</summary>
         /// <param name="key">Cache key.</param>
@@ -84,5 +97,11 @@ internal static class JournalGateExtensions
                 (Journal: journal, Key: key, ExpiresUtc: expiresUtc),
                 static (s, ownership, ct) => s.Journal.AppendTouchExpirationAsync(ownership, s.Key, s.ExpiresUtc, ct),
                 cancellationToken);
+    }
+
+    private static async ValueTask AwaitCommitAfterAsync(IJournalCoordinator journal, ValueTask append, CancellationToken cancellationToken)
+    {
+        await append.ConfigureAwait(false);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 }

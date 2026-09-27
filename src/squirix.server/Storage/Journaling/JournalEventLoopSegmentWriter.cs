@@ -84,12 +84,6 @@ internal sealed class JournalEventLoopSegmentWriter
             return false;
         }
 
-        if (item.Kind == JournalWorkKind.AppendWithDurability)
-        {
-            ProcessAppendWithDurability(item);
-            return false;
-        }
-
         if (item.Kind == JournalWorkKind.DurabilityCheckpoint)
         {
             FlushWriteBatch();
@@ -317,34 +311,6 @@ internal sealed class JournalEventLoopSegmentWriter
             _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
         CompleteJournalWorkItem(item);
-    }
-
-    private void ProcessAppendWithDurability(JournalWorkItem item)
-    {
-        var ack = ThrowHelper.Required(item.Ack, "AppendWithDurability work item is missing a durability ack.");
-
-        // Admitted before a failure drain that already faulted it; failing again is idempotent.
-        if (RejectAbandonedAppend(item))
-            return;
-
-        try
-        {
-            WriteAppendFrame(item);
-            _owner.FlushToDisk();
-            _ = ack.TrySetResult();
-        }
-        catch (JournalCapacityExceededException ex)
-        {
-            FailAppendWorkItem(item, ex);
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-            FailAppendWorkItem(item, ex);
-            throw;
-        }
-
-        ReleaseQueuedAppendResources(item);
     }
 
     private bool RejectAbandonedAppend(JournalWorkItem item)

@@ -53,27 +53,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
-    /// <summary>An abandoned durable append fails idempotently without releasing resources twice.</summary>
-    [Test]
-    public async Task AbandonedDurableAppendFails()
-    {
-        using var setup = CreateSetup();
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-
-        var reason = new InvalidOperationException("pipeline failed");
-        _ = setup.Registry.FailAll(reason, NullLogger.Instance, setup.Counter);
-
-        _ = await Assert.That(setup.Writer.ProcessJournalWorkItem(item)).IsFalse();
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
-        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
-    }
-
     /// <summary>
     /// An ack-less append rejected for capacity on the unbatched path releases its slot and buffer, then throws instead of
     /// being dropped silently (issue #703).
@@ -208,61 +187,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(deferred).IsFalse();
         _ = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-    }
-
-    /// <summary>A capacity failure on the durable append path faults the ack and releases the slot.</summary>
-    [Test]
-    public async Task DurableAppendCapacityFailureFaultsAck()
-    {
-        using var setup = CreateSetup(1024L * 1024L, 1024, 1);
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-
-        _ = await Assert.That(setup.Writer.ProcessJournalWorkItem(item)).IsFalse();
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
-        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-    }
-
-    /// <summary>
-    /// A durable frame larger than an empty segment, bypassing producer admission, faults its ack instead of being treated as a roll
-    /// request that fails the pipeline: no new segment and no roll publication (issue #749).
-    /// </summary>
-    [Test]
-    public async Task DurableOversizedFrameFaultsAck()
-    {
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var run = await RunOversizedFrameAsync(buffer => JournalWorkItem.AppendWithDurability(ack, buffer, OversizedFrameLength));
-
-        var rejection = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
-        _ = await Assert.That(rejection?.Message).Contains("segment size");
-        _ = await Assert.That(run.PipelineFailure).IsNull();
-        await AssertNoRollAsync(run);
-    }
-
-    /// <summary>A segment open failure on the durable path faults the ack, releases the slot, and propagates.</summary>
-    [Test]
-    public async Task DurableSegmentOpenFailureFaultsAck()
-    {
-        var options = new PersistenceOptions { DataDir = Path.Join(Dir, "missing") };
-        var registry = new PendingAppendRegistry();
-        var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
-        using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
-        using var state = new FakeEventLoopState(host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
-        var writer = new JournalEventLoopSegmentWriter(state, new FakeEventLoopRollState());
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref counter.Value);
-
-        var thrown = NodeExceptionAssert.For<DirectoryNotFoundException>().Throws((Writer: writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
-
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(thrown);
-        _ = await Assert.That(counter.Value).IsEqualTo(0);
     }
 
     /// <summary>A full batch flushes and restages the overflow append instead of dropping it.</summary>
