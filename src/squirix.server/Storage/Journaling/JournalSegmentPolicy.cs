@@ -75,8 +75,7 @@ internal sealed class JournalSegmentPolicy
     internal void EnsureAdmissionOrThrow(in JournalAdmissionSnapshot state, int incomingFrameBytes)
     {
         // A frame that does not fit an empty segment would roll without end on the journal thread.
-        if (ShouldRollSegment(JournalFraming.FileHeaderSize, incomingFrameBytes))
-            throw new JournalCapacityExceededException(FrameExceedsSegmentMessage);
+        EnsureFitsEmptySegmentOrThrow(incomingFrameBytes);
 
         var headerSlack = JournalFraming.FileHeaderSize * (state.PendingCount + 1L);
         if (state.TotalBytes + state.PendingBytes + incomingFrameBytes + headerSlack > MaxTotalBytes)
@@ -96,6 +95,18 @@ internal sealed class JournalSegmentPolicy
         var totalAfterAppend = onDiskTotalBytes + incomingFrameBytes;
         if (totalAfterAppend > MaxTotalBytes)
             throw new JournalCapacityExceededException(TotalBytesExceededMessage);
+    }
+
+    /// <summary>
+    /// Refuses a frame that does not fit even an empty segment (a file header plus the frame exceed the segment size): no roll can ever
+    /// make it fit. Shared by append admission and the journal thread (issue #749).
+    /// </summary>
+    /// <param name="incomingFrameBytes">Length of the frame to place.</param>
+    /// <exception cref="JournalCapacityExceededException">The frame never fits an empty segment.</exception>
+    internal void EnsureFitsEmptySegmentOrThrow(int incomingFrameBytes)
+    {
+        if (ShouldRollSegment(JournalFraming.FileHeaderSize, incomingFrameBytes))
+            throw new JournalCapacityExceededException(FrameExceedsSegmentMessage);
     }
 
     internal void EnsureRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) => EnsureCapacityOrThrow(onDiskSegmentCount + 1, onDiskTotalBytes);

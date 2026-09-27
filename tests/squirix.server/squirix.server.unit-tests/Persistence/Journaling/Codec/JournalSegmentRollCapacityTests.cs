@@ -129,6 +129,21 @@ public sealed class JournalSegmentRollCapacityTests
     }
 
     /// <summary>
+    /// A frame that fills an empty segment exactly (file header plus frame equal to the segment size) fits; one byte more never fits any
+    /// segment and is refused, whatever the journal state (issue #749).
+    /// </summary>
+    [Test]
+    public async Task EmptySegmentFitRefusesPastSegmentSize()
+    {
+        var policy = CreateAdmissionPolicy();
+
+        policy.EnsureFitsEmptySegmentOrThrow(Convert.ToInt32(Usable));
+        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureFitsEmptySegmentOrThrow(Convert.ToInt32(Usable) + 1));
+
+        _ = await Assert.That(thrown.Message).Contains("segment size", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Seeded simulation of the journal thread's next-fit roll rule over random backlogs (small, large, and alternating half-segment and
     /// tiny frames), some with a counted header-only roll target: whenever the incoming frame rolls, the bound covers every segment added
     /// up to and including that roll and stays within twice that count plus two, and admission refuses the frame when one segment slot

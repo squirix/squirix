@@ -121,6 +121,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
         try
         {
+            // Rejected before the roll decision: a roll can never make a frame larger than an empty segment fit, so each retry
+            // after a completed roll would roll again, one new segment and manifest publication each (issue #749).
+            _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
             var headerDelta = _rollTarget.GetAppendHeaderDelta(needsRoll, out var existingTargetLength);
@@ -385,6 +388,9 @@ internal sealed class JournalEventLoopSegmentWriter
     private void WriteAppendFrame(JournalWorkItem item)
     {
         var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
+
+        // Same guard as TryAcceptAppendIntoBatch: no roll can make such a frame fit, so it is a capacity rejection, not a roll request.
+        _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
         EnsureSegmentOpen();
         var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
         var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
