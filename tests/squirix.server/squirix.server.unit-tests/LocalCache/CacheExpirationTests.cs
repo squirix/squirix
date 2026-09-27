@@ -162,6 +162,23 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         _ = await Assert.That(exists).IsEqualTo(shouldStillExist);
     }
 
+    /// <summary>A raw read observes expiry without triggering local deletion.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RawReadDoesNotDeleteExpiredEntry(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        var cache = new PhysicalCache<string>(time);
+        var key = new CacheKey("default", "key-a");
+        await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
+        time.Advance(TimeSpan.FromSeconds(2));
+
+        var raw = await cache.RawReader.GetEntryRawAsync(key, cancellationToken);
+        _ = await Assert.That(raw).IsNotNull();
+        _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
+        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(key, cancellationToken)).IsNull();
+    }
+
     /// <summary>Verifies remove operations treat expired keys as missing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

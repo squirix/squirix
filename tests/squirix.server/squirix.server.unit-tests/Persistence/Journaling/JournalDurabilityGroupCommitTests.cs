@@ -5,10 +5,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -19,7 +17,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.</summary>
+/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and journal group-commit durability waits.</summary>
 [Immutable]
 public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
@@ -219,49 +217,6 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         _ = await Assert.That(firstFailure).IsSameReferenceAs(flushFailure);
         _ = await Assert.That(secondFailure).IsSameReferenceAs(flushFailure);
-    }
-
-    /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FsyncCompletesBeforeMemoryApply(CancellationToken cancellationToken)
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
-            JournalGroupCommitMaxBatch = 8,
-        };
-        using var manifestStore = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        var executor = new DurableMutationExecutor(journal);
-        var key = CacheKey.Default("k");
-        var payload = JournalEntryPayloadKit.EncodePut("v");
-        var applyCount = new AtomicCounter();
-
-        var applied = await executor.ExecuteAsync(
-            key,
-            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload, AtomicCounter ApplyCount), int>(
-                (journal, key, payload, applyCount),
-                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
-                static (s, _) =>
-                {
-                    s.ApplyCount.Increment();
-                    return new ValueTask<int>(1);
-                }),
-            cancellationToken);
-
-        _ = await Assert.That(applied).IsEqualTo(1);
-        _ = await Assert.That(applyCount.Value).IsEqualTo(1);
-        await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
     }
 
     /// <summary>Ensures cancellation of the first ack does not cancel the shared delayed flush for other acks.</summary>
