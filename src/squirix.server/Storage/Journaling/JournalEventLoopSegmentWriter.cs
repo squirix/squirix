@@ -14,6 +14,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalEventLoopSegmentWriter
 {
+    private const string AcklessCapacityRejectionMessage = "journal thread rejected an admitted append without an ack for exceeding journal capacity; the frame was not written.";
+
     private readonly MaintenanceCompletion _maintenance;
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
@@ -142,7 +144,11 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
-            return true;
+
+            // An ack-less append was already reported queued to its producer and nobody observes its outcome: dropping it
+            // here would let the next durability checkpoint report it durable (issue #703). The pipeline fails loudly instead,
+            // because the journal thread loop latches this exception type through FailPipeline.
+            return item.Ack == null ? throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex) : true;
         }
     }
 
@@ -283,6 +289,11 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
+
+            // Same backstop as TryAcceptAppendIntoBatch: an ack-less capacity rejection fails the pipeline, never drops the frame.
+            if (item.Ack == null)
+                throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex);
+
             return;
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
