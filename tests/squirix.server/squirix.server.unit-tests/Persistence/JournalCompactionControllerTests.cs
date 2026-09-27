@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -100,8 +101,17 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var snapshots = CreateSnapshots(journal.Journal.Options, journal.Ledger, journal.Journal);
-        var maintenance = new RecordingMaintenanceExecutor();
-        using var controller = CreateController(journal.Journal.Options, journal.Ledger, maintenance, snapshots);
+        var runs = 0;
+        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
+
+        // Counts runs without compacting.
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
+                       .Callback((_, _) =>
+                        {
+                            _ = Interlocked.Increment(ref runs);
+                            return ValueTask.CompletedTask;
+                        });
+        using var controller = CreateController(journal.Journal.Options, journal.Ledger, maintenance.Instance(), snapshots);
 
         // An unflushed frame makes the cut's checkpoint issue a real fsync, which is what the stall blocks.
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
@@ -109,7 +119,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var triggeredDuringSnapshot = await controller.TryTriggerAsync(cancellationToken);
-        var compactedDuringSnapshot = maintenance.Runs;
+        var compactedDuringSnapshot = Volatile.Read(ref runs);
         journal.Writer.Flush.Release();
         await snapshot;
         var triggeredAfterSnapshot = await controller.TryTriggerAsync(cancellationToken);
@@ -119,7 +129,7 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         _ = await Assert.That(triggeredDuringSnapshot).IsFalse();
         _ = await Assert.That(compactedDuringSnapshot).IsEqualTo(0);
         _ = await Assert.That(triggeredAfterSnapshot).IsTrue();
-        _ = await Assert.That(maintenance.Runs).IsEqualTo(1);
+        _ = await Assert.That(Volatile.Read(ref runs)).IsEqualTo(1);
         _ = await Assert.That(reservationFree).IsTrue();
         _ = await Assert.That((await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index).IsEqualTo(1);
     }
@@ -132,7 +142,10 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var snapshots = CreateSnapshots(journal.Journal.Options, journal.Ledger, journal.Journal);
         var failure = new InvalidOperationException("compaction failed");
-        using var controller = CreateController(journal.Journal.Options, journal.Ledger, new RecordingMaintenanceExecutor(failure), snapshots);
+        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
+                       .Callback((_, _) => ValueTask.FromException(failure));
+        using var controller = CreateController(journal.Journal.Options, journal.Ledger, maintenance.Instance(), snapshots);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(controller.TryTriggerAsync(cancellationToken));
         var reservationFree = snapshots.TryEnterCompaction();
@@ -164,27 +177,5 @@ public sealed class JournalCompactionControllerTests : IsolatedStorageTestBase
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
         return new Coordinator(opt, journal, deps);
-    }
-
-    /// <summary>Maintenance executor that counts runs without compacting, or fails each run with a given error.</summary>
-    [ThreadSafe]
-    private sealed class RecordingMaintenanceExecutor : IExclusiveMaintenanceExecutor
-    {
-        private readonly Exception? _failure;
-        private int _runs;
-
-        internal RecordingMaintenanceExecutor(Exception? failure = null)
-        {
-            _failure = failure;
-        }
-
-        internal int Runs => Volatile.Read(ref _runs);
-
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
-        {
-            _ = action;
-            _ = Interlocked.Increment(ref _runs);
-            return _failure == null ? ValueTask.CompletedTask : ValueTask.FromException(_failure);
-        }
     }
 }

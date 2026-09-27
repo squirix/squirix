@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -28,7 +29,9 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         var writer = new SnapshotWriter(Dir);
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), cancellationToken);
 
-        var failingWriter = new SnapshotWriter(Dir, new PublishFailingStorageFileOperations());
+        var fileOperations = new IStorageFileOperationsCreateExpectations();
+        _ = fileOperations.Setups.PublishSnapshot(Arg.Any<string>(), Arg.Any<string>()).Throws<IOException>();
+        var failingWriter = new SnapshotWriter(Dir, fileOperations.Instance());
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), cancellationToken));
 
         _ = await Assert.That(File.Exists(path)).IsTrue();
@@ -117,15 +120,5 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    }
-
-    [Immutable]
-    private sealed class PublishFailingStorageFileOperations : IStorageFileOperations
-    {
-        private readonly FileOperations _inner = new();
-
-        public bool PublishSnapshot(string tempPath, string finalPath) => throw new IOException("simulated snapshot publish failure");
-
-        public bool TryDelete(string path) => _inner.TryDelete(path);
     }
 }
