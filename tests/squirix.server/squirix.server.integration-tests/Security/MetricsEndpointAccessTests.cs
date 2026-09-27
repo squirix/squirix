@@ -32,7 +32,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics")), cancellationToken);
@@ -50,7 +50,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/metrics"));
@@ -76,7 +76,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var response = await GetMetricsViaLocalIpAsync(localIp!, held.Port, cancellationToken);

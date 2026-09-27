@@ -8,6 +8,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -27,7 +28,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
 
-        await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-a", new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -116,7 +117,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         await using var cluster = await StartClusterAsync(
             "node-a",
             "node-b",
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
@@ -185,7 +186,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         await using var cluster = await StartClusterAsync(
             "node-a",
             "node-b",
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         using var channel = CreateGrpcChannel(cluster["node-b"].Uri);

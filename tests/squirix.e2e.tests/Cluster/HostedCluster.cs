@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Client;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;

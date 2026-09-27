@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Support.Client;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;

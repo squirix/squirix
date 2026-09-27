@@ -2,14 +2,18 @@
 <!--
   Squirix.Server.TestKit namespace dependency policy.
 
-  Intended layer stack (outer → inner):
+  Intended layer stack (outer → inner, dependencies flow downward only):
 
     TestKit.Hosting / TestKit.Benchmarks (composition & perf harness)
-      → TestKit.Mtls (focused helper)
-        → TestKit.IO / TestKit.Networking / TestKit.Replication
+      → TestKit.Mtls (focused cluster-transport kit)   TestKit.Replication (focused storage kit)
+        → TestKit (root: generic asserts and kits)
+          → TestKit.IO / TestKit.Networking (product-free file and port helpers)
+            → TestKit.Diagnostics (product-free logging)
 
-  TestKit is shared by unit, integration, smoke, and benchmark projects. Keep low-level kits free of
-  server orchestration types; reach persistence and transport only through approved helper namespaces.
+  TestKit is shared by unit, integration, smoke, e2e, and benchmark projects. Keep low-level kits
+  free of server orchestration types; reach persistence and transport only through approved
+  helper namespaces. Child → parent is allowed implicitly, so every inward-facing kit carries an
+  explicit rule against the outer TestKit namespaces (including the root).
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -22,23 +26,37 @@
   <!-- Test infrastructure must not reference the client SDK assembly. -->
   <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix" />
 
+  <!-- Shared test infrastructure hosts the server library in-process; it must not pull the
+       executable host or the design-time protocol model into every consumer. -->
+  <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix.ProtocolModel" />
+
   <!-- Client SDK namespaces are out of scope for in-process server test hosts. -->
   <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.TestKit.*" To="Squirix.Core.*" />
 
-  <!-- ═══ Foundation kits (helpers only) ═══ -->
+  <!-- ═══ Foundation kits (product-free helpers) ═══ -->
 
-  <Disallowed From="Squirix.Server.TestKit.IO.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.IO.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.IO.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.IO.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.IO.*" To="Squirix.Server.LocalCache.*" />
+  <!-- Diagnostics is the innermost kit: no other TestKit namespace and no server product namespace. -->
+  <Disallowed
+      From="Squirix.Server.TestKit.Diagnostics.*"
+      To="/^Squirix\.Server(?:\.(?!(?:TestKit\.Diagnostics|Attributes)(?:\.|$)).*)?$/" />
 
-  <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.Node.*" />
-  <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.TestKit.Networking.*" To="Squirix.Server.LocalCache.*" />
+  <!-- File and port helpers are product-agnostic; among TestKit namespaces they may use only Diagnostics. -->
+  <Disallowed
+      From="Squirix.Server.TestKit.IO.*"
+      To="/^Squirix\.Server(?:\.(?!(?:TestKit\.(?:IO|Diagnostics)|Attributes)(?:\.|$)).*)?$/" />
+  <Disallowed
+      From="Squirix.Server.TestKit.Networking.*"
+      To="/^Squirix\.Server(?:\.(?!(?:TestKit\.(?:Networking|Diagnostics)|Attributes)(?:\.|$)).*)?$/" />
+
+  <!-- ═══ Root kit (generic asserts and kits) ═══ -->
+
+  <!-- Root helpers are consumed by every focused kit and must not reach back into composition or focused kits. -->
+  <Disallowed From="Squirix.Server.TestKit" To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit" To="Squirix.Server.TestKit.Benchmarks.*" />
+  <Disallowed From="Squirix.Server.TestKit" To="Squirix.Server.TestKit.Mtls.*" />
+  <Disallowed From="Squirix.Server.TestKit" To="Squirix.Server.TestKit.Replication.*" />
 
   <!-- ═══ Focused kits ═══ -->
 
@@ -47,5 +65,26 @@
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.Node.*" />
   <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.LocalCache.*" />
+
+  <!-- mTLS material is consumed by hosting composition, never the other way around. -->
+  <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Benchmarks.*" />
+  <Disallowed From="Squirix.Server.TestKit.Mtls.*" To="Squirix.Server.TestKit.Replication.*" />
+
+  <!-- Replication kits drive follower logs and offline bootstrap below the node composition layer. -->
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.LocalCache.*" />
+
+  <!-- Replication is a sibling of Mtls, below hosting composition and benchmark harnesses. -->
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.TestKit.Mtls.*" />
+  <Disallowed From="Squirix.Server.TestKit.Replication.*" To="Squirix.Server.TestKit.Benchmarks.*" />
+
+  <!-- ═══ Composition ═══ -->
+
+  <!-- Test hosts are shared with non-benchmark consumers; perf harness code stays on top. -->
+  <Disallowed From="Squirix.Server.TestKit.Hosting.*" To="Squirix.Server.TestKit.Benchmarks.*" />
 
 </NsDepCopConfig>

@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -143,7 +144,7 @@ public static class NodePathKit
     private static string BuildProcessSessionSegment()
     {
         var startTicks = GetProcessStartTicks();
-        return $"pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}-start{NodeInvariantIndexStrings.Format(startTicks)}";
+        return string.Create(CultureInfo.InvariantCulture, $"pid{Environment.ProcessId}-start{startTicks}");
     }
 
     private static string CombineCore(bool sanitize, string path1, string path2)

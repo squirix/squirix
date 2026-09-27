@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.TestKit.Hosting;
+namespace Squirix.Server.TestKit;
 
 /// <summary>Describes a cluster node by identifier and primary listen URI before peer entries are built.</summary>
 public readonly record struct ClusterNode

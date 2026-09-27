@@ -32,7 +32,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var response = await HttpClient.GetAsync(new Uri(NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details")), cancellationToken);
@@ -50,7 +50,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", held.Port, "/health/ready/details"));
@@ -76,7 +76,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var response = await GetReadyDetailsViaLocalIpAsync(localIp!, held.Port, cancellationToken);

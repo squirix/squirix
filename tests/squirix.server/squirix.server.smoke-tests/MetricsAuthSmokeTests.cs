@@ -37,7 +37,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode("node-metrics-auth", uri),
-            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            _ => new SmokeStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackMetricsUrl), cancellationToken);

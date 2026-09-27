@@ -39,7 +39,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode(NodeId, uri),
-            new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()) },
+            new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(TestJwtHelper.CreateRandomCredentials()) },
             cancellationToken);
 
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", held.Port).Uri;

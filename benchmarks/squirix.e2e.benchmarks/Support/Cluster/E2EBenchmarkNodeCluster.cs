@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;

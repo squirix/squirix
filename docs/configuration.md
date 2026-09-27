@@ -391,14 +391,14 @@ Production and standalone `squirix-server` processes configure JWT through envir
 In-process test hosts also accept an optional **per-node security override**
 so parallel tests do not share process-wide environment state.
 
-Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit` when starting a node in tests. When provided, the override
+Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit.Hosting` when starting a node in tests. When provided, the override
 replaces environment-variable lookup for that startup only; omit it on `NodeIntegrationTestBase.StartNodeAsync` to keep
 env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
 
 ```csharp
 // E2E / integration auth (JWT)
 var credentials = TestJwtHelper.CreateRandomCredentials();
-await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+await StartNodeAsync(url, peers, security: TestNodeSecurityOptions.FromJwtCredentials(credentials));
 
 // Smoke default: unauthenticated without touching process env
 await StartNodeAsync(url, peers);
