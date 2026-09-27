@@ -34,14 +34,14 @@ public sealed class ReplicaCommitDisposeTests
         var pipeline = new StallingApplyPipeline();
         var leaks = new LeakRecorder();
         var coordinator = CreateCoordinator(pipeline, leaks);
-        var mutation = ReplicaCommitTestKit.CreateMutation();
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         var commit = coordinator.CommitAsync(mutation, StallTimeout, CancellationToken.None).AsTask();
         try
         {
             await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await coordinator.DisposeAsync();
-            var refused = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), StallTimeout, cancellationToken);
+            var refused = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), StallTimeout, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReadOnlyMemory<byte>>(refused);
             _ = await Assert.That(leaks.Count).IsEqualTo(1);
             _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
@@ -95,7 +95,7 @@ public sealed class ReplicaCommitDisposeTests
         var leaks = new LeakRecorder();
         var coordinator = CreateCoordinator(pipeline, leaks);
         pipeline.ReleaseApply();
-        var mutation = ReplicaCommitTestKit.CreateMutation();
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         var outcome = await coordinator.CommitAsync(mutation, StallTimeout, cancellationToken);
 
         await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

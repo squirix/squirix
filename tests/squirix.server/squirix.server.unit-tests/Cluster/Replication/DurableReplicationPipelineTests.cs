@@ -147,7 +147,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         try
         {
             // No follower ever answers: the commit parks in the majority wait while disposal drains it.
-            var commit = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
+            var commit = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
 
             // The drain bound expires in real time; disposal completes instead of hanging on the parked commit.
             // The test-side bound only guards against a drain regression; it sits far above the drain bound.

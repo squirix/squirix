@@ -26,12 +26,6 @@ internal static class ReplicaCommitTestKit
             : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state);
     }
 
-    internal static PreparedReplicaMutation CreateMutation()
-    {
-        var identity = new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
-    }
-
     internal sealed class Pipeline : IReplicaCommitPipeline
     {
         private readonly bool _blockFollowers;

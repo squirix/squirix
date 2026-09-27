@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -39,9 +38,9 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
         await using var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
-            CreateCancellationHonoringHooks(),
+            ReplicaFaultHooks.CreateCancellationHonoring(),
             new GroupIdempotencyState(4, TimeSpan.MaxValue));
-        var mutation = CreateMutation();
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         journal.Writer.Flush.Arm();
 
         var commit = coordinator.CommitAsync(mutation, CommitBudget, CancellationToken.None).AsTask();
@@ -53,22 +52,6 @@ public sealed class ReplicaCommitApplyStallTests : IsolatedStorageTestBase
         await SequenceAssert.EqualMemoryAsync(mutation.OutcomePayload, outcome);
         _ = await Assert.That(pipeline.Memory.Snapshot).IsEqualTo(CacheKey.Default(AppliedKey).ToString());
         _ = await Assert.That(applyCanceled).IsFalse();
-    }
-
-    /// <summary>Creates fault hooks that honor their token, as any budget-aware step would: a canceled token faults the stage.</summary>
-    private static IReplicaCommitFaultHooks CreateCancellationHonoringHooks()
-    {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, cancellationToken) =>
-                            cancellationToken.IsCancellationRequested ? ValueTask.FromCanceled(cancellationToken) : ValueTask.CompletedTask);
-        return expectations.Instance();
-    }
-
-    private static PreparedReplicaMutation CreateMutation()
-    {
-        var identity = new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
     }
 
     /// <summary>Majority pipeline whose follower acknowledges at once and whose memory apply runs a real durable mutation through the journal.</summary>

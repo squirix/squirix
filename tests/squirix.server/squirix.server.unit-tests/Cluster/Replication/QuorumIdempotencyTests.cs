@@ -26,7 +26,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, state);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
-            coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken));
+            coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken));
         _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(0);
     }
 

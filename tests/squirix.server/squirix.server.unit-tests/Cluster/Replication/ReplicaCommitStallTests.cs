@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -32,7 +31,7 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
         await using var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
-            CreateCancellationHonoringHooks(),
+            ReplicaFaultHooks.CreateCancellationHonoring(),
             new GroupIdempotencyState(4, TimeSpan.MaxValue));
         var first = CreateMutation(1, "00000000000000000000000000000001", 11);
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(first, StallTimeout, cancellationToken));
@@ -43,16 +42,6 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
 
         await SequenceAssert.EqualMemoryAsync(first.OutcomePayload, retried);
         await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.Applied);
-    }
-
-    /// <summary>Creates fault hooks that honor their token, as any budget-aware step would: a canceled token faults the stage.</summary>
-    private static IReplicaCommitFaultHooks CreateCancellationHonoringHooks()
-    {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, cancellationToken) =>
-                            cancellationToken.IsCancellationRequested ? ValueTask.FromCanceled(cancellationToken) : ValueTask.CompletedTask);
-        return expectations.Instance();
     }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex, string operationId, byte outcome) => new(
