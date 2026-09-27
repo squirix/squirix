@@ -183,7 +183,7 @@ internal static class PersistenceServiceRegistration
     /// <summary>Finds the segment I/O stall probe of the owned journal; a coordinator without one reports no stall.</summary>
     /// <param name="coordinator">The journal coordinator owned by the host.</param>
     /// <returns>The probe, or <see langword="null" /> when the coordinator does not record its segment I/O.</returns>
-    private static JournalStallProbe? FindStallProbe(IJournalCoordinator coordinator) => coordinator is IJournalCoordinatorState state ? state.StallProbe : null;
+    private static JournalStallProbe? FindStallProbe(IJournalCoordinator coordinator) => coordinator is IJournalStallProbeSource state ? state.StallProbe : null;
 
     [Mutable]
     private sealed class PersistenceRuntime : IAsyncDisposable

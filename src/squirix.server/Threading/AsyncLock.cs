@@ -79,11 +79,8 @@ internal sealed class AsyncLock : IDisposable
             if (cancellationToken.IsCancellationRequested)
                 return ValueTask.FromCanceled<AsyncLockHolder>(cancellationToken);
 
-            if (!_held)
-            {
-                _held = true;
+            if (TryTakeFree())
                 return new ValueTask<AsyncLockHolder>(new AsyncLockHolder(this));
-            }
 
             var waiter = new Waiter(this);
             Enqueue(waiter);
@@ -125,9 +122,8 @@ internal sealed class AsyncLock : IDisposable
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_held)
+            if (TryTakeFree())
             {
-                _held = true;
                 holder = new AsyncLockHolder(this);
                 return true;
             }
@@ -165,6 +161,18 @@ internal sealed class AsyncLock : IDisposable
             _tail.Next = waiter;
 
         _tail = waiter;
+    }
+
+    /// <summary>Marks the lock held when it is free.</summary>
+    /// <returns><see langword="true"/> when the lock was free and is now held by the caller.</returns>
+    /// <remarks>Callers hold <see cref="_sync"/>.</remarks>
+    private bool TryTakeFree()
+    {
+        if (_held)
+            return false;
+
+        _held = true;
+        return true;
     }
 
     private void Unlink(Waiter waiter)

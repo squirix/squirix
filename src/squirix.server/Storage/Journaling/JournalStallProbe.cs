@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Tracks the journal I/O in progress and the mutation gate holder, and reports a stalled journal when a wait on it is canceled.</summary>
+[ThreadSafe]
 internal sealed class JournalStallProbe
 {
     private readonly StallSlot _gate = new();

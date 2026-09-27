@@ -147,6 +147,10 @@ P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.get
 P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.set
 P:Squirix.Server.SquirixServerPeerOptions::Uri:System.Uri.get
 P:Squirix.Server.SquirixServerPeerOptions::Uri:System.Uri.set
+T:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException
+M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor()
+M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor(System.String)
+M:Squirix.Server.Storage.Journaling.Abstractions.JournalPostEnqueueFaultException::.ctor(System.String,System.Exception)
 F:Squirix.Server.Storage.JournalPlatformBackend::Auto
 F:Squirix.Server.Storage.JournalPlatformBackend::RandomAccess
 T:Squirix.Server.Storage.JournalPlatformBackend

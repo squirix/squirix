@@ -46,7 +46,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         var options = new IntegrationStartOptions { PersistenceOptions = new PersistenceOptions(), ServicesConfigure = recorder.Register };
         await using var cluster = await StartClusterAsync("node_journal_logging", options, cancellationToken);
         var node = cluster["node_journal_logging"];
-        if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalCoordinatorState journal)
+        if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
         // The node is idle, so its journal thread performs no segment I/O and the test is the only writer of the probe.

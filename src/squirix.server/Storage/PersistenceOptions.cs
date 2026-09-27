@@ -97,26 +97,30 @@ internal sealed record PersistenceOptions
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()
     {
-        if (FlushInterval <= 0)
-            throw new InvalidOperationException("Persistence FlushInterval must be greater than zero.");
-        if (JournalGroupCommitMaxBatch <= 0)
-            throw new InvalidOperationException("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
+        RequirePositive(FlushInterval, nameof(FlushInterval));
+        RequirePositive(JournalGroupCommitMaxBatch, nameof(JournalGroupCommitMaxBatch));
         if (JournalGroupCommitMaxWait < TimeSpan.Zero)
             throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
-        if (JournalMaxSegmentCount <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxSegmentCount must be greater than zero.");
-        if (JournalMaxSegmentMb <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxSegmentMb must be greater than zero.");
-        if (JournalMaxTotalBytesMb <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxTotalBytesMb must be greater than zero.");
-        if (JournalStallDegradedThreshold <= TimeSpan.Zero)
-            throw new InvalidOperationException("Persistence JournalStallDegradedThreshold must be greater than zero.");
-        if (JournalWriteBatch <= 0)
-            throw new InvalidOperationException("Persistence JournalWriteBatch must be greater than zero.");
-        if (ManifestRetentionCount <= 0)
-            throw new InvalidOperationException("Persistence ManifestRetentionCount must be greater than zero.");
-        if (SnapshotRetentionCount <= 0)
-            throw new InvalidOperationException("Persistence SnapshotRetentionCount must be greater than zero.");
+
+        RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
+        RequirePositive(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
+        RequirePositive(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
+        RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
+        RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
+        RequirePositive(ManifestRetentionCount, nameof(ManifestRetentionCount));
+        RequirePositive(SnapshotRetentionCount, nameof(SnapshotRetentionCount));
+    }
+
+    private static void RequirePositive(int value, string name)
+    {
+        if (value <= 0)
+            throw new InvalidOperationException($"Persistence {name} must be greater than zero.");
+    }
+
+    private static void RequirePositive(TimeSpan value, string name)
+    {
+        if (value <= TimeSpan.Zero)
+            throw new InvalidOperationException($"Persistence {name} must be greater than zero.");
     }
 
     private static class PersistenceOptionsDefaults

@@ -167,6 +167,18 @@ internal static class StoreFactory
                 }
             }
 
+            /// <summary>Ends a lenient read at a corrupt record, or fails a strict one.</summary>
+            /// <param name="message">The strict-mode failure message.</param>
+            /// <returns><see langword="false" /> in lenient mode.</returns>
+            /// <exception cref="InvalidDataException">The read is strict.</exception>
+            private bool StopOrThrowCorrupt(string message) => _strict ? throw new InvalidDataException(message) : false;
+
+            /// <summary>Ends a lenient read at a truncated record, or fails a strict one.</summary>
+            /// <param name="message">The strict-mode failure message.</param>
+            /// <returns><see langword="false" /> in lenient mode.</returns>
+            /// <exception cref="EndOfStreamException">The read is strict.</exception>
+            private bool StopOrThrowTruncated(string message) => _strict ? throw new EndOfStreamException(message) : false;
+
             private bool TryReadIdempotency(ReadOnlySpan<byte> body, out PersistedIdempotencyRecord? record)
             {
                 try
@@ -203,23 +215,23 @@ internal static class StoreFactory
                 recordBytes = default;
                 Span<byte> recordHeader = stackalloc byte[SnapshotCodec.RecordHeaderSize];
                 if (!HandleEx.TryReadExact(_handle, recordHeader, ref _offset))
-                    return _strict ? throw new EndOfStreamException("Binary snapshot record header is truncated.") : false;
+                    return StopOrThrowTruncated("Binary snapshot record header is truncated.");
 
                 var recordStart = _offset - SnapshotCodec.RecordHeaderSize;
                 var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
                 if (bodyLength > SnapshotCodec.MaxRecordBodyLength)
-                    return _strict ? throw new InvalidDataException("Binary snapshot record body exceeds the maximum allowed length.") : false;
+                    return StopOrThrowCorrupt("Binary snapshot record body exceeds the maximum allowed length.");
 
                 var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
                 if (recordLength > _footerOffset - recordStart)
-                    return _strict ? throw new InvalidDataException("Binary snapshot record extends past the file footer.") : false;
+                    return StopOrThrowCorrupt("Binary snapshot record extends past the file footer.");
 
                 if (_scratch.Length < recordLength)
                     _scratch = new byte[recordLength];
 
                 recordHeader.CopyTo(_scratch);
                 if (!HandleEx.TryReadExact(_handle, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize), ref _offset))
-                    return _strict ? throw new EndOfStreamException("Binary snapshot record body is truncated.") : false;
+                    return StopOrThrowTruncated("Binary snapshot record body is truncated.");
 
                 recordBytes = _scratch.AsSpan(0, recordLength);
                 return true;
