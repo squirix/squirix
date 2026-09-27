@@ -23,7 +23,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(blockFollowers: true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        var mutation = ReplicaCommitTestKit.CreateMutation();
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         var first = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
         await pipeline.LocalAppended.WaitAsync(cancellationToken);
         var duplicate = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
@@ -44,7 +44,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        var operation = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken);
+        var operation = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken);
 
         var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);

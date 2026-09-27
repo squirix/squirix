@@ -1,0 +1,57 @@
+using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Grpc.Core;
+
+namespace Squirix.E2ETests.Fixtures;
+
+/// <summary>Shared startup, routing, and assertion helpers for two-node public API e2e tests.</summary>
+internal static class TwoNodeSupport
+{
+    internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await cache.AddAsync(key, value, cancellationToken: cancellationToken);
+            return null;
+        }
+        catch (RpcException ex)
+        {
+            return ex;
+        }
+        catch (CacheConflictException ex)
+        {
+            return ex;
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex;
+        }
+        catch (IOException ex)
+        {
+            return ex;
+        }
+    }
+
+    internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => KeyOwnerHelper.TwoNode.FindKeyOwnedBy(cacheName, ownerId, prefix);
+
+    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration == null ? null : Expiry.In(expiration.Value);
+
+    internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>(CancellationToken cancellationToken, [CallerMemberName] string testName = "")
+    {
+        var cluster = await HostedCluster.StartTwoNodeAsync(testName, cancellationToken: cancellationToken);
+        try
+        {
+            var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+            var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
+            return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, cancellationToken);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or RpcException)
+        {
+            await cluster.DisposeAsync();
+            throw;
+        }
+    }
+}

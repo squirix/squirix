@@ -2,11 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Core;
-using Squirix.Server.LocalCache;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -163,23 +160,6 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         _ = await Assert.That(missed).IsFalse();
         _ = await Assert.That(readCount).IsEqualTo(0);
         _ = await Assert.That(pipeline.Trace).IsEmpty();
-    }
-
-    /// <summary>A raw read observes expiry without triggering local deletion.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RawReadDoesNotDeleteExpiredEntry(CancellationToken cancellationToken)
-    {
-        var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
-        var cache = new PhysicalCache<string>(time);
-        var key = new CacheKey("default", "key-a");
-        await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
-        time.Advance(TimeSpan.FromSeconds(2));
-
-        var raw = await cache.RawReader.GetEntryRawAsync(key, cancellationToken);
-        _ = await Assert.That(raw).IsNotNull();
-        _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
-        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(key, cancellationToken)).IsNull();
     }
 
     /// <summary>Expiration requests require identifiers, a UTC timestamp, and a positive timeout.</summary>

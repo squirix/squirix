@@ -2,6 +2,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -23,7 +24,7 @@ public sealed class AuthSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             "node-grpc-auth",
-            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
         var uri = cluster["node-grpc-auth"].Uri;
 

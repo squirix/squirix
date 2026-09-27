@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -21,7 +22,7 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcInvalidJwtIsRejected(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -39,7 +40,7 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcMissingAuthIsRejectedWhenJwtEnabled(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -55,7 +56,7 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcValidJwtSucceeds(CancellationToken cancellationToken)
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) }, cancellationToken);
 
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

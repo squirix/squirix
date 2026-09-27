@@ -4,6 +4,7 @@
 
   Client bucket stays free of server-side packages: integration tests exercise
   the exported v0.1 client surface against a locally hosted endpoint.
+  White-box coverage of client internals belongs in Squirix.UnitTests.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -16,5 +17,8 @@
   <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Server.Host" />
   <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.Server.TestKit" />
   <DisallowedAssembly From="Squirix.IntegrationTests" To="Squirix.ProtocolModel" />
+
+  <!-- Exported client surface only: client internals are covered white-box by Squirix.UnitTests. -->
+  <Disallowed From="Squirix.IntegrationTests.*" To="Squirix.Internal.*" />
 
 </NsDepCopConfig>

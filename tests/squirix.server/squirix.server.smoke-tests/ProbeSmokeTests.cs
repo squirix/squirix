@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -20,7 +21,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             "node-health",
-            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
         var uri = cluster["node-health"].Uri;
 

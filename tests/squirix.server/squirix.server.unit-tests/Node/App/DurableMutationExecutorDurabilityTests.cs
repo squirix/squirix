@@ -21,6 +21,43 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
+    /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FsyncCompletesBeforeMemoryApply(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 1,
+            FlushInterval = 600_000,
+            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        using var manifestStore = new Ledger(options);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true));
+        var executor = new DurableMutationExecutor(journal);
+        var applyState = new ApplyCounter(false);
+
+        var applied = await executor.ExecuteAsync(
+            CacheKey.Default("k"),
+            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
+                (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
+                static (s, ct) => s.Apply.ApplyAsync(ct)),
+            cancellationToken);
+
+        _ = await Assert.That(applied).IsEqualTo(1);
+        _ = await Assert.That(applyState.Calls).IsEqualTo(1);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
+    }
+
     /// <summary>
     /// Ensures a failed in-memory apply after durable journal is not retried, and reaches the caller as its own failure rather than as
     /// commit-unknown.

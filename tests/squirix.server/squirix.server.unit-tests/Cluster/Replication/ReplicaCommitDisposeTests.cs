@@ -2,13 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -19,8 +17,6 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaCommitDisposeTests
 {
-    private const int LeakedOnShutdownEventId = 4008;
-
     private static readonly TimeSpan QueuedBudget = TimeSpan.FromMilliseconds(300);
 
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(200);
@@ -36,19 +32,19 @@ public sealed class ReplicaCommitDisposeTests
     public async Task DisposeDoesNotTearDownLiveCommit(CancellationToken cancellationToken)
     {
         var pipeline = new StallingApplyPipeline();
-        var log = new LeakRecordingLogger();
-        var coordinator = CreateCoordinator(pipeline, log);
-        var mutation = ReplicaCommitTestKit.CreateMutation();
+        var leaks = new LeakRecorder();
+        var coordinator = CreateCoordinator(pipeline, leaks);
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         var commit = coordinator.CommitAsync(mutation, StallTimeout, CancellationToken.None).AsTask();
         try
         {
             await pipeline.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await coordinator.DisposeAsync();
-            var refused = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), StallTimeout, cancellationToken);
+            var refused = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), StallTimeout, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReadOnlyMemory<byte>>(refused);
-            _ = await Assert.That(log.LeakCount).IsEqualTo(1);
-            _ = await Assert.That(log.LeakLevel).IsEqualTo(LogLevel.Error);
+            _ = await Assert.That(leaks.Count).IsEqualTo(1);
+            _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
 
             pipeline.ReleaseApply();
             var outcome = await commit;
@@ -70,7 +66,7 @@ public sealed class ReplicaCommitDisposeTests
     public async Task DisposeKeepsQueuedCommitCancelable(CancellationToken cancellationToken)
     {
         var pipeline = new StallingApplyPipeline();
-        var coordinator = CreateCoordinator(pipeline, new LeakRecordingLogger());
+        var coordinator = CreateCoordinator(pipeline, new LeakRecorder());
         var stuck = StartCommitAsync(coordinator, CreateMutation(1, "00000000000000000000000000000001"), StallTimeout);
         try
         {
@@ -96,23 +92,23 @@ public sealed class ReplicaCommitDisposeTests
     public async Task IdleDisposeDoesNotReportLeak(CancellationToken cancellationToken)
     {
         var pipeline = new StallingApplyPipeline();
-        var log = new LeakRecordingLogger();
-        var coordinator = CreateCoordinator(pipeline, log);
+        var leaks = new LeakRecorder();
+        var coordinator = CreateCoordinator(pipeline, leaks);
         pipeline.ReleaseApply();
-        var mutation = ReplicaCommitTestKit.CreateMutation();
+        var mutation = ReplicaMutationTestKit.CreateMutation();
         var outcome = await coordinator.CommitAsync(mutation, StallTimeout, cancellationToken);
 
         await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         await SequenceAssert.EqualMemoryAsync(mutation.OutcomePayload, outcome);
-        _ = await Assert.That(log.LeakCount).IsEqualTo(0);
+        _ = await Assert.That(leaks.Count).IsEqualTo(0);
     }
 
-    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, ILogger log) =>
+    private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, LeakRecorder leaks) =>
         new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ShutdownBudget = ShutdownBudget,
-            ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(log, budget),
+            ShutdownLeakReporter = leaks.Report,
         };
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex, string operationId) => new(
@@ -124,26 +120,17 @@ public sealed class ReplicaCommitDisposeTests
     private static Task<ReadOnlyMemory<byte>> StartCommitAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, TimeSpan timeout) =>
         coordinator.CommitAsync(mutation, timeout, CancellationToken.None).AsTask();
 
-    /// <summary>Logger double recording the coordinator's shutdown leak event and its level.</summary>
+    /// <summary>Shutdown leak reporter double recording the budget of every leak the coordinator reports.</summary>
     [ThreadSafe]
-    private sealed class LeakRecordingLogger : ILogger
+    private sealed class LeakRecorder
     {
-        private readonly ConcurrentQueue<LogLevel> _leaks = new();
+        private readonly ConcurrentQueue<TimeSpan> _budgets = new();
 
-        internal int LeakCount => _leaks.Count;
+        internal int Count => _budgets.Count;
 
-        internal LogLevel? LeakLevel => _leaks.TryPeek(out var level) ? level : null;
+        internal TimeSpan? FirstBudget => _budgets.TryPeek(out var budget) ? budget : null;
 
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            if (eventId.Id == LeakedOnShutdownEventId)
-                _leaks.Enqueue(logLevel);
-        }
+        internal void Report(TimeSpan budget) => _budgets.Enqueue(budget);
     }
 
     /// <summary>Majority pipeline whose follower acknowledges at once and whose memory apply stalls, ignoring cancellation, until released.</summary>

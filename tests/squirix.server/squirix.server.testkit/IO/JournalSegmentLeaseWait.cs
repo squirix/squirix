@@ -14,6 +14,8 @@ public static class JournalSegmentLeaseWait
     private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const string ManifestCurrentFileName = "man-current";
     private const string ManifestCurrentStagingFileName = "man-current.next";
+    private const int PollIntervalMilliseconds = 25;
+    private const long ReleaseBudgetMilliseconds = 10_000;
 
     /// <summary>
     /// Waits until journal segment files, <c language="csharp">man-current</c>, and <c language="csharp">man-current.next</c> in
@@ -73,17 +75,13 @@ public static class JournalSegmentLeaseWait
 
     private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var state = (DataDir: dataDir, CancellationToken: cancellationToken);
-        try
+        var deadline = Environment.TickCount64 + ReleaseBudgetMilliseconds;
+        while (!CanAcquireRepairLease(dataDir, cancellationToken))
         {
-            await state.WaitUntilAsync(
-                static s => CanAcquireRepairLease(s.DataDir, s.CancellationToken),
-                TimeSpan.FromSeconds(10),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException ex)
-        {
-            throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.", ex);
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
+
+            await Task.Delay(PollIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
         }
     }
 

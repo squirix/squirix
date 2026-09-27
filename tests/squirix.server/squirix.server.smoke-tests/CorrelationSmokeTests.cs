@@ -2,13 +2,13 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.TestKit;
-using Squirix.Server.Utils;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -41,12 +41,12 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
             "A",
             "B",
             node => string.Equals(node, "B", StringComparison.Ordinal)
-                ? new SmokeStartOptions
+                ? new BlackBoxStartOptions
                 {
                     ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
                     ServicesConfigure = servicesConfigure.Apply,
                 }
-                : new SmokeStartOptions(),
+                : new BlackBoxStartOptions(),
             cancellationToken);
 
         var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
@@ -69,7 +69,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
+                Entry = CreateStringEntry("value"),
             },
             new CallOptions(headers, cancellationToken: cancellationToken));
 
@@ -83,6 +83,16 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var expectedTraceId = TraceIdFromTraceparent(traceparent!);
         var gotTraceId = TraceIdFromTraceparent(gotTp!);
         _ = await Assert.That(gotTraceId).IsEqualTo(expectedTraceId);
+    }
+
+    /// <summary>Builds a wire entry carrying one string value in the shared scalar envelope.</summary>
+    /// <param name="value">String payload.</param>
+    /// <returns>The wire entry.</returns>
+    private static CacheEntryWire CreateStringEntry(string value)
+    {
+        var envelope = new Struct();
+        envelope.Fields.Add(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value));
+        return new CacheEntryWire { Value = envelope };
     }
 
     private static string TraceIdFromTraceparent(string traceparent)

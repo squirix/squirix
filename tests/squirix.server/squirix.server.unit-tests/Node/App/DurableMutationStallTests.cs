@@ -29,6 +29,8 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
 
     private static readonly string KeysAb = $"{KeyA},{CacheKey.Default("b")}";
 
+    private static readonly string KeysBc = $"{CacheKey.Default("b")},{CacheKey.Default("c")}";
+
     /// <summary>A memory apply that fails after its frame entered the ring latches the journal pipeline and surfaces the original error.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -183,6 +185,41 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         _ = await Assert.That(replayed).IsEqualTo(KeysAb);
         _ = await Assert.That(restarted).IsEqualTo(replayed);
         _ = await Assert.That(memory.Snapshot).IsEqualTo(replayed);
+    }
+
+    /// <summary>A snapshot cut taken while its flush is stalled and followed by a removal restarts into the live state, not a resurrected key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StalledCutRecoveryMatchesLiveState(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var memory = new AppliedKeys();
+        var executor = new DurableMutationExecutor(journal.Journal);
+        _ = await memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
+        _ = await memory.PutAsync(executor, journal.Journal, "b", cancellationToken);
+
+        // An unflushed frame makes the cut's checkpoint issue a real fsync; re-putting an applied key keeps memory and the WAL equal.
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
+        journal.Writer.Flush.Arm();
+        var cut = journal.Journal.ExecuteSnapshotCutAsync(
+            memory,
+            static (m, _, _) => ValueTask.FromResult(m.Snapshot),
+            static (_, cutSequence, snapshot, _) => ValueTask.FromResult((cutSequence, snapshot)),
+            cancellationToken).AsTask();
+        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var remove = memory.RemoveAsync(executor, journal.Journal, "a", cancellationToken);
+        var put = memory.PutAsync(executor, journal.Journal, "c", cancellationToken);
+        journal.Writer.Flush.Release();
+        var (sequence, captured) = await cut;
+        _ = await remove;
+        _ = await put;
+        await journal.ShutdownAsync();
+        var replayed = journal.Recover(string.Empty, 0, cancellationToken);
+        var restarted = journal.Recover(captured, sequence, cancellationToken);
+
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(KeysBc);
+        _ = await Assert.That(replayed).IsEqualTo(KeysBc);
+        _ = await Assert.That(restarted).IsEqualTo(KeysBc);
     }
 
     private static async Task<DurableMutationExecutor> CancelDuringStalledFlushAsync(StallableJournal journal, AppliedKeys memory, CancellationToken cancellationToken)

@@ -37,7 +37,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             new ClusterNode("node-ready-details-auth", uri),
-            _ => new SmokeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), cancellationToken);

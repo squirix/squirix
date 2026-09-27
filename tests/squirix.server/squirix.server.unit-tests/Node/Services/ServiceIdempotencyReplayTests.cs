@@ -1,0 +1,197 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
+using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime;
+using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
+using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Grpc.Cache;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Node.Services;
+
+/// <summary>Recovery replay of durable idempotency journal frames.</summary>
+[Immutable]
+public sealed class ServiceIdempotencyReplayTests : DisposableServerUnitTestBase
+{
+    private const string Fingerprint = "try-add-entry-async|default|idempotency-key|abc123";
+    private const string OperationId = "0123456789abcdef0123456789abcdef";
+
+    private readonly Meter _testMeter = new("test");
+
+    /// <summary>Journal replay must restore idempotency CreatedUtc from the frame UnixMs, not recovery wall clock.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayRestoresIdempotencyCreatedUtc(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-unixms");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WritePutAndIdempotencyAsync(scenario, persistence, cancellationToken);
+
+        var journalUnixMs = ReadIdempotencyOutcomeUnixMs(scenario.DataDir);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
+
+        IIdempotencySnapshotExporter exporter = idempotencyStore;
+        var snapshot = new List<PersistedIdempotencyRecord>();
+        exporter.ExportSnapshot(snapshot, DateTime.UtcNow);
+        var exportedRecord = await Assert.That(snapshot).HasSingleItem();
+        var expectedCreatedUtc = DateTimeOffset.FromUnixTimeMilliseconds(journalUnixMs).UtcDateTime;
+        _ = await Assert.That(exportedRecord.OperationId).IsEqualTo(OperationId);
+        _ = await Assert.That(exportedRecord.CreatedUtc).IsEqualTo(expectedCreatedUtc);
+
+        var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Added).IsTrue();
+    }
+
+    /// <summary>Replay of a mutation frame carrying the write-ahead operation id reconstructs a started-unknown record.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplayRestoresStartedFromMutationFrame(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-started");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WriteStartedMutationAsync(scenario, persistence, false, cancellationToken);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
+
+        _ = await Assert.That(idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out _)).IsFalse();
+        _ = await Assert.That(idempotencyStore.ReserveIntent(OperationId, Fingerprint)).IsEqualTo(IdempotencyReserveResult.AlreadyStarted);
+    }
+
+    /// <summary>Replay supersedes the write-ahead started marker with the durable outcome when both frames exist.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReplaySupersedesStartedWithOutcome(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-started-outcome");
+        var persistence = CreatePersistence(scenario.DataDir);
+        await WriteStartedMutationAsync(scenario, persistence, true, cancellationToken);
+
+        var idempotencyStore = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
+        await RunRecoveryAsync(scenario, persistence, idempotencyStore, cancellationToken);
+
+        var replayed = idempotencyStore.TryReplay(OperationId, Fingerprint, TryAddAsyncResponse.Parser, out var response);
+        _ = await Assert.That(replayed).IsTrue();
+        _ = await Assert.That(response).IsNotNull();
+        _ = await Assert.That(response.Added).IsTrue();
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushInterval = 5 };
+
+    private static long ReadIdempotencyOutcomeUnixMs(string dataDir)
+    {
+        using var records = JournalReadPath.ReadAll(dataDir, 1, CancellationToken.None);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation is JournalOperationKind.IdempotencyOutcome)
+                return record.UnixMs;
+        }
+
+        throw new InvalidOperationException("IdempotencyOutcome frame was not found in the journal.");
+    }
+
+    /// <summary>Runs recovery for the given scenario.</summary>
+    /// <param name="scenario">The recovery scenario.</param>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="idempotencyStore">The idempotency store.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static Task RunRecoveryAsync(
+        RecoveryScenarioBuilder scenario,
+        PersistenceOptions persistence,
+        RpcMutationIdempotencyStore idempotencyStore,
+        CancellationToken cancellationToken)
+    {
+        var recovery = new RecoveryService<object?>(
+            new RecoveryOptions { BlockOnStart = true },
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.Ledger,
+                scenario.Cache,
+                new AsyncManualResetEvent(true),
+                idempotencyStore,
+                StoreFactory.CreateReader()));
+        return recovery.StartAsync(cancellationToken);
+    }
+
+    /// <summary>Writes a put and its idempotency outcome to the journal.</summary>
+    /// <param name="scenario">The recovery scenario.</param>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task WritePutAndIdempotencyAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, CancellationToken cancellationToken)
+    {
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
+            scenario.Ledger,
+            new AsyncManualResetEvent(true));
+
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await journal.AppendIdempotencyOutcomeAsync(
+            OperationId,
+            Fingerprint,
+            IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+            cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
+    }
+
+    /// <summary>Writes a started mutation with an optional outcome to the journal.</summary>
+    /// <param name="scenario">The recovery scenario.</param>
+    /// <param name="persistence">The persistence options.</param>
+    /// <param name="appendOutcome">Whether to append the idempotency outcome.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task WriteStartedMutationAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, bool appendOutcome, CancellationToken cancellationToken)
+    {
+        await using var journal = JournalCoordinatorFactory.Create(
+            persistence,
+            await scenario.Ledger.ReadCurrentOrDefaultAsync(cancellationToken),
+            scenario.Ledger,
+            new AsyncManualResetEvent(true));
+
+        var ambientScope = new object();
+        RpcMutationIdempotencyExecutionAmbient.Activate(ambientScope, OperationId);
+        try
+        {
+            await journal.AppendPutUnderGateAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        }
+        finally
+        {
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(ambientScope);
+        }
+
+        if (appendOutcome)
+        {
+            await journal.AppendIdempotencyOutcomeAsync(
+                OperationId,
+                Fingerprint,
+                IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+                cancellationToken);
+        }
+
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
+    }
+}

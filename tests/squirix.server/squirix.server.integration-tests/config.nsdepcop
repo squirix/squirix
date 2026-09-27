@@ -2,8 +2,19 @@
 <!--
   Squirix.Server.IntegrationTests dependency policy.
 
-  Integration tests exercise live server surfaces through TestKit hosts and gRPC/REST clients.
-  Keep the client SDK package boundary; shared transport CLR remains allowed.
+  Integration tests are grey-box: they exercise live server surfaces through TestKit hosts and
+  gRPC/REST clients and may reach server internals. Keep the client SDK package boundary; shared
+  transport CLR remains allowed.
+
+  Internal layout (child → parent is implicit, so the rules below also cut edges to the root):
+
+    IntegrationTests (root)          → Support only
+    IntegrationTests.Cluster.*       → own subtree + Support
+    IntegrationTests.Persistence.*   → own subtree + Support
+    IntegrationTests.Security.*      → own subtree + Support
+    IntegrationTests.Support.*       → no other IntegrationTests namespace
+
+  The design-time protocol model is reachable only from Cluster.Replication model-conformance tests.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -15,7 +26,38 @@
 
   <DisallowedAssembly From="Squirix.Server.IntegrationTests" To="Squirix" />
 
+  <!-- The standalone host is exercised only as a child process (doctor/run commands); tests must not bind to its code. -->
+  <DisallowedAssembly From="Squirix.Server.IntegrationTests" To="Squirix.Server.Host" />
+
   <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Core.*" />
+
+  <!-- Protocol-model conformance lives with the replication tests; nothing else may lean on the design-time model. -->
+  <Disallowed
+      From="/^Squirix\.Server\.IntegrationTests(?:\.(?!Cluster\.Replication(?:\.|$)).*)?$/"
+      To="Squirix.ProtocolModel.*" />
+
+  <!-- ═══ Test-internal isolation ═══ -->
+
+  <!-- Shared fixtures must not depend on the tests that consume them. -->
+  <Disallowed
+      From="Squirix.Server.IntegrationTests.Support.*"
+      To="/^Squirix\.Server\.IntegrationTests(?:\.(?!Support(?:\.|$)).*)?$/" />
+
+  <!-- Test areas depend only on their own subtree and Support, never on sibling areas or the root. -->
+  <Disallowed
+      From="Squirix.Server.IntegrationTests.Cluster.*"
+      To="/^Squirix\.Server\.IntegrationTests(?:\.(?!(?:Cluster|Support)(?:\.|$)).*)?$/" />
+  <Disallowed
+      From="Squirix.Server.IntegrationTests.Persistence.*"
+      To="/^Squirix\.Server\.IntegrationTests(?:\.(?!(?:Persistence|Support)(?:\.|$)).*)?$/" />
+  <Disallowed
+      From="Squirix.Server.IntegrationTests.Security.*"
+      To="/^Squirix\.Server\.IntegrationTests(?:\.(?!(?:Security|Support)(?:\.|$)).*)?$/" />
+
+  <!-- Root-level tests may share only Support fixtures, not area-specific helpers. -->
+  <Disallowed
+      From="Squirix.Server.IntegrationTests"
+      To="/^Squirix\.Server\.IntegrationTests\.(?!Support(?:\.|$)).+$/" />
 
 </NsDepCopConfig>

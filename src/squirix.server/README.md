@@ -72,9 +72,11 @@ await using var client = await SquirixClient.ConnectAsync(listenUri, cancellatio
 For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a
 `WebApplicationBuilder` instead of `SquirixServer.StartAsync`.
 
-Integration and smoke tests start nodes through `NodeIntegrationTestBase.StartNodeAsync` or
-`SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to unauthenticated nodes via
-an empty override; pass explicit JWT settings for auth scenarios. See
+Integration and smoke tests start nodes through `NodeIntegrationTestBase.StartClusterAsync` or
+`SmokeTestBase.StartClusterAsync`, passing optional `TestNodeSecurityOptions` through the `Security` property of the
+start options (`IntegrationStartOptions` in the integration tests, `BlackBoxStartOptions` from
+`Squirix.Server.TestKit.Hosting` in the smoke tests). Smoke tests default to unauthenticated nodes via an empty
+override; pass explicit JWT settings for auth scenarios. See
 [configuration.md](../../docs/configuration.md#in-process-test-hosts).
 
 Validate settings before deploy:

@@ -3,7 +3,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

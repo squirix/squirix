@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;

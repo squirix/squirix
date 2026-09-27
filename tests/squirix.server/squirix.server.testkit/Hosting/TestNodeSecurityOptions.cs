@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Hosting;
 
@@ -24,6 +25,21 @@ public sealed class TestNodeSecurityOptions
 
     /// <summary>Gets the symmetric JWT signing key, raw text or base64.</summary>
     public string? JwtSigningKey { get; init; }
+
+    /// <summary>Maps symmetric JWT credentials to node security options.</summary>
+    /// <param name="credentials">Symmetric JWT credentials.</param>
+    /// <returns>Per-node security override for in-process test hosts.</returns>
+    public static TestNodeSecurityOptions FromJwtCredentials(TestJwtCredentials credentials)
+    {
+        ArgumentNullException.ThrowIfNull(credentials);
+
+        return new TestNodeSecurityOptions
+        {
+            JwtSigningKey = credentials.Base64SigningKey,
+            JwtIssuer = credentials.Issuer,
+            JwtAudience = credentials.Audience,
+        };
+    }
 
     internal SecurityOptions ToServerOptions() => new()
     {

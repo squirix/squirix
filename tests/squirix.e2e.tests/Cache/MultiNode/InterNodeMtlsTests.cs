@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
-using Squirix.E2ETests.Cluster;
+using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;

@@ -51,7 +51,7 @@ internal static class ReplicaOwnerTestKit
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway) => CreateCommitter(registry, gateway, new StubCache());
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, StubCache cache, ILogger? log = null) =>
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, ILogicalNamespacedCache<object?> cache, ILogger? log = null) =>
         new(registry, new ThreeNodeLocator(), gateway, cache, "n1", Fingerprint, 1) { Log = log ?? NullLogger.Instance };
 
     internal static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, CancellationToken cancellationToken) => OpenRegistryAsync(dir, null, cancellationToken);

@@ -2,7 +2,6 @@ using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit;
 
@@ -31,20 +30,5 @@ public static class TestJwtHelper
     {
         var signingKey = RandomNumberGenerator.GetBytes(32);
         return new TestJwtCredentials(signingKey, issuer, audience);
-    }
-
-    /// <summary>Maps credentials to node security options.</summary>
-    /// <param name="credentials">Symmetric JWT credentials.</param>
-    /// <returns>Per-node security override for in-process test hosts.</returns>
-    public static TestNodeSecurityOptions ToSecurityOptions(TestJwtCredentials credentials)
-    {
-        ArgumentNullException.ThrowIfNull(credentials);
-
-        return new TestNodeSecurityOptions
-        {
-            JwtSigningKey = credentials.Base64SigningKey,
-            JwtIssuer = credentials.Issuer,
-            JwtAudience = credentials.Audience,
-        };
     }
 }
