@@ -1,13 +1,11 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -20,6 +18,9 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
 {
     private const string Fingerprint = "try-add-entry-async|default|gate-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
+
+    /// <summary>Recorded RPC response; the journal stores outcome bytes opaquely, so any payload exercises the gate.</summary>
+    private static readonly byte[] ResponseBytes = [0x08, 0x01];
 
     /// <summary>
     /// While the mutation gate is held, an idempotency-outcome appending must not be enqueued: bypassing the gate, let
@@ -39,9 +40,8 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
         var snapshotState = (await Assert.That(journal).IsTypeOf<IJournalCoordinatorSnapshotState>())!;
         var gateGuard = await snapshotState.MutationGate.LockAsync(cancellationToken);
 
-        var responseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
         var initialSequence = journal.NextSequence;
-        var appendTask = journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, responseBytes, cancellationToken).AsTask();
+        var appendTask = journal.AppendIdempotencyOutcomeAsync(OperationId, Fingerprint, ResponseBytes, cancellationToken).AsTask();
 
         // The appending is gated: it has not been enqueued, so the journal sequence has not advanced.
         _ = await Assert.That(appendTask.IsCompleted).IsFalse();

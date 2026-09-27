@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -20,6 +19,12 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 {
     private const string ForeignOperationId = "00000000000000000000000000000002";
+
+    /// <summary>
+    /// Caller-scoped async-local operation id standing in for the RPC idempotency scope that stamps cache-WAL frames: both flow with the
+    /// execution context, which is what the coordinator must not carry into a re-applied earlier entry.
+    /// </summary>
+    private static readonly AsyncLocal<string?> CallerOperationId = new();
 
     private static readonly TimeSpan CommitBudget = TimeSpan.FromMilliseconds(200);
 
@@ -131,8 +136,9 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A later commit that re-applies an earlier entry runs it without the later commit's RPC idempotency scope, so the earlier entry's
-    /// cache-WAL frame is not stamped with a foreign operation id; the later commit's own entry keeps its scope.
+    /// A later commit that re-applies an earlier entry runs it without the later commit's execution context, so the earlier entry does not
+    /// observe the later caller's async-local scope (in production, the RPC idempotency scope that stamps its cache-WAL frame with a foreign
+    /// operation id); the later commit's own entry keeps its scope.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -149,15 +155,14 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), StallTimeout, cancellationToken));
         _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-        var scope = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(scope, ForeignOperationId);
+        CallerOperationId.Value = ForeignOperationId;
         try
         {
             _ = await coordinator.CommitAsync(CreateMutation(2, ForeignOperationId, 12), StallTimeout, cancellationToken);
         }
         finally
         {
-            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
+            CallerOperationId.Value = null;
         }
 
         await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes());
@@ -173,7 +178,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
 
     /// <summary>
     /// Majority pipeline whose follower acknowledges once released, optionally fails its first memory apply, and records the commit
-    /// indexes, the applied entries, and the idempotency operation id each apply ran under.
+    /// indexes, the applied entries, and the caller operation id each apply ran under.
     /// </summary>
     [ThreadSafe]
     private sealed class ScriptedPipeline : IReplicaCommitPipeline
@@ -213,7 +218,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             if (Interlocked.Exchange(ref _failFirstApply, 0) == 1)
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
-            Applied.Enqueue((mutation.LogIndex, RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue));
+            Applied.Enqueue((mutation.LogIndex, CallerOperationId.Value));
             _ = _firstApplied.TrySetResult();
             return ValueTask.CompletedTask;
         }

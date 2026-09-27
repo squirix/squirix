@@ -10,7 +10,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -935,7 +934,9 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
         {
-            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("Test tail entry is undecodable."));
+            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record)
+                throw new InvalidOperationException("Test tail entry is undecodable.");
+
             var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);
             return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, ReadOnlyMemory<byte>.Empty, 42));
         }
