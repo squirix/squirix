@@ -212,6 +212,30 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }
 
+    /// <summary>
+    /// The older-term warning describes each blocked state once: verification reports the blocked tail when it first finds it, keeps
+    /// reporting the group as blocked on every pass, and warns again when the blocked state changes (here the leader's term moves on).
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OlderTermTailReportedOncePerState(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owner-tail-older-term-report");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 2, cancellationToken, "k1");
+        var log = new EventRecordingLogger();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new StubCache(), log);
+
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(log.Count(OlderTermTailEventId)).IsEqualTo(1);
+
+        await RaiseTermAsync(registry, 3, cancellationToken);
+        _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
+        _ = await Assert.That(log.Count(OlderTermTailEventId)).IsEqualTo(2);
+    }
+
     /// <summary>A follower that accepts the re-sent tail but reports a longer log than the leader is held back instead of counting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

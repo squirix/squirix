@@ -40,6 +40,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
+
+    /// <summary>The blocked older-term tail last reported, so the warning is logged once per blocked state, not on every verification pass.</summary>
+    private BlockedTail? _reportedBlockedTail;
+
     private bool _started;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
@@ -275,10 +279,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var tail = ReplicaLeaderTail.From(read);
         if (!tail.IsCommittableIn(term))
         {
-            // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively.
-            LogManager.ReplicaTailOfOlderTerm(Log, tail.LastIndex, term);
+            // Counting replicas must not commit it, and no current-term entry exists yet to commit it transitively. The state is
+            // reported when it starts or changes; the readiness report keeps showing it as blocked on every pass.
+            var blocked = new BlockedTail(tail.LastIndex, term);
+            if (Interlocked.Exchange(ref _reportedBlockedTail, blocked) != blocked)
+                LogManager.ReplicaTailOfOlderTerm(Log, tail.LastIndex, term);
+
             return ReplicaVerification.Blocked;
         }
+
+        _ = Interlocked.Exchange(ref _reportedBlockedTail, null);
 
         if (tail.IsEmpty && eligibility.AllCanCountInWriteQuorum())
             return ReplicaVerification.AllReady;
@@ -523,6 +533,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return false;
         }
     }
+
+    /// <summary>A leader tail that cannot be committed yet because it holds no entry of the current term.</summary>
+    /// <param name="LastIndex">The last index of the tail.</param>
+    /// <param name="Term">The leader's current term.</param>
+    [Immutable]
+    private sealed record BlockedTail(ulong LastIndex, ulong Term);
 
     /// <summary>No-op fault hooks for production commits outside fault-injection tests.</summary>
     [Immutable]
