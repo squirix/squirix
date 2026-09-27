@@ -21,7 +21,8 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
     [Test]
     public async Task ExpiredFlowCommitsBeforeMiss(CancellationToken cancellationToken)
     {
-        var pipeline = new ImmediatePipeline();
+        var trace = new List<string>();
+        var pipeline = CreateImmediatePipeline(trace);
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
@@ -46,42 +47,36 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
                 CancellationToken = cancellationToken,
             });
 
-        pipeline.Trace.Add("miss");
+        trace.Add("miss");
         _ = await Assert.That(miss).IsTrue();
-        await SequenceAssert.EqualAsync(["local", "follower", "follower", "commit", "apply", "miss"], pipeline.Trace, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["local", "follower", "follower", "commit", "apply", "miss"], trace, StringComparer.Ordinal);
     }
 
-    private sealed class ImmediatePipeline : IReplicaCommitPipeline
+    private static IReplicaCommitPipeline CreateImmediatePipeline(List<string> trace)
     {
-        internal List<string> Trace { get; } = [];
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
+        var expectations = new IReplicaCommitPipelineCreateExpectations();
+        _ = expectations.Setups.AdvanceCommitIndexAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
-            Trace.Add("commit");
+            trace.Add("commit");
             return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        });
+        _ = expectations.Setups.AppendFollowerAsync(Arg.Any<int>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, mutation, _) =>
         {
-            Trace.Add("follower");
+            trace.Add("follower");
             var result = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
             return ValueTask.FromResult(result);
-        }
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        });
+        _ = expectations.Setups.AppendLocalAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
-            Trace.Add("local");
+            trace.Add("local");
             return ValueTask.CompletedTask;
-        }
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        });
+        _ = expectations.Setups.ApplyMemoryAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
-            Trace.Add("apply");
+            trace.Add("apply");
             return ValueTask.CompletedTask;
-        }
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-        }
+        });
+        _ = expectations.Setups.RecordLaggingReplica(Arg.Any<int>(), Arg.Any<ulong>());
+        return expectations.Instance();
     }
 }

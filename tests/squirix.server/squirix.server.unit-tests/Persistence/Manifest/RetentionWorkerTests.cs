@@ -1,7 +1,7 @@
-using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
@@ -21,44 +21,20 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
     [Test]
     public async Task CleanupWithBadDirRecordsFailure(CancellationToken cancellationToken)
     {
-        var readiness = new RecordingReadiness();
-        var metrics = new RecordingFailureMetrics();
-        var context = new RetentionContext(new RetentionSettings("..", 1, 1, "man-*.bmqx"), null, null, static _ => 1, metrics);
-        var worker = new RetentionWorker(context, readiness);
+        var outcomes = new ConcurrentQueue<bool>();
+        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
+        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
+        var failures = 0;
+        var metrics = new IManifestRetentionFailureMetricsCreateExpectations();
+        _ = metrics.Setups.RecordDeleteFailure(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref failures));
+        var context = new RetentionContext(new RetentionSettings("..", 1, 1, "man-*.bmqx"), null, null, static _ => 1, metrics.Instance());
+        var worker = new RetentionWorker(context, readiness.Instance());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2 });
 
-        await readiness.WaitUntilAsync(static r => r.Outcomes.Count > 0, cancellationToken);
+        await outcomes.WaitUntilAsync(static o => !o.IsEmpty, cancellationToken);
 
-        _ = await Assert.That(readiness.Outcomes).Contains(true);
-        _ = await Assert.That(metrics.Failures > 0).IsTrue();
-    }
-
-    private sealed class RecordingFailureMetrics : IManifestRetentionFailureMetrics
-    {
-        internal int Failures { get; private set; }
-
-        public void RecordDeleteFailure(string artifactKind, string outcome)
-        {
-            _ = artifactKind;
-            _ = outcome;
-            Failures++;
-        }
-    }
-
-    [Immutable]
-    private sealed class RecordingReadiness : IRetentionCleanupReadinessStatus
-    {
-        public int ConsecutiveWriteFailures => Outcomes.Count;
-
-        public bool IsDegraded => false;
-
-        public DateTime? LastFailureUtc => null;
-
-        public int RecentFailureCount => Outcomes.Count;
-
-        internal List<bool> Outcomes { get; } = [];
-
-        public void RecordWriteOutcome(bool hadFailure) => Outcomes.Add(hadFailure);
+        _ = await Assert.That(outcomes).Contains(true);
+        _ = await Assert.That(Volatile.Read(ref failures) > 0).IsTrue();
     }
 }

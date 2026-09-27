@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -118,23 +119,32 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, Path = "snap-earlier", CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
             cancellationToken);
         var snapshots = CreateCoordinator(journal);
-        var maintenance = new RecordingMaintenanceExecutor();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
+
+        // Signals each compaction run without compacting.
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
+                       .Callback((_, _) =>
+                        {
+                            _ = entered.TrySetResult();
+                            return ValueTask.CompletedTask;
+                        });
         var options = Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = TimeSpan.FromMilliseconds(100), MinTailBytes = 0, MinTailSegments = 0 });
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance, journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster),
+            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster),
             new CompactionMetrics(_testMeter));
 
         await StallNextFlushAsync(journal, cancellationToken);
         var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await compaction.StartAsync(cancellationToken);
-        var compactedDuringSnapshot = await StallableJournal.CompletesWithinAsync(maintenance.Entered, CompactionProbeWindow, cancellationToken);
+        var compactedDuringSnapshot = await StallableJournal.CompletesWithinAsync(entered, CompactionProbeWindow, cancellationToken);
         journal.Writer.Flush.Release();
         await snapshot;
-        await maintenance.Entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await compaction.StopAsync(cancellationToken);
 
         _ = await Assert.That(compactedDuringSnapshot).IsFalse();
@@ -176,17 +186,5 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting()),
             null);
         return new Coordinator(opt, journal.Journal, deps);
-    }
-
-    private sealed class RecordingMaintenanceExecutor : IExclusiveMaintenanceExecutor
-    {
-        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
-        {
-            _ = action;
-            _ = Entered.TrySetResult();
-            return ValueTask.CompletedTask;
-        }
     }
 }

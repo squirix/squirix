@@ -52,9 +52,12 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task CrashBeforeMemoryApplyReplaysEntry(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-crash-before-apply");
-        var crashFaults = new CrashBeforeApplyFaults();
+        var faults = CreateFaultExpectations();
+        _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFlushed();
+        _ = faults.Setups.OnBeforeMemoryApply().Callback(FailOnce("simulated crash before memory apply."));
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance()))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -218,9 +221,11 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task ShorterRetryTruncatesStaleSuffix(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
-        var faults = new FrameWriteFaults();
+        var faults = CreateFaultExpectations();
+        _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
+        _ = faults.Setups.OnFlushed();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance()))
         {
             await log.OpenAsync(cancellationToken);
 
@@ -268,9 +273,12 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     public async Task TruncateFailureReconcilesMemory(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-log-truncate-fault");
-        var faults = new TruncateFlushFaults();
+        var armed = false;
+        var faults = CreateFaultExpectations();
+        _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults);
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), faults.Instance());
         await log.OpenAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -279,7 +287,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
         // Arm the fault so the durable truncate's flush throws after the file has been sized back down.
-        faults.Arm();
+        armed = true;
 
         // New leader (term 2) rewrites the uncommitted index 3. The durable truncate applies (file shortened
         // through index 2) but then faults, so the in-memory log must be reconciled, not left ahead.
@@ -389,101 +397,30 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         0UL,
         ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
+    /// <summary>Creates fault hooks whose metadata and commit-advance boundaries never interfere; each test sets up the other boundaries it reaches.</summary>
+    private static IFollowerLogFaultHooksCreateExpectations CreateFaultExpectations()
+    {
+        var expectations = new IFollowerLogFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnMetaWritten();
+        _ = expectations.Setups.OnCommitAdvanced();
+        return expectations;
+    }
+
+    /// <summary>Creates a boundary callback that throws an <see cref="IOException" /> the first time it runs while armed.</summary>
+    /// <param name="message">The simulated failure message.</param>
+    /// <param name="isArmed">Whether the fault is armed; always armed when <see langword="null" />.</param>
+    private static Action FailOnce(string message, Func<bool>? isArmed = null)
+    {
+        var fired = false;
+        return () =>
+        {
+            if (fired || (isArmed != null && !isArmed()))
+                return;
+
+            fired = true;
+            throw new IOException(message);
+        };
+    }
+
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
-
-    /// <summary>Fault hooks that simulate a crash at the memory-apply boundary exactly once.</summary>
-    private sealed class CrashBeforeApplyFaults : IFollowerLogFaultHooks
-    {
-        private bool _fired;
-
-        public void OnBeforeMemoryApply()
-        {
-            if (_fired)
-                return;
-
-            _fired = true;
-            throw new IOException("simulated crash before memory apply.");
-        }
-
-        public void OnCommitAdvanced()
-        {
-        }
-
-        public void OnFlushed()
-        {
-        }
-
-        public void OnFrameWritten()
-        {
-        }
-
-        public void OnMetaWritten()
-        {
-        }
-    }
-
-    /// <summary>Fault hooks that fault right after a frame write, before the flush, exactly once.</summary>
-    private sealed class FrameWriteFaults : IFollowerLogFaultHooks
-    {
-        private bool _fired;
-
-        public void OnBeforeMemoryApply()
-        {
-        }
-
-        public void OnCommitAdvanced()
-        {
-        }
-
-        public void OnFlushed()
-        {
-        }
-
-        public void OnFrameWritten()
-        {
-            if (_fired)
-                return;
-
-            _fired = true;
-            throw new IOException("simulated failure after the frame write.");
-        }
-
-        public void OnMetaWritten()
-        {
-        }
-    }
-
-    /// <summary>Fault hooks that throw from the flush boundary once armed, exactly once.</summary>
-    private sealed class TruncateFlushFaults : IFollowerLogFaultHooks
-    {
-        private bool _armed;
-        private bool _fired;
-
-        public void OnBeforeMemoryApply()
-        {
-        }
-
-        public void OnCommitAdvanced()
-        {
-        }
-
-        public void OnFlushed()
-        {
-            if (!_armed || _fired)
-                return;
-
-            _fired = true;
-            throw new IOException("simulated failure after the durable truncate.");
-        }
-
-        public void OnFrameWritten()
-        {
-        }
-
-        public void OnMetaWritten()
-        {
-        }
-
-        internal void Arm() => _armed = true;
-    }
 }

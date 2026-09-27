@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -199,7 +200,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task JoinerSeesUnknownAfterStampedFailure(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        await using var journal = new OutcomeFailingJournal();
+        await using var journal = CreateOutcomeFailingJournal();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var flag = new ExecFlag();
@@ -243,7 +244,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
     public async Task OutcomeAppendFailureStaysUnknown(CancellationToken cancellationToken)
     {
         var store = CreateStore();
-        await using var journal = new OutcomeFailingJournal();
+        await using var journal = CreateOutcomeFailingJournal();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var flag = new ExecFlag();
 
@@ -420,85 +421,28 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         _ = await Assert.That(flag.Value).IsFalse();
     }
 
+    /// <summary>Mocks a journal that stamps mutation appends but fails outcome appends.</summary>
+    /// <returns>The mocked journal.</returns>
+    private static IJournalCoordinator CreateOutcomeFailingJournal()
+    {
+        var expectations = new IJournalCoordinatorCreateExpectations();
+        _ = expectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = expectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                        .Callback(static (_, _, _, _) =>
+                         {
+                             RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+                             return ValueTask.CompletedTask;
+                         });
+        _ = expectations.Setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+                        .Throws(new InvalidOperationException("boom"));
+        _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
+        return expectations.Instance();
+    }
+
     private RpcMutationIdempotencyStore CreateStore() => new(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
 
     private sealed class ExecFlag
     {
         internal bool Value { get; set; }
-    }
-
-    /// <summary>A journal that stamps mutation appends but fails outcome appends.</summary>
-    private sealed class OutcomeFailingJournal : IJournalCoordinator
-    {
-        public event EventHandler? OnAppended;
-
-        public long AppendedBytes => 0;
-
-        public long AppendedOps => 0;
-
-        public int CurrentSegmentIndex => 0;
-
-        public bool HasFlushLoopFailure => false;
-
-        public long HighWaterBytes => 0;
-
-        public QuiescenceGate InFlightApplyGate => throw new NotSupportedException();
-
-        public bool IsJournalGroupCommitEnabled => false;
-
-        public long MaxBytes => 0;
-
-        public ulong NextSequence => 0;
-
-        public double RecentAppendLatencyMs => 0;
-
-        public long UsedBytes => 0;
-
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("boom");
-
-        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
-        {
-            RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
-            OnAppended?.Invoke(this, EventArgs.Empty);
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
-            TState state,
-            Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
-            Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
-            TState state,
-            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
-
-        public Exception? GetJournalThreadFailure() => null;
-
-        public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 }

@@ -24,7 +24,9 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        var pipeline = new BlockingFollowerPipeline();
+        var localAppended = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledgement = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pipeline = CreateBlockingFollowerPipeline(localAppended, acknowledgement);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
         await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue));
         var mutation = CreateMutation();
@@ -33,7 +35,7 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
             using var cancellation = new CancellationTokenSource();
             var operation = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellation.Token);
 
-            _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
+            _ = await localAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
 
@@ -44,7 +46,8 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         }
         finally
         {
-            pipeline.Release(mutation);
+            _ = acknowledgement.TrySetResult(
+                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
         }
     }
 
@@ -54,30 +57,21 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 1));
     }
 
-    private sealed class BlockingFollowerPipeline : IReplicaCommitPipeline
+    private static IReplicaCommitPipeline CreateBlockingFollowerPipeline(
+        TaskCompletionSource<bool> localAppended,
+        TaskCompletionSource<ReplicaDurableAcknowledgement> acknowledgement)
     {
-        private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _acknowledgement = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal TaskCompletionSource<bool> LocalAppended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            new(_acknowledgement.Task);
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        var expectations = new IReplicaCommitPipelineCreateExpectations();
+        _ = expectations.Setups.AdvanceCommitIndexAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = expectations.Setups.AppendFollowerAsync(Arg.Any<int>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+            .Callback((_, _, _) => new ValueTask<ReplicaDurableAcknowledgement>(acknowledgement.Task));
+        _ = expectations.Setups.AppendLocalAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
-            LocalAppended.SetResult(true);
+            localAppended.SetResult(true);
             return ValueTask.CompletedTask;
-        }
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-        }
-
-        internal void Release(PreparedReplicaMutation mutation) => _ = _acknowledgement.TrySetResult(
-            new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
+        });
+        _ = expectations.Setups.ApplyMemoryAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        _ = expectations.Setups.RecordLaggingReplica(Arg.Any<int>(), Arg.Any<ulong>());
+        return expectations.Instance();
     }
 }

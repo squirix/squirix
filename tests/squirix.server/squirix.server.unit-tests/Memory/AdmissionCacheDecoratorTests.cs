@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -161,22 +162,28 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         const string key = "remove-stale-snapshot";
         var small = CreateEntry("a");
         var large = CreateEntry("much-longer-value");
-        var inner = new ScriptedRemoveInner();
+        NodeCacheEntry<string>? existing = null;
+        var removeResult = false;
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((_, _, _) => ValueTask.FromResult(existing));
+        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnValue(ValueTask.FromResult(true));
+        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnValue(ValueTask.CompletedTask);
+        _ = inner.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                 .Callback((_, _, _, _) => ValueTask.FromResult(new CacheRemoveResult<string>(removeResult, existing?.Value)));
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
 
-        inner.GetResult = null;
-        inner.TryAddResult = true;
         _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, small, cancellationToken)).IsTrue();
 
-        inner.GetResult = small;
+        existing = small;
         await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, large, cancellationToken);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
 
-        inner.GetResult = small;
-        inner.RemoveResult = true;
+        removeResult = true;
         var result = await cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, key, cancellationToken);
 
         _ = await Assert.That(result.Removed).IsTrue();
@@ -191,18 +198,28 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     {
         const string key = "set-fallback-race";
         var entry = CreateEntry("v");
-        var inner = new TryAddLosingInner();
+        var setCalled = false;
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnValue(ValueTask.FromResult(false));
+        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .Callback((_, _, _, _, _) =>
+                  {
+                      setCalled = true;
+                      return ValueTask.CompletedTask;
+                  });
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, Self, _testMeter);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner.Instance(), gate, estimator, accounting, RocksDoubles.CreateOwnerLocator(Self), Self);
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
         await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken);
 
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expectedBytes);
-        _ = await Assert.That(inner.SetCalled).IsTrue();
+        _ = await Assert.That(setCalled).IsTrue();
     }
 
     /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
@@ -423,92 +440,6 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
     }
 
     [Immutable]
-    private sealed class ScriptedRemoveInner : ILogicalNamespacedCache<string>
-    {
-        internal NodeCacheEntry<string>? GetResult { get; set; }
-
-        internal bool RemoveResult { get; set; }
-
-        internal bool TryAddResult { get; set; }
-
-        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult(GetResult);
-        }
-
-        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            var entry = GetResult;
-            return ValueTask.FromResult(entry == null ? new NodeCacheValueResult<string>(false, null) : new NodeCacheValueResult<string>(true, entry.Value));
-        }
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            var entry = GetResult;
-            return ValueTask.FromResult(new CacheRemoveResult<string>(RemoveResult, entry?.Value));
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = expiration;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
-            return ValueTask.FromResult(TryAddResult);
-        }
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = value;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-    }
-
-    [Immutable]
     private sealed class SynchronizedConcurrentRunner<T>
     {
         private readonly CancellationToken _cancellationToken;
@@ -549,87 +480,6 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         {
             await _gate.Task.WaitAsync(_cancellationToken).ConfigureAwait(false);
             await _operation(index).ConfigureAwait(false);
-        }
-    }
-
-    [Immutable]
-    private sealed class TryAddLosingInner : ILogicalNamespacedCache<string>
-    {
-        internal bool SetCalled { get; private set; }
-
-        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult<NodeCacheEntry<string>?>(null);
-        }
-
-        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
-        }
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult(new CacheRemoveResult<string>(false, null));
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
-            SetCalled = true;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = expiration;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = entry;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
-        }
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken)
-        {
-            _ = operationId;
-            _ = cacheName;
-            _ = key;
-            _ = value;
-            _ = cancellationToken;
-            return ValueTask.FromResult(false);
         }
     }
 }
