@@ -1,9 +1,10 @@
 using System;
 using System.Diagnostics.Metrics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Grpc.Net.Client;
+using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -11,7 +12,6 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -23,6 +23,7 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
     private const string Key = "key";
+    private const string RemoteCallMessage = "The remote cache path was selected.";
     private const string Self = "node-a";
 
     /// <summary>A pool disposal racing remote execution surfaces Unavailable instead of ObjectDisposedException.</summary>
@@ -37,7 +38,7 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
 
         var peers = new ServerPeer[] { new() { NodeId = "node-b", Uri = new Uri("https://localhost:6500") } };
         await using var pool = new ServerClientPool(peers, new ServerClientPoolArgs { PolicyFactory = _ => policy }, new ServerClientPoolMetrics(meter));
-        var cache = new ClusteredCache<string>(Self, new RecordingCache(), RocksDoubles.CreateOwnerLocator("node-b"), pool);
+        var cache = new ClusteredCache<string>(Self, new ILogicalNamespacedCacheCreateExpectations<string>().Instance(), RocksDoubles.CreateOwnerLocator("node-b"), pool);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<string>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
 
@@ -49,16 +50,17 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
     [Test]
     public async Task SetEntryAsyncCasedOwnerUsesRemoteCache(CancellationToken cancellationToken)
     {
-        var local = new RecordingCache();
-        await using var clients = new ThrowingClientPool();
-        var cache = CreateCache("NODE-A", local, clients);
+        var setEntryCalls = new StrongBox<int>();
+        var forNodeCalls = new StrongBox<int>();
+        await using var clients = CreateThrowingClientPool(forNodeCalls);
+        var cache = CreateCache("NODE-A", CreateRecordingCache(setEntryCalls), clients);
 
         var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, cancellationToken));
 
-        _ = await Assert.That(exception.Message).IsEqualTo(ThrowingClientPool.RemoteCallMessage);
-        _ = await Assert.That(local.SetEntryCalls).IsEqualTo(0);
-        _ = await Assert.That(clients.ForNodeCalls).IsEqualTo(1);
+        _ = await Assert.That(exception.Message).IsEqualTo(RemoteCallMessage);
+        _ = await Assert.That(setEntryCalls.Value).IsEqualTo(0);
+        _ = await Assert.That(forNodeCalls.Value).IsEqualTo(1);
     }
 
     /// <summary>Exact owner identities execute the mutation through the local cache.</summary>
@@ -66,65 +68,48 @@ public sealed class ClusteredCacheTests : ServerUnitTestBase
     [Test]
     public async Task SetEntryAsyncExactOwnerUsesLocalCache(CancellationToken cancellationToken)
     {
-        var local = new RecordingCache();
-        await using var clients = new ThrowingClientPool();
-        var cache = CreateCache(Self, local, clients);
+        var setEntryCalls = new StrongBox<int>();
+        var forNodeCalls = new StrongBox<int>();
+        await using var clients = CreateThrowingClientPool(forNodeCalls);
+        var cache = CreateCache(Self, CreateRecordingCache(setEntryCalls), clients);
 
         await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string> { Value = "value" }, cancellationToken);
 
-        _ = await Assert.That(local.SetEntryCalls).IsEqualTo(1);
-        _ = await Assert.That(clients.ForNodeCalls).IsEqualTo(0);
+        _ = await Assert.That(setEntryCalls.Value).IsEqualTo(1);
+        _ = await Assert.That(forNodeCalls.Value).IsEqualTo(0);
     }
 
-    private static ClusteredCache<string> CreateCache(string owner, RecordingCache local, IServerClientPool clients) =>
+    private static ClusteredCache<string> CreateCache(string owner, ILogicalNamespacedCache<string> local, IServerClientPool clients) =>
         new(Self, local, RocksDoubles.CreateOwnerLocator(owner), clients);
 
-    private sealed class RecordingCache : ILogicalNamespacedCache<string>
+    /// <summary>Mocks the local cache: entry writes complete and are counted.</summary>
+    /// <param name="setEntryCalls">Counts the entry writes.</param>
+    /// <returns>The mocked local cache.</returns>
+    private static ILogicalNamespacedCache<string> CreateRecordingCache(StrongBox<int> setEntryCalls)
     {
-        internal int SetEntryCalls { get; private set; }
-
-        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<NodeCacheEntry<string>?>(null);
-
-        public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new CacheRemoveResult<string>(false, null));
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
-        {
-            SetEntryCalls++;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .Callback((_, _, _, _, _) =>
+                         {
+                             setEntryCalls.Value++;
+                             return ValueTask.CompletedTask;
+                         });
+        return expectations.Instance();
     }
 
-    private sealed class ThrowingClientPool : IServerClientPool
+    /// <summary>Mocks a client pool whose client lookup fails, so selecting the remote path is observable.</summary>
+    /// <param name="forNodeCalls">Counts the client lookups.</param>
+    /// <returns>The mocked client pool.</returns>
+    private static IServerClientPool CreateThrowingClientPool(StrongBox<int> forNodeCalls)
     {
-        internal const string RemoteCallMessage = "The remote cache path was selected.";
-
-        internal int ForNodeCalls { get; private set; }
-
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-        public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId)
-        {
-            ForNodeCalls++;
-            throw new InvalidOperationException(RemoteCallMessage);
-        }
-
-        public GrpcChannel OpenChannel(string nodeId) => throw new InvalidOperationException(RemoteCallMessage);
-
-        public IServerCallPolicy PolicyFor(string nodeId) => throw new InvalidOperationException(RemoteCallMessage);
+        var expectations = new IServerClientPoolCreateExpectations();
+        _ = expectations.Setups.ForNode(Arg.Any<string>())
+                        .Callback(_ =>
+                         {
+                             forNodeCalls.Value++;
+                             throw new InvalidOperationException(RemoteCallMessage);
+                         });
+        _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
+        return expectations.Instance();
     }
 }

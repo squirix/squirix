@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
@@ -42,7 +43,10 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task FailedPreparePropagatesFault(CancellationToken cancellationToken)
     {
         var fault = new InvalidOperationException("local read failed");
-        var factory = new ReplicaMutationFactory(new FaultingCache(fault), "g1", 1UL);
+        var faulting = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = faulting.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .ReturnValue(ValueTask.FromException<NodeCacheEntry<object?>?>(fault));
+        var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken));
 
@@ -173,39 +177,6 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
         var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
         _ = await Assert.That(decoded).IsNotNull();
         return decoded.Value;
-    }
-
-    /// <summary>Logical cache whose entry reads always fault, modeling a prepare-time failure.</summary>
-    private sealed class FaultingCache : ILogicalNamespacedCache<object?>
-    {
-        private readonly Exception _fault;
-
-        internal FaultingCache(Exception fault)
-        {
-            _fault = fault;
-        }
-
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromException<NodeCacheEntry<object?>?>(_fault);
-
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
     }
 
     /// <summary>In-memory logical cache for prepare/apply round-trips.</summary>

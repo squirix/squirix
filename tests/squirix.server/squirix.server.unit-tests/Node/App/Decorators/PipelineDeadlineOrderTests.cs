@@ -1,7 +1,9 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Rocks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
@@ -21,28 +23,29 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
     [Test]
     public async Task AdmissionBypassesPipelineDeadline()
     {
-        var gate = new RecordingGate();
-        var inner = new RecordingInnerCache(false);
-        var pipeline = CreatePipeline(gate, inner, TimeSpan.FromSeconds(10));
+        var gateToken = new StrongBox<CancellationToken>();
+        var innerToken = new StrongBox<CancellationToken>();
+        var pipeline = CreatePipeline(CreateRecordingGate(gateToken), CreateRecordingInner(innerToken, false), TimeSpan.FromSeconds(10));
 
         _ = await pipeline.GetValueAsync("c", "k", CancellationToken.None);
 
-        _ = await Assert.That(gate.ObservedToken.CanBeCanceled).IsFalse();
-        _ = await Assert.That(inner.ObservedToken.CanBeCanceled).IsTrue();
+        _ = await Assert.That(gateToken.Value.CanBeCanceled).IsFalse();
+        _ = await Assert.That(innerToken.Value.CanBeCanceled).IsTrue();
     }
 
     /// <summary>A hung execution still faults with TimeoutException once the pipeline deadline expires.</summary>
     [Test]
     public async Task SlowExecutionStillHitsPipelineDeadline()
     {
-        var gate = new RecordingGate();
-        var inner = new RecordingInnerCache(true);
-        var pipeline = CreatePipeline(gate, inner, TimeSpan.FromMilliseconds(100));
+        var pipeline = CreatePipeline(
+            CreateRecordingGate(new StrongBox<CancellationToken>()),
+            CreateRecordingInner(new StrongBox<CancellationToken>(), true),
+            TimeSpan.FromMilliseconds(100));
 
         _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException, NodeCacheValueResult<string>>(pipeline.GetValueAsync("c", "k", CancellationToken.None));
     }
 
-    private static BackpressureCacheDecorator<string> CreatePipeline(RecordingGate gate, RecordingInnerCache inner, TimeSpan budget)
+    private static BackpressureCacheDecorator<string> CreatePipeline(IBackpressureGate gate, ILogicalNamespacedCache<string> inner, TimeSpan budget)
     {
         var deadline = new DeadlineCacheDecorator<string>(inner, Options.Create(new CachePipelineDeadlineOptions { DefaultOperationTimeout = budget }));
         var resolverExpectations = new IBackpressureClientIdResolverCreateExpectations();
@@ -50,56 +53,37 @@ public sealed class PipelineDeadlineOrderTests : ServerUnitTestBase
         return new BackpressureCacheDecorator<string>(deadline, gate, resolverExpectations.Instance());
     }
 
-    private sealed class RecordingGate : IBackpressureGate
+    /// <summary>Mocks a gate that accepts every operation and records the token it was acquired with.</summary>
+    /// <param name="observedToken">Receives the token of the latest acquire.</param>
+    /// <returns>The mocked gate.</returns>
+    private static IBackpressureGate CreateRecordingGate(StrongBox<CancellationToken> observedToken)
     {
-        internal CancellationToken ObservedToken { get; private set; }
-
-        public ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
-        {
-            ObservedToken = cancellationToken;
-            return ValueTask.FromResult((Decision.Accepted(), Lease.Empty));
-        }
+        var expectations = new IBackpressureGateCreateExpectations();
+        _ = expectations.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .Callback((_, _, _, cancellationToken) =>
+                         {
+                             observedToken.Value = cancellationToken;
+                             return ValueTask.FromResult((Decision.Accepted(), Lease.Empty));
+                         });
+        return expectations.Instance();
     }
 
-    private sealed class RecordingInnerCache : ILogicalNamespacedCache<string>
+    /// <summary>Mocks the inner cache: value reads record their token and, when <paramref name="hang" /> is set, wait until it is canceled.</summary>
+    /// <param name="observedToken">Receives the token of the latest value read.</param>
+    /// <param name="hang">Whether value reads never complete on their own.</param>
+    /// <returns>The mocked inner cache.</returns>
+    private static ILogicalNamespacedCache<string> CreateRecordingInner(StrongBox<CancellationToken> observedToken, bool hang)
     {
-        private readonly bool _hang;
+        var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .Callback(async (_, _, cancellationToken) =>
+                         {
+                             observedToken.Value = cancellationToken;
+                             if (hang)
+                                 await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, cancellationToken).ConfigureAwait(false);
 
-        internal RecordingInnerCache(bool hang)
-        {
-            _hang = hang;
-        }
-
-        internal CancellationToken ObservedToken { get; private set; }
-
-        public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<NodeCacheEntry<string>?>(null);
-
-        public async ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            _ = cacheName;
-            _ = key;
-            ObservedToken = cancellationToken;
-            if (_hang)
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
-
-            return new NodeCacheValueResult<string>(false, null);
-        }
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new CacheRemoveResult<string>(false, null));
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
-            ValueTask.CompletedTask;
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+                             return new NodeCacheValueResult<string>(false, null);
+                         });
+        return expectations.Instance();
     }
 }

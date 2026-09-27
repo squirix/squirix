@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -69,7 +70,12 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
         var transport = error.ToRpcException();
-        var forwarded = new DomainErrorMappingCacheDecorator<object?>(new ForwardedUnknownCache());
+
+        // The remote owner reports the stable commit-unknown contract over gRPC.
+        var remoteOwner = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+                       .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToRpcException()));
+        var forwarded = new DomainErrorMappingCacheDecorator<object?>(remoteOwner.Instance());
         var remote = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -502,31 +508,6 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         }
 
         internal void Release() => _ = _released.TrySetResult();
-    }
-
-    /// <summary>Remote owner double that reports the stable commit-unknown contract over gRPC.</summary>
-    [Immutable]
-    private sealed class ForwardedUnknownCache : ILogicalNamespacedCache<object?>
-    {
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => throw Unknown();
-
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw Unknown();
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw Unknown();
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw Unknown();
-
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            ValueTask.FromException(Unknown());
-
-        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => throw Unknown();
-
-        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            throw Unknown();
-
-        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => throw Unknown();
-
-        private static RpcException Unknown() => ServerOpContract.CommitOutcomeUnknown().ToRpcException();
     }
 
     /// <summary>
