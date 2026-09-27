@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -22,6 +23,8 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTestBase
 {
+    private static readonly IJournalOperationTraceScope SharedScope = CreateNullScope();
+
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -34,14 +37,14 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var tracer = new RecordingJournalOperationTracer();
-        await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
+        var beginCalls = new List<(JournalOperationKind Kind, JournalOperationTraceContext Context)>();
+        await using var journal = new TracingJournalCoordinatorDecorator(core, CreateRecordingTracer(beginCalls));
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutUnderGateAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var (_, context) = await Assert.That(tracer.BeginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
+        var (_, context) = await Assert.That(beginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
         _ = await Assert.That(context.Key).IsEqualTo("trace-key");
         _ = await Assert.That(context.PayloadBytes).IsEqualTo(payload.Length);
     }
@@ -55,7 +58,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        var journal = new TracingJournalCoordinatorDecorator(core, new RecordingJournalOperationTracer());
+        var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
 
         await journal.DisposeAsync();
         await core.AppendPutUnderGateAsync(CacheKey.Default("owner-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -73,7 +76,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         using var manifestStore = new Ledger(options);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true));
-        var journal = new TracingJournalCoordinatorDecorator(core, new RecordingJournalOperationTracer());
+        var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
         var forwarded = 0;
         journal.OnAppended += (_, _) => Interlocked.Increment(ref forwarded);
 
@@ -109,39 +112,39 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
             new AsyncManualResetEvent(true));
-        var tracer = new RecordingJournalOperationTracer();
-        await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
+        var beginCalls = new List<(JournalOperationKind Kind, JournalOperationTraceContext Context)>();
+        await using var journal = new TracingJournalCoordinatorDecorator(core, CreateRecordingTracer(beginCalls));
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutUnderGateAsync(CacheKey.Default("trace-key"), payload, cancellationToken);
         if (groupCommitMaxWaitMilliseconds > 0)
             await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        var (_, context) = await Assert.That(tracer.BeginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
+        var (_, context) = await Assert.That(beginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
         _ = await Assert.That(context.GroupCommitEnabled).IsEqualTo(groupCommitMaxWaitMilliseconds > 0);
     }
 
-    /// <summary>Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.</summary>
-    [Immutable]
-    private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
+    /// <summary>Mocks a tracer that records <see cref="IJournalOperationTracer.Begin" /> calls that carry a trace context.</summary>
+    /// <param name="beginCalls">Receives each traced operation kind with its context.</param>
+    /// <returns>The mocked tracer.</returns>
+    private static IJournalOperationTracer CreateRecordingTracer(List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> beginCalls)
     {
-        private static readonly IJournalOperationTraceScope SharedScope = CreateNullScope();
+        var expectations = new IJournalOperationTracerCreateExpectations();
+        _ = expectations.Setups.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
+                        .Callback((kind, context) =>
+                         {
+                             if (context == null)
+                                 return null;
+                             beginCalls.Add((kind, context));
+                             return SharedScope;
+                         });
+        return expectations.Instance();
+    }
 
-        internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
-
-        IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
-        {
-            if (context == null)
-                return null;
-            BeginCalls.Add((kind, context));
-            return SharedScope;
-        }
-
-        private static IJournalOperationTraceScope CreateNullScope()
-        {
-            var expectations = new IJournalOperationTraceScopeCreateExpectations();
-            _ = expectations.Setups.Dispose();
-            return expectations.Instance();
-        }
+    private static IJournalOperationTraceScope CreateNullScope()
+    {
+        var expectations = new IJournalOperationTraceScopeCreateExpectations();
+        _ = expectations.Setups.Dispose();
+        return expectations.Instance();
     }
 }
