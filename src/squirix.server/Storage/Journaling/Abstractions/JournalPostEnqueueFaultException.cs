@@ -11,7 +11,7 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 /// Faults before the ring enqueue keep their own exception, and so does a capacity rejection delivered through the write ack (the frame
 /// is never written). The original fault is the <see cref="Exception.InnerException" />.
 /// </remarks>
-internal sealed class JournalPostEnqueueFaultException : InvalidOperationException
+public sealed class JournalPostEnqueueFaultException : InvalidOperationException
 {
     /// <summary>Message of a faulted write ack wait.</summary>
     internal const string WriteAckFaultedMessage = "journal frame entered the ring but its write was not confirmed; it may still become durable.";
