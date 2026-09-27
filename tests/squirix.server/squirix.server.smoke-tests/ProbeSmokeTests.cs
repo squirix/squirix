@@ -21,7 +21,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             "node-health",
-            _ => new SmokeStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
         var uri = cluster["node-health"].Uri;
 

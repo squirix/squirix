@@ -2,8 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -20,15 +18,15 @@ public sealed class ValidationTests : SmokeTestBase
     [Test]
     public async Task InvalidBackpressureOptionsFailOnStart(CancellationToken cancellationToken)
     {
-        var invalidBackpressure = new AdmissionOptions
+        var invalidBackpressure = new TestNodeBackpressureOptions
         {
             MaxInFlight = 8,
             SlowdownThreshold = 7,
             RejectThreshold = 6,
         };
 
-        var operation = StartClusterAsync("nodeA", _ => new SmokeStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<SmokeStartOptions>>(operation);
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
 
         _ = await Assert.That(ex.Message).Contains("RejectThreshold", StringComparison.Ordinal);
     }
@@ -38,15 +36,15 @@ public sealed class ValidationTests : SmokeTestBase
     [Test]
     public async Task InvalidMemoryPressureOptionsFailOnStart(CancellationToken cancellationToken)
     {
-        var invalid = new PressureOptions
+        var invalid = new TestNodeMemoryPressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 50,
         };
 
-        var operation = StartClusterAsync("nodeA", _ => new SmokeStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<SmokeStartOptions>>(operation);
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
 
         _ = await Assert.That(ex.Message).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
     }

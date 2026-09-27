@@ -24,7 +24,7 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             "node-oidc-auth",
-            _ => new SmokeStartOptions { Security = authority.ToSecurityOptions(Audience) },
+            _ => new BlackBoxStartOptions { Security = authority.ToSecurityOptions(Audience) },
             cancellationToken);
         var uri = cluster["node-oidc-auth"].Uri;
 

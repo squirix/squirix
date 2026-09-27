@@ -24,7 +24,7 @@ public sealed class AuthSmokeTests : SmokeTestBase
 
         await using var cluster = await StartClusterAsync(
             "node-grpc-auth",
-            _ => new SmokeStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
             cancellationToken);
         var uri = cluster["node-grpc-auth"].Uri;
 

@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server.SmokeTests dependency policy.
+
+  Smoke tests are black-box: they start real nodes through Squirix.Server.TestKit hosting helpers
+  and talk to them over REST/gRPC. Server product code is reachable only through the public server
+  surface (see ApiSnapshots/SquirixServerPublicTypes.golden.txt):
+
+    Squirix.Server (root), Squirix.Server.Core, Squirix.Server.Errors,
+    Squirix.Server.Runtime.Contracts, Squirix.Server.Storage (exact, enum only),
+    Squirix.Server.Storage.Journaling.Abstractions, and Squirix.Transport.Grpc.*.
+
+  Anything else under Squirix.Server (internal layers) must be reached through TestKit knobs.
+-->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
                 CheckAssemblyDependencies="true">
@@ -7,9 +20,19 @@
 
   <AllowedAssembly From="*" To="*" />
 
+  <!-- Client SDK package stays out of server smoke tests. -->
   <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix" />
+
+  <!-- The executable host and the design-time protocol model are not part of the server surface. -->
+  <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix.ProtocolModel" />
 
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Core.*" />
+
+  <!-- Black-box boundary: only the public server surface, test attributes, and TestKit are reachable. -->
+  <Disallowed
+      From="/^Squirix\.Server\.SmokeTests(?:\.|$)/"
+      To="/^Squirix\.Server\.(?!(?:SmokeTests|TestKit|Attributes)(?:\.|$)|(?:Core|Errors|Runtime\.Contracts|Storage|Storage\.Journaling\.Abstractions)$).+$/" />
 
 </NsDepCopConfig>
