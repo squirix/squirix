@@ -8,7 +8,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.</summary>
 [Immutable]

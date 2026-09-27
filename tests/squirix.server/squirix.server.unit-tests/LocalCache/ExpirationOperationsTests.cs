@@ -11,7 +11,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.LocalCache;
 
 /// <summary>Unit tests covering expiration operations: TouchAsync and RemoveExpirationAsync.</summary>
 [Immutable]

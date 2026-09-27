@@ -22,7 +22,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>journal segment header validation during recovery and coordinator repair.</summary>
 [Immutable]

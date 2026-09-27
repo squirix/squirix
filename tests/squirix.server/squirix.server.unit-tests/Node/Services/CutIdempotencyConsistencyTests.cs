@@ -19,7 +19,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Snapshot;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Regression tests for idempotency export timing during snapshot cut (plan step 2).</summary>
 [Immutable]

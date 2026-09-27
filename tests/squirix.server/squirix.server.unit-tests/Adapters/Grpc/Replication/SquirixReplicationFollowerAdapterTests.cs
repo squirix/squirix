@@ -18,9 +18,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
-using static Squirix.Server.UnitTests.Cluster.Replication.SquirixReplicationAdapterTestHelpers;
+using static Squirix.Server.UnitTests.Adapters.Grpc.Replication.SquirixReplicationAdapterTestHelpers;
 
-namespace Squirix.Server.UnitTests.Cluster.Replication;
+namespace Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 
 /// <summary>Unit tests for the follower paths of <see cref="SquirixReplicationServiceAdapter" />.</summary>
 [Immutable]

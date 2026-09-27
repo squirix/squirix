@@ -15,7 +15,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Unit tests for the accounting of a physical insert racing another write of the same key in <see cref="MemoryAdmissionCacheDecorator{T}" /> (issue 732).</summary>
 [Immutable]

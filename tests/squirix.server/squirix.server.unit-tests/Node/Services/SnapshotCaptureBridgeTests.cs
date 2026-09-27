@@ -13,7 +13,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.LocalCache;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
 /// The snapshot capture bridge must carry entry tags from the live store into snapshot-ready

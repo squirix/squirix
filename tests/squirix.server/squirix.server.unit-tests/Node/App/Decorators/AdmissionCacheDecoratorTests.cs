@@ -17,7 +17,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.</summary>
 [Immutable]

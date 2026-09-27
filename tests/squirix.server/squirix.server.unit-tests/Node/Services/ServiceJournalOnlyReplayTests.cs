@@ -15,7 +15,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Journal-only recovery must replay from the first on-disk segment, not manifest CurrentJournal.</summary>
 [Immutable]

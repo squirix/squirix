@@ -26,7 +26,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Shutdown behavior for snapshot-triggered journal compaction.</summary>
 [Immutable]

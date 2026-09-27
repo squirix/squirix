@@ -17,7 +17,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Manifest;
+namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
 [Immutable]

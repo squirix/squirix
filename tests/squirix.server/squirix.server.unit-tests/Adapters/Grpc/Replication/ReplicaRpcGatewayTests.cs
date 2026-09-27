@@ -6,7 +6,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Cluster.Replication;
+namespace Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 
 /// <summary>Validation tests for <see cref="ReplicaRpcGateway" /> construction.</summary>
 [Immutable]

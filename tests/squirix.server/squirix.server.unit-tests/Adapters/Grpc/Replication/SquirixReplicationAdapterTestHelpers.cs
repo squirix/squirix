@@ -7,7 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.UnitTests.Support;
 
-namespace Squirix.Server.UnitTests.Cluster.Replication;
+namespace Squirix.Server.UnitTests.Adapters.Grpc.Replication;
 
 /// <summary>Shared factory helpers for <see cref="SquirixReplicationServiceAdapterTests" />.</summary>
 internal static class SquirixReplicationAdapterTestHelpers

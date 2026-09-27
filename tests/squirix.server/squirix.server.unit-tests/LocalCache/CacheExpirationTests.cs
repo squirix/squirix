@@ -10,7 +10,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.LocalCache;
 
 /// <summary>
 /// Unit tests for <see cref="PhysicalCache{T}" /> expiration and expiration handling.

@@ -23,7 +23,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Recovery replay of durable idempotency journal frames.</summary>
 [Immutable]

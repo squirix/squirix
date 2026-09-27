@@ -6,7 +6,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Ensures the tracing decorator does not publish a logical pipeline disposal surface.</summary>
 [Immutable]

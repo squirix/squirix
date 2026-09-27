@@ -9,7 +9,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.LocalCache;
 
 /// <summary>Unit tests for derived cache mutations on the server local cache surface.</summary>
 [Immutable]

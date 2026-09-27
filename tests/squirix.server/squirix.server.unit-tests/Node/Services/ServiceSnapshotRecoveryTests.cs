@@ -20,7 +20,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Recovery with binary snapshots and missing snapshot path fallbacks.</summary>
 [Immutable]

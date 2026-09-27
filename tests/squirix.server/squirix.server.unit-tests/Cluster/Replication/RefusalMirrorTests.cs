@@ -7,7 +7,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Replication;
+namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>
 /// Guards the mirror between the wire refusal codes (<see cref="RefusalCodes" />) and their storage-side

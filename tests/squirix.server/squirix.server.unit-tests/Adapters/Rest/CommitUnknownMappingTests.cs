@@ -12,7 +12,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Errors;
+namespace Squirix.Server.UnitTests.Adapters.Rest;
 
 /// <summary>Covers the stable server transport contract for an ambiguous durable commit.</summary>
 [Immutable]

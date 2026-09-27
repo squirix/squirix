@@ -24,7 +24,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Snapshot;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Regression tests for snapshot cut recovery metadata consistency (plan step 1).</summary>
 [Immutable]

@@ -12,7 +12,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests;
+namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Verifies async retention does not delete the active manifest during publication bursts.</summary>
 public sealed class RetentionBurstTests : ServerUnitTestBase

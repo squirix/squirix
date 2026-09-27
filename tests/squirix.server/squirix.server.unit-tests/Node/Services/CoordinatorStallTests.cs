@@ -25,7 +25,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Persistence.Snapshot;
+namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>A snapshot whose checkpoint flush is stalled publishes only after a successful ack and never overlaps a journal compaction.</summary>
 [Immutable]
