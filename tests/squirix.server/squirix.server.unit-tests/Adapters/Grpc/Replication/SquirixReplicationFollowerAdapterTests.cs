@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -197,33 +196,5 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
             PeerCertificate.Dispose();
             Bundle.Dispose();
         }
-    }
-
-    /// <summary>In-memory <see cref="IAsyncStreamReader{T}" /> backed by a fixed item sequence.</summary>
-    /// <typeparam name="T">The streamed message type.</typeparam>
-    [Immutable]
-    private sealed class TestAsyncStreamReader<T> : IAsyncStreamReader<T>
-    {
-        private readonly IEnumerator<T> _items;
-
-        /// <summary>Initializes a new instance of the <see cref="TestAsyncStreamReader{T}" /> class.</summary>
-        /// <param name="items">The item sequence to stream.</param>
-        internal TestAsyncStreamReader(IEnumerable<T> items)
-        {
-            _items = items.GetEnumerator();
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="TestAsyncStreamReader{T}" /> class streaming a single item.</summary>
-        /// <param name="item">The item to stream.</param>
-        internal TestAsyncStreamReader(T item)
-            : this([item])
-        {
-        }
-
-        /// <inheritdoc />
-        public T Current => _items.Current;
-
-        /// <inheritdoc />
-        public Task<bool> MoveNext(CancellationToken cancellationToken) => Task.FromResult(_items.MoveNext());
     }
 }
