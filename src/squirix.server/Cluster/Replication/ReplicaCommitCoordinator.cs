@@ -97,7 +97,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     /// <summary>Gets the time source bounding the first wait of background follower observation; the system clock unless set.</summary>
     /// <remarks>Test seam: production coordinators keep the system clock.</remarks>
-    internal TimeProvider ObserveTimeProvider { get; init; } = TimeProvider.System;
+    internal TimeProvider ObserveTimeProvider { private get; init; } = TimeProvider.System;
 
     /// <summary>Gets the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>

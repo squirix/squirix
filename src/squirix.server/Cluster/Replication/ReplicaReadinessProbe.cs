@@ -21,50 +21,6 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal static class ReplicaReadinessProbe
 {
-    /// <summary>Applies a probe verdict to one follower slot.</summary>
-    /// <param name="eligibility">Participation gates of the owned group.</param>
-    /// <param name="replicaIndex">Zero-based follower slot.</param>
-    /// <param name="result">Probe outcome.</param>
-    /// <param name="leader">Leader log status the probe was built from.</param>
-    /// <param name="fingerprint">Static topology fingerprint.</param>
-    /// <param name="generation">Static configuration generation.</param>
-    /// <param name="coordinator">Running coordinator whose quorum must be re-based before the slot may count, or <see langword="null" /> before it exists.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="result" /> carries an unsupported verdict.</exception>
-    internal static void Apply(
-        ReplicaEligibility eligibility,
-        int replicaIndex,
-        in ReplicaProbeResult result,
-        in FollowerLogStatus leader,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        ReplicaCommitCoordinator? coordinator)
-    {
-        ArgumentNullException.ThrowIfNull(eligibility);
-        switch (result.Kind)
-        {
-            case ReplicaProbeKind.Accepted when result.LastLogIndex == leader.LastLogIndex:
-                var expected = TailProgress(in leader, fingerprint, generation);
-
-                // Order matters: the quorum match index must be raised before the slot can count.
-                coordinator?.AdmitReplica(replicaIndex, leader.LastLogIndex);
-                _ = eligibility.TryMarkReady(replicaIndex, in expected, in expected);
-                return;
-            case ReplicaProbeKind.Accepted:
-            case ReplicaProbeKind.LogMismatch:
-                // Behind, ahead, or diverged: never ready. Only a prefix the accepted probe verified is recorded as
-                // progress; a reported last index that may hold divergent entries must not become a monotonic floor.
-                var verified = result.Kind == ReplicaProbeKind.Accepted ? leader.LastLogIndex : 0UL;
-                var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
-                _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
-                return;
-            case ReplicaProbeKind.Unreachable:
-            case ReplicaProbeKind.Refused:
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(result), result.Kind, "Unsupported probe outcome.");
-        }
-    }
-
     /// <summary>Applies the probe verdict of every follower slot.</summary>
     /// <param name="eligibility">Participation gates of the owned group.</param>
     /// <param name="results">Per-slot probe outcomes; slots that were not probed carry the default unreachable verdict.</param>
@@ -152,27 +108,6 @@ internal static class ReplicaReadinessProbe
         return results;
     }
 
-    /// <summary>Sends one empty Log Matching append to a follower.</summary>
-    /// <param name="gateway">Follower replication RPCs.</param>
-    /// <param name="nodeId">Target follower node identifier.</param>
-    /// <param name="header">Replication envelope identity.</param>
-    /// <param name="leader">Leader log status naming the entry the follower must hold.</param>
-    /// <param name="timeout">Per-probe budget.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation propagates.</param>
-    /// <returns>The probe outcome; transport failures and timeouts are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
-    internal static Task<ReplicaProbeResult> ProbeAsync(
-        IReplicaRpcGateway gateway,
-        string nodeId,
-        ReplicaRpcHeader header,
-        FollowerLogStatus leader,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(gateway);
-        var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
-        return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken);
-    }
-
     /// <summary>Re-sends the leader's uncommitted tail to every follower whose probe reported a log mismatch.</summary>
     /// <param name="gateway">Follower replication RPCs.</param>
     /// <param name="probed">Per-slot probe outcomes against the leader's last entry.</param>
@@ -225,6 +160,50 @@ internal static class ReplicaReadinessProbe
         return results;
     }
 
+    /// <summary>Applies a probe verdict to one follower slot.</summary>
+    /// <param name="eligibility">Participation gates of the owned group.</param>
+    /// <param name="replicaIndex">Zero-based follower slot.</param>
+    /// <param name="result">Probe outcome.</param>
+    /// <param name="leader">Leader log status the probe was built from.</param>
+    /// <param name="fingerprint">Static topology fingerprint.</param>
+    /// <param name="generation">Static configuration generation.</param>
+    /// <param name="coordinator">Running coordinator whose quorum must be re-based before the slot may count, or <see langword="null" /> before it exists.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="result" /> carries an unsupported verdict.</exception>
+    private static void Apply(
+        ReplicaEligibility eligibility,
+        int replicaIndex,
+        in ReplicaProbeResult result,
+        in FollowerLogStatus leader,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        ReplicaCommitCoordinator? coordinator)
+    {
+        ArgumentNullException.ThrowIfNull(eligibility);
+        switch (result.Kind)
+        {
+            case ReplicaProbeKind.Accepted when result.LastLogIndex == leader.LastLogIndex:
+                var expected = TailProgress(in leader, fingerprint, generation);
+
+                // Order matters: the quorum match index must be raised before the slot can count.
+                coordinator?.AdmitReplica(replicaIndex, leader.LastLogIndex);
+                _ = eligibility.TryMarkReady(replicaIndex, in expected, in expected);
+                return;
+            case ReplicaProbeKind.Accepted:
+            case ReplicaProbeKind.LogMismatch:
+                // Behind, ahead, or diverged: never ready. Only a prefix the accepted probe verified is recorded as
+                // progress; a reported last index that may hold divergent entries must not become a monotonic floor.
+                var verified = result.Kind == ReplicaProbeKind.Accepted ? leader.LastLogIndex : 0UL;
+                var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
+                _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
+                return;
+            case ReplicaProbeKind.Unreachable:
+            case ReplicaProbeKind.Refused:
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(result), result.Kind, "Unsupported probe outcome.");
+        }
+    }
+
     private static ReplicaProbeResult Classify(in FollowerLogAppendResult response) =>
         (response.Success, string.Equals(response.RefusalCode, RefusalCodes.LogMismatch, StringComparison.Ordinal)) switch
         {
@@ -232,6 +211,27 @@ internal static class ReplicaReadinessProbe
             (false, true) => new ReplicaProbeResult(ReplicaProbeKind.LogMismatch, response.LastLogIndex),
             _ => new ReplicaProbeResult(ReplicaProbeKind.Refused, 0),
         };
+
+    /// <summary>Sends one empty Log Matching append to a follower.</summary>
+    /// <param name="gateway">Follower replication RPCs.</param>
+    /// <param name="nodeId">Target follower node identifier.</param>
+    /// <param name="header">Replication envelope identity.</param>
+    /// <param name="leader">Leader log status naming the entry the follower must hold.</param>
+    /// <param name="timeout">Per-probe budget.</param>
+    /// <param name="cancellationToken">Cancellation token; its cancellation propagates.</param>
+    /// <returns>The probe outcome; transport failures and timeouts are reported as <see cref="ReplicaProbeKind.Unreachable" />.</returns>
+    private static Task<ReplicaProbeResult> ProbeAsync(
+        IReplicaRpcGateway gateway,
+        string nodeId,
+        ReplicaRpcHeader header,
+        FollowerLogStatus leader,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        var batch = new FollowerBatch([], header.LeaderNodeId, header.Term, leader.LastLogIndex, leader.LastLogTerm, leader.CommitIndex);
+        return SendAsync(gateway, nodeId, header, batch, timeout, cancellationToken);
+    }
 
     private static async Task<ReplicaProbeResult> RedriveAsync(
         IReplicaRpcGateway gateway,

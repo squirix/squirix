@@ -94,13 +94,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     }
 
     /// <summary>Gets the logger for lifecycle failures; the host logger unless set.</summary>
-    internal ILogger Log { get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
+    internal ILogger Log { private get; init; } = LogManager.GetLogger<ReplicaGroupCommitter>();
 
     /// <summary>Gets the longest wait for an in-flight commit on dispose; 30 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
-        get;
+        private get;
         init
         {
             value.ThrowIfNegativeOrZero(nameof(value), "The shutdown budget must be greater than zero.");
