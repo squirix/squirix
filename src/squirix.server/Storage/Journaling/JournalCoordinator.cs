@@ -428,6 +428,31 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public Exception? GetJournalThreadFailure() => _flushLoopFailure.Read();
 
+    void IJournalCoordinatorAppendState.EnsureAppendAdmission(int frameLength)
+    {
+        // Conservative admission (issue #703): a frame admitted here is never rejected for capacity by the journal thread. The caller holds
+        // the mutation gate (AllocateSequence refused it otherwise), and the check runs synchronously up to this append's own Track, so no
+        // other producer is admitted in between; meanwhile, the journal thread only moves appends out of the pending set.
+        // - Read order: pending counters first, journal-thread counters second. The journal thread adds a frame's bytes (and the header and
+        //   segment of a roll it triggers) to its counters before it untracks the frame, so a frame missing from the pending read is
+        //   already in the counters read after it.
+        // - Each pending frame, and this one, adds at most one segment header to the total (a roll, or the first open of a missing or empty
+        //   segment; a frame that fits an empty segment never rolls right after such an open) and at most one segment to the count, so
+        //   FileHeaderSize * (pendingCount + 1) and pendingCount + 1 bound what the journal thread adds before it checks this frame.
+        // - The journal thread rolls for this frame only if active + staged + frameLength exceeds the segment size. Either no roll happened
+        //   since the read, so active + staged <= active + pendingBytes, or a pending frame overflowed the segment, so active + pendingBytes
+        //   + frameLength overflows it too: either way the roll is predicted below and the segment count checked. This holds because the
+        //   active counter equals the current segment's on-disk length (as the next open sees it) whenever the segment is not open: it is
+        //   seeded at startup and at maintenance end.
+        // - The counters decrease only in the maintenance end resync, which runs while maintenance holds the gate over an empty ring.
+        var pendingBytes = PendingAppends.PendingBytes;
+        var pendingCount = PendingAppends.PendingCount;
+        var totalBytes = EventLoop.JournalTotalBytes;
+        var activeSegmentBytes = EventLoop.ActiveSegmentWrittenBytes;
+        var segmentCount = EventLoop.JournalSegmentCount;
+        EventLoop.Policy.EnsureAdmissionOrThrow(totalBytes, pendingBytes, pendingCount, activeSegmentBytes, segmentCount, frameLength);
+    }
+
     void IJournalCoordinatorAppendState.RecordAppendMetrics(int frameLength, long startedMs)
     {
         var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
@@ -596,6 +621,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 var encode = BinaryJournalCodec.PrepareEncode(record);
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
+
+                // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
+                _owner.EnsureAppendAdmission(frameLen);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
                 try
@@ -628,6 +656,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 var encode = BinaryJournalCodec.PrepareEncode(record);
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
+
+                // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
+                _owner.EnsureAppendAdmission(frameLen);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
                 try

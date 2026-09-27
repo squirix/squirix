@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -46,7 +45,7 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false, Skip = "Fails until #703")]
+    [Arguments(false)]
     [Arguments(true)]
     public async Task CapacityDropFailsCaller(bool groupCommit, CancellationToken cancellationToken)
     {
@@ -68,13 +67,43 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
     }
 
     /// <summary>
+    /// A capacity rejection is definite: it releases the conflict key and the in-flight apply slot, so the next mutation of the same key is
+    /// admitted and applied instead of failing as a key already in flight, and the caller sees the capacity error, not an unknown outcome.
+    /// </summary>
+    /// <param name="groupCommit">Whether the journal runs in group commit mode (keyed admission) instead of the monolithic path.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task CapacityRejectionReleasesKey(bool groupCommit, CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, CapacityMb, cancellationToken);
+        var memory = new AppliedKeys();
+        var executor = new DurableMutationExecutor(journal.Journal);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(memory.PutAsync(executor, journal.Journal, "a", OversizedValue(), cancellationToken));
+        var droppedMemory = memory.Snapshot;
+        var applied = await memory.PutAsync(executor, journal.Journal, "a", cancellationToken);
+        var pendingApply = journal.Journal.InFlightApplyGate.HasPending;
+        await journal.ShutdownAsync();
+
+        _ = await Assert.That(droppedMemory).IsEmpty();
+        _ = await Assert.That(applied).IsEqualTo(1);
+        _ = await Assert.That(pendingApply).IsFalse();
+        _ = await Assert.That(memory.Snapshot).IsEqualTo(KeyA);
+        _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(KeyA);
+    }
+
+    /// <summary>
     /// An idempotent RPC applies memory right after the append, before durability: a rejected frame must fail the handler before that
-    /// apply, so neither memory nor the journal holds the mutation and no outcome is recorded for it.
+    /// apply, so neither memory nor the journal holds the mutation and no outcome is recorded for it. The frame is refused before it is
+    /// enqueued, so nothing is stamped: the intent is released, and a retry with the same identity re-executes and gets the same definite
+    /// failure instead of an unknown outcome.
     /// </summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false, Skip = "Fails until #703")]
+    [Arguments(false)]
     [Arguments(true)]
     public async Task IdempotentCapacityDropFails(bool groupCommit, CancellationToken cancellationToken)
     {
@@ -87,15 +116,10 @@ public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
         var attempts = new int[1];
 
         _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteOversizedAsync(coordinator, executor, journal.Journal, memory, attempts, cancellationToken));
-
-        // Accepted conservative side effect (#702): the mutation is stamped at the ring enqueue, before the write ack delivers the
-        // rejection, so the intent stays started. A retry with the same identity answers unknown without running the handler again, until
-        // the record ages out or a restart rebuilds it; the outcome is never replayed as a success.
-        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteOversizedAsync(coordinator, executor, journal.Journal, memory, attempts, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteOversizedAsync(coordinator, executor, journal.Journal, memory, attempts, cancellationToken));
         await journal.ShutdownAsync();
 
-        _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();
-        _ = await Assert.That(attempts[0]).IsEqualTo(1);
+        _ = await Assert.That(attempts[0]).IsEqualTo(2);
         _ = await Assert.That(memory.Snapshot).IsEmpty();
         _ = await Assert.That(ReadOperations(cancellationToken)).IsEmpty();
     }

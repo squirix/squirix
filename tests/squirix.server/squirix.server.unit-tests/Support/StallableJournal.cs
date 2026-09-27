@@ -71,7 +71,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommitMaxWait, groupCommitMaxBatch, null, JournalSegmentLimits.DefaultMaxTotalBytesMb, cancellationToken);
+        CreateCoreAsync(dataDir, groupCommitMaxWait, groupCommitMaxBatch, null, DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
 
     /// <summary>Creates a journal over a fresh stallable writer whose on-disk journal is capped at <paramref name="maxTotalBytesMb" />.</summary>
     /// <param name="dataDir">Empty journal data directory.</param>
@@ -80,7 +80,18 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, maxTotalBytesMb, cancellationToken);
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, DefaultLimits(maxTotalBytesMb), cancellationToken);
+
+    /// <summary>Creates a journal over a stallable writer with explicit on-disk capacity limits; segments already in the directory are reused as on a restart.</summary>
+    /// <param name="dataDir">Journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes.</param>
+    /// <param name="maxSegmentMb">Segment size in megabytes.</param>
+    /// <param name="maxSegmentCount">Most segment files the journal may hold.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, int maxSegmentMb, int maxSegmentCount, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, null, (maxTotalBytesMb, maxSegmentMb, maxSegmentCount), cancellationToken);
 
     /// <summary>
     /// Creates a journal whose disposal gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
@@ -93,7 +104,7 @@ internal sealed class StallableJournal : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started journal.</returns>
     internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, ILogger log, CancellationToken cancellationToken) =>
-        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, log), JournalSegmentLimits.DefaultMaxTotalBytesMb, cancellationToken);
+        CreateCoreAsync(dataDir, groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero, 1, (shutdownBudget, log), DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), cancellationToken);
 
     /// <summary>Waits up to <paramref name="window" /> for <paramref name="signal" /> to complete.</summary>
     /// <param name="signal">Signal to observe.</param>
@@ -214,14 +225,15 @@ internal sealed class StallableJournal : IAsyncDisposable
         TimeSpan groupCommitMaxWait,
         int groupCommitMaxBatch,
         (TimeSpan Budget, ILogger Log)? shutdown,
-        int maxTotalBytesMb,
+        (int TotalMb, int SegmentMb, int SegmentCount) limits,
         CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = dataDir,
-            JournalMaxSegmentMb = 4,
-            JournalMaxTotalBytesMb = maxTotalBytesMb,
+            JournalMaxSegmentCount = limits.SegmentCount,
+            JournalMaxSegmentMb = limits.SegmentMb,
+            JournalMaxTotalBytesMb = limits.TotalMb,
             FlushInterval = 600_000,
             ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = groupCommitMaxWait,
@@ -248,4 +260,9 @@ internal sealed class StallableJournal : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>Gets the capacity limits of the existing factories: 4 MiB segments and the default segment count.</summary>
+    /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes.</param>
+    /// <returns>The limits passed to <see cref="CreateCoreAsync" />.</returns>
+    private static (int TotalMb, int SegmentMb, int SegmentCount) DefaultLimits(int maxTotalBytesMb) => (maxTotalBytesMb, 4, JournalSegmentLimits.DefaultMaxSegmentCount);
 }
