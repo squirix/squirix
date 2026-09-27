@@ -5,13 +5,11 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -51,22 +49,40 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         using var meter = new Meter("test-persistence-dispose-log");
         var log = new EventRecordingLogger();
         var provider = await BuildProviderAsync(meter, log, cancellationToken);
-        var journal = AttachThrowingJournal(provider);
+        var failure = AttachThrowingJournal(provider);
 
         await provider.DisposeAsync();
 
         var entry = log.Find(JournalDisposeFailedEventId);
 
         _ = await Assert.That(entry?.Level).IsEqualTo(LogLevel.Error);
-        _ = await Assert.That(entry?.Cause).IsSameReferenceAs(journal.Failure);
+        _ = await Assert.That(entry?.Cause).IsSameReferenceAs(failure);
     }
 
-    private static ThrowingDisposeJournal AttachThrowingJournal(IServiceProvider provider)
+    /// <summary>Hands the journal host a journal whose dispose fails over the real journal it owns.</summary>
+    /// <param name="provider">The persistence service provider.</param>
+    /// <returns>The failure the journal dispose throws.</returns>
+    private static TimeoutException AttachThrowingJournal(IServiceProvider provider)
     {
         var host = provider.GetRequiredService<JournalCoordinatorHost>();
-        var journal = new ThrowingDisposeJournal(host.Coordinator);
-        host.Attach(journal);
-        return journal;
+        var failure = new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked.");
+        AttachThrowingJournal(host, host.Coordinator, failure);
+        return failure;
+    }
+
+    /// <summary>Hands <paramref name="host" /> a journal that disposes <paramref name="journal" /> and then fails, as a journal whose I/O thread leaked on shutdown does.</summary>
+    /// <param name="host">The journal host.</param>
+    /// <param name="journal">The real journal, taken before the host hands out the throwing one.</param>
+    /// <param name="failure">The failure the dispose throws.</param>
+    private static void AttachThrowingJournal(JournalCoordinatorHost host, IJournalCoordinator journal, TimeoutException failure)
+    {
+        var expectations = new IJournalCoordinatorCreateExpectations();
+        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        {
+            await journal.DisposeAsync();
+            throw failure;
+        });
+        host.Attach(expectations.Instance());
     }
 
     private async Task<ServiceProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)
@@ -95,95 +111,5 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         public void Dispose()
         {
         }
-    }
-
-    /// <summary>Journal double that disposes the real journal and then fails once, as a journal whose I/O thread leaked on shutdown does.</summary>
-    [ThreadSafe]
-    private sealed class ThrowingDisposeJournal : IJournalCoordinator
-    {
-        private readonly IJournalCoordinator _inner;
-        private int _disposed;
-
-        internal ThrowingDisposeJournal(IJournalCoordinator inner)
-        {
-            _inner = inner;
-        }
-
-        public event EventHandler? OnAppended
-        {
-            add => _ = value;
-            remove => _ = value;
-        }
-
-        public long AppendedBytes => 0;
-
-        public long AppendedOps => 0;
-
-        public int CurrentSegmentIndex => 0;
-
-        public bool HasFlushLoopFailure => false;
-
-        public long HighWaterBytes => 0;
-
-        public QuiescenceGate InFlightApplyGate => _inner.InFlightApplyGate;
-
-        public bool IsJournalGroupCommitEnabled => false;
-
-        public long MaxBytes => 0;
-
-        public ulong NextSequence => 0;
-
-        public double RecentAppendLatencyMs => 0;
-
-        public long UsedBytes => 0;
-
-        internal TimeoutException Failure { get; } = new("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked.");
-
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public async ValueTask DisposeAsync()
-        {
-            await _inner.DisposeAsync();
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
-                throw Failure;
-        }
-
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
-            TState state,
-            Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
-            Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
-            TState state,
-            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
-
-        public Exception? GetJournalThreadFailure() => null;
-
-        public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 }

@@ -100,10 +100,17 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Detaches from the inner journal without disposing it.</summary>
+    /// <returns>A completed task.</returns>
+    /// <remarks>
+    /// The decorator does not own the journal: its owner disposes it once. The container tracks this decorator under several
+    /// registrations and disposes it before that owner, so passing the dispose through would let a journal that fails to shut
+    /// down abort the disposal of every other service.
+    /// </remarks>
     public ValueTask DisposeAsync()
     {
         _inner.OnAppended -= _forwardOnAppended;
-        return _inner.DisposeAsync();
+        return ValueTask.CompletedTask;
     }
 
     public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
