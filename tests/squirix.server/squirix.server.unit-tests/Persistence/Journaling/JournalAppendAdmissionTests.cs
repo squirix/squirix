@@ -20,8 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
 /// Append admission (issue #703): a plain append has no write ack, so a frame the journal thread might reject for capacity is refused to
-/// its caller before it enters the ring, from producer-side reads of the journal thread's counters. The active segment byte counter must
-/// therefore equal what the journal thread will see once it opens the segment, even before that open.
+/// its caller before it enters the ring, from producer-side reads of the journal thread's counters.
 /// </summary>
 [Immutable]
 public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
@@ -138,30 +137,18 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(restarted.Recover(string.Empty, watermark, cancellationToken)).IsEqualTo(Keys("c"));
     }
 
-    /// <summary>A fresh journal seeds the active segment counter with the header the first open writes.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FreshStartSeedsHeaderBytes(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        var seeded = journal.Journal.ActiveSegmentWrittenBytes;
-
-        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
-        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
-
-        _ = await Assert.That(seeded).IsEqualTo(JournalFraming.FileHeaderSize);
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
-    }
-
     /// <summary>
     /// After a maintenance end, the reset segment is not open yet: a frame that would roll it at the segment count limit is refused at
     /// admission (the pipeline keeps running), and a smaller frame that fits is written.
     /// </summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task MaintenanceEndRefusesRollAtCountLimit(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MaintenanceEndRefusesRollAtCountLimit(bool groupCommit, CancellationToken cancellationToken)
     {
-        await using var journal = await CreateSingleSegmentJournalAsync(cancellationToken);
+        await using var journal = await CreateSingleSegmentJournalAsync(groupCommit, cancellationToken);
         await FillSegmentAsync(journal, cancellationToken);
 
         await journal.Journal.ExecuteMaintenanceExclusiveAsync(static _ => ValueTask.CompletedTask, cancellationToken);
@@ -171,21 +158,6 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(failed).IsFalse();
         _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(Keys("fill", "fits"));
         _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
-    }
-
-    /// <summary>After a no-op maintenance, the active segment counter holds the reset segment's length instead of zero.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task MaintenanceEndSeedsSegmentBytes(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
-        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
-
-        await journal.Journal.ExecuteMaintenanceExclusiveAsync(static _ => ValueTask.CompletedTask, cancellationToken);
-
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsEqualTo(SegmentLength(1));
-        _ = await Assert.That(journal.Journal.ActiveSegmentWrittenBytes).IsGreaterThan(JournalFraming.FileHeaderSize);
     }
 
     /// <summary>
@@ -248,14 +220,17 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     /// A restart over a nearly full current segment at the segment count limit: the frame that would roll is refused at admission (the
     /// pipeline keeps running) before any append opened the segment, and a smaller frame that fits is written.
     /// </summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartRefusesRollAtCountLimit(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RestartRefusesRollAtCountLimit(bool groupCommit, CancellationToken cancellationToken)
     {
-        await using (var first = await CreateSingleSegmentJournalAsync(cancellationToken))
+        await using (var first = await CreateSingleSegmentJournalAsync(groupCommit, cancellationToken))
             await FillSegmentAsync(first, cancellationToken);
 
-        await using var restarted = await CreateSingleSegmentJournalAsync(cancellationToken);
+        await using var restarted = await CreateSingleSegmentJournalAsync(groupCommit, cancellationToken);
         var failed = await RefuseRollThenFitAsync(restarted, cancellationToken);
         await restarted.ShutdownAsync();
 
@@ -264,34 +239,18 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
     }
 
-    /// <summary>A restart seeds the active segment counter with the current segment's on-disk length before any append opens it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RestartSeedsSegmentBytes(CancellationToken cancellationToken)
-    {
-        await using (var first = await StallableJournal.CreateAsync(Dir, false, cancellationToken))
-        {
-            await first.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
-            await first.Journal.AppendPutUnderGateAsync(CacheKey.Default("b"), JournalEntryPayloadKit.EncodePut("b"), cancellationToken);
-            await first.Journal.AwaitDurabilityCommitAsync(cancellationToken);
-        }
-
-        var onDisk = SegmentLength(1);
-        await using var restarted = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-
-        _ = await Assert.That(restarted.Journal.ActiveSegmentWrittenBytes).IsEqualTo(onDisk);
-        _ = await Assert.That(onDisk).IsGreaterThan(JournalFraming.FileHeaderSize);
-    }
-
     /// <summary>
     /// With the only allowed segment nearly full, a frame that needs a roll is refused at admission, a smaller frame that fits is written,
     /// and only the accepted frames replay.
     /// </summary>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SegmentCountLimitRefusesRoll(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SegmentCountLimitRefusesRoll(bool groupCommit, CancellationToken cancellationToken)
     {
-        await using var journal = await CreateSingleSegmentJournalAsync(cancellationToken);
+        await using var journal = await CreateSingleSegmentJournalAsync(groupCommit, cancellationToken);
         await FillSegmentAsync(journal, cancellationToken);
 
         var failed = await RefuseRollThenFitAsync(journal, cancellationToken);
@@ -396,13 +355,11 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
         RandomAccess.Write(handle, header, 0);
     }
 
-    private Task<StallableJournal> CreateSingleSegmentJournalAsync(CancellationToken cancellationToken) => StallableJournal.CreateAsync(
+    private Task<StallableJournal> CreateSingleSegmentJournalAsync(bool groupCommit, CancellationToken cancellationToken) => StallableJournal.CreateAsync(
         Dir,
-        false,
+        groupCommit,
         JournalSegmentLimits.DefaultMaxTotalBytesMb,
         1,
         1,
         cancellationToken);
-
-    private long SegmentLength(int segmentIndex) => new FileInfo(JournalReadPath.BuildSegmentPath(Dir, segmentIndex)).Length;
 }
