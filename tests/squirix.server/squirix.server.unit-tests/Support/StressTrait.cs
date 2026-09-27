@@ -1,4 +1,4 @@
-namespace Squirix.Server.UnitTests;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Trait identifiers used to gate stress tests so they are excluded from fast PR runs.</summary>
 internal static class StressTrait

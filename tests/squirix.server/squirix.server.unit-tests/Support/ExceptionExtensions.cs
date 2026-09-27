@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.ExceptionServices;
 
-namespace Squirix.Server.UnitTests;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Extensions for surfacing captured faults in tests.</summary>
 internal static class ExceptionExtensions

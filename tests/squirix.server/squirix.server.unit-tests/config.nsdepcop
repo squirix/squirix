@@ -17,7 +17,7 @@
   Test-internal structure:
     - UnitTests.Support holds shared helpers and depends on no other UnitTests namespace.
     - Each top-level area depends only on its own subtree, UnitTests.Support, and TestKit
-      (never on a sibling area).
+      (never on a sibling area or on root Squirix.Server.UnitTests helpers).
     - Root Squirix.Server.UnitTests depends only on UnitTests.Support among its children.
 
   Package boundary: no client SDK, no protocol model, no server host executable.
@@ -202,49 +202,50 @@
       From="/^Squirix\.Server\.UnitTests$/"
       To="/^Squirix\.Server\.UnitTests\.(?!Support(?:\.|$)).+$/" />
 
-  <!-- Top-level areas are siblings: each depends only on its own subtree and Support (shared helpers go to Support).
+  <!-- Top-level areas are siblings: each depends only on its own subtree and Support, never on a sibling area or the root
+       namespace (the root is not implicitly visible to areas; shared helpers go to Support).
        NsDepCop regex has no back-reference between From/To, so enumerate one rule per area. -->
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Adapters(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Adapters|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Adapters|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.ApiSnapshots(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:ApiSnapshots|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:ApiSnapshots|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Architecture(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Architecture|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Architecture|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Cluster(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Cluster|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Cluster|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Core(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Core|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Core|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Errors(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Errors|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Errors|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Hosting(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Hosting|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Hosting|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.LocalCache(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:LocalCache|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:LocalCache|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Memory|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Memory|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Node(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Node|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Node|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Observability(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Observability|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Observability|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Persistence(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Persistence|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Persistence|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Threading(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Threading|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Threading|Support)(?:\.|$)).*)$/" />
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
-      To="/^Squirix\.Server\.UnitTests\.(?!(?:Utils|Support)(?:\.|$)).+$/" />
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!(?:Utils|Support)(?:\.|$)).*)$/" />
 
 </NsDepCopConfig>
