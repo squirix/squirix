@@ -13,17 +13,23 @@ namespace Squirix.Server.Threading;
 [ThreadSafe]
 internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
 {
+    private readonly ulong _generation;
     private readonly AsyncLock _owner;
     private int _released;
 
-    internal AsyncLockHolder(AsyncLock owner)
+    internal AsyncLockHolder(AsyncLock owner, ulong generation)
     {
         _owner = owner;
+        _generation = generation;
     }
+
+    /// <summary>Gets the owner capability of this acquisition, to pass to the surfaces the lock protects.</summary>
+    /// <remarks>It holds the lock until this holder releases; a <see langword="default" /> holder yields an ownership that never holds.</remarks>
+    internal readonly AsyncLockOwnership Ownership => new(_owner, _generation);
 
     public override readonly bool Equals([NotNullWhen(true)] object? obj) => obj is AsyncLockHolder other && Equals(other);
 
-    public override readonly int GetHashCode() => HashCode.Combine(_owner, _released);
+    public override readonly int GetHashCode() => HashCode.Combine(_owner, _generation, _released);
 
     public void Dispose()
     {
@@ -33,5 +39,5 @@ internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
         _owner.Release();
     }
 
-    public readonly bool Equals(AsyncLockHolder other) => ReferenceEquals(_owner, other._owner) && _released == other._released;
+    public readonly bool Equals(AsyncLockHolder other) => ReferenceEquals(_owner, other._owner) && _generation == other._generation && _released == other._released;
 }

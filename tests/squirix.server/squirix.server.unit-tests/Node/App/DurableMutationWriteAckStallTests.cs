@@ -177,7 +177,7 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
             },
             new DurableMutationPipeline<(IJournalCoordinator Journal, IOException Reason), int>(
                 (journal.Journal, reason),
-                static (s, ct) => s.Journal.AppendPutAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), ct),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), ct),
                 static (_, _) => ValueTask.FromResult(1)),
             cancellationToken).AsTask();
         var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
@@ -267,19 +267,19 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
+        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             Interlocked.Exchange(ref _faultNextPut, 0) == 1
                 ? ValueTask.FromException(
                     new JournalPostEnqueueFaultException(JournalPostEnqueueFaultException.WriteAckFaultedMessage, new ObjectDisposedException(nameof(PostEnqueueFaultJournal))))
                 : ValueTask.CompletedTask;
 
-        public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
@@ -293,15 +293,15 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
             Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
+        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
             TState state,
-            Func<TState, CancellationToken, ValueTask<TResult>> action,
-            CancellationToken cancellationToken) => action(state, cancellationToken);
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
+            CancellationToken cancellationToken) => action(state, default, cancellationToken);
 
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
+        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();

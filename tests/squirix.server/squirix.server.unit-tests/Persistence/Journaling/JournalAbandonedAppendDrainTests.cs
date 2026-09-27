@@ -118,20 +118,27 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         // Without it the roll targets a different manifest file and succeeds instead of failing.
         await EnqueueCalibrationRollAsync(ledger);
 
+        // The test flow holds the mutation gate for the whole maintenance, as ExecuteMaintenanceExclusiveAsync does, so the appends below
+        // run inside that hold with its gate ownership instead of going through the gate.
         var gate = new BlockingMaintenanceAction();
-        var maintenance = journal.ExecuteMaintenanceExclusiveAsync(gate.RunAsync, cancellationToken);
-        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        await BlockManifestFileAsync(Dir, 2, cancellationToken);
+        var (pending, thrown) = await journal.ExecuteUnderSnapshotBarrierAsync(
+            (Journal: journal, Pipelined: pipelined, Gate: gate, Dir, Payload: payload, OverflowKey: overflowKey, OverflowPayload: overflowPayload),
+            static async (s, ownership, ct) =>
+            {
+                var maintenance = s.Pipelined.DurabilityPipeline.EnqueueMaintenanceAsync(s.Gate.RunAsync, ct);
+                await s.Gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, ct);
+                await BlockManifestFileAsync(s.Dir, 2, ct);
 
-        // Non-durable overflow (see above): it parks on the roll-deferred frame while the
-        // durable followers stay queued behind it for the drain. The maintenance holds the
-        // mutation gate, so these appends run inside its hold on purpose, not through the gate.
-        await journal.AppendPutAsync(overflowKey, overflowPayload, cancellationToken);
-        var pending = StartDurableAppends(journal, payload, AppendDurableInsideHeldGateAsync, cancellationToken);
-        QueueFlushWait(pending, journal, cancellationToken);
+                // Non-durable overflow (see above): it parks on the roll-deferred frame while the
+                // durable followers stay queued behind it for the drain.
+                await s.Journal.AppendPutAsync(ownership, s.OverflowKey, s.OverflowPayload, ct);
+                var appends = StartDurableAppends((s.Journal, Ownership: ownership), s.Payload, AppendDurableInsideHeldGateAsync, ct);
+                QueueFlushWait(appends, s.Journal, ct);
 
-        _ = gate.Release.TrySetResult();
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(maintenance);
+                _ = s.Gate.Release.TrySetResult();
+                return (Pending: appends, Thrown: await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(maintenance));
+            },
+            cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(gate.Original);
 
         await pipelined.WaitUntilAsync(static j => j.HasFlushLoopFailure, TimeSpan.FromSeconds(15), cancellationToken);
@@ -165,21 +172,25 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken) =>
         journal.AppendAdmittedUnderGateAsync(
             (Key: key, Payload: payload),
-            static (appender, s, ct) => appender.AppendPutAndAwaitDurabilityAsync(s.Key, s.Payload, ct),
+            static (appender, s, ownership, ct) => appender.AppendPutAndAwaitDurabilityAsync(ownership, s.Key, s.Payload, ct),
             cancellationToken);
 
-    /// <summary>Starts a durable append while another flow (the maintenance) holds the mutation gate, so it queues on the ring behind the parked frame.</summary>
-    /// <param name="journal">Journal to append to.</param>
+    /// <summary>Starts a durable append inside the gate hold that runs the maintenance, so it queues on the ring behind the parked frame.</summary>
+    /// <param name="holder">Journal to append to and the ownership of the gate hold.</param>
     /// <param name="key">Cache key.</param>
     /// <param name="payload">Encoded cache entry.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The durable append.</returns>
-    private static Task AppendDurableInsideHeldGateAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
+    private static Task AppendDurableInsideHeldGateAsync(
+        (IJournalCoordinator Journal, AsyncLockOwnership Ownership) holder,
+        CacheKey key,
+        byte[] payload,
+        CancellationToken cancellationToken)
     {
         ValueTask pending;
         try
         {
-            pending = journal.AppendPutAndAwaitDurabilityAsync(key, payload, cancellationToken);
+            pending = holder.Journal.AppendPutAndAwaitDurabilityAsync(holder.Ownership, key, payload, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {
@@ -278,15 +289,15 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
         pending.Add(AwaitFlushAsync(journal, cancellationToken));
 
-    private static List<Task> StartDurableAppends(
-        IJournalCoordinator journal,
+    private static List<Task> StartDurableAppends<TTarget>(
+        TTarget target,
         byte[] payload,
-        Func<IJournalCoordinator, CacheKey, byte[], CancellationToken, Task> append,
+        Func<TTarget, CacheKey, byte[], CancellationToken, Task> append,
         CancellationToken cancellationToken)
     {
         var pending = new List<Task>(PendingAppends);
         for (var i = 0; i < PendingAppends; i++)
-            pending.Add(append(journal, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
+            pending.Add(append(target, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
 
         return pending;
     }

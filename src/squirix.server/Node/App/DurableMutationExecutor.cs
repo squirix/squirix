@@ -9,6 +9,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App;
@@ -70,7 +71,7 @@ internal sealed class DurableMutationExecutor
             var applyState = new GroupCommitApplyWithState<TState, TResult>(this, state, mutationState, applyMemory);
             return await _journal.ExecuteUnderSnapshotBarrierAsync(
                     applyState,
-                    static (s, _) =>
+                    static (s, _, _) =>
                     {
                         s.ExecutionState.MemoryApplyStarted = true;
                         return s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory);
@@ -101,7 +102,7 @@ internal sealed class DurableMutationExecutor
         {
             var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
                 new GroupCommitPrepareWithPipelineState<TState, TResult>(this, conflictKey, state, precondition, pipeline.State, pipeline.AppendJournal),
-                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ct),
+                static (s, ownership, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
                 cancellationToken).ConfigureAwait(false);
 
             return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory).ConfigureAwait(false);
@@ -118,10 +119,13 @@ internal sealed class DurableMutationExecutor
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
         new MonolithicWithPipelineState<TState, TResult>(this, precondition, pipeline.State, pipeline.AppendJournal, pipeline.ApplyMemory),
-        static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
+        static (s, ownership, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ownership, ct),
         cancellationToken);
 
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(MonolithicWithPipelineState<TState, TResult> state, CancellationToken cancellationToken)
+    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(
+        MonolithicWithPipelineState<TState, TResult> state,
+        AsyncLockOwnership ownership,
+        CancellationToken cancellationToken)
     {
         var decision = await state.Precondition(state.State, cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
@@ -129,7 +133,7 @@ internal sealed class DurableMutationExecutor
 
         try
         {
-            await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
+            await state.AppendJournal(state.State, ownership, cancellationToken).ConfigureAwait(false);
         }
         catch (JournalPostEnqueueFaultException ex)
         {
@@ -189,7 +193,8 @@ internal sealed class DurableMutationExecutor
         GroupCommitExecutionState state,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         TState mutationState,
-        Func<TState, CancellationToken, ValueTask> appendJournal,
+        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
+        AsyncLockOwnership ownership,
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
@@ -208,7 +213,7 @@ internal sealed class DurableMutationExecutor
 
             _journal.InFlightApplyGate.Enter();
             state.PendingMemoryApply = true;
-            await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
+            await appendJournal(mutationState, ownership, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
         }
         catch (JournalPostEnqueueFaultException ex)
@@ -298,7 +303,7 @@ internal sealed class DurableMutationExecutor
             GroupCommitExecutionState executionState,
             Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal)
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
             ConflictKey = conflictKey;
@@ -308,7 +313,7 @@ internal sealed class DurableMutationExecutor
             AppendJournal = appendJournal;
         }
 
-        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
 
         internal CacheKey ConflictKey { get; }
 
@@ -328,7 +333,7 @@ internal sealed class DurableMutationExecutor
             DurableMutationExecutor mutator,
             Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal,
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
             Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
             Mutator = mutator;
@@ -338,7 +343,7 @@ internal sealed class DurableMutationExecutor
             ApplyMemory = applyMemory;
         }
 
-        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 

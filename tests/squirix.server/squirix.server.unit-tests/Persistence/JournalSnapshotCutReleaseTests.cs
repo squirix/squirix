@@ -63,7 +63,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
         var mutationTask = AsSingleUseTaskAsync(
             journal.ExecuteUnderSnapshotBarrierAsync(
                 mutationEntered,
-                static async (entered, _) =>
+                static async (entered, _, _) =>
                 {
                     entered.SetResult();
                     await Task.Yield();

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
@@ -28,11 +29,13 @@ internal interface IJournalSnapshotBarrier
         [RequireStaticDelegate] Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken);
 
-    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>([RequireStaticDelegate] Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken);
+    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
+        [RequireStaticDelegate] Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken);
 
     ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,
-        [RequireStaticDelegate] Func<TState, CancellationToken, ValueTask<TResult>> action,
+        [RequireStaticDelegate] Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -42,11 +45,14 @@ internal interface IJournalSnapshotBarrier
     /// </summary>
     /// <typeparam name="TState">Caller-owned state passed to the action.</typeparam>
     /// <param name="state">Caller-owned state.</param>
-    /// <param name="action">Action executed under the mutation gate.</param>
+    /// <param name="action">
+    /// Action executed under the mutation gate; it receives the <see cref="AsyncLockOwnership" /> that its cache mutation
+    /// appends must pass, valid only until the action completes.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="ValueTask" /> that completes when the action has executed under the gate.</returns>
     ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
         TState state,
-        [RequireStaticDelegate] Func<TState, CancellationToken, ValueTask> action,
+        [RequireStaticDelegate] Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action,
         CancellationToken cancellationToken);
 }

@@ -72,7 +72,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                         static (_, _) => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
                         new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
                             (state.Journal, state.Key, state.Payload),
-                            static (s, ct) => s.Journal.AppendPutAndAwaitDurabilityAsync(s.Key, s.Payload, ct),
+                            static (s, ownership, ct) => s.Journal.AppendPutAndAwaitDurabilityAsync(ownership, s.Key, s.Payload, ct),
                             static (_, _) => new ValueTask<bool>(true)),
                         cancellationToken).ConfigureAwait(false);
                     throw new InvalidOperationException("boom");
@@ -135,7 +135,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
                     static (_, _) => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
                         (state.Journal, state.Key, state.Payload),
-                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                        static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (_, _) => new ValueTask<bool>(true)),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };

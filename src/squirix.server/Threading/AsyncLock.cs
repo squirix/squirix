@@ -17,6 +17,11 @@ namespace Squirix.Server.Threading;
 /// waits on <see cref="CancellationToken.None"/>. Waiter continuations never run inline on the completing thread.
 /// </para>
 /// <para>
+/// Every acquisition, whether a free take or a hand-off, issues a new ownership generation that the returned
+/// <see cref="AsyncLockHolder"/> exposes as its <see cref="AsyncLockOwnership"/>: surfaces the lock protects check that
+/// ownership instead of asking whether the lock is held at all, so they tell the holder from any other flow.
+/// </para>
+/// <para>
 /// Disposal does not revoke the current holder: it keeps exclusion until it releases, and that release only marks
 /// the lock free. Shape after
 /// <see href="https://devblogs.microsoft.com/dotnet/building-async-coordination-primitives-part-6-asynclock/">Building Async Coordination Primitives, Part 6: AsyncLock (Stephen Toub)</see>
@@ -28,16 +33,15 @@ internal sealed class AsyncLock : IDisposable
 {
     private readonly Lock _sync = new();
     private int _disposed;
-    private bool _held;
     private Waiter? _head;
-    private Waiter? _tail;
 
-    /// <summary>Gets a value indicating whether some holder owns the lock.</summary>
-    /// <remarks>
-    /// The lock tracks no owner: <see langword="true"/> is guaranteed while the calling flow holds the lock, but it may also belong to
-    /// another flow, so a <see langword="false"/> proves only that the caller does not hold it.
-    /// </remarks>
-    internal bool IsHeld => Volatile.Read(ref _held);
+    /// <summary>The generation of the current holder, or zero while the lock is free; written only under <see cref="_sync"/>.</summary>
+    private ulong _holderGeneration;
+
+    /// <summary>The last generation issued; guarded by <see cref="_sync"/>. Starts at zero, so no acquisition ever gets generation zero.</summary>
+    private ulong _lastGeneration;
+
+    private Waiter? _tail;
 
     /// <summary>Refuses further acquisitions and faults every queued waiter with <see cref="ObjectDisposedException"/>; idempotent.</summary>
     /// <remarks>The current holder, if any, is unaffected and can still release.</remarks>
@@ -62,6 +66,20 @@ internal sealed class AsyncLock : IDisposable
         }
     }
 
+    /// <summary>Gets a value indicating whether the acquisition issued <paramref name="generation"/> still owns the lock.</summary>
+    /// <param name="generation">The generation of an acquisition; only <see cref="AsyncLockOwnership"/> asks.</param>
+    /// <returns>
+    /// <see langword="true"/> only while the acquisition issued <paramref name="generation"/> has not released; zero (a
+    /// <see langword="default"/> ownership) is never held.
+    /// </returns>
+    /// <remarks>
+    /// Lock-free: the holder generation is one 64-bit field read atomically. It is written under <see cref="_sync"/>
+    /// before the acquisition is published (the lock exit or the waiter completion), so the acquiring flow always reads
+    /// its own generation, and its release is ordered before anything the same flow does next. Generations only grow,
+    /// so a released or superseded acquisition never matches again.
+    /// </remarks>
+    internal bool IsHeldBy(ulong generation) => generation != 0 && Volatile.Read(ref _holderGeneration) == generation;
+
     /// <summary>Acquires the lock, waiting in FIFO order while it is held.</summary>
     /// <param name="cancellationToken">Cancels the wait while the acquisition is still queued.</param>
     /// <returns>The holder that releases the lock when disposed.</returns>
@@ -79,8 +97,8 @@ internal sealed class AsyncLock : IDisposable
             if (cancellationToken.IsCancellationRequested)
                 return ValueTask.FromCanceled<AsyncLockHolder>(cancellationToken);
 
-            if (TryTakeFree())
-                return new ValueTask<AsyncLockHolder>(new AsyncLockHolder(this));
+            if (TryTakeFree(out var generation))
+                return new ValueTask<AsyncLockHolder>(new AsyncLockHolder(this, generation));
 
             var waiter = new Waiter(this);
             Enqueue(waiter);
@@ -95,7 +113,11 @@ internal sealed class AsyncLock : IDisposable
     }
 
     /// <summary>Hands ownership to the oldest queued waiter, or marks the lock free when none is queued.</summary>
-    /// <remarks>Never throws; after <see cref="Dispose"/> the queue is empty, so it only marks the lock free.</remarks>
+    /// <remarks>
+    /// Never throws; after <see cref="Dispose"/> the queue is empty, so it only marks the lock free. A hand-off issues the
+    /// next generation before completing the waiter, so the releasing ownership stops matching <see cref="IsHeldBy"/> at once
+    /// and the new holder observes its own generation when it resumes.
+    /// </remarks>
     internal void Release()
     {
         lock (_sync)
@@ -104,11 +126,12 @@ internal sealed class AsyncLock : IDisposable
             {
                 var waiter = _head;
                 Unlink(waiter);
-                if (waiter.TrySetResult(new AsyncLockHolder(this)))
+                var generation = IssueGeneration();
+                if (waiter.TrySetResult(new AsyncLockHolder(this, generation)))
                     return;
             }
 
-            _held = false;
+            Volatile.Write(ref _holderGeneration, 0UL);
         }
     }
 
@@ -122,9 +145,9 @@ internal sealed class AsyncLock : IDisposable
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             cancellationToken.ThrowIfCancellationRequested();
-            if (TryTakeFree())
+            if (TryTakeFree(out var generation))
             {
-                holder = new AsyncLockHolder(this);
+                holder = new AsyncLockHolder(this, generation);
                 return true;
             }
         }
@@ -163,15 +186,29 @@ internal sealed class AsyncLock : IDisposable
         _tail = waiter;
     }
 
+    /// <summary>Issues the next ownership generation and publishes it as the current holder's.</summary>
+    /// <returns>The issued generation, never zero.</returns>
+    /// <remarks>Callers hold <see cref="_sync"/>.</remarks>
+    private ulong IssueGeneration()
+    {
+        var generation = ++_lastGeneration;
+        Volatile.Write(ref _holderGeneration, generation);
+        return generation;
+    }
+
     /// <summary>Marks the lock held when it is free.</summary>
+    /// <param name="generation">The generation issued to the caller, or zero when the lock is held.</param>
     /// <returns><see langword="true"/> when the lock was free and is now held by the caller.</returns>
     /// <remarks>Callers hold <see cref="_sync"/>.</remarks>
-    private bool TryTakeFree()
+    private bool TryTakeFree(out ulong generation)
     {
-        if (_held)
+        if (_holderGeneration != 0)
+        {
+            generation = 0;
             return false;
+        }
 
-        _held = true;
+        generation = IssueGeneration();
         return true;
     }
 

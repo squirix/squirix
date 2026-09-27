@@ -58,7 +58,7 @@ internal sealed class AppliedKeys
             static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, AppliedKeys Memory), int>(
                 (journal, cacheKey, JournalEntryPayloadKit.EncodePut(value), this),
-                static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                 static (s, _) => s.Memory.ApplyAsync(s.Key)),
             cancellationToken).AsTask();
     }
@@ -78,7 +78,7 @@ internal sealed class AppliedKeys
             static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, AppliedKeys Memory), int>(
                 (journal, cacheKey, this),
-                static (s, ct) => s.Journal.AppendRemoveAsync(s.Key, ct),
+                static (s, ownership, ct) => s.Journal.AppendRemoveAsync(ownership, s.Key, ct),
                 static (s, _) => s.Memory.UnapplyAsync(s.Key)),
             cancellationToken).AsTask();
     }

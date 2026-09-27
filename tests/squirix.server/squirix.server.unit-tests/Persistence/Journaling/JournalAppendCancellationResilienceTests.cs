@@ -114,7 +114,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             // Only the admission runs under the gate: the durability waits overlap, so a cancellation can still land after the enqueue.
             await journal.AppendAdmittedUnderGateAsync(
                 (Key: key, Payload: payload),
-                static (appender, s, ct) => appender.AppendPutAndAwaitDurabilityAsync(s.Key, s.Payload, ct),
+                static (appender, s, ownership, ct) => appender.AppendPutAndAwaitDurabilityAsync(ownership, s.Key, s.Payload, ct),
                 cts.Token);
         }
         catch (OperationCanceledException ex)

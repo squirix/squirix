@@ -42,7 +42,7 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutation = journal.Journal.ExecuteUnderSnapshotBarrierAsync(
             entered,
-            static (signal, _) => ValueTask.FromResult(signal.TrySetResult()),
+            static (signal, _, _) => ValueTask.FromResult(signal.TrySetResult()),
             cancellationToken).AsTask();
         var enteredDuringStall = await StallableJournal.CompletesWithinAsync(entered, GateProbeWindow, cancellationToken);
         journal.Writer.Flush.Release();
@@ -72,9 +72,9 @@ public sealed class JournalSnapshotCutStallTests : IsolatedStorageTestBase
         var sequence = new StrongBox<ulong>();
         var mutation = journal.Journal.ExecuteUnderSnapshotBarrierAsync(
             (journal.Journal, Appended: appended, Sequence: sequence),
-            static async (s, ct) =>
+            static async (s, ownership, ct) =>
             {
-                await s.Journal.AppendPutAsync(CacheKey.Default("c"), JournalEntryPayloadKit.EncodePut("c"), ct);
+                await s.Journal.AppendPutAsync(ownership, CacheKey.Default("c"), JournalEntryPayloadKit.EncodePut("c"), ct);
                 s.Sequence.Value = s.Journal.NextSequence;
                 _ = s.Appended.TrySetResult();
             },

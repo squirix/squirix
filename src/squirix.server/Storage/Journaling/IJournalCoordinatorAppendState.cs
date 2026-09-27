@@ -20,7 +20,7 @@ internal interface IJournalCoordinatorAppendState
 
     AsyncManualResetEvent StartupGate { get; }
 
-    ulong AllocateSequence();
+    ulong AllocateSequence(in AsyncLockOwnership ownership);
 
     void RecordAppendMetrics(int frameLength, long startedMs);
 }
