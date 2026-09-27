@@ -38,7 +38,10 @@ internal sealed record JournalWorkItem
     /// <summary>Creates an append item whose frame is staged into the write batch by the journal thread.</summary>
     /// <param name="frameBytes">Encoded frame buffer rented from <c language="csharp">ArrayPool&lt;byte&gt;</c>.</param>
     /// <param name="frameLength">Exact length of the framed payload inside <paramref name="frameBytes" />.</param>
-    /// <param name="ack">Optional ack resolving group-commit append completion.</param>
+    /// <param name="ack">
+    /// Optional ack resolving group-commit append completion. A plain append carries none: append admission already refused any frame
+    /// the journal thread could reject for capacity, and the journal thread fails the pipeline if it ever rejects an append without an ack.
+    /// </param>
     /// <returns>A new append work item for the journal ring.</returns>
     internal static JournalWorkItem Append(byte[] frameBytes, int frameLength, TaskCompletionSource? ack = null) => new(JournalWorkKind.Append, ack, frameBytes, frameLength, 0, 0UL);
 

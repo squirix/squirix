@@ -83,6 +83,61 @@ public sealed class PendingAppendRegistryTests
         _ = await Assert.That(registry.RemoveMaintenance(pending)).IsFalse();
     }
 
+    /// <summary>A failure drain takes every tracked append, so the pending counters drop to zero and a late untrack changes nothing.</summary>
+    [Test]
+    public async Task PendingCountersClearOnDrain()
+    {
+        var registry = new PendingAppendRegistry();
+        var counter = new MutableInt32();
+        var firstBuffer = ArrayPool<byte>.Shared.Rent(64);
+        var secondBuffer = ArrayPool<byte>.Shared.Rent(64);
+        var first = JournalWorkItem.Append(firstBuffer, 64);
+        var second = JournalWorkItem.Append(secondBuffer, 32);
+        registry.Track(first, firstBuffer, 64, null);
+        registry.Track(second, secondBuffer, 32, null);
+        _ = Interlocked.Add(ref counter.Value, 2);
+
+        _ = await Assert.That(registry.FailAll(new InvalidOperationException("pipeline failed"), NullLogger.Instance, counter)).IsEqualTo(2);
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
+
+        _ = await Assert.That(registry.Untrack(first, out _)).IsFalse();
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(2);
+    }
+
+    /// <summary>The pending counters cover exactly the tracked appends: tracking adds, a winning untrack subtracts, a losing one does not.</summary>
+    [Test]
+    public async Task PendingCountersFollowTrackAndUntrack()
+    {
+        var registry = new PendingAppendRegistry();
+        var firstBuffer = ArrayPool<byte>.Shared.Rent(64);
+        var secondBuffer = ArrayPool<byte>.Shared.Rent(128);
+        var first = JournalWorkItem.Append(firstBuffer, 40);
+        var second = JournalWorkItem.Append(secondBuffer, 100);
+
+        registry.Track(first, firstBuffer, 40, null);
+        registry.Track(second, secondBuffer, 100, null);
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(140L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(2);
+
+        _ = await Assert.That(registry.Untrack(first, out _)).IsTrue();
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(100L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
+
+        _ = await Assert.That(registry.Untrack(first, out _)).IsFalse();
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(100L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
+
+        _ = await Assert.That(registry.Untrack(second, out _)).IsTrue();
+        _ = await Assert.That(registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
+
+        ArrayPool<byte>.Shared.ReturnCleared(firstBuffer);
+        ArrayPool<byte>.Shared.ReturnCleared(secondBuffer);
+    }
+
     /// <summary>
     /// A drain racing a failed enqueue wins: the late untrack loses, nothing is released twice,
     /// and the quarantined buffer returns to the pool exactly once.

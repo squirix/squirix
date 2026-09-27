@@ -381,7 +381,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
         internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
         {
-            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0), _backgroundCancellation.Token, logger);
+            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)), _backgroundCancellation.Token, logger);
         }
 
         internal JournalEventLoop EventLoop { get; }

@@ -68,6 +68,94 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
+    /// <summary>
+    /// An ack-less append rejected for capacity on the unbatched path releases its slot and buffer, then throws instead of
+    /// being dropped silently (issue #703).
+    /// </summary>
+    [Test]
+    public async Task AckLessAppendCapacityRejectionThrows()
+    {
+        using var setup = CreateSetup(1024L * 1024L, 1024, 1);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64);
+        setup.Registry.Track(item, buffer, 64, null);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
+
+        _ = await Assert.That(thrown.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.QuarantinedCount).IsEqualTo(0L);
+    }
+
+    /// <summary>
+    /// An ack-less append the journal thread rejects for capacity fails the pipeline through the event loop instead of being
+    /// dropped while a later checkpoint reports it durable (issue #703). Its slot and buffer are released by the journal thread.
+    /// </summary>
+    [Test]
+    public async Task AckLessCapacityRejectionFailsPipeline()
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxTotalBytesMb = 1 };
+        var registry = new PendingAppendRegistry();
+        var counter = new MutableInt32();
+        var host = new FakeEventLoopHost(registry, counter);
+        using var ring = new BoundedJournalRing(4);
+        using var segmentWriter = new FakeSegmentWriter();
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), CancellationToken.None, NullLogger.Instance);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64);
+        registry.Track(item, buffer, 64, null);
+        _ = Interlocked.Increment(ref counter.Value);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+
+        // The shutdown marker behind the append ends the loop if the rejection ever stops failing the pipeline.
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        eventLoop.Run();
+
+        var failure = await Assert.That(host.PipelineFailure).IsTypeOf<InvalidOperationException>();
+        _ = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(counter.Value).IsEqualTo(0);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(0L);
+    }
+
+    /// <summary>
+    /// An ack-less append deferred for a roll that, once the roll completes, needs another roll the segment count forbids is released and
+    /// fails the pipeline through the event loop instead of being dropped (issue #703).
+    /// </summary>
+    [Test]
+    public async Task AckLessRollRejectionFailsPipeline()
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 2 };
+        var registry = new PendingAppendRegistry();
+        var counter = new MutableInt32();
+        var host = new FakeEventLoopHost(registry, counter);
+        using var ring = new BoundedJournalRing(4);
+
+        // Every segment the journal thread opens looks nearly full, so the append rolls, and rolls again once the first roll completes.
+        using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), CancellationToken.None, NullLogger.Instance);
+        host.RollPublished = eventLoop.MarkSegmentRollCompletionPending;
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64);
+        registry.Track(item, buffer, 64, null);
+        _ = Interlocked.Increment(ref counter.Value);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        eventLoop.Run();
+
+        var failure = await Assert.That(host.PipelineFailure).IsTypeOf<InvalidOperationException>();
+        var rejection = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(rejection?.Message).Contains("segment count");
+        _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(2);
+        _ = await Assert.That(counter.Value).IsEqualTo(0);
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(0L);
+    }
+
     /// <summary>A capacity failure on the append path faults the ack and releases the slot.</summary>
     [Test]
     public async Task AppendCapacityFailureFaultsAck()
@@ -246,17 +334,19 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         PendingAppendRegistry IJournalEventLoopHost.PendingAppends => _pendingAppends;
 
+        /// <summary>Gets the reason of the last pipeline failure the journal thread reported, if any.</summary>
+        internal Exception? PipelineFailure { get; private set; }
+
+        /// <summary>Gets or sets the callback run when the journal thread publishes a roll, standing in for the manifest roll thread.</summary>
+        internal Action? RollPublished { get; set; }
+
         void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
 
         void IJournalEventLoopHost.DecrementQueuedAppends() => _ = Interlocked.Decrement(ref _counter.Value);
 
-        void IJournalEventLoopHost.FailPipeline(Exception reason)
-        {
-        }
+        void IJournalEventLoopHost.FailPipeline(Exception reason) => PipelineFailure = reason;
 
-        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex)
-        {
-        }
+        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex) => RollPublished?.Invoke();
 
         void IJournalEventLoopHost.SetNextSequence(ulong value)
         {
@@ -305,6 +395,10 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
 
         void IJournalEventLoopRollState.SetPendingRollTargetSegmentIndex(int value)
+        {
+        }
+
+        void IJournalEventLoopRollState.SetRollTargetCounted(bool value)
         {
         }
 
@@ -367,11 +461,24 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
 
         void IJournalEventLoopState.SetJournalTotalBytes(long value) => _totalBytes = value;
+
+        void IJournalEventLoopState.SetOpenCreatesSegment(bool value)
+        {
+        }
     }
 
     private sealed class FakeSegmentWriter : IJournalSegmentWriter
     {
-        long IJournalSegmentWriter.Length => 0;
+        private readonly long _length;
+
+        /// <summary>Initializes a new instance of the <see cref="FakeSegmentWriter" /> class.</summary>
+        /// <param name="length">Length every opened segment reports.</param>
+        internal FakeSegmentWriter(long length = 0L)
+        {
+            _length = length;
+        }
+
+        long IJournalSegmentWriter.Length => _length;
 
         /// <summary>Releases test resources.</summary>
         public void Dispose()

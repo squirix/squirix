@@ -129,6 +129,56 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pending);
     }
 
+    /// <summary>A failure drain faults a maintenance caller waiting for End: the End wait ignores cancellation, but it never outlives the pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MaintenanceEndWaitFaultsOnDrain(CancellationToken cancellationToken)
+    {
+        using var fake = new FakeCoordinatorState(CreateOptions());
+        IJournalCoordinatorState state = fake;
+        var pipeline = CreatePipeline(fake);
+        using var cancelled = new CancellationTokenSource();
+        var maintenance = pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, cancelled.Token).AsTask();
+        var begin = TakeNext(state, cancellationToken);
+        _ = begin.Ack?.TrySetResult();
+        var end = TakeNext(state, cancellationToken);
+        await cancelled.CancelAsync();
+
+        var reason = new InvalidOperationException("pipeline failed");
+        _ = state.PendingAppends.FailAll(reason, NullLogger.Instance, state.QueuedAppendsCounter);
+
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(maintenance);
+        _ = await Assert.That(begin.Kind).IsEqualTo(JournalWorkKind.MaintenanceBegin);
+        _ = await Assert.That(end.Kind).IsEqualTo(JournalWorkKind.MaintenanceEnd);
+        _ = await Assert.That(thrown).IsSameReferenceAs(reason);
+    }
+
+    /// <summary>
+    /// Cancelling a maintenance caller once End is on the ring does not end its wait: the caller keeps the mutation gate until End is
+    /// applied, so no append is admitted against the capacity counters End is about to resync (issue #703).
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MaintenanceEndWaitIgnoresCancel(CancellationToken cancellationToken)
+    {
+        using var fake = new FakeCoordinatorState(CreateOptions());
+        IJournalCoordinatorState state = fake;
+        var pipeline = CreatePipeline(fake);
+        using var cancelled = new CancellationTokenSource();
+        var maintenance = pipeline.EnqueueMaintenanceAsync(static _ => ValueTask.CompletedTask, cancelled.Token).AsTask();
+        var begin = TakeNext(state, cancellationToken);
+        _ = begin.Ack?.TrySetResult();
+        var end = TakeNext(state, cancellationToken);
+
+        await cancelled.CancelAsync();
+        _ = end.Ack?.TrySetResult();
+        await maintenance;
+
+        _ = await Assert.That(begin.Kind).IsEqualTo(JournalWorkKind.MaintenanceBegin);
+        _ = await Assert.That(end.Kind).IsEqualTo(JournalWorkKind.MaintenanceEnd);
+        _ = await Assert.That(maintenance.IsCompletedSuccessfully).IsTrue();
+    }
+
     /// <summary>A quiescence timeout fails reachable waiters loudly instead of hanging disposal.</summary>
     [Test]
     public async Task QuiesceTimeoutFailsWaitersLoudly()
@@ -152,6 +202,27 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
     }
 
     private static JournalDurabilityCoordinator CreatePipeline(FakeCoordinatorState state) => new(state, new FakeSnapshotState(), NullLogger.Instance, new JournalProducerGate());
+
+    /// <summary>Takes the next ring item, waiting for it when the maintenance flow publishes it asynchronously.</summary>
+    /// <param name="state">Coordinator state whose ring is drained by the test instead of a journal thread.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The dequeued work item.</returns>
+    /// <exception cref="TimeoutException">No item arrived within ten seconds.</exception>
+    private static JournalWorkItem TakeNext(IJournalCoordinatorState state, CancellationToken cancellationToken)
+    {
+        var deadline = Environment.TickCount64 + 10_000;
+        JournalWorkItem? item;
+        while (!state.Ring.TryDequeue(out item))
+        {
+            var remainingMs = deadline - Environment.TickCount64;
+            if (remainingMs <= 0)
+                throw new TimeoutException("the maintenance flow published no ring item.");
+
+            state.Ring.WaitForWork(Convert.ToInt32(remainingMs), cancellationToken);
+        }
+
+        return item;
+    }
 
     private PersistenceOptions CreateOptions() => new()
     {
@@ -185,7 +256,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
                 _ring,
                 _segmentWriter,
                 options,
-                new JournalEventLoopStartup(1, 0, 0),
+                new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
                 _backgroundCancellation.Token);
             _stallProbe = new JournalStallProbe(NullLogger.Instance);
         }

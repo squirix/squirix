@@ -26,6 +26,8 @@ internal sealed class PendingAppendRegistry
     private readonly HashSet<TaskCompletionSource> _maintenanceAcks = [];
     private readonly Lock _sync = new();
     private Exception? _failure;
+    private long _pendingBytes;
+    private int _pendingCount;
     private List<byte[]> _quarantine = [];
     private long _quarantinedCount;
 
@@ -38,6 +40,15 @@ internal sealed class PendingAppendRegistry
                 return _failure;
         }
     }
+
+    /// <summary>
+    /// Gets the summed frame length of the appends tracked and not yet released. Updated under the lock, readable without it:
+    /// the journal thread only lowers it, and it rises only when a producer holding the mutation gate tracks an append.
+    /// </summary>
+    internal long PendingBytes => Volatile.Read(ref _pendingBytes);
+
+    /// <summary>Gets the number of appends tracked and not yet released. Same update and read rules as <see cref="PendingBytes" />.</summary>
+    internal int PendingCount => Volatile.Read(ref _pendingCount);
 
     /// <summary>Gets the total number of buffers ever quarantined by drains (cumulative).</summary>
     internal long QuarantinedCount => Interlocked.Read(ref _quarantinedCount);
@@ -201,6 +212,8 @@ internal sealed class PendingAppendRegistry
                 ExceptionDispatchInfo.Capture(_failure).Throw();
 
             _appends.Add(item, entry);
+            Volatile.Write(ref _pendingBytes, _pendingBytes + frameLength);
+            Volatile.Write(ref _pendingCount, _pendingCount + 1);
         }
     }
 
@@ -240,7 +253,12 @@ internal sealed class PendingAppendRegistry
         lock (_sync)
         {
             if (_appends.Remove(item, out entry))
+            {
+                Volatile.Write(ref _pendingBytes, _pendingBytes - entry.FrameLength);
+                Volatile.Write(ref _pendingCount, _pendingCount - 1);
                 return true;
+            }
+
             entry = null;
             return false;
         }
@@ -269,6 +287,8 @@ internal sealed class PendingAppendRegistry
             }
 
             _appends.Clear();
+            Volatile.Write(ref _pendingBytes, 0L);
+            Volatile.Write(ref _pendingCount, 0);
             _ = Interlocked.Add(ref _quarantinedCount, taken.Count);
             return taken;
         }

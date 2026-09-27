@@ -68,7 +68,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount);
+
+        // Taken after the factory's startup tail repair, which is the last startup step that changes the current segment.
+        var activeSegment = JournalSegmentProbe.Probe(Options.DataDir, currentSegmentIndex);
+        var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment);
         EventLoop = new JournalEventLoop(bridge, Ring, _segmentWriter, Options, eventLoopStartup, BackgroundCancellation.Token);
         GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, Options, onWaitCanceled: StallProbe.ReportWaitCanceled) : null;
         EventLoop.AttachGroupCommit(GroupCommit);
@@ -425,6 +428,39 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public Exception? GetJournalThreadFailure() => _flushLoopFailure.Read();
 
+    void IJournalCoordinatorAppendState.EnsureAppendAdmission(int frameLength)
+    {
+        // Conservative admission (issue #703): a frame admitted here is never rejected for capacity by the journal thread. The caller holds
+        // the mutation gate (AllocateSequence refused it otherwise), and the check runs synchronously up to this append's own Track, so no
+        // other producer is admitted in between; meanwhile, the journal thread only moves appends out of the pending set.
+        // - Read order: pending counters, then the journal thread's flags, then its counters. The journal thread accounts a frame's bytes (and
+        //   the header and segment of an open or roll it triggers) and clears the flags before it untracks the frame, so a frame missing from
+        //   the pending read is already reflected in everything read after it; and it counts a created segment before it clears the flag.
+        // - Each pending frame, and this one, adds at most one segment header to the total (a roll, or the first open of a missing or empty
+        //   segment; a frame that fits an empty segment never rolls right after such an open), so FileHeaderSize * (pendingCount + 1) bounds
+        //   the headers added before this frame is checked.
+        // - The journal thread rolls for this frame only if active + staged + frameLength exceeds the segment size. Either no roll happened
+        //   since the read, so active + staged <= active + pendingBytes, or a pending frame overflowed the segment, so active + pendingBytes
+        //   + frameLength overflows it too: either way the roll is predicted and the segment count checked. This holds because the active
+        //   counter equals the current segment's on-disk length (as the next open sees it) whenever the segment is not open: it is seeded at
+        //   startup and at maintenance end.
+        // - The segments added before this frame's roll is checked are the open of a missing current segment (OpenCreatesSegment) and the
+        //   rolls of the backlog, which JournalSegmentPolicy.BoundNewSegments bounds by the backlog's bytes, not only by its count; a roll
+        //   into a pre-created target the journal already counted (RollTargetCounted) adds none.
+        // - Apart from that forward accounting, the counters change (in either direction) only in the maintenance end resync. Maintenance
+        //   holds the gate from before Begin until the End ack completes, even when its caller cancels, and the ring is empty by then, so no
+        //   admission runs against a layout in flux. After a pipeline failure, appends are refused before they reach admission.
+        var pendingBytes = PendingAppends.PendingBytes;
+        var pendingCount = PendingAppends.PendingCount;
+        var openCreatesSegment = EventLoop.OpenCreatesSegment;
+        var rollTargetCounted = EventLoop.RollTargetCounted;
+        var totalBytes = EventLoop.JournalTotalBytes;
+        var activeSegmentBytes = EventLoop.ActiveSegmentWrittenBytes;
+        var segmentCount = EventLoop.JournalSegmentCount;
+        var snapshot = new JournalAdmissionSnapshot(pendingBytes, pendingCount, openCreatesSegment, rollTargetCounted, totalBytes, activeSegmentBytes, segmentCount);
+        EventLoop.Policy.EnsureAdmissionOrThrow(in snapshot, frameLength);
+    }
+
     void IJournalCoordinatorAppendState.RecordAppendMetrics(int frameLength, long startedMs)
     {
         var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
@@ -593,6 +629,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 var encode = BinaryJournalCodec.PrepareEncode(record);
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
+
+                // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
+                _owner.EnsureAppendAdmission(frameLen);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
                 try
@@ -625,6 +664,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             {
                 var encode = BinaryJournalCodec.PrepareEncode(record);
                 var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
+
+                // Refused before the buffer is rented, the frame is tracked, or its idempotency stamp is reported: nothing reaches the ring.
+                _owner.EnsureAppendAdmission(frameLen);
                 var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
                 try

@@ -28,4 +28,6 @@ internal interface IJournalEventLoopState
     void SetDirty(bool value);
 
     void SetJournalTotalBytes(long value);
+
+    void SetOpenCreatesSegment(bool value);
 }

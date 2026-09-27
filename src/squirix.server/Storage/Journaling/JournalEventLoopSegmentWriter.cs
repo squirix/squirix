@@ -14,6 +14,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalEventLoopSegmentWriter
 {
+    private const string AcklessCapacityRejectionMessage = "journal thread rejected an admitted append without an ack for exceeding journal capacity; the frame was not written.";
+
     private readonly MaintenanceCompletion _maintenance;
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
@@ -142,7 +144,11 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
-            return true;
+
+            // An ack-less append was already reported queued to its producer and nobody observes its outcome: dropping it
+            // here would let the next durability checkpoint report it durable (issue #703). The pipeline fails loudly instead,
+            // because the journal thread loop latches this exception type through FailPipeline.
+            return item.Ack == null ? throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex) : true;
         }
     }
 
@@ -181,6 +187,10 @@ internal sealed class JournalEventLoopSegmentWriter
             _owner.Policy.EnsureRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
 
         _rollTarget.PrepareRollTargetSegment(targetSegmentIndex, targetPath);
+
+        // This roll consumed any pre-created target; the next one creates a new segment. Cleared while the triggering frame is still
+        // tracked, so append admission never counts this roll as free after the frame left the pending set.
+        _roll.SetRollTargetCounted(false);
 
         _roll.SetPendingRollTargetSegmentIndex(targetSegmentIndex);
         _roll.SetSegmentRollInFlight(true);
@@ -257,6 +267,8 @@ internal sealed class JournalEventLoopSegmentWriter
                 _roll.IncrementJournalSegmentCount();
         }
 
+        // Cleared only after a created segment was counted: append admission reads this flag before the segment count.
+        _owner.SetOpenCreatesSegment(false);
         _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
     }
 
@@ -283,6 +295,11 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
+
+            // Same backstop as TryAcceptAppendIntoBatch: an ack-less capacity rejection fails the pipeline, never drops the frame.
+            if (item.Ack == null)
+                throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex);
+
             return;
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
@@ -610,7 +627,6 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _roll.SetCurrentSegmentIndex(item.ResetSegmentIndex);
             _owner.Host.SetNextSequence(item.ResetSequence);
-            _owner.SetActiveSegmentWrittenBytes(0);
             _owner.SetDirty(false);
 
             // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
@@ -618,8 +634,15 @@ internal sealed class JournalEventLoopSegmentWriter
             try
             {
                 var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
+
+                // The reset segment is not open yet (Begin released it); the active counter must already equal what
+                // EnsureSegmentOpen will set, because producers read it to predict a roll before that open.
+                var resetSegment = JournalSegmentProbe.Probe(_owner.Options.DataDir, item.ResetSegmentIndex);
                 _owner.SetJournalTotalBytes(totalBytes);
                 _roll.SetJournalSegmentCount(segmentCount);
+                _owner.SetActiveSegmentWrittenBytes(resetSegment.ActiveBytesAfterOpen);
+                _owner.SetOpenCreatesSegment(resetSegment.OpenCreatesSegment);
+                _roll.SetRollTargetCounted(resetSegment.RollTargetCounted);
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {
