@@ -120,18 +120,33 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     GroupIdempotencyState IFollowerLogState.Idempotency => _idempotency;
 
     /// <inheritdoc />
-    ulong IFollowerLogState.LastLogIndex => _lastLogIndex;
+    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    ulong IFollowerLogState.LastLogIndex
+    {
+        get => _lastLogIndex;
+        set => _lastLogIndex = value;
+    }
 
     /// <inheritdoc />
-    long IFollowerLogDurability.LogLength => _logLength;
+    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    long IFollowerLogDurability.LogLength
+    {
+        get => _logLength;
+        set => _logLength = value;
+    }
 
     /// <inheritdoc />
-    GroupLogMetadata IFollowerLogState.Meta => _meta;
+    [SuppressMessage("Major Code Smell", "S2292:Trivial properties should be auto-implemented", Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    GroupLogMetadata IFollowerLogState.Meta
+    {
+        get => _meta;
+        set => _meta = value;
+    }
 
     public FollowerLogReadiness Readiness
     {
         get => FollowerLogReadinessValue.FromValue(Volatile.Read(ref _readiness));
-        private set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
+        set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
     }
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
@@ -301,18 +316,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     /// <param name="baseline">The restored snapshot baseline.</param>
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
-
-    /// <inheritdoc />
-    void IFollowerLogState.SetLastLogIndex(ulong logIndex) => _lastLogIndex = logIndex;
-
-    /// <inheritdoc />
-    void IFollowerLogState.SetLogLength(long logLength) => _logLength = logLength;
-
-    /// <inheritdoc />
-    void IFollowerLogState.SetMeta(GroupLogMetadata meta) => _meta = meta;
-
-    /// <inheritdoc />
-    void IFollowerLogState.SetReadiness(FollowerLogReadiness readiness) => Readiness = readiness;
 
     internal async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
@@ -593,7 +596,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // reloads the frames, but the durable watermark still suppresses re-application of the applied prefix.
             var candidate = owner.Meta with { LastAppliedIndex = appliedIndex };
             await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
             journal.ReleaseAppliedEntries(owner.Meta.LastAppliedIndex);
             return new FollowerLogAppliedResult(true, string.Empty, appliedIndex);
         }
@@ -614,7 +617,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var candidate = owner.Meta with { CommitIndex = commitIndex };
             await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
             owner.Faults.OnCommitAdvanced();
             return new FollowerLogCommitResult(true, string.Empty, commitIndex);
         }
@@ -637,7 +640,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
             var termCandidate = owner.Meta with { CurrentTerm = leaderTerm, VotedFor = string.Empty };
             await PersistMetaOrFailReadinessAsync(journal, owner, termCandidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(termCandidate);
+            owner.Meta = termCandidate;
             return await AdvanceCommitMonotonicAsync(journal, owner, commitIndex, cancellationToken).ConfigureAwait(false);
         }
 
@@ -654,7 +657,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             var candidate = owner.Meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
             await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
             return null;
         }
 
@@ -711,7 +714,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
             catch
             {
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
         }
@@ -804,7 +807,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 await PersistMetaOrFailReadinessAsync(journal, owner, commitLogical ?? owner.Meta, cancellationToken).ConfigureAwait(false);
                 if (commitLogical is { } candidate)
-                    owner.SetMeta(candidate);
+                    owner.Meta = candidate;
             }
 
             if (commitAdvanced)
@@ -815,7 +818,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static FollowerLogAppendResult FailReadiness(IFollowerLogContext owner)
         {
-            owner.SetReadiness(FollowerLogReadiness.Failed);
+            owner.Readiness = FollowerLogReadiness.Failed;
             return new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, owner.Meta.CurrentTerm, owner.LastLogIndex);
         }
 
@@ -943,9 +946,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             for (var i = 0; i < offsets.Count; i++)
                 journal.AddEntry(toAppend[i], offsets[i].Value, toAppend[i].Term);
 
-            owner.SetLastLogIndex(offsets[^1].Key);
-            owner.SetLogLength(startOffset + totalLength);
-            owner.SetMeta(owner.Meta with { LastLogIndex = owner.LastLogIndex });
+            owner.LastLogIndex = offsets[^1].Key;
+            owner.LogLength = startOffset + totalLength;
+            owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
         }
 
         internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata meta, CancellationToken cancellationToken)
@@ -1019,9 +1022,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // durable. The exception still propagates so the caller can retry; at worst, the in-memory state
                 // trails the durable file (an uncommitted tail the leader will rewrite).
                 journal.RemoveEntriesAbove(logIndex - 1UL);
-                owner.SetLastLogIndex(logIndex - 1);
-                owner.SetLogLength(location.Offset);
-                owner.SetMeta(owner.Meta with { LastLogIndex = owner.LastLogIndex });
+                owner.LastLogIndex = logIndex - 1;
+                owner.LogLength = location.Offset;
+                owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
             }
 
             return released;
@@ -1343,7 +1346,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
                 await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
-                owner.SetMeta(stepped);
+                owner.Meta = stepped;
             }
 
             // At most one vote per term: only the recorded candidate may be re-granted.
@@ -1362,7 +1365,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // The granted vote is persisted before reporting success, so a restart never grants a second vote.
             var granted = owner.Meta with { VotedFor = request.CandidateId };
             await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, granted, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(granted);
+            owner.Meta = granted;
             return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
         }
 
@@ -1414,7 +1417,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // Anything preceding the expected header marks the file as unusable.
                 if (RandomAccess.GetLength(handle) < GroupLogCodec.LogFileHeader.Length)
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
                 }
 
@@ -1444,7 +1447,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     // a higher durable commit watermark would turn a repairable shortfall into a permanent one.
                     if (snapshotBase < owner.Meta.CommitIndex)
                     {
-                        owner.SetReadiness(FollowerLogReadiness.Failed);
+                        owner.Readiness = FollowerLogReadiness.Failed;
                         throw new InvalidDataException(
                             $"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
                     }
@@ -1453,7 +1456,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     return;
                 }
 
-                owner.SetLastLogIndex(DeriveWalkBaseIndex(firstIndex, snapshotBase));
+                owner.LastLogIndex = DeriveWalkBaseIndex(firstIndex, snapshotBase);
 
                 var result = await WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
 
@@ -1471,8 +1474,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 if (result.Truncated && result.LastValidEnd < RandomAccess.GetLength(handle))
                     await ScheduleTruncateAsync(journal, result.LastValidEnd, cancellationToken).ConfigureAwait(false);
 
-                owner.SetLogLength(result.LastValidEnd);
-                owner.SetMeta(owner.Meta with { LastLogIndex = owner.LastLogIndex });
+                owner.LogLength = result.LastValidEnd;
+                owner.Meta = owner.Meta with { LastLogIndex = owner.LastLogIndex };
                 PruneAppliedEntries(journal, owner);
                 EnsureCommittedPrefixCovered(owner, snapshotBase);
             }
@@ -1487,7 +1490,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             if (nextLogIndex > owner.Meta.CommitIndex)
                 return new WalkResult(lastValidEnd, true);
-            owner.SetReadiness(FollowerLogReadiness.Failed);
+            owner.Readiness = FollowerLogReadiness.Failed;
             throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
         }
 
@@ -1537,7 +1540,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // replication round rebuilds the discarded span from the leader.
             if (owner.Meta.CommitIndex <= Math.Max(owner.LastLogIndex, snapshotBase))
                 return;
-            owner.SetReadiness(FollowerLogReadiness.Failed);
+            owner.Readiness = FollowerLogReadiness.Failed;
             throw new InvalidDataException($"Replica group '{owner.GroupId}' commit index exceeds the durable log.");
         }
 
@@ -1602,7 +1605,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 var end = await HandleEx.ReadExactAsync(handle, header.AsMemory(0, GroupLogCodec.LogFileHeader.Length), 0, cancellationToken).ConfigureAwait(false);
                 if (end == null || !header.AsSpan(0, GroupLogCodec.LogFileHeader.Length).SequenceEqual(GroupLogCodec.LogFileHeader))
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' log header is corrupt.");
                 }
             }
@@ -1720,7 +1723,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return;
 
             await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
         }
 
         /// <summary>Records a CRC-validated frame, keeping the payload only above the applied watermark.</summary>
@@ -1745,7 +1748,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                     return divergent;
 
                 journal.AddEntryOffset(logIndex, lastValidEnd, term);
-                owner.SetLastLogIndex(logIndex);
+                owner.LastLogIndex = logIndex;
                 return null;
             }
 
@@ -1759,7 +1762,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return divergentBoundary;
 
             journal.AddEntry(entry, lastValidEnd, entry.Term);
-            owner.SetLastLogIndex(entry.LogIndex);
+            owner.LastLogIndex = entry.LogIndex;
             return null;
         }
 
@@ -1788,9 +1791,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         private static void ResetLogState(IFollowerLogContext owner, ulong snapshotBase)
         {
-            owner.SetLogLength(0);
-            owner.SetLastLogIndex(snapshotBase);
-            owner.SetMeta(owner.Meta with { LastLogIndex = snapshotBase });
+            owner.LogLength = 0;
+            owner.LastLogIndex = snapshotBase;
+            owner.Meta = owner.Meta with { LastLogIndex = snapshotBase };
         }
 
         /// <summary>Restores the idempotency baseline from a compatible published snapshot and returns its included index.</summary>
@@ -1815,13 +1818,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
                 if (!string.Equals(snapshot.Value.GroupId, owner.GroupId, StringComparison.Ordinal))
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' snapshot belongs to group '{snapshot.Value.GroupId}'.");
                 }
 
                 if (FollowerLogSnapshot.SnapshotTopologyMismatch(owner, snapshot.Value) != null)
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' snapshot topology or configuration generation conflicts with durable metadata.");
                 }
 
@@ -1832,7 +1835,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // ValidateInstallEligibility on the installation path.
                 if (snapshot.Value.CommitIndex < snapshot.Value.LastIncludedIndex)
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException(
                         $"Replica group '{owner.GroupId}' snapshot commit index '{snapshot.Value.CommitIndex}' is below its included index '{snapshot.Value.LastIncludedIndex}'.");
                 }
@@ -1841,7 +1844,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // TermAtApplied and would make DivergentBoundary discard the entire durable suffix.
                 if (snapshot.Value is { LastIncludedIndex: > 0UL, LastIncludedTerm: 0UL })
                 {
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     throw new InvalidDataException($"Replica group '{owner.GroupId}' snapshot included term is zero at index '{snapshot.Value.LastIncludedIndex}'.");
                 }
 
@@ -1859,7 +1862,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
             catch (InvalidDataException)
             {
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
         }
@@ -1893,7 +1896,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             if (nextLogIndex > owner.Meta.CommitIndex)
                 return new WalkResult(lastValidEnd, true);
-            owner.SetReadiness(FollowerLogReadiness.Failed);
+            owner.Readiness = FollowerLogReadiness.Failed;
             throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
         }
 
@@ -2036,7 +2039,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // the post-rewrite refusal path below does.
             if (!owner.Idempotency.WouldRestoreFit(snapshot.Value.CommittedOutcomes, retainedLogIndexes))
             {
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
             }
 
@@ -2047,22 +2050,22 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
             catch
             {
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
 
             var (length, offsets) = result;
             ReindexTail(journal, tail, offsets);
 
-            owner.SetLastLogIndex(tail.Count == 0 ? included : tail[^1].LogIndex);
-            owner.SetLogLength(length);
+            owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
+            owner.LogLength = length;
 
             // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
             journal.AdvanceBaseline(new SnapshotBaseline(snapshot.Value.LastIncludedIndex, snapshot.Value.LastIncludedTerm));
 
             var candidate = owner.Meta with { LastLogIndex = Math.Max(included, owner.LastLogIndex) };
             await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
 
             // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
             // record at or below `included` has lost its durable journal frame and must be released, while records
@@ -2073,7 +2076,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 {
                     // A refused restore leaves the map holding records whose journal frames were already
                     // discarded by the rewrite; the refusal path must fail readiness like the catch below.
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
                 }
             }
@@ -2081,7 +2084,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 // A failed idempotency restore leaves the in-memory map holding discarded-prefix records whose
                 // journal frames no longer exist; mark the log failed so it is never surfaced as Ready.
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
 
@@ -2106,7 +2109,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // pre-rewrite refusal path does.
             if (!owner.Idempotency.WouldRestoreFit(snapshot.CommittedOutcomes, retainedLogIndexes))
             {
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
             }
 
@@ -2119,7 +2122,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // treating any old log suffix as a durable tail.
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
             await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.SetMeta(candidate);
+            owner.Meta = candidate;
 
             // Restore the idempotency baseline before re-appending the retained tail so a durable fault during the
             // rewrite cannot leave the in-memory map holding entries the installation discarded while the snapshot and
@@ -2133,7 +2136,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 {
                     // The snapshot and metadata are already durable, and the log rewrite is skipped, so the
                     // journal no longer matches the persisted metadata. Never surface this state as Ready.
-                    owner.SetReadiness(FollowerLogReadiness.Failed);
+                    owner.Readiness = FollowerLogReadiness.Failed;
                     return GroupSnapshotInstallResult.Refused(FollowerLogRefusal.NotReady);
                 }
             }
@@ -2142,7 +2145,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // A failed idempotency restore after the snapshot and metadata are durable would leave the
                 // in-memory map holding discarded-prefix records whose journal frames no longer exist; mark
                 // the log failed so it is never surfaced as Ready.
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
 
@@ -2155,7 +2158,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // A failed durable rewrite leaves the published snapshot and persisted metadata ahead of the journal.
                 // Mark the log failed so it is never surfaced as Ready with inconsistent in-memory indexes; recovery
                 // reconciles durable state from the snapshot on the next OpenAsync.
-                owner.SetReadiness(FollowerLogReadiness.Failed);
+                owner.Readiness = FollowerLogReadiness.Failed;
                 throw;
             }
 
@@ -2221,8 +2224,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             var (length, offsets) = await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
             ReindexTail(journal, tail, offsets);
-            owner.SetLastLogIndex(tail.Count == 0 ? lastIncludedIndex : tail[^1].LogIndex);
-            owner.SetLogLength(length);
+            owner.LastLogIndex = tail.Count == 0 ? lastIncludedIndex : tail[^1].LogIndex;
+            owner.LogLength = length;
         }
 
         /// <summary>Builds the metadata candidate that adopts the snapshot's authoritative prefix and topology.</summary>
