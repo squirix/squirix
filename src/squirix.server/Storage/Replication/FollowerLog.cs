@@ -452,51 +452,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
         _ = FileEx.TryDeleteFile(_journal.Paths.LogTempPath);
 
-        var metaExists = File.Exists(_journal.Paths.MetadataPath);
-        var logExists = File.Exists(_journal.Paths.LogPath);
-
-        switch (metaExists)
-        {
-            case false when !logExists && !_journal.Snapshot.SnapshotExists:
-                var fresh = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
-                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, fresh, cancellationToken).ConfigureAwait(false);
-                _meta = fresh;
-                _lastLogIndex = 0;
-                _logLength = 0;
-                _durability.Open(_journal.Paths.LogPath, _logLength);
-                Readiness = FollowerLogReadiness.Ready;
-                return;
-
-            case false when !logExists:
-                // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
-                // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
-                _meta = new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
-                await FollowerLogRecovery.RecoverLogFileAsync(_journal, this, cancellationToken).ConfigureAwait(false);
-                _durability.Open(_journal.Paths.LogPath, _logLength);
-                Readiness = FollowerLogReadiness.Ready;
-                return;
-            case true:
-                var metaBytes = await File.ReadAllBytesAsync(_journal.Paths.MetadataPath, cancellationToken).ConfigureAwait(false);
-                if (!GroupLogCodec.TryDecodeMeta(metaBytes, out var decoded) || !string.Equals(decoded.GroupId, GroupId, StringComparison.Ordinal))
-                {
-                    Readiness = FollowerLogReadiness.Failed;
-                    throw new InvalidDataException($"Replica group '{GroupId}' metadata is corrupt.");
-                }
-
-                _meta = decoded;
-                break;
-
-            default:
-                // The log file exists without its atomically published metadata, so the committed boundary is unknown.
-                // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
-                // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
-                Readiness = FollowerLogReadiness.Failed;
-                throw new InvalidDataException($"Replica group '{GroupId}' metadata is missing while the log file exists; the group requires recovery or repair.");
-        }
-
-        await FollowerLogRecovery.RecoverLogFileAsync(_journal, this, cancellationToken).ConfigureAwait(false);
-        _durability.Open(_journal.Paths.LogPath, _logLength);
-        Readiness = FollowerLogReadiness.Ready;
+        await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Builds the status of the durable log state.</summary>
@@ -1378,6 +1334,65 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _ when journal.SnapshotBaseline.LastIncludedIndex == owner.LastLogIndex => journal.SnapshotBaseline.LastIncludedTerm,
                 _ => 0UL,
             };
+        }
+    }
+
+    /// <summary>Startup validation of the on-disk group state.</summary>
+    private static class FollowerLogStartup
+    {
+        /// <summary>Validates the on-disk state and recovers the committed prefix, leaving the log ready; the caller holds the gate.</summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="owner">The owning follower log.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>A task that completes when the group log is open and ready.</returns>
+        /// <exception cref="InvalidDataException">Metadata is corrupt or missing beside a log file; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
+        internal static async Task OpenGroupAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
+        {
+            var metaExists = File.Exists(journal.Paths.MetadataPath);
+            var logExists = File.Exists(journal.Paths.LogPath);
+
+            switch (metaExists)
+            {
+                case false when !logExists && !journal.Snapshot.SnapshotExists:
+                    var fresh = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                    await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, fresh, cancellationToken).ConfigureAwait(false);
+                    owner.Meta = fresh;
+                    owner.LastLogIndex = 0;
+                    owner.LogLength = 0;
+                    owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
+                    owner.Readiness = FollowerLogReadiness.Ready;
+                    return;
+
+                case false when !logExists:
+                    // A published snapshot is a durable state even when metadata and the log are absent. Seed recovery with
+                    // empty metadata, so RestoreSnapshotBaseAsync validates the snapshot instead of creating a zeroed ready state.
+                    owner.Meta = new GroupLogMetadata(owner.GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 0UL, string.Empty, 0UL, 0UL, 0UL);
+                    await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+                    owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
+                    owner.Readiness = FollowerLogReadiness.Ready;
+                    return;
+                case true:
+                    var metaBytes = await File.ReadAllBytesAsync(journal.Paths.MetadataPath, cancellationToken).ConfigureAwait(false);
+                    if (!GroupLogCodec.TryDecodeMeta(metaBytes, out var decoded) || !string.Equals(decoded.GroupId, owner.GroupId, StringComparison.Ordinal))
+                    {
+                        owner.Readiness = FollowerLogReadiness.Failed;
+                        throw new InvalidDataException($"Replica group '{owner.GroupId}' metadata is corrupt.");
+                    }
+
+                    owner.Meta = decoded;
+                    break;
+
+                default:
+                    // The log file exists without its atomically published metadata, so the committed boundary is unknown.
+                    // Assuming CommitIndex = 0 would treat every durable frame as an uncommitted tail and truncate it,
+                    // destroying possibly-committed data. Fail readiness instead; the group requires explicit repair.
+                    owner.Readiness = FollowerLogReadiness.Failed;
+                    throw new InvalidDataException($"Replica group '{owner.GroupId}' metadata is missing while the log file exists; the group requires recovery or repair.");
+            }
+
+            await FollowerLogRecovery.RecoverLogFileAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+            owner.Durability.Open(journal.Paths.LogPath, owner.LogLength);
+            owner.Readiness = FollowerLogReadiness.Ready;
         }
     }
 
