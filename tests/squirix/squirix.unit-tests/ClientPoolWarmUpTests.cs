@@ -9,11 +9,11 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.IntegrationTests;
+namespace Squirix.UnitTests;
 
-/// <summary>Client-only transport integration coverage for cluster peer pool warm-up.</summary>
+/// <summary>White-box coverage for <see cref="ClientPool" /> bootstrap warm-up with a fail-fast connect budget.</summary>
 [Immutable]
-public sealed class ClientPoolWarmUpTests : IntegrationTestBase
+public sealed class ClientPoolWarmUpTests
 {
     private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
