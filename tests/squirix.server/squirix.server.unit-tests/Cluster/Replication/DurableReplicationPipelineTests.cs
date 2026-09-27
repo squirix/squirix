@@ -231,7 +231,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     [Test]
     public async Task FailedMemoryApplyIsRetriedByLaterCommit(CancellationToken cancellationToken)
     {
-        var pipeline = new FlakyMemoryPipeline();
+        var pipeline = new ReplicaCommitTestKit.FailFirstApplyPipeline();
         var coordinator = CreateCoordinator(3, pipeline);
         try
         {
@@ -642,38 +642,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 true);
             _ = _first.TrySetResult(acknowledgement);
             _ = _second.TrySetResult(acknowledgement);
-        }
-    }
-
-    [Mutable]
-    private sealed class FlakyMemoryPipeline : IReplicaCommitPipeline
-    {
-        private bool _failedOnce;
-
-        internal List<ulong> AppliedIndexes { get; } = [];
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(
-                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            if (!_failedOnce)
-            {
-                _failedOnce = true;
-                return ValueTask.FromException(new InvalidOperationException("Injected memory-apply failure after commit index advanced."));
-            }
-
-            AppliedIndexes.Add(mutation.LogIndex);
-            return ValueTask.CompletedTask;
-        }
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
         }
     }
 

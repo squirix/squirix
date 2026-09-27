@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -27,7 +26,7 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
     [Test]
     public async Task ReappliedPendingEntryResolvesIdempotency(CancellationToken cancellationToken)
     {
-        var pipeline = new FailFirstApplyPipeline();
+        var pipeline = new ReplicaCommitTestKit.FailFirstApplyPipeline();
         await using var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
@@ -41,7 +40,7 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
         var retried = await coordinator.CommitAsync(first, StallTimeout, cancellationToken);
 
         await SequenceAssert.EqualMemoryAsync(first.OutcomePayload, retried);
-        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.Applied);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex, string operationId, byte outcome) => new(
@@ -49,37 +48,4 @@ public sealed class ReplicaCommitStallTests : ServerUnitTestBase
         1,
         logIndex,
         new ReplicaMutationPayload(new byte[] { 2 }, new[] { outcome }, 4));
-
-    /// <summary>Majority pipeline whose follower acknowledges at once and whose first memory apply fails.</summary>
-    [Mutable]
-    private sealed class FailFirstApplyPipeline : IReplicaCommitPipeline
-    {
-        private bool _failed;
-
-        internal List<ulong> Applied { get; } = [];
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(
-                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            if (!_failed)
-            {
-                _failed = true;
-                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
-            }
-
-            Applied.Add(mutation.LogIndex);
-            return ValueTask.CompletedTask;
-        }
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-        }
-    }
 }
