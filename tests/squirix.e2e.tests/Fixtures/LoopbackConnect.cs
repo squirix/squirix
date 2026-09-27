@@ -6,7 +6,7 @@ using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Server.TestKit.Networking;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Connects the public SDK client to loopback HTTPS test nodes. Requires a trusted ASP.NET Core HTTPS development certificate on the host.</summary>
 internal static class LoopbackConnect

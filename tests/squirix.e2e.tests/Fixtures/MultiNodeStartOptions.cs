@@ -3,7 +3,7 @@ using Squirix.Attributes;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Optional startup settings for multi-node E2E clusters.</summary>
 [Immutable]

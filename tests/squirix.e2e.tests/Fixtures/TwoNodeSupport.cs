@@ -4,9 +4,8 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.E2ETests.Cluster;
 
-namespace Squirix.E2ETests.Cache.MultiNode;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Shared startup, routing, and assertion helpers for two-node public API e2e tests.</summary>
 internal static class TwoNodeSupport

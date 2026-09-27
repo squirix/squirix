@@ -5,7 +5,7 @@ using System.Text;
 using Squirix.Attributes;
 using Squirix.Server.TestKit;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Key ownership helper mirroring server consistent-hash route behavior.</summary>
 [Immutable]

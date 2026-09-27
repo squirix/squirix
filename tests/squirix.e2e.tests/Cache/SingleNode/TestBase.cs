@@ -1,5 +1,6 @@
 using Squirix.Attributes;
 using Squirix.Client;
+using Squirix.E2ETests.Fixtures;
 using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.SingleNode;

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Client;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Connected two-node named caches for multi-node public API tests.</summary>
 /// <typeparam name="T">Cached value type.</typeparam>

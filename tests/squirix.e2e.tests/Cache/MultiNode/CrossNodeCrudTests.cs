@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
-using Squirix.E2ETests.Cluster;
+using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

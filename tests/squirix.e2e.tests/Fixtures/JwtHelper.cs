@@ -3,7 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Creates JWT credentials for authenticated E2E scenarios.</summary>
 internal static class JwtHelper

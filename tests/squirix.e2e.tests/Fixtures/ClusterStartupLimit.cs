@@ -1,7 +1,7 @@
 using Squirix.Attributes;
 using TUnit.Core.Interfaces;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Caps concurrent cluster-backed tests so node startups never stampede.</summary>
 /// <remarks>Cold Debug host builds and RSA key generation are CPU-heavy; two concurrent startups fit even small CI agents.</remarks>

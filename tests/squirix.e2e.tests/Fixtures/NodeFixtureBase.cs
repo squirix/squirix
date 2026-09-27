@@ -1,6 +1,6 @@
 using Squirix.Attributes;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Base class for shared cluster TUnit class data sources.</summary>
 [Immutable]

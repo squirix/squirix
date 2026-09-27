@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>
 /// Throw-helper methods for end-to-end test guards that have no BCL throw helper.

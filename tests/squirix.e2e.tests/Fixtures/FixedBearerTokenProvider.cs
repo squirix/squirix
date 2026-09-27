@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Provides a fixed bearer token without a capturing lambda.</summary>
 [Immutable]

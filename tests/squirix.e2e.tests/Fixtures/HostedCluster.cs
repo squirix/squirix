@@ -11,7 +11,7 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
-namespace Squirix.E2ETests.Cluster;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Lifecycle wrapper for a started Squirix test cluster (single- or multi-node).</summary>
 [Immutable]

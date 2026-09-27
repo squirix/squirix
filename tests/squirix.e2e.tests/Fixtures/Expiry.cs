@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Concise factories for <see cref="CacheEntryOptions" /> used across integration tests.</summary>
 internal static class Expiry

@@ -3,10 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Client;
-using Squirix.E2ETests.Cluster;
 using TUnit.Core.Interfaces;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
 [UsedImplicitly]

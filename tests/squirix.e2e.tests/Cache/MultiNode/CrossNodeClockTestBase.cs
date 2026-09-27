@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
-using Squirix.E2ETests.Cluster;
+using Squirix.E2ETests.Fixtures;
 using TUnit.Core;
 
 namespace Squirix.E2ETests.Cache.MultiNode;

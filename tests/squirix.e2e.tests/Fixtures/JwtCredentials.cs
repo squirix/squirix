@@ -1,6 +1,6 @@
 using Squirix.Attributes;
 
-namespace Squirix.E2ETests;
+namespace Squirix.E2ETests.Fixtures;
 
 [Immutable]
 internal sealed class JwtCredentials
