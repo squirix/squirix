@@ -1,8 +1,10 @@
 using System;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Records every segment I/O call in a <see cref="JournalStallProbe" /> so a stalled journal thread is visible while it is blocked.</summary>
+[Immutable]
 internal sealed class ProbedJournalSegmentWriter : IJournalSegmentWriter
 {
     private readonly IJournalSegmentWriter _inner;
