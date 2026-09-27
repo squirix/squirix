@@ -279,12 +279,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         if (joinTimedOut)
             LogManager.JournalThreadJoinTimedOut(_log, faultedInFlight);
 
-        await JoinJournalThreadWithGraceAsync(failures, RemainingBeforeShutdown(shutdownDeadline), faultedInFlight).ConfigureAwait(false);
+        await JournalShutdown.JoinJournalThreadWithGraceAsync(this, failures, RemainingBeforeShutdown(shutdownDeadline), faultedInFlight).ConfigureAwait(false);
 
         _segmentWriter.Dispose();
         Ring.Dispose();
         BackgroundCancellation.Dispose();
-        await AwaitInFlightAppliesAsync(RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
+        await JournalShutdown.AwaitInFlightAppliesAsync(this, RemainingBeforeShutdown(shutdownDeadline)).ConfigureAwait(false);
         MutationGate.Dispose();
         JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
 
@@ -433,28 +433,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => StartupGate.WaitAsync(cancellationToken);
 
-    /// <summary>
-    /// Gives callers whose frame is already durable a bounded chance to apply it to memory before the mutation gate is disposed
-    /// under them, so they get a definite success instead of a commit-unknown failure.
-    /// </summary>
-    /// <param name="remaining">Time left in the shared shutdown budget; the wait never drops below a one-second floor.</param>
-    /// <returns>A task that completes when the in-flight applies drained or the wait gave up.</returns>
-    private async ValueTask AwaitInFlightAppliesAsync(TimeSpan remaining)
-    {
-        // Called only after the journal thread joined and every durability waiter completed or faulted, so an applier still
-        // counted here waits only for the mutation gate or its own memory apply. Disposal holds that gate at no point, so the wait cannot deadlock
-        // with such an applier; a gate held elsewhere is bounded by the timeout, after which the applier fails on the disposed gate.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromTicks(Math.Max(remaining.Ticks, InFlightApplyWaitFloor.Ticks)));
-        try
-        {
-            await InFlightApplyGate.WaitAsync(timeout.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            LogManager.JournalInFlightApplyWaitTimedOut(_log);
-        }
-    }
-
     private async ValueTask<(ulong Sequence, TBarrier BarrierState, TaskCompletionSource Checkpoint)> CaptureSnapshotCutAsync<TState, TBarrier>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
@@ -487,25 +465,58 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
     }
 
-    private async ValueTask JoinJournalThreadWithGraceAsync(List<Exception> failures, TimeSpan remaining, int faultedInFlight)
+    /// <summary>Bounded shutdown stages that follow the journal thread join.</summary>
+    private static class JournalShutdown
     {
-        // The grace join always gets a floor: with an exhausted budget, the thread still deserves
-        // a last chance before its resources are leaked.
-        var graceJoin = TimeSpan.FromTicks(Math.Max(remaining.Ticks, GraceJoinFloor.Ticks));
-        if (JournalThread.IsAlive && !await DurabilityPipeline.TryJoinJournalThreadAsync(graceJoin).ConfigureAwait(false))
+        /// <summary>
+        /// Gives callers whose frame is already durable a bounded chance to apply it to memory before the mutation gate is disposed
+        /// under them, so they get a definite success instead of a commit-unknown failure.
+        /// </summary>
+        /// <param name="coordinator">The disposing coordinator.</param>
+        /// <param name="remaining">Time left in the shared shutdown budget; the wait never drops below a one-second floor.</param>
+        /// <returns>A task that completes when the in-flight applies drained or the wait gave up.</returns>
+        internal static async ValueTask AwaitInFlightAppliesAsync(JournalCoordinator coordinator, TimeSpan remaining)
         {
-            // The join timed out: tearing down the writer, ring, or gates under a live journal
-            // thread corrupts slot accounting and races in-flight writes. Leak them instead and
-            // surface the timeout loudly alongside any earlier stage failures.
-            LogManager.JournalThreadLeakedOnShutdownTimeout(_log, faultedInFlight);
-            failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
-            JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
-            return;
+            // Called only after the journal thread joined and every durability waiter completed or faulted, so an applier still
+            // counted here waits only for the mutation gate or its own memory apply. Disposal holds that gate at no point, so the wait cannot deadlock
+            // with such an applier; a gate held elsewhere is bounded by the timeout, after which the applier fails on the disposed gate.
+            using var timeout = new CancellationTokenSource(TimeSpan.FromTicks(Math.Max(remaining.Ticks, InFlightApplyWaitFloor.Ticks)));
+            try
+            {
+                await coordinator.InFlightApplyGate.WaitAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                LogManager.JournalInFlightApplyWaitTimedOut(coordinator._log);
+            }
         }
 
-        // The thread is dead: collect anything admitted but never dequeued and return quarantined
-        // buffers to the pool immediately (no live-thread race remains).
-        DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
+        /// <summary>Joins the journal thread with a last-chance grace period, leaking the writer, ring, and gates when it stays alive.</summary>
+        /// <param name="coordinator">The disposing coordinator.</param>
+        /// <param name="failures">The shutdown failures collected so far.</param>
+        /// <param name="remaining">Time left in the shared shutdown budget; the grace join never drops below its floor.</param>
+        /// <param name="faultedInFlight">The number of callers released because their durable write never completed.</param>
+        /// <returns>A task that completes when the thread joined or was leaked.</returns>
+        internal static async ValueTask JoinJournalThreadWithGraceAsync(JournalCoordinator coordinator, List<Exception> failures, TimeSpan remaining, int faultedInFlight)
+        {
+            // The grace join always gets a floor: with an exhausted budget, the thread still deserves
+            // a last chance before its resources are leaked.
+            var graceJoin = TimeSpan.FromTicks(Math.Max(remaining.Ticks, coordinator.GraceJoinFloor.Ticks));
+            if (coordinator.JournalThread.IsAlive && !await coordinator.DurabilityPipeline.TryJoinJournalThreadAsync(graceJoin).ConfigureAwait(false))
+            {
+                // The join timed out: tearing down the writer, ring, or gates under a live journal
+                // thread corrupts slot accounting and races in-flight writes. Leak them instead and
+                // surface the timeout loudly alongside any earlier stage failures.
+                LogManager.JournalThreadLeakedOnShutdownTimeout(coordinator._log, faultedInFlight);
+                failures.Add(new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked."));
+                JournalDurabilityCoordinator.ThrowDisposeFailures(failures);
+                return;
+            }
+
+            // The thread is dead: collect anything admitted but never dequeued and return quarantined
+            // buffers to the pool immediately (no live-thread race remains).
+            coordinator.DurabilityPipeline.ReclaimAbandonedAppendsPostJoin();
+        }
     }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>
