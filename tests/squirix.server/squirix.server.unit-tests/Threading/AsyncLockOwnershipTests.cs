@@ -15,6 +15,30 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
 {
     private const string RefusalMessage = "the guarded surface must hold the lock.";
 
+    /// <summary>A canceled queued waiter leaves the holder's ownership holding, and the next queued waiter gets a holding ownership on the hand-off.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledWaiterKeepsHolderOwnership(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var holder = await asyncLock.LockAsync(cancellationToken);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var canceled = asyncLock.LockAsync(cancel.Token);
+        var waiter = asyncLock.LockAsync(cancellationToken);
+
+        await cancel.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(canceled);
+        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
+        _ = await Assert.That(waiter.IsCompleted).IsFalse();
+
+        holder.Dispose();
+        var next = await waiter;
+        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsFalse();
+        _ = await Assert.That(next.Ownership.Holds(asyncLock)).IsTrue();
+        next.Dispose();
+        asyncLock.Dispose();
+    }
+
     /// <summary>A default ownership, and the one a default holder yields, never holds the lock, whether it is free or held.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -52,6 +76,23 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
 
         next.Dispose();
         _ = await Assert.That(next.Ownership.Holds(asyncLock)).IsFalse();
+        asyncLock.Dispose();
+    }
+
+    /// <summary>A try-lock on a held lock fails with a default holder and leaves the current holder's ownership holding.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeldLockRefusesTryLock(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var holder = await asyncLock.LockAsync(cancellationToken);
+
+        _ = await Assert.That(asyncLock.TryLock(out var refused, cancellationToken)).IsFalse();
+        _ = await Assert.That(refused.Ownership.Holds(asyncLock)).IsFalse();
+        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
+
+        holder.Dispose();
+        _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsFalse();
         asyncLock.Dispose();
     }
 
@@ -93,6 +134,22 @@ public sealed class AsyncLockOwnershipTests : ServerUnitTestBase
         firstHolder.Dispose();
         second.Dispose();
         first.Dispose();
+    }
+
+    /// <summary>Disposing the lock does not revoke the holder: its ownership keeps holding until the holder releases.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OwnershipSurvivesLockDispose(CancellationToken cancellationToken)
+    {
+        var asyncLock = new AsyncLock();
+        var holder = await asyncLock.LockAsync(cancellationToken);
+        var ownership = holder.Ownership;
+
+        asyncLock.Dispose();
+        _ = await Assert.That(ownership.Holds(asyncLock)).IsTrue();
+
+        holder.Dispose();
+        _ = await Assert.That(ownership.Holds(asyncLock)).IsFalse();
     }
 
     /// <summary>The guard passes the holder's ownership and refuses a released or default one with the caller's message while another flow holds the lock.</summary>

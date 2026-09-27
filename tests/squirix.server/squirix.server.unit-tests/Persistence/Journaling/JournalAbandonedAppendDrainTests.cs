@@ -118,8 +118,9 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         // Without it the roll targets a different manifest file and succeeds instead of failing.
         await EnqueueCalibrationRollAsync(ledger);
 
-        // The test flow holds the mutation gate for the whole maintenance, as ExecuteMaintenanceExclusiveAsync does, so the appends below
-        // run inside that hold with its gate ownership instead of going through the gate.
+        // Production appends cannot run inside a maintenance hold, so the test drives the durability pipeline directly to reach the drain
+        // branch: it enqueues the failing maintenance (EnqueueMaintenanceAsync) inside a snapshot barrier hold and appends with that hold's
+        // gate ownership, so the frames queue behind the parked one while the maintenance is still running.
         var gate = new BlockingMaintenanceAction();
         var (pending, thrown) = await journal.ExecuteUnderSnapshotBarrierAsync(
             (Journal: journal, Pipelined: pipelined, Gate: gate, Dir, Payload: payload, OverflowKey: overflowKey, OverflowPayload: overflowPayload),
@@ -192,11 +193,12 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         {
             pending = holder.Journal.AppendPutAndAwaitDurabilityAsync(holder.Ownership, key, payload, cancellationToken);
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException ex) when (!string.Equals(ex.Message, JournalAppendGateTests.GateRefusalMessage, StringComparison.Ordinal))
         {
             // The roll fails fast on the blocked file while this thread is still queueing: the pipeline
             // may already be dead and the fail-fast guard throws synchronously. Pack it into a faulted
             // task like the async drain path does; the asserts below only require every append to be faulted.
+            // A gate refusal is not packed: it would fault the append without exercising the drain, so it fails the test.
             return Task.FromException(ex);
         }
 

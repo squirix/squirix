@@ -20,6 +20,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalAppendGateTests : IsolatedStorageTestBase
 {
+    /// <summary>The message the journal refuses an append with when its caller does not hold the mutation gate.</summary>
+    internal const string GateRefusalMessage = "journal appends must hold the mutation gate (ExecuteUnderSnapshotBarrierAsync).";
+
     private static readonly CacheKey Key = CacheKey.Default("a");
 
     private static readonly TimeSpan HolderEnterTimeout = TimeSpan.FromSeconds(10);
@@ -66,13 +69,20 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
                 await s.Release.Task.WaitAsync(ct);
             },
             cancellationToken).AsTask();
-        await entered.Task.WaitAsync(HolderEnterTimeout, TimeProvider.System, cancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(HolderEnterTimeout, TimeProvider.System, cancellationToken);
 
-        await AssertEveryAppendRefusedAsync(journal.Journal, stale, cancellationToken);
-        await AssertEveryAppendRefusedAsync(journal.Journal, default, cancellationToken);
-        _ = await Assert.That(journal.Journal.NextSequence).IsEqualTo(sequence);
+            await AssertEveryAppendRefusedAsync(journal.Journal, stale, cancellationToken);
+            await AssertEveryAppendRefusedAsync(journal.Journal, default, cancellationToken);
+            _ = await Assert.That(journal.Journal.NextSequence).IsEqualTo(sequence);
+        }
+        finally
+        {
+            // A failed assertion must not leave the holder parked inside the barrier.
+            _ = release.TrySetResult();
+        }
 
-        _ = release.TrySetResult();
         await holder;
         await journal.ShutdownAsync();
 
@@ -108,16 +118,25 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
     {
         var call = (Journal: journal, Ownership: ownership, Payload: JournalEntryPayloadKit.EncodePut("a"), Token: cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token)));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            RunAsync(call, static s => s.Journal.AppendPutAndAwaitDurabilityAsync(s.Ownership, Key, s.Payload, s.Token)));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token)));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(call, static s => s.Journal.AppendRemoveExpirationAsync(s.Ownership, Key, s.Token)));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            RunAsync(call, static s => s.Journal.AppendTouchExpirationAsync(s.Ownership, Key, DateTime.UtcNow, s.Token)));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAndAwaitDurabilityAsync(s.Ownership, Key, s.Payload, s.Token));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveExpirationAsync(s.Ownership, Key, s.Token));
+        await AssertGateRefusalAsync(call, static s => s.Journal.AppendTouchExpirationAsync(s.Ownership, Key, DateTime.UtcNow, s.Token));
     }
 
-    /// <summary>Runs an append as a task that faults with the refusal, whether it is thrown synchronously or through the returned operation.</summary>
+    /// <summary>Asserts that <paramref name="append" /> faults with the gate refusal, not with any other invalid operation.</summary>
+    /// <typeparam name="TState">Type of the append arguments.</typeparam>
+    /// <param name="state">Arguments passed to <paramref name="append" />.</param>
+    /// <param name="append">Append to run.</param>
+    /// <returns>The assertions.</returns>
+    private static async Task AssertGateRefusalAsync<TState>(TState state, Func<TState, ValueTask> append)
+    {
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(RunAsync(state, append));
+        _ = await Assert.That(refused.Message).IsEqualTo(GateRefusalMessage);
+    }
+
+    /// <summary>Runs an append as a task that faults with the gate refusal, whether it is thrown synchronously or through the returned operation.</summary>
     /// <typeparam name="TState">Type of the append arguments.</typeparam>
     /// <param name="state">Arguments passed to <paramref name="append" />.</param>
     /// <param name="append">Append to run.</param>
@@ -129,7 +148,7 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
         {
             pending = append(state);
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException ex) when (string.Equals(ex.Message, GateRefusalMessage, StringComparison.Ordinal))
         {
             return Task.FromException(ex);
         }
