@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -12,13 +13,20 @@ namespace Squirix.Server.TestKit.Networking;
 /// </summary>
 public sealed class PortAllocator : IDisposable
 {
+    private const int ReleaseSettlePollMilliseconds = 10;
+
+    /// <summary>How long a release waits for the closed hold's port to become bindable before it gives up and lets the real bind report the failure.</summary>
+    private static readonly TimeSpan DefaultReleaseSettleTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>Process-wide reservation to avoid duplicates between allocators inside one process.</summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
 
     /// <summary>Ports this allocator currently reserves in <see cref="Reserved" />; entries are removed wherever the reservation is dropped, so no stale data survives failed attempts.</summary>
     private readonly ConcurrentDictionary<int, byte> _allocatedPorts = new();
     private readonly ConcurrentDictionary<int, TcpListener> _heldPorts = new();
+    private readonly Func<int, bool> _isBindable;
     private readonly int _rangeSize;
+    private readonly TimeSpan _releaseSettleTimeout;
     private readonly int _start;
     private int _disposed;
 
@@ -35,7 +43,18 @@ public sealed class PortAllocator : IDisposable
     /// This constructor only validates numeric bounds; it does not probe the OS for port availability.
     /// </remarks>
     public PortAllocator(int startPort, int endPortInclusive)
+        : this(startPort, endPortInclusive, IsBindable, DefaultReleaseSettleTimeout)
     {
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="PortAllocator" /> class with an explicit release check.</summary>
+    /// <param name="startPort">Inclusive lower bound of the port range (1–65,535).</param>
+    /// <param name="endPortInclusive">Inclusive upper bound of the port range (1–65,535).</param>
+    /// <param name="isBindable">Tells whether a released port can be bound right now; <see cref="ReleasePort" /> polls it.</param>
+    /// <param name="releaseSettleTimeout">The longest <see cref="ReleasePort" /> waits for <paramref name="isBindable" /> to report the port free.</param>
+    internal PortAllocator(int startPort, int endPortInclusive, Func<int, bool> isBindable, TimeSpan releaseSettleTimeout)
+    {
+        ArgumentNullException.ThrowIfNull(isBindable);
         if (startPort is <= 0 or > 65535)
             throw new ArgumentOutOfRangeException(nameof(startPort));
         if (endPortInclusive is <= 0 or > 65535)
@@ -43,6 +62,8 @@ public sealed class PortAllocator : IDisposable
         if (endPortInclusive < startPort)
             throw new ArgumentException("endPortInclusive must be >= startPort", nameof(endPortInclusive));
 
+        _isBindable = isBindable;
+        _releaseSettleTimeout = releaseSettleTimeout;
         _start = startPort;
         var endInclusive = endPortInclusive;
         _rangeSize = endInclusive - _start + 1;
@@ -107,7 +128,9 @@ public sealed class PortAllocator : IDisposable
     /// <remarks>
     /// The port is unbound, and the caller should bind it immediately to minimize the TOCTOU window.
     /// The port stays reserved in-process until the allocator is disposed, so the pool will not hand it
-    /// out again to a later caller.
+    /// out again to a later caller. Some systems (macOS) keep a just-closed listener's port busy for a moment, so the
+    /// call returns only once the port can be bound again, or after a bounded wait when it stays busy (then the real
+    /// bind reports the failure). A port that is not held is ignored without waiting.
     /// </remarks>
     public void ReleasePort(int port)
     {
@@ -115,6 +138,7 @@ public sealed class PortAllocator : IDisposable
             return;
         listener.Stop();
         listener.Dispose();
+        WaitUntilBindable(port);
     }
 
     /// <inheritdoc />
@@ -259,6 +283,29 @@ public sealed class PortAllocator : IDisposable
         }
     }
 
+    /// <summary>Tells whether the port can be bound right now, without listening on it.</summary>
+    /// <param name="port">The loopback port to check.</param>
+    /// <returns><see langword="true" /> when a bind succeeded.</returns>
+    /// <remarks>
+    /// The check binds and closes a socket that never listens, so it leaves no closed listener behind that could keep the port busy
+    /// for the real bind that follows. It is as strict as <see cref="BindPort" />: the port must not be bound by anything else.
+    /// </remarks>
+    private static bool IsBindable(int port)
+    {
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.ExclusiveAddressUse = true;
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+            socket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
+
     private static int CreateProcessOffset()
     {
         unchecked
@@ -288,6 +335,13 @@ public sealed class PortAllocator : IDisposable
         {
             return false;
         }
+    }
+
+    private void WaitUntilBindable(int port)
+    {
+        var started = Stopwatch.GetTimestamp();
+        while (!_isBindable(port) && Stopwatch.GetElapsedTime(started) < _releaseSettleTimeout)
+            _ = SpinWait.SpinUntil(static () => false, ReleaseSettlePollMilliseconds);
     }
 
     private bool FitsInRange(int candidate, int count)
