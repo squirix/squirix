@@ -45,10 +45,6 @@ namespace Squirix.Server.Storage.Replication;
     Justification = "Recovery intentionally keeps the file-header, snapshot-baseline, and torn-tail reconciliation in one gated transaction.")]
 internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 {
-    private const int ReadinessFailedValue = 2;
-    private const int ReadinessReadyValue = 1;
-    private const int ReadinessUnknownValue = 0;
-
     private static readonly IFollowerLogFaultHooks DefaultFaults = new NoOpFaultHooks();
 
     private readonly FollowerLogAckRegistry _acks = new();
@@ -79,7 +75,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// pollers read <see cref="Readiness" /> without taking the gate, so every access goes through a volatile
     /// barrier and the value is never observed stale.
     /// </summary>
-    private int _readiness = ReadinessUnknownValue;
+    private int _readiness = FollowerLogReadinessValue.Unknown;
 
     internal FollowerLog(string persistenceRoot, string groupId, GroupComposition composition, FollowerLogOptions? options = null)
     {
@@ -134,29 +130,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     public FollowerLogReadiness Readiness
     {
-        get =>
-            Volatile.Read(ref _readiness) switch
-            {
-                ReadinessReadyValue => FollowerLogReadiness.Ready,
-                ReadinessFailedValue => FollowerLogReadiness.Failed,
-                _ => FollowerLogReadiness.Unknown,
-            };
-        private set
-        {
-            Volatile.Write(ref _readiness, ToValue(value));
-            return;
-
-            static int ToValue(FollowerLogReadiness readiness)
-            {
-                return readiness switch
-                {
-                    FollowerLogReadiness.Unknown => ReadinessUnknownValue,
-                    FollowerLogReadiness.Ready => ReadinessReadyValue,
-                    FollowerLogReadiness.Failed => ReadinessFailedValue,
-                    _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported enum value."),
-                };
-            }
-        }
+        get => FollowerLogReadinessValue.FromValue(Volatile.Read(ref _readiness));
+        private set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
     }
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
@@ -558,6 +533,44 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
             _ => throw new InvalidDataException($"Replica group '{GroupId}' retains no term for log index '{logIndex}'."),
         };
+
+    /// <summary>Maps <see cref="FollowerLogReadiness" /> to and from the raw value a follower log publishes through a volatile barrier.</summary>
+    private static class FollowerLogReadinessValue
+    {
+        /// <summary>The raw value of <see cref="FollowerLogReadiness.Unknown" />, which a log starts with before startup validation.</summary>
+        internal const int Unknown = 0;
+
+        private const int FailedValue = 2;
+        private const int ReadyValue = 1;
+
+        /// <summary>Converts a raw published value to the readiness it stands for.</summary>
+        /// <param name="value">The raw value.</param>
+        /// <returns>The readiness; <see cref="FollowerLogReadiness.Unknown" /> for a value that stands for none.</returns>
+        internal static FollowerLogReadiness FromValue(int value)
+        {
+            return value switch
+            {
+                ReadyValue => FollowerLogReadiness.Ready,
+                FailedValue => FollowerLogReadiness.Failed,
+                _ => FollowerLogReadiness.Unknown,
+            };
+        }
+
+        /// <summary>Converts a readiness to the raw value published for it.</summary>
+        /// <param name="readiness">The readiness.</param>
+        /// <returns>The raw value.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="readiness" /> is not a defined readiness.</exception>
+        internal static int ToValue(FollowerLogReadiness readiness)
+        {
+            return readiness switch
+            {
+                FollowerLogReadiness.Unknown => Unknown,
+                FollowerLogReadiness.Ready => ReadyValue,
+                FollowerLogReadiness.Failed => FailedValue,
+                _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported enum value."),
+            };
+        }
+    }
 
     /// <summary>Append-protocol operations for a follower log.</summary>
     private static class FollowerLogAppend
