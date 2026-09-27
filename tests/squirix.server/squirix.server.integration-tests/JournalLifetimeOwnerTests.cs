@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,8 +9,10 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Threading;
@@ -28,6 +31,9 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
 {
     private const string Scope = "journal-lifetime-owner";
 
+    /// <summary>The replica groups a node of the RF=2 topology serves: its own group and the follower group of the other node.</summary>
+    private static readonly string[] ServedGroups = ["node-a", "node-b"];
+
     /// <summary>Stopping a production RF=2 node over a throwing journal neither throws nor skips the services disposed after the journal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -44,6 +50,10 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
         var node = cluster["node-a"];
         var ledger = node.GetRequiredService<Ledger>();
+        var dataDir = node.GetRequiredService<PersistenceOptions>().DataDir;
+
+        // Each open follower log holds its log file, so the file does not open exclusively while the node runs.
+        _ = await Assert.That(AnyGroupLogReleased(dataDir)).IsFalse();
 
         // Every registration that exposes the journal is resolved before the node stops, as the hosted services resolve them.
         _ = node.GetRequiredService<IJournalCoordinator>();
@@ -56,11 +66,51 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         _ = await Assert.That(disposals.Count).IsEqualTo(1);
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
 
-        // The replica group registry disposed every group log it serves, its own group and the follower group of node-b: the restart
-        // on the same directory opens them again while composing the node, which fails on a group file still held by the stopped node.
+        // The replica group registry disposed every follower log it serves, and each log released its file.
+        _ = await Assert.That(AllGroupLogsReleased(dataDir)).IsTrue();
+
+        // The released group logs reopen on the same directory.
         var restart = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, ExtraScope = Scope, CleanTestDir = false };
         var registry = (await cluster.StartNodeAsync("node-a", restart, cancellationToken)).GetRequiredService<ReplicaGroupRegistry>();
         _ = await Assert.That(registry.TryGetLog("node-a", out _) && registry.TryGetLog("node-b", out _)).IsTrue();
+    }
+
+    private static bool AllGroupLogsReleased(string dataDir)
+    {
+        foreach (var group in ServedGroups)
+        {
+            if (!IsReleased(GroupStoragePaths.GetLogPath(dataDir, group)))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool AnyGroupLogReleased(string dataDir)
+    {
+        foreach (var group in ServedGroups)
+        {
+            if (IsReleased(GroupStoragePaths.GetLogPath(dataDir, group)))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Determines whether no open handle holds <paramref name="path" />: only then does the file open exclusively.</summary>
+    /// <param name="path">The file path.</param>
+    /// <returns><see langword="true" /> when the file opens with no sharing; otherwise <see langword="false" />.</returns>
+    private static bool IsReleased(string path)
+    {
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Swaps the journal the production host owns for one whose dispose fails, and counts those disposals.</summary>
