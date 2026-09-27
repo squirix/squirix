@@ -124,12 +124,21 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
             new AsyncManualResetEvent(true),
             writer,
             logger);
-        var holdFor = TimeSpan.FromMilliseconds(JournalSlowOperationDiagnostics.WarningThresholdMs + 800);
-        var holder = HoldGateAsync(journal, holdFor, cancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, cancellationToken);
-        using var waitBudget = new CancellationTokenSource(StallBudget);
+        var gate = new GateHold();
+        var holder = HoldGateUntilReleasedAsync(journal, gate, cancellationToken);
+        try
+        {
+            // The waiter starts only once the holder owns the gate, and the holder keeps it until the canceled wait completed.
+            await gate.Entered.Task.WaitAsync(EntryTimeout, TimeProvider.System, cancellationToken);
+            using var waitBudget = new CancellationTokenSource(StallBudget);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(HoldGateAsync(journal, TimeSpan.Zero, waitBudget.Token));
+        }
+        finally
+        {
+            _ = gate.Released.TrySetResult();
+        }
+
         await holder;
 
         _ = await Assert.That(logger.Count(WaitCanceledEventId)).IsEqualTo(1);
@@ -348,6 +357,17 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
     private static Task HoldGateAsync(JournalCoordinator journal, TimeSpan holdFor, CancellationToken cancellationToken) => journal
        .ExecuteUnderSnapshotBarrierAsync(holdFor, static async (delay, ct) => await Task.Delay(delay, TimeProvider.System, ct), cancellationToken).AsTask();
 
+    private static Task HoldGateUntilReleasedAsync(JournalCoordinator journal, GateHold gate, CancellationToken cancellationToken) => journal
+       .ExecuteUnderSnapshotBarrierAsync(
+            gate,
+            static async (hold, ct) =>
+            {
+                _ = hold.Entered.TrySetResult();
+                await hold.Released.Task.WaitAsync(ct);
+            },
+            cancellationToken)
+       .AsTask();
+
     private PersistenceOptions CreateOptions() => new()
     {
         DataDir = Dir,
@@ -401,6 +421,14 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         void IJournalEventLoopHost.ThrowIfJournalThreadFailed()
         {
         }
+    }
+
+    /// <summary>Signals that a gate holder has entered the gate, and lets the test decide when it leaves.</summary>
+    private sealed class GateHold
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class RecordingLogger : ILogger
