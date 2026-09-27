@@ -70,7 +70,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
     public async Task CrashMidCommitAdvanceRecoversCleanly(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-restart-crash-commit");
-        var crashFaults = new CommitAdvanceFaults();
+        var crashFaults = CreateCommitAdvanceFaults();
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), crashFaults))
         {
@@ -114,36 +114,24 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         0UL,
         ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
-
-    /// <summary>Fault hooks that crash at the commit-advance boundary exactly once.</summary>
-    private sealed class CommitAdvanceFaults : IFollowerLogFaultHooks
+    /// <summary>Creates fault hooks that crash at the commit-advance boundary exactly once.</summary>
+    private static IFollowerLogFaultHooks CreateCommitAdvanceFaults()
     {
-        private bool _fired;
-
-        public void OnBeforeMemoryApply()
+        var fired = false;
+        var expectations = new IFollowerLogFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnFrameWritten();
+        _ = expectations.Setups.OnFlushed();
+        _ = expectations.Setups.OnMetaWritten();
+        _ = expectations.Setups.OnCommitAdvanced().Callback(() =>
         {
-        }
-
-        public void OnCommitAdvanced()
-        {
-            if (_fired)
+            if (fired)
                 return;
 
-            _fired = true;
+            fired = true;
             throw new IOException("simulated crash during commit advance.");
-        }
-
-        public void OnFlushed()
-        {
-        }
-
-        public void OnFrameWritten()
-        {
-        }
-
-        public void OnMetaWritten()
-        {
-        }
+        });
+        return expectations.Instance();
     }
+
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
 }

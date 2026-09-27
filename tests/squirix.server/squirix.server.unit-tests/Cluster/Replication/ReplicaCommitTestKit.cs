@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.UnitTests.Support;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -19,13 +19,11 @@ internal static class ReplicaCommitTestKit
     /// <returns>The coordinator.</returns>
     internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null, TimeSpan? shutdownBudget = null)
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
         var state = idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue);
         return shutdownBudget is { } budget
-            ? new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), state) { ShutdownBudget = budget }
-            : new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), state);
+            ? new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { ShutdownBudget = budget }
+            : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state);
     }
 
     internal static PreparedReplicaMutation CreateMutation()

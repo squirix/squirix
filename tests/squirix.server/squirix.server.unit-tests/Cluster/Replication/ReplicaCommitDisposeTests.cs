@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -108,7 +109,7 @@ public sealed class ReplicaCommitDisposeTests
     }
 
     private static ReplicaCommitCoordinator CreateCoordinator(StallingApplyPipeline pipeline, ILogger log) =>
-        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, NoOpHooks.Instance, new GroupIdempotencyState(4, TimeSpan.MaxValue))
+        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ShutdownBudget = ShutdownBudget,
             ShutdownLeakReporter = budget => LogManager.ReplicaCoordinatorLeakedOnShutdown(log, budget),
@@ -122,15 +123,6 @@ public sealed class ReplicaCommitDisposeTests
 
     private static Task<ReadOnlyMemory<byte>> StartCommitAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, TimeSpan timeout) =>
         coordinator.CommitAsync(mutation, timeout, CancellationToken.None).AsTask();
-
-    /// <summary>Fault hooks that never interfere.</summary>
-    [Immutable]
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-    }
 
     /// <summary>Logger double recording the coordinator's shutdown leak event and its level.</summary>
     [ThreadSafe]

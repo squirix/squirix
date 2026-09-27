@@ -44,7 +44,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
-            NoOpHooks.Instance,
+            ReplicaFaultHooks.CreateNoOp(),
             new GroupIdempotencyState(4, TimeSpan.MaxValue))
         {
             ObserveTimeProvider = clock,
@@ -75,7 +75,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         var pipeline = new ScriptedPipeline(false);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
         var clock = new FakeTimeProvider();
-        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, NoOpHooks.Instance, idempotency)
+        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
         {
             ObserveTimeProvider = clock,
         };
@@ -107,7 +107,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     {
         var pipeline = new ScriptedPipeline(false);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, NoOpHooks.Instance, idempotency);
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 1), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency);
         var mutation = CreateMutation(1, "00000000000000000000000000000001", 11);
         try
         {
@@ -142,7 +142,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         await using var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(2, 0, 0, 1),
             pipeline,
-            NoOpHooks.Instance,
+            ReplicaFaultHooks.CreateNoOp(),
             new GroupIdempotencyState(4, TimeSpan.MaxValue));
         pipeline.ReleaseFollower();
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
@@ -170,15 +170,6 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         1,
         logIndex,
         new ReplicaMutationPayload(new byte[] { 2 }, new[] { outcome }, 4));
-
-    /// <summary>Fault hooks that inject nothing.</summary>
-    [Immutable]
-    private sealed class NoOpHooks : IReplicaCommitFaultHooks
-    {
-        internal static NoOpHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-    }
 
     /// <summary>
     /// Majority pipeline whose follower acknowledges once released, optionally fails its first memory apply, and records the commit

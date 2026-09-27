@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -268,13 +267,10 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
     private static ReplicaCommitCoordinator CreateCommit(ExpirationPipeline pipeline)
     {
-        var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.CompletedTask);
         return new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 2),
             pipeline,
-            hooksExpectations.Instance(),
+            ReplicaFaultHooks.CreateNoOp(),
             new GroupIdempotencyState(8, TimeSpan.MaxValue));
     }
 

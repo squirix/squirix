@@ -207,7 +207,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     {
         var pipeline = new RecordingPipeline(0);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, ThrowOnFanOutHooks.Instance, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, CreateThrowOnFanOutHooks(), new GroupIdempotencyState(10, TimeSpan.MaxValue));
         Task? disposal = null;
         try
         {
@@ -318,7 +318,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task LaterCommitAppliesSkippedEntries(CancellationToken cancellationToken)
     {
         var pipeline = new GatedFollowersPipeline();
-        var coordinator = CreateCoordinator(3, pipeline, ThrowOnFirstMajorityHooks.Instance);
+        var coordinator = CreateCoordinator(3, pipeline, CreateThrowOnFirstMajorityHooks());
         try
         {
             // Release up front so every acknowledgement is recorded in the foreground drain loop.
@@ -550,16 +550,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
     private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null)
     {
-        if (hooks == null)
-        {
-            var noOpExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-            _ = noOpExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                                .ReturnValue(ValueTask.CompletedTask);
-            hooks = noOpExpectations.Instance();
-        }
-
         var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8);
-        return new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(16, TimeSpan.MaxValue));
+        return new ReplicaCommitCoordinator(options, pipeline, hooks ?? ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(16, TimeSpan.MaxValue));
     }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex = 1, string operationId = "0123456789abcdef0123456789abcdef") => new(
@@ -567,6 +559,32 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         1,
         logIndex,
         new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
+
+    private static IReplicaCommitFaultHooks CreateThrowOnFanOutHooks()
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .Callback(static (stage, _, _) =>
+                        {
+                            var exception = new InvalidOperationException("Injected fan-out failure.");
+                            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+                        });
+        return expectations.Instance();
+    }
+
+    private static IReplicaCommitFaultHooks CreateThrowOnFirstMajorityHooks()
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .Callback(static (stage, mutation, _) =>
+                        {
+                            var exception = new InvalidOperationException("Injected post-majority failure.");
+                            return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1
+                                ? ValueTask.FromException(exception)
+                                : ValueTask.CompletedTask;
+                        });
+        return expectations.Instance();
+    }
 
     private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)
     {
@@ -920,28 +938,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("Test tail entry is undecodable."));
             var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);
             return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, ReadOnlyMemory<byte>.Empty, 42));
-        }
-    }
-
-    private sealed class ThrowOnFanOutHooks : IReplicaCommitFaultHooks
-    {
-        internal static ThrowOnFanOutHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            var exception = new InvalidOperationException("Injected fan-out failure.");
-            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
-        }
-    }
-
-    private sealed class ThrowOnFirstMajorityHooks : IReplicaCommitFaultHooks
-    {
-        internal static ThrowOnFirstMajorityHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            var exception = new InvalidOperationException("Injected post-majority failure.");
-            return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
         }
     }
 }
