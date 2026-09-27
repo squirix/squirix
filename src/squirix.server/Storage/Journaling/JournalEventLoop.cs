@@ -18,6 +18,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 {
     private readonly JournalEventLoopSegmentWriter _segmentWriterOps;
     private long _activeSegmentWrittenBytes;
+    private int _journalSegmentCount;
+    private long _journalTotalBytes;
     private int _segmentRollCompletionPending;
 
     internal JournalEventLoop(
@@ -37,8 +39,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         WriteBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatch);
         Policy = new JournalSegmentPolicy(opt);
         CurrentSegmentIndex = startup.CurrentSegmentIndex;
-        JournalTotalBytes = startup.JournalTotalBytes;
-        JournalSegmentCount = startup.JournalSegmentCount;
+        _journalTotalBytes = startup.JournalTotalBytes;
+        _journalSegmentCount = startup.JournalSegmentCount;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
@@ -56,9 +58,11 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public IJournalEventLoopHost Host { get; }
 
-    public int JournalSegmentCount { get; private set; }
+    /// <summary>Gets the on-disk journal segment count. Written only by the journal thread; read cross-thread.</summary>
+    public int JournalSegmentCount => Volatile.Read(ref _journalSegmentCount);
 
-    public long JournalTotalBytes { get; private set; }
+    /// <summary>Gets the on-disk journal byte total. Written only by the journal thread; read cross-thread.</summary>
+    public long JournalTotalBytes => Volatile.Read(ref _journalTotalBytes);
 
     public PersistenceOptions Options { get; }
 
@@ -82,7 +86,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private ILogger JournalLog { get; }
 
-    public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
+    public void AddJournalTotalBytes(long delta) => Volatile.Write(ref _journalTotalBytes, _journalTotalBytes + delta);
 
     public void FlushToDisk()
     {
@@ -101,7 +105,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         }
     }
 
-    public void IncrementJournalSegmentCount() => JournalSegmentCount++;
+    public void IncrementJournalSegmentCount() => Volatile.Write(ref _journalSegmentCount, _journalSegmentCount + 1);
 
     public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
@@ -113,9 +117,9 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public void SetDirty(bool value) => IsDurabilityFlushPending = value;
 
-    public void SetJournalSegmentCount(int value) => JournalSegmentCount = value;
+    public void SetJournalSegmentCount(int value) => Volatile.Write(ref _journalSegmentCount, value);
 
-    public void SetJournalTotalBytes(long value) => JournalTotalBytes = value;
+    public void SetJournalTotalBytes(long value) => Volatile.Write(ref _journalTotalBytes, value);
 
     public void SetPendingRollTargetSegmentIndex(int value) => PendingRollTargetSegmentIndex = value;
 
