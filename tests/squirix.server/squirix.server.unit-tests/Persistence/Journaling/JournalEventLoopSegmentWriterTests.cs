@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -102,7 +103,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var host = new FakeEventLoopHost(registry, counter);
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = new FakeSegmentWriter();
-        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1), CancellationToken.None, NullLogger.Instance);
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalFraming.FileHeaderSize), CancellationToken.None, NullLogger.Instance);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
         registry.Track(item, buffer, 64, null);

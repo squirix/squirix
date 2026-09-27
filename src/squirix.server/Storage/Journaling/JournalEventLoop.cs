@@ -41,6 +41,12 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         CurrentSegmentIndex = startup.CurrentSegmentIndex;
         _journalTotalBytes = startup.JournalTotalBytes;
         _journalSegmentCount = startup.JournalSegmentCount;
+
+        // Producers read this counter to predict a segment roll before the journal thread opens the segment, so it must already
+        // equal what EnsureSegmentOpen will set (the on-disk length, or a header for a missing or empty file) instead of zero.
+        // Refusing every append while the segment is not open would refuse forever at the segment-count limit (a refused append
+        // never opens the segment), and opening the segment eagerly would create a segment file and header with nothing to write.
+        _activeSegmentWrittenBytes = startup.ActiveSegmentWrittenBytes;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);

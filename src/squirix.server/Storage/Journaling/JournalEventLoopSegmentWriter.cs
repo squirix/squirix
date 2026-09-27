@@ -621,7 +621,6 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _roll.SetCurrentSegmentIndex(item.ResetSegmentIndex);
             _owner.Host.SetNextSequence(item.ResetSequence);
-            _owner.SetActiveSegmentWrittenBytes(0);
             _owner.SetDirty(false);
 
             // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
@@ -629,8 +628,13 @@ internal sealed class JournalEventLoopSegmentWriter
             try
             {
                 var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
+
+                // The reset segment is not open yet (Begin released it); the active counter must already equal what
+                // EnsureSegmentOpen will set, because producers read it to predict a roll before that open.
+                var activeSegmentBytes = JournalReadPath.GetActiveSegmentLengthAfterOpen(_owner.Options.DataDir, item.ResetSegmentIndex);
                 _owner.SetJournalTotalBytes(totalBytes);
                 _roll.SetJournalSegmentCount(segmentCount);
+                _owner.SetActiveSegmentWrittenBytes(activeSegmentBytes);
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {

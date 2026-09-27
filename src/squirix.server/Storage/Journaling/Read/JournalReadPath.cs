@@ -19,6 +19,21 @@ internal static class JournalReadPath
 
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
+    /// <summary>
+    /// Gets the length the journal thread's writer reports right after it opens <paramref name="segmentIndex" /> as the active segment:
+    /// the file length, or the file header size for a missing or empty file, because that open writes the header.
+    /// </summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    /// <param name="segmentIndex">One-based index of the segment the journal thread opens next.</param>
+    /// <returns>The active segment length once the segment is open.</returns>
+    /// <exception cref="IOException">The segment exists, but its length cannot be read.</exception>
+    internal static long GetActiveSegmentLengthAfterOpen(string dataDir, int segmentIndex)
+    {
+        var segment = new FileInfo(BuildSegmentPath(dataDir, segmentIndex));
+        var length = segment.Exists ? segment.Length : 0L;
+        return length == 0L ? JournalFraming.FileHeaderSize : length;
+    }
+
     internal static IJournalRecordEnumerator ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
         new JournalReplaySequence(dataDir, fromSegment, cancellationToken).CreateEnumerator();
 
