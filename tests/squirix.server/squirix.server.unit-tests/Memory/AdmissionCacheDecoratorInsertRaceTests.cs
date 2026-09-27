@@ -40,11 +40,71 @@ public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUni
         var real = new ClientCache<string>(physical, physical);
         var added = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var paused = 0;
+        var otherStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        // The real cache behind the mock; the first successful insert stops after it reached the physical cache.
+        var inner = CreateStoppingInner(real, added, resume, otherStarted);
+        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var cache = new MemoryAdmissionCacheDecorator<string>(
+            inner,
+            CreatePermissiveGate(accounting),
+            estimator,
+            accounting,
+            RocksDoubles.CreateOwnerLocator(Self),
+            Self);
+        var small = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var large = new NodeCacheEntry<string> { Value = "a much longer value than the winner stores", Version = 1 };
+
+        // The winner inserted its entry physically and stops before it accounts the insert.
+        var winner = SetAsync(cache, key, small, cancellationToken);
+        await added.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+        // The other set writes the larger entry. Without a write gate per key it reaches the inner cache and finishes while the winner is stopped,
+        // so the test waits for it to finish before the winner resumes. With a gate it waits for the winner and never reaches the inner cache, so
+        // the wait for that checkpoint is bounded: on a slow machine it can only miss the interleaving, never fail the gated path.
+        var other = SetAsync(cache, key, large, cancellationToken);
+        var reached = await Task.WhenAny(otherStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, cancellationToken));
+        if (reached == otherStarted.Task)
+            await other;
+
+        _ = resume.TrySetResult();
+        await winner;
+        await other;
+
+        var stored = await real.GetEntryAsync(CacheName, key, cancellationToken);
+        _ = await Assert.That(stored?.Value).IsEqualTo(large.Value);
+        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
+        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(estimator.EstimateBytes(new CacheKey(CacheName, key), large, false));
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    /// <summary>Mocks the inner cache over a real one: the first successful insert stops after it reached the physical cache.</summary>
+    /// <param name="real">The cache the mock forwards to.</param>
+    /// <param name="added">Completed when the first insert reached the physical cache and stopped.</param>
+    /// <param name="resume">Releases the stopped insert.</param>
+    /// <param name="otherStarted">Completed when a second write starts reading the entry, that is when it reached the inner cache.</param>
+    /// <returns>The mocked inner cache.</returns>
+    private static ILogicalNamespacedCache<string> CreateStoppingInner(
+        ClientCache<string> real,
+        TaskCompletionSource added,
+        TaskCompletionSource resume,
+        TaskCompletionSource otherStarted)
+    {
+        var paused = 0;
+        var reads = 0;
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(real.GetEntryAsync).ExpectedCallCount(2);
+
+        // The second read is the competing set reaching the inner cache: the winner's set read first.
+        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                 .Callback((cacheName, key, token) =>
+                  {
+                      if (Interlocked.Increment(ref reads) == 2)
+                          _ = otherStarted.TrySetResult();
+
+                      return real.GetEntryAsync(cacheName, key, token);
+                  }).ExpectedCallCount(2);
         _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
                  .Callback(real.SetEntryAsync).ExpectedCallCount(1);
         _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
@@ -58,38 +118,9 @@ public sealed class AdmissionCacheDecoratorInsertRaceTests : DisposableServerUni
 
                       return inserted;
                   }).ExpectedCallCount(1);
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var cache = new MemoryAdmissionCacheDecorator<string>(
-            inner.Instance(),
-            CreatePermissiveGate(accounting),
-            estimator,
-            accounting,
-            RocksDoubles.CreateOwnerLocator(Self),
-            Self);
-        var small = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var large = new NodeCacheEntry<string> { Value = "a much longer value than the winner stores", Version = 1 };
 
-        // The winner inserted its entry physically and stops before it accounts the insert.
-        var winner = SetAsync(cache, key, small, cancellationToken);
-        await added.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        // The other set writes the larger entry. Without a write gate per key it finishes here, while the winner is stopped; with one it waits
-        // for the winner, so the wait is bounded and only decides whether the winner resumes before or after the other set finished.
-        var other = SetAsync(cache, key, large, cancellationToken);
-        _ = await Task.WhenAny(other, Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, cancellationToken));
-        _ = resume.TrySetResult();
-        await winner;
-        await other;
-
-        var stored = await real.GetEntryAsync(CacheName, key, cancellationToken);
-        _ = await Assert.That(stored?.Value).IsEqualTo(large.Value);
-        _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
-        _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(estimator.EstimateBytes(new CacheKey(CacheName, key), large, false));
+        return inner.Instance();
     }
-
-    /// <inheritdoc />
-    protected override void DisposeManaged() => _testMeter.Dispose();
 
     private static Task SetAsync(MemoryAdmissionCacheDecorator<string> cache, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
         cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken).AsTask();
