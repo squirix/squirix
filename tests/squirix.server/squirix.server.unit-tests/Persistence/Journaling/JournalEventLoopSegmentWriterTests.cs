@@ -321,42 +321,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), registry, counter, batch, state);
     }
 
-    private sealed class FakeEventLoopHost : IJournalEventLoopHost
-    {
-        private readonly MutableInt32 _counter;
-        private readonly PendingAppendRegistry _pendingAppends;
-
-        internal FakeEventLoopHost(PendingAppendRegistry pendingAppends, MutableInt32 counter)
-        {
-            _pendingAppends = pendingAppends;
-            _counter = counter;
-        }
-
-        PendingAppendRegistry IJournalEventLoopHost.PendingAppends => _pendingAppends;
-
-        /// <summary>Gets the reason of the last pipeline failure the journal thread reported, if any.</summary>
-        internal Exception? PipelineFailure { get; private set; }
-
-        /// <summary>Gets or sets the callback run when the journal thread publishes a roll, standing in for the manifest roll thread.</summary>
-        internal Action? RollPublished { get; set; }
-
-        void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
-
-        void IJournalEventLoopHost.DecrementQueuedAppends() => _ = Interlocked.Decrement(ref _counter.Value);
-
-        void IJournalEventLoopHost.FailPipeline(Exception reason) => PipelineFailure = reason;
-
-        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex) => RollPublished?.Invoke();
-
-        void IJournalEventLoopHost.SetNextSequence(ulong value)
-        {
-        }
-
-        void IJournalEventLoopHost.ThrowIfJournalThreadFailed()
-        {
-        }
-    }
-
     private sealed class FakeEventLoopRollState : IJournalEventLoopRollState
     {
         private string? _activeSegmentPath;
