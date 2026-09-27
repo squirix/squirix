@@ -1,4 +1,3 @@
-using System;
 using System.Threading;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
@@ -6,7 +5,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Mutable coordinator state used by the durability pipeline.</summary>
-internal interface IJournalCoordinatorState
+internal interface IJournalCoordinatorState : IJournalThreadState, IJournalStallProbeSource
 {
     CancellationTokenSource BackgroundCancellation { get; }
 
@@ -16,23 +15,15 @@ internal interface IJournalCoordinatorState
 
     JournalEventLoop EventLoop { get; }
 
-    Thread JournalThread { get; }
-
     Ledger Ledger { get; }
 
     PersistenceOptions Options { get; }
 
     PendingAppendRegistry PendingAppends { get; }
 
-    JournalStallProbe StallProbe { get; }
-
     MutableInt32 QueuedAppendsCounter { get; }
 
     BoundedJournalRing Ring { get; }
 
     JournalDurabilityGroupCommit? GroupCommit { get; }
-
-    Exception? GetJournalThreadFailure();
-
-    bool TrySetJournalThreadFailure(Exception reason);
 }

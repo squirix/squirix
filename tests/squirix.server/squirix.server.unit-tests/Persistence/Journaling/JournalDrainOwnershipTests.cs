@@ -200,7 +200,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
         JournalDurabilityGroupCommit? IJournalCoordinatorState.GroupCommit => null;
 
-        Thread IJournalCoordinatorState.JournalThread => Thread.CurrentThread;
+        Thread IJournalThreadState.JournalThread => Thread.CurrentThread;
 
         Ledger IJournalCoordinatorState.Ledger => _ledger;
 
@@ -212,7 +212,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
 
         BoundedJournalRing IJournalCoordinatorState.Ring => _ring;
 
-        JournalStallProbe IJournalCoordinatorState.StallProbe => _stallProbe;
+        JournalStallProbe IJournalStallProbeSource.StallProbe => _stallProbe;
 
         /// <summary>Releases the ring, ledger, and background cancellation.</summary>
         public void Dispose()
@@ -226,9 +226,9 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
             _backgroundCancellation.Dispose();
         }
 
-        Exception? IJournalCoordinatorState.GetJournalThreadFailure() => _failure.Read();
+        Exception? IJournalThreadState.GetJournalThreadFailure() => _failure.Read();
 
-        bool IJournalCoordinatorState.TrySetJournalThreadFailure(Exception reason) => _failure.TryWriteIfNull(reason);
+        bool IJournalThreadState.TrySetJournalThreadFailure(Exception reason) => _failure.TryWriteIfNull(reason);
     }
 
     private sealed class FakeEventLoopHost : IJournalEventLoopHost

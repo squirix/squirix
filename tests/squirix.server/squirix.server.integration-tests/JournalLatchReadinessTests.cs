@@ -68,7 +68,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         var persistence = new PersistenceOptions { JournalStallDegradedThreshold = TimeSpan.FromTicks(1) };
         await using var cluster = await StartClusterAsync("node_stall_journal", new IntegrationStartOptions { PersistenceOptions = persistence }, cancellationToken);
         var node = cluster["node_stall_journal"];
-        if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalCoordinatorState journal)
+        if (node.GetRequiredService<JournalCoordinatorHost>().Coordinator is not IJournalStallProbeSource journal)
             throw new InvalidOperationException("the host journal does not expose its stall probe.");
 
         var before = await GetReadyAsync(node.Uri, cancellationToken);
