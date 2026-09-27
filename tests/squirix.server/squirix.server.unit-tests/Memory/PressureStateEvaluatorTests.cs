@@ -102,19 +102,5 @@ public sealed class PressureStateEvaluatorTests
         _ = await Assert.That(e.Evaluate(0)).IsEqualTo(PressureLevel.Normal);
     }
 
-    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(new PressureOptionsBinding(options));
-
-    [Immutable]
-    private sealed class PressureOptionsBinding : IOptions<PressureOptions>
-    {
-        /// <summary>Initializes a new instance of the <see cref="PressureOptionsBinding" /> class.</summary>
-        /// <param name="value">Bound options value.</param>
-        internal PressureOptionsBinding(PressureOptions value)
-        {
-            Value = value;
-        }
-
-        /// <inheritdoc />
-        public PressureOptions Value { get; }
-    }
+    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(Options.Create(options));
 }
