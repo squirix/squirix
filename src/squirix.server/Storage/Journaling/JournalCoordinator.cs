@@ -444,7 +444,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         //   + frameLength overflows it too: either way the roll is predicted below and the segment count checked. This holds because the
         //   active counter equals the current segment's on-disk length (as the next open sees it) whenever the segment is not open: it is
         //   seeded at startup and at maintenance end.
-        // - The counters decrease only in the maintenance end resync, which runs while maintenance holds the gate over an empty ring.
+        // - Apart from that forward accounting, the counters change (in either direction) only in the maintenance end resync. Maintenance
+        //   holds the gate from before Begin until the End ack completes, even when its caller cancels, and the ring is empty by then, so no
+        //   admission runs against a layout in flux. After a pipeline failure, appends are refused before they reach admission.
         var pendingBytes = PendingAppends.PendingBytes;
         var pendingCount = PendingAppends.PendingCount;
         var totalBytes = EventLoop.JournalTotalBytes;

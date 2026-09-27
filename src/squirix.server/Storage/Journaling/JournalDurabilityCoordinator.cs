@@ -160,9 +160,8 @@ internal sealed class JournalDurabilityCoordinator
         await publisher.EnqueueItemAsync(begin, JournalWorkItem.MaintenanceBegin, cancellationToken).ConfigureAwait(false);
         await publisher.AwaitAckAsync(begin, cancellationToken).ConfigureAwait(false);
 
-        // The End ack wait stays outside the try: once End is enqueued, the layout is consistent,
-        // so cancelling the wait is harmless and must not poison the pipeline.
-        // The catch below always rethrows, so reaching the wait proves End was enqueued.
+        // The End ack wait stays outside the try: once End is enqueued, the layout is consistent and the wait must not poison the
+        // pipeline. The catch below always rethrows, so reaching the wait proves End was enqueued.
         TaskCompletionSource end;
         try
         {
@@ -190,7 +189,11 @@ internal sealed class JournalDurabilityCoordinator
             throw;
         }
 
-        await publisher.AwaitAckAsync(end, cancellationToken).ConfigureAwait(false);
+        // The caller keeps the mutation gate until End is applied, so the wait ignores cancellation: End resyncs the capacity counters
+        // (in either direction), and append admission reads them under the gate (issue #703). A producer admitted while End is still on
+        // the ring would be checked against the pre-compaction layout. The wait cannot hang: the journal thread completes or faults the
+        // tracked End ack, and a pipeline failure or disposal faults it through the pending-append drain.
+        await publisher.AwaitAckAsync(end, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Enqueues the shutdown marker or fails disposal loudly when it cannot enter.</summary>
