@@ -149,6 +149,10 @@
   <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Node.App.*" />
 
+  <!-- Cluster sits below Node.Services in the layer stack: tests that drive hosted services (for example
+       ReplicaRepairService) are Node.Services tests and live in UnitTests.Node.Services. -->
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Node.Services.*" />
+
   <!-- Cluster → Storage: only Cluster.Replication tests may reach Storage, and only Storage.Replication. -->
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.Cluster(?:\.(?!Replication(?:\.|$)).*)?$/"
