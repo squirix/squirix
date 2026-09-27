@@ -51,22 +51,4 @@ public sealed class LogManagerHostTests
         _ = await Assert.That(logger.IsEnabled(LogLevel.Error)).IsFalse();
         _ = await Assert.That(log.Count(JournalThreadJoinTimedOutEventId)).IsEqualTo(0);
     }
-
-    /// <summary>Logger provider handing out one recording logger for every category.</summary>
-    [Immutable]
-    private sealed class RecordingLoggerProvider : ILoggerProvider
-    {
-        private readonly EventRecordingLogger _log;
-
-        internal RecordingLoggerProvider(EventRecordingLogger log)
-        {
-            _log = log;
-        }
-
-        public ILogger CreateLogger(string categoryName) => _log;
-
-        public void Dispose()
-        {
-        }
-    }
 }

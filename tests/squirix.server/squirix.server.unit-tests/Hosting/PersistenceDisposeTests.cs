@@ -94,22 +94,4 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         _ = await services.AddPersistenceServicesAsync(new PersistenceOptions { DataDir = Dir }, meter, false, cancellationToken);
         return services.BuildServiceProvider();
     }
-
-    /// <summary>Logger provider handing out one recording logger for every category.</summary>
-    [Immutable]
-    private sealed class RecordingLoggerProvider : ILoggerProvider
-    {
-        private readonly EventRecordingLogger _log;
-
-        internal RecordingLoggerProvider(EventRecordingLogger log)
-        {
-            _log = log;
-        }
-
-        public ILogger CreateLogger(string categoryName) => _log;
-
-        public void Dispose()
-        {
-        }
-    }
 }

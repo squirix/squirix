@@ -302,40 +302,6 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         bool IJournalThreadState.TrySetJournalThreadFailure(Exception reason) => _failure.TryWriteIfNull(reason);
     }
 
-    private sealed class FakeEventLoopHost : IJournalEventLoopHost
-    {
-        private readonly PendingAppendRegistry _pendingAppends;
-
-        internal FakeEventLoopHost(PendingAppendRegistry pendingAppends)
-        {
-            _pendingAppends = pendingAppends;
-        }
-
-        PendingAppendRegistry IJournalEventLoopHost.PendingAppends => _pendingAppends;
-
-        void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
-
-        void IJournalEventLoopHost.DecrementQueuedAppends()
-        {
-        }
-
-        void IJournalEventLoopHost.FailPipeline(Exception reason)
-        {
-        }
-
-        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex)
-        {
-        }
-
-        void IJournalEventLoopHost.SetNextSequence(ulong value)
-        {
-        }
-
-        void IJournalEventLoopHost.ThrowIfJournalThreadFailed()
-        {
-        }
-    }
-
     private sealed class FakeSnapshotState : IJournalCoordinatorSnapshotState
     {
         QuiescenceGate IJournalCoordinatorSnapshotState.InFlightApplyGate { get; } = new();

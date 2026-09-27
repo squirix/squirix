@@ -381,7 +381,14 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
         internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
         {
-            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)), _backgroundCancellation.Token, logger);
+            EventLoop = new JournalEventLoop(
+                new FakeEventLoopHost(new PendingAppendRegistry()),
+                _ring,
+                writer,
+                options,
+                new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
+                _backgroundCancellation.Token,
+                logger);
         }
 
         internal JournalEventLoop EventLoop { get; }
@@ -391,33 +398,6 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
         {
             _ring.Dispose();
             _backgroundCancellation.Dispose();
-        }
-    }
-
-    private sealed class FakeEventLoopHost : IJournalEventLoopHost
-    {
-        PendingAppendRegistry IJournalEventLoopHost.PendingAppends { get; } = new();
-
-        void IJournalEventLoopHost.CompleteDurabilityCheckpoint(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
-
-        void IJournalEventLoopHost.DecrementQueuedAppends()
-        {
-        }
-
-        void IJournalEventLoopHost.FailPipeline(Exception reason)
-        {
-        }
-
-        void IJournalEventLoopHost.PublishRoll(int targetSegmentIndex)
-        {
-        }
-
-        void IJournalEventLoopHost.SetNextSequence(ulong value)
-        {
-        }
-
-        void IJournalEventLoopHost.ThrowIfJournalThreadFailed()
-        {
         }
     }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -24,6 +25,40 @@ internal static class ReplicaCommitTestKit
         return shutdownBudget is { } budget
             ? new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { ShutdownBudget = budget }
             : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state);
+    }
+
+    /// <summary>Majority pipeline whose followers acknowledge at once and whose first memory apply fails.</summary>
+    [Mutable]
+    internal sealed class FailFirstApplyPipeline : IReplicaCommitPipeline
+    {
+        private bool _failed;
+
+        /// <summary>Gets the log indexes whose memory apply succeeded, in apply order.</summary>
+        internal List<ulong> AppliedIndexes { get; } = [];
+
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(
+                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
+
+        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            if (!_failed)
+            {
+                _failed = true;
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
+            }
+
+            AppliedIndexes.Add(mutation.LogIndex);
+            return ValueTask.CompletedTask;
+        }
+
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
+        {
+        }
     }
 
     internal sealed class Pipeline : IReplicaCommitPipeline
