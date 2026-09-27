@@ -16,7 +16,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
 /// <summary>Covers per-client isolation through <see cref="BackpressureCacheDecorator{T}" />.</summary>
 [Immutable]

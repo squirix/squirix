@@ -194,6 +194,10 @@
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Cluster.*" />
 
+  <!-- Memory gates sit below the decorator pipeline: decorator tests that wrap a gate (for example
+       BackpressureCacheDecorator) are Node.App tests and live in UnitTests.Node.App.Decorators. -->
+  <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Node.App.*" />
+
   <!-- ═══ A2: test-internal isolation ═══ -->
 
   <!-- Shared helpers must not depend on any test area (or the root); areas depend on Support, never the reverse. -->
