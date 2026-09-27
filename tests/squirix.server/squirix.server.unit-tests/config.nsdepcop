@@ -1,27 +1,250 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Squirix.Server.UnitTests dependency policy.
+  Squirix.Server.UnitTests dependency policy (allowlist + targeted Disallowed).
 
-  Unit tests are white-box and may reference any Squirix.Server.* production namespace.
-  Guard only the package boundary against the client SDK and direct client namespaces.
+  Unit tests are white-box, but they mirror the production layer stack in
+  src/squirix.server/config.nsdepcop: a test area for layer X lives in the test namespace for X
+  and may not reach anything production X is forbidden to reach. A test that needs an upper
+  layer is a test of that upper layer and lives in its test namespace.
+
+    UnitTests.Adapters / Hosting / root / Architecture / ApiSnapshots / Support
+                                   (unrestricted on product namespaces)
+      → UnitTests.Node.Services / Node.App / Node.*
+        → UnitTests.Cluster / LocalCache / Memory / Observability
+          → UnitTests.Persistence (Storage)
+            → UnitTests kernel: Core, Errors, Utils, Threading
+
+  Test-internal structure:
+    - UnitTests.Support holds shared helpers and depends on no other UnitTests namespace.
+    - Each top-level area depends only on its own subtree, UnitTests.Support, and TestKit
+      (never on a sibling area).
+    - Root Squirix.Server.UnitTests depends only on UnitTests.Support among its children.
+
+  Package boundary: no client SDK, no protocol model, no server host executable.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
-                CheckAssemblyDependencies="true">
+                CheckAssemblyDependencies="true"
+                MaxIssueCount="10000">
 
   <Allowed From="*" To="*" />
 
   <AllowedAssembly From="*" To="*" />
 
+  <!-- ═══ Package boundary ═══ -->
+
+  <!-- Server unit tests must not reference the client SDK, the isolated protocol model, or the host executable. -->
   <DisallowedAssembly From="Squirix.Server.UnitTests" To="Squirix" />
+  <DisallowedAssembly From="Squirix.Server.UnitTests" To="Squirix.ProtocolModel" />
+  <DisallowedAssembly From="Squirix.Server.UnitTests" To="Squirix.Server.Host" />
 
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Core.*" />
 
-  <!-- Test-isolation (unit-test-isolation cycle 2): storage unit tests must not
-       reach transport adapters or DI/host composition. Node.Services/App collaborators
-       stay allowed: storage recovery tests are sociable by design. -->
+  <!-- ═══ A1: test areas mirror production layering ═══ -->
+
+  <!-- Kernel: Core tests must stay free of node/cluster/storage orchestration (mirrors Squirix.Server.Core rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Core.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Core(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Kernel: error-contract tests must not pull transport mapping or orchestration (mirrors Squirix.Server.Errors rules;
+       error→REST/gRPC mapping tests belong to UnitTests.Adapters). -->
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Errors.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Errors(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Kernel: low-level helper tests must stay infrastructure-agnostic (mirrors Squirix.Server.Utils rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Utils.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Kernel: threading primitive tests follow the same kernel set as Utils. -->
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Threading(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Storage: durability tests must not depend upward (mirrors Squirix.Server.Storage rules;
+       tests that drive node recovery orchestration belong to UnitTests.Node.Services). -->
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Endpoint.*" />
+
+  <!-- Storage.Replication: replication log tests must not depend on Node, Adapters, or Cluster
+       (mirrors Squirix.Server.Storage.Replication rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.Replication.*" To="Squirix.Server.Node.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.Replication.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Persistence.Replication.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- LocalCache: owner-cache tests must not reach transport, cluster, storage, node, or runtime
+       (mirrors Squirix.Server.LocalCache rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.MemoryPressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.UnitTests.LocalCache.*" To="Squirix.Server.Node.Endpoint.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.LocalCache(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Cluster: routing/membership tests must not depend on adapters, hosting, or the decorator pipeline
+       (mirrors Squirix.Server.Cluster rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.*" To="Squirix.Server.Node.App.*" />
+
+  <!-- Cluster → Storage: only Cluster.Replication tests may reach Storage, and only Storage.Replication. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Cluster(?:\.(?!Replication(?:\.|$)).*)?$/"
+      To="/^Squirix\.Server\.Storage(?:\..*)?$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Cluster\.Replication(?:\..*)?$/"
+      To="/^Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$/" />
+
+  <!-- Cluster.Replication: protocol automaton tests stay free of routing transport, owner cache, kernel helpers,
+       and runtime (mirrors Squirix.Server.Cluster.Replication rules; adapter-level replication tests
+       belong to UnitTests.Adapters.Grpc.Replication). -->
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Cluster.Transport.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Errors.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Cluster.Replication.*" To="Squirix.Server.Utils.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Cluster\.Replication(?:\..*)?$/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Node.App: decorator pipeline tests must not reach hosting, adapters, hosted services, or bypass
+       Cluster.Replication into Storage.Replication (mirrors Squirix.Server.Node.App rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Node.App.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Node.App.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Node.App.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Node.App.*" To="Squirix.Server.Storage.Replication.*" />
+
+  <!-- Node.Services: hosted-service tests orchestrate storage but must not depend on transport adapters. -->
+  <Disallowed From="Squirix.Server.UnitTests.Node.Services.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Node: orchestration tests must not reach into storage entry codecs (mirrors Squirix.Server.Node rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Node.*" To="Squirix.Server.Storage.Codecs.*" />
+
+  <!-- Observability: metrics/tracing tests stay transport-agnostic (mirrors Squirix.Server.Node.Observability rules). -->
+  <Disallowed From="Squirix.Server.UnitTests.Observability.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Memory: memory/backpressure gate tests must not depend on adapters, hosting, storage, or cluster. -->
+  <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- ═══ A2: test-internal isolation ═══ -->
+
+  <!-- Shared helpers must not depend on any test area (or the root); areas depend on Support, never the reverse. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Support(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests(?:$|\.(?!Support(?:\.|$)).*)$/" />
+
+  <!-- Root tests may use only Support among the child namespaces. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests$/"
+      To="/^Squirix\.Server\.UnitTests\.(?!Support(?:\.|$)).+$/" />
+
+  <!-- Top-level areas are siblings: each depends only on its own subtree and Support (shared helpers go to Support).
+       NsDepCop regex has no back-reference between From/To, so enumerate one rule per area. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Adapters(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Adapters|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.ApiSnapshots(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:ApiSnapshots|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Architecture(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Architecture|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Cluster(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Cluster|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Core(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Core|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Errors(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Errors|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Hosting(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Hosting|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.LocalCache(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:LocalCache|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Memory|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Node(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Node|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Observability(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Observability|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Persistence(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Persistence|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Threading(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Threading|Support)(?:\.|$)).+$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
+      To="/^Squirix\.Server\.UnitTests\.(?!(?:Utils|Support)(?:\.|$)).+$/" />
 
 </NsDepCopConfig>
