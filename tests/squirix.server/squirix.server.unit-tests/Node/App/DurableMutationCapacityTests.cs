@@ -20,12 +20,12 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Node.App;
 
 /// <summary>
-/// A frame the journal thread rejects for on-disk capacity is never written, so its caller must see the definite capacity failure and
+/// A frame that would exceed the on-disk journal capacity is never written, so its caller must see the definite capacity failure and
 /// memory must not apply it: a following durability flush succeeds and would otherwise report the dropped frame as durable.
 /// </summary>
 /// <remarks>
-/// Group commit delivers the rejection through the append's write ack. A plain append has no write ack and returns once its frame is on
-/// the ring, so the rejection is dropped silently: the plain cases stay skipped until #703 decides how such a frame is refused.
+/// Append admission refuses such a frame before it enters the ring (#703), in plain and group commit mode alike: a plain append returns
+/// once its frame is on the ring and has no write ack that could carry a later rejection by the journal thread.
 /// </remarks>
 [Immutable]
 public sealed class DurableMutationCapacityTests : IsolatedStorageTestBase
