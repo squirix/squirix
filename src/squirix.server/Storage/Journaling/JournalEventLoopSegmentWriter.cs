@@ -263,6 +263,8 @@ internal sealed class JournalEventLoopSegmentWriter
                 _roll.IncrementJournalSegmentCount();
         }
 
+        // Cleared only after a created segment was counted: append admission reads this flag before the segment count.
+        _owner.SetOpenCreatesSegment(false);
         _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
     }
 
@@ -631,10 +633,11 @@ internal sealed class JournalEventLoopSegmentWriter
 
                 // The reset segment is not open yet (Begin released it); the active counter must already equal what
                 // EnsureSegmentOpen will set, because producers read it to predict a roll before that open.
-                var activeSegmentBytes = JournalReadPath.GetActiveSegmentLengthAfterOpen(_owner.Options.DataDir, item.ResetSegmentIndex);
+                var resetSegment = JournalSegmentProbe.Probe(_owner.Options.DataDir, item.ResetSegmentIndex);
                 _owner.SetJournalTotalBytes(totalBytes);
                 _roll.SetJournalSegmentCount(segmentCount);
-                _owner.SetActiveSegmentWrittenBytes(activeSegmentBytes);
+                _owner.SetActiveSegmentWrittenBytes(resetSegment.ActiveBytesAfterOpen);
+                _owner.SetOpenCreatesSegment(resetSegment.OpenCreatesSegment);
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {

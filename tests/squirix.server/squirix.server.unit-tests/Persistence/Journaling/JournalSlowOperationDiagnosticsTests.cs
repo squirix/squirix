@@ -9,7 +9,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -382,7 +381,7 @@ public sealed class JournalSlowOperationDiagnosticsTests : IsolatedStorageTestBa
 
         internal EventLoopSetup(PersistenceOptions options, IJournalSegmentWriter writer, ILogger logger)
         {
-            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0, JournalFraming.FileHeaderSize), _backgroundCancellation.Token, logger);
+            EventLoop = new JournalEventLoop(new FakeEventLoopHost(), _ring, writer, options, new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)), _backgroundCancellation.Token, logger);
         }
 
         internal JournalEventLoop EventLoop { get; }

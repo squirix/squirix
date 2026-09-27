@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -257,7 +256,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
                 _ring,
                 _segmentWriter,
                 options,
-                new JournalEventLoopStartup(1, 0, 0, JournalFraming.FileHeaderSize),
+                new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
                 _backgroundCancellation.Token);
             _stallProbe = new JournalStallProbe(NullLogger.Instance);
         }

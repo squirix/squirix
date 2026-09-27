@@ -20,6 +20,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     private long _activeSegmentWrittenBytes;
     private int _journalSegmentCount;
     private long _journalTotalBytes;
+    private int _openCreatesSegment;
     private int _segmentRollCompletionPending;
 
     internal JournalEventLoop(
@@ -46,7 +47,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         // equal what EnsureSegmentOpen will set (the on-disk length, or a header for a missing or empty file) instead of zero.
         // Refusing every append while the segment is not open would refuse forever at the segment-count limit (a refused append
         // never opens the segment), and opening the segment eagerly would create a segment file and header with nothing to write.
-        _activeSegmentWrittenBytes = startup.ActiveSegmentWrittenBytes;
+        _activeSegmentWrittenBytes = startup.ActiveSegment.ActiveBytesAfterOpen;
+        _openCreatesSegment = startup.ActiveSegment.OpenCreatesSegment ? 1 : 0;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
@@ -69,6 +71,12 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     /// <summary>Gets the on-disk journal byte total. Written only by the journal thread; read cross-thread.</summary>
     public long JournalTotalBytes => Volatile.Read(ref _journalTotalBytes);
+
+    /// <summary>
+    /// Gets a value indicating whether the next segment open creates the missing current segment file and counts it. Cleared by the
+    /// journal thread only after that count was added; read cross-thread by append admission.
+    /// </summary>
+    public bool OpenCreatesSegment => Volatile.Read(ref _openCreatesSegment) != 0;
 
     public PersistenceOptions Options { get; }
 
@@ -126,6 +134,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     public void SetJournalSegmentCount(int value) => Volatile.Write(ref _journalSegmentCount, value);
 
     public void SetJournalTotalBytes(long value) => Volatile.Write(ref _journalTotalBytes, value);
+
+    public void SetOpenCreatesSegment(bool value) => Volatile.Write(ref _openCreatesSegment, value ? 1 : 0);
 
     public void SetPendingRollTargetSegmentIndex(int value) => PendingRollTargetSegmentIndex = value;
 

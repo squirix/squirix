@@ -72,6 +72,42 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     }
 
     /// <summary>
+    /// Many small frames queued behind a stalled write near a segment end count as one possible roll, not one each: with eight segments
+    /// allowed, the frame that needs a roll behind forty of them is admitted, the journal rolls once, and the pipeline stays healthy.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BacklogNearSegmentEndStillRolls(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, JournalSegmentLimits.DefaultMaxTotalBytesMb, 1, 8, cancellationToken);
+        await FillSegmentAsync(journal, cancellationToken);
+        journal.Writer.Write.Arm();
+        var keys = new string[42];
+        keys[0] = "fill";
+        keys[1] = "roll";
+        for (var i = 0; i < 40; i++)
+        {
+            keys[i + 2] = $"s{i}";
+            await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default(keys[i + 2]), new byte[SmallPayload], cancellationToken);
+        }
+
+        await journal.Writer.Write.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var pendingCount = journal.Journal.PendingAppends.PendingCount;
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("roll"), new byte[(2 * FillPayload) + 1024], cancellationToken);
+        journal.Writer.Write.Release();
+        await journal.Journal.AwaitDurabilityCommitAsync(cancellationToken);
+        var segmentIndex = journal.Journal.CurrentSegmentIndex;
+        var failed = journal.Journal.HasFlushLoopFailure;
+        await journal.ShutdownAsync();
+
+        _ = await Assert.That(pendingCount).IsEqualTo(40);
+        _ = await Assert.That(segmentIndex).IsEqualTo(2);
+        _ = await Assert.That(failed).IsFalse();
+        _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(2);
+        _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(Keys(keys));
+    }
+
+    /// <summary>
     /// A frame refused for capacity burns its sequence without writing it; a snapshot cut and a restart still place the next frame above the
     /// snapshot watermark, so it replays.
     /// </summary>
