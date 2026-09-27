@@ -3,8 +3,8 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Rocks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -39,7 +39,11 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     public async Task CoordinatorAwaitsStartupGateBeforeReplay(CancellationToken cancellationToken)
     {
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter));
-        await using var journal = new RecordingGateJournal();
+        var startupGate = new AsyncManualResetEvent();
+        var expectations = new IJournalCoordinatorCreateExpectations();
+        _ = expectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(startupGate.WaitAsync);
+        _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
+        await using var journal = expectations.Instance();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var original = new TryAddAsyncResponse { Added = true };
 
@@ -62,7 +66,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         // Recovery restores the idempotency record and opens the startup gate.
         store.RestoreRecord(ValidOperationId, "fp-1", IdempotencyResponseCodec.SerializeResponseBytes(original), DateTime.UtcNow);
-        journal.ReleaseStartupGate();
+        startupGate.Set();
 
         var response = await operation;
 
@@ -241,83 +245,5 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
     private sealed class ExecutionCounter
     {
         internal int Value { get; set; }
-    }
-
-    private sealed class RecordingGateJournal : IJournalCoordinator
-    {
-        private readonly AsyncManualResetEvent _gate = new();
-
-        // Subscriptions are accepted and dropped: the paths under test never subscribe,
-        // so there is no backing field to raise from.
-
-        /// <inheritdoc />
-        public event EventHandler? OnAppended
-        {
-            add => _ = value;
-            remove => _ = value;
-        }
-
-        public long AppendedBytes => 0;
-
-        public long AppendedOps => 0;
-
-        public int CurrentSegmentIndex => 0;
-
-        public bool HasFlushLoopFailure => false;
-
-        public long HighWaterBytes => 0;
-
-        public QuiescenceGate InFlightApplyGate => new();
-
-        public bool IsJournalGroupCommitEnabled => false;
-
-        public long MaxBytes => 0;
-
-        public ulong NextSequence => 0;
-
-        public double RecentAppendLatencyMs => 0;
-
-        public long UsedBytes => 0;
-
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) => default;
-
-        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
-
-        public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
-
-        public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
-
-        public ValueTask AppendRemoveExpirationAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
-
-        public ValueTask AppendTouchExpirationAsync(AsyncLockOwnership ownership, CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => default;
-
-        public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => default;
-
-        public ValueTask DisposeAsync() => default;
-
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
-
-        public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
-            TState state,
-            Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
-            Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
-            CancellationToken cancellationToken) => default;
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => default;
-
-        public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
-            TState state,
-            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
-            CancellationToken cancellationToken) => default;
-
-        public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
-
-        public void FailJournalPipeline(Exception reason) => throw new NotSupportedException();
-
-        public Exception? GetJournalThreadFailure() => null;
-
-        public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _gate.WaitAsync(cancellationToken);
-
-        internal void ReleaseStartupGate() => _gate.Set();
     }
 }
