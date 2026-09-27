@@ -119,7 +119,6 @@ public sealed class JournalAppendGateTests : IsolatedStorageTestBase
         var call = (Journal: journal, Ownership: ownership, Payload: JournalEntryPayloadKit.EncodePut("a"), Token: cancellationToken);
 
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAsync(s.Ownership, Key, s.Payload, s.Token));
-        await AssertGateRefusalAsync(call, static s => s.Journal.AppendPutAndAwaitDurabilityAsync(s.Ownership, Key, s.Payload, s.Token));
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveAsync(s.Ownership, Key, s.Token));
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendRemoveExpirationAsync(s.Ownership, Key, s.Token));
         await AssertGateRefusalAsync(call, static s => s.Journal.AppendTouchExpirationAsync(s.Ownership, Key, DateTime.UtcNow, s.Token));

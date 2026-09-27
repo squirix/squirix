@@ -267,8 +267,6 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => throw new NotSupportedException();
-
         public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             Interlocked.Exchange(ref _faultNextPut, 0) == 1
                 ? ValueTask.FromException(

@@ -63,10 +63,9 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
 
         await BlockManifestFileAsync(Dir, 2, cancellationToken);
 
-        // The overflow append is non-durable like in the roll tests: a durable overflow would
-        // bypass the staging deferral path and fail the pipeline with a roll error instead of
-        // parking. The durable followers queue behind it in ring order and never dequeue while
-        // it is parked, so the drain below faults all of them.
+        // The overflow append does not wait for durability, so the test continues while it parks
+        // on the roll-deferred frame. The durable followers queue behind it in ring order and never
+        // dequeue while it is parked, so the drain below faults all of them.
         await journal.AppendPutUnderGateAsync(overflowKey, overflowPayload, cancellationToken);
         var pending = StartDurableAppends(journal, payload, AppendDurableAsync, cancellationToken);
 
@@ -129,8 +128,8 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
                 await s.Gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, ct);
                 await BlockManifestFileAsync(s.Dir, 2, ct);
 
-                // Non-durable overflow (see above): it parks on the roll-deferred frame while the
-                // durable followers stay queued behind it for the drain.
+                // Overflow without a durability wait (see above): it parks on the roll-deferred frame
+                // while the durable followers stay queued behind it for the drain.
                 await s.Journal.AppendPutAsync(ownership, s.OverflowKey, s.OverflowPayload, ct);
                 var appends = StartDurableAppends((s.Journal, Ownership: ownership), s.Payload, AppendDurableInsideHeldGateAsync, ct);
                 QueueFlushWait(appends, s.Journal, ct);
@@ -172,7 +171,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     private static Task AppendDurableAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken) =>
         journal.AppendAdmittedUnderGateAsync(
             (Key: key, Payload: payload),
-            static (appender, s, ownership, ct) => appender.AppendPutAndAwaitDurabilityAsync(ownership, s.Key, s.Payload, ct),
+            static (appender, s, ownership, ct) => appender.AppendPutAndAwaitCommitAsync(ownership, s.Key, s.Payload, ct),
             cancellationToken);
 
     /// <summary>Starts a durable append inside the gate hold that runs the maintenance, so it queues on the ring behind the parked frame.</summary>
@@ -190,7 +189,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         ValueTask pending;
         try
         {
-            pending = holder.Journal.AppendPutAndAwaitDurabilityAsync(holder.Ownership, key, payload, cancellationToken);
+            pending = holder.Journal.AppendPutAndAwaitCommitAsync(holder.Ownership, key, payload, cancellationToken);
         }
         catch (InvalidOperationException ex) when (!string.Equals(ex.Message, JournalAppendGateTests.GateRefusalMessage, StringComparison.Ordinal))
         {

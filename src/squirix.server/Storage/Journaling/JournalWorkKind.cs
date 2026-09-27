@@ -5,9 +5,6 @@ internal enum JournalWorkKind
     /// <summary>Append a framed journal record.</summary>
     Append = 0,
 
-    /// <summary>Append a framed journal record and complete one durability ack after fsync.</summary>
-    AppendWithDurability = 1,
-
     /// <summary>Run a durability checkpoint (fsync + complete the item's own ack) without an append payload.</summary>
     DurabilityCheckpoint = 2,
 

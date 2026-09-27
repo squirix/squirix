@@ -36,7 +36,7 @@ public class JournalDurabilityCommitBenchmarks
     [ParamsSource(nameof(GroupCommitMaxWaitValues))]
     public TimeSpan GroupCommitMaxWait { get; set; }
 
-    /// <summary>Appends PUT operations, each awaited for durability (durable-append path).</summary>
+    /// <summary>Appends PUT operations, each followed by a durability commit wait under the mutation gate.</summary>
     /// <returns>A task that completes when all operations finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerSequentialInvoke)]

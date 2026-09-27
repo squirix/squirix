@@ -66,9 +66,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask AppendPutAndAwaitDurabilityAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
     public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />

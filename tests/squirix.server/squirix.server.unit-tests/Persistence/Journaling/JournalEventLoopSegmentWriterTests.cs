@@ -8,6 +8,8 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -24,6 +26,10 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 {
+    private const int OversizedFrameLength = (1024 * 1024) - JournalFraming.FileHeaderSize + 1;
+
+    private const string SegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
+
     /// <summary>An abandoned append fails idempotently without releasing resources twice.</summary>
     [Test]
     public async Task AbandonedAppendFailsWithoutWriting()
@@ -43,27 +49,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
         _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
         _ = await Assert.That(deferred).IsFalse();
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
-        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
-    }
-
-    /// <summary>An abandoned durable append fails idempotently without releasing resources twice.</summary>
-    [Test]
-    public async Task AbandonedDurableAppendFails()
-    {
-        using var setup = CreateSetup();
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-
-        var reason = new InvalidOperationException("pipeline failed");
-        _ = setup.Registry.FailAll(reason, NullLogger.Instance, setup.Counter);
-
-        _ = await Assert.That(setup.Writer.ProcessJournalWorkItem(item)).IsFalse();
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
-        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
@@ -119,6 +104,21 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.PendingCount).IsEqualTo(0);
         _ = await Assert.That(registry.QuarantinedCount).IsEqualTo(0L);
+    }
+
+    /// <summary>
+    /// An ack-less frame larger than an empty segment, bypassing producer admission, fails the pipeline on the journal thread without a
+    /// roll: no new segment and no roll publication (issue #749).
+    /// </summary>
+    [Test]
+    public async Task AckLessOversizedFrameFailsPipeline()
+    {
+        var run = await RunOversizedFrameAsync(static buffer => JournalWorkItem.Append(buffer, OversizedFrameLength));
+
+        var failure = await Assert.That(run.PipelineFailure).IsTypeOf<InvalidOperationException>();
+        var rejection = await Assert.That(failure?.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(rejection?.Message).Contains("segment size");
+        await AssertNoRollAsync(run);
     }
 
     /// <summary>
@@ -189,45 +189,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
     }
 
-    /// <summary>A capacity failure on the durable append path faults the ack and releases the slot.</summary>
-    [Test]
-    public async Task DurableAppendCapacityFailureFaultsAck()
-    {
-        using var setup = CreateSetup(1024L * 1024L, 1024, 1);
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-
-        _ = await Assert.That(setup.Writer.ProcessJournalWorkItem(item)).IsFalse();
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
-        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
-    }
-
-    /// <summary>A segment open failure on the durable path faults the ack, releases the slot, and propagates.</summary>
-    [Test]
-    public async Task DurableSegmentOpenFailureFaultsAck()
-    {
-        var options = new PersistenceOptions { DataDir = Path.Join(Dir, "missing") };
-        var registry = new PendingAppendRegistry();
-        var counter = new MutableInt32();
-        var host = new FakeEventLoopHost(registry, counter);
-        using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
-        using var state = new FakeEventLoopState(host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
-        var writer = new JournalEventLoopSegmentWriter(state, new FakeEventLoopRollState());
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.AppendWithDurability(ack, buffer, 64);
-        registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref counter.Value);
-
-        var thrown = NodeExceptionAssert.For<DirectoryNotFoundException>().Throws((Writer: writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
-
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(thrown);
-        _ = await Assert.That(counter.Value).IsEqualTo(0);
-    }
-
     /// <summary>A full batch flushes and restages the overflow append instead of dropping it.</summary>
     [Test]
     public async Task FullBatchFlushesAndRestages()
@@ -259,6 +220,22 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = Interlocked.Decrement(ref setup.Counter.Value);
         ArrayPool<byte>.Shared.ReturnCleared(staged.FrameBytes);
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// A frame larger than an empty segment, bypassing producer admission, is rejected through its ack before the journal thread decides
+    /// to roll: a roll can never make it fit, so no new segment is created and no roll is published (issue #749).
+    /// </summary>
+    [Test]
+    public async Task OversizedFrameFaultsAckWithoutRoll()
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var run = await RunOversizedFrameAsync(buffer => JournalWorkItem.Append(buffer, OversizedFrameLength, ack));
+
+        var rejection = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(rejection?.Message).Contains("segment size");
+        _ = await Assert.That(run.PipelineFailure).IsNull();
+        await AssertNoRollAsync(run);
     }
 
     /// <summary>A segment open failure faults the ack, releases the slot, and propagates.</summary>
@@ -319,6 +296,63 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var state = new FakeEventLoopState(host, options, batch, totalBytes);
         var roll = new FakeEventLoopRollState("seg-0001");
         return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), registry, counter, batch, state);
+    }
+
+    private static async Task AssertNoRollAsync(OversizedFrameRun run)
+    {
+        _ = await Assert.That(run.RollsPublished).IsEqualTo(0);
+        _ = await Assert.That(run.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(run.SegmentFiles).IsEqualTo(1);
+        _ = await Assert.That(run.QueuedAppends).IsEqualTo(0);
+        _ = await Assert.That(run.PendingCount).IsEqualTo(0);
+    }
+
+    private static void WriteHeaderOnlySegment(string segmentPath)
+    {
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        File.WriteAllBytes(segmentPath, header);
+    }
+
+    /// <summary>
+    /// Runs the event loop over one frame larger than an empty one-megabyte segment, bypassing producer admission. The current segment is
+    /// already on disk with only its header, and every published roll completes at once, so a journal thread that kept rolling for the
+    /// frame would add one segment and one roll publication per retry up to the segment count limit.
+    /// </summary>
+    /// <param name="createItem">Creates the work item over the rented frame buffer.</param>
+    /// <returns>What the run left behind.</returns>
+    private async Task<OversizedFrameRun> RunOversizedFrameAsync(Func<byte[], JournalWorkItem> createItem)
+    {
+        WriteHeaderOnlySegment(JournalReadPath.BuildSegmentPath(Dir, 1));
+
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
+        var registry = new PendingAppendRegistry();
+        var counter = new MutableInt32();
+        var host = new FakeEventLoopHost(registry, counter);
+        using var ring = new BoundedJournalRing(4);
+        using var segmentWriter = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1));
+        var eventLoop = new JournalEventLoop(host, ring, segmentWriter, options, startup, CancellationToken.None, NullLogger.Instance);
+        var rollsPublished = 0;
+        host.RollPublished = () =>
+        {
+            rollsPublished++;
+            eventLoop.MarkSegmentRollCompletionPending();
+        };
+
+        var buffer = ArrayPool<byte>.Shared.Rent(OversizedFrameLength);
+        var item = createItem(buffer);
+        registry.Track(item, buffer, OversizedFrameLength, item.Ack);
+        _ = Interlocked.Increment(ref counter.Value);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+
+        // The shutdown marker behind the frame ends the loop whether the frame is rejected at once or only after the rolls run out.
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        eventLoop.Run();
+
+        var segmentFiles = Directory.GetFiles(Dir, SegmentSearchPattern, SearchOption.TopDirectoryOnly).Length;
+        return new OversizedFrameRun(host.PipelineFailure, rollsPublished, eventLoop.CurrentSegmentIndex, segmentFiles, counter.Value, registry.PendingCount);
     }
 
     private sealed class FakeEventLoopRollState : IJournalEventLoopRollState
@@ -465,6 +499,15 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         {
         }
     }
+
+    /// <summary>What an oversized-frame event loop run left behind.</summary>
+    /// <param name="PipelineFailure">The pipeline failure the journal thread reported, if any.</param>
+    /// <param name="RollsPublished">Number of roll publications (the manifest hand-off).</param>
+    /// <param name="CurrentSegmentIndex">The journal thread's current segment index after the run.</param>
+    /// <param name="SegmentFiles">Number of journal segment files on disk.</param>
+    /// <param name="QueuedAppends">Queued-append counter after the run.</param>
+    /// <param name="PendingCount">Appends still tracked in the pending-append registry.</param>
+    private sealed record OversizedFrameRun(Exception? PipelineFailure, int RollsPublished, int CurrentSegmentIndex, int SegmentFiles, int QueuedAppends, int PendingCount);
 
     private sealed class WriterSetup : IDisposable
     {

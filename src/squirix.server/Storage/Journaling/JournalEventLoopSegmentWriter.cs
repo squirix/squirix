@@ -84,12 +84,6 @@ internal sealed class JournalEventLoopSegmentWriter
             return false;
         }
 
-        if (item.Kind == JournalWorkKind.AppendWithDurability)
-        {
-            ProcessAppendWithDurability(item);
-            return false;
-        }
-
         if (item.Kind == JournalWorkKind.DurabilityCheckpoint)
         {
             FlushWriteBatch();
@@ -121,6 +115,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
         try
         {
+            // Rejected before the roll decision: a roll can never make a frame larger than an empty segment fit, so each retry
+            // after a completed roll would roll again, one new segment and manifest publication each (issue #749).
+            _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
             var headerDelta = _rollTarget.GetAppendHeaderDelta(needsRoll, out var existingTargetLength);
@@ -316,34 +313,6 @@ internal sealed class JournalEventLoopSegmentWriter
         CompleteJournalWorkItem(item);
     }
 
-    private void ProcessAppendWithDurability(JournalWorkItem item)
-    {
-        var ack = ThrowHelper.Required(item.Ack, "AppendWithDurability work item is missing a durability ack.");
-
-        // Admitted before a failure drain that already faulted it; failing again is idempotent.
-        if (RejectAbandonedAppend(item))
-            return;
-
-        try
-        {
-            WriteAppendFrame(item);
-            _owner.FlushToDisk();
-            _ = ack.TrySetResult();
-        }
-        catch (JournalCapacityExceededException ex)
-        {
-            FailAppendWorkItem(item, ex);
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-            FailAppendWorkItem(item, ex);
-            throw;
-        }
-
-        ReleaseQueuedAppendResources(item);
-    }
-
     private bool RejectAbandonedAppend(JournalWorkItem item)
     {
         var registry = _owner.Host.PendingAppends;
@@ -385,6 +354,9 @@ internal sealed class JournalEventLoopSegmentWriter
     private void WriteAppendFrame(JournalWorkItem item)
     {
         var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
+
+        // Same guard as TryAcceptAppendIntoBatch: no roll can make such a frame fit, so it is a capacity rejection, not a roll request.
+        _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
         EnsureSegmentOpen();
         var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
         var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;

@@ -182,7 +182,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         journal.Writer.Write.Arm();
         var append = traced.AppendAdmittedUnderGateAsync(
             CacheKey.Default("a"),
-            static (appender, key, ownership, ct) => appender.AppendPutAndAwaitDurabilityAsync(ownership, key, JournalEntryPayloadKit.EncodePut("a"), ct),
+            static (appender, key, ownership, ct) => appender.AppendPutAndAwaitCommitAsync(ownership, key, JournalEntryPayloadKit.EncodePut("a"), ct),
             cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(Bound, TimeProvider.System, cancellationToken);
 

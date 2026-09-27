@@ -6,8 +6,6 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Mutable coordinator state used by the append pipeline.</summary>
 internal interface IJournalCoordinatorAppendState
 {
-    JournalDurabilityGroupCommit? GroupCommit { get; }
-
     JournalDurabilityCoordinator DurabilityPipeline { get; }
 
     PersistenceOptions Options { get; }

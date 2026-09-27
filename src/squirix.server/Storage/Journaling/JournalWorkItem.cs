@@ -45,17 +45,6 @@ internal sealed record JournalWorkItem
     /// <returns>A new append work item for the journal ring.</returns>
     internal static JournalWorkItem Append(byte[] frameBytes, int frameLength, TaskCompletionSource? ack = null) => new(JournalWorkKind.Append, ack, frameBytes, frameLength, 0, 0UL);
 
-    /// <summary>Creates an append item whose ack resolves after the frame is written and fsynced.</summary>
-    /// <param name="ack">Ack resolved once this item's frame reaches the segment file. Required.</param>
-    /// <param name="frameBytes">Encoded frame buffer rented from <c language="csharp">ArrayPool&lt;byte&gt;</c>.</param>
-    /// <param name="frameLength">Exact length of the framed payload inside <paramref name="frameBytes" />.</param>
-    /// <returns>A new durable append work item for the journal ring.</returns>
-    internal static JournalWorkItem AppendWithDurability(TaskCompletionSource ack, byte[] frameBytes, int frameLength)
-    {
-        ArgumentNullException.ThrowIfNull(ack);
-        return new JournalWorkItem(JournalWorkKind.AppendWithDurability, ack, frameBytes, frameLength, 0, 0UL);
-    }
-
     /// <summary>
     /// Creates a durability checkpoint item carrying <paramref name="ack" />. The ack rides the item's
     /// ring position, so the flush performed while processing this item covers every frame enqueued
