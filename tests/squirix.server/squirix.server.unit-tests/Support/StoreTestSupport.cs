@@ -6,7 +6,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 
-namespace Squirix.Server.UnitTests.Persistence.Manifest;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Helpers for manifest store tests.</summary>
 internal static class StoreTestSupport

@@ -1,6 +1,6 @@
 using Squirix.Server.Attributes;
 
-namespace Squirix.Server.UnitTests;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Test payload with single value.</summary>
 [Immutable]

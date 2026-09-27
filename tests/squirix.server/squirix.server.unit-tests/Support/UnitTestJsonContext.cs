@@ -10,11 +10,10 @@ namespace Squirix.Server.UnitTests.Support;
 [JsonSourceGenerationOptions(RespectNullableAnnotations = false, RespectRequiredConstructorParameters = false)]
 [JsonSerializable(typeof(SamplePayload))]
 [JsonSerializable(typeof(ValuePayload))]
-[JsonSerializable(typeof(Core.DerivedValue))]
-[JsonSerializable(typeof(Core.IdPayload))]
-[JsonSerializable(typeof(Persistence.Journaling.Codec.DerivedValue), TypeInfoPropertyName = "JournalDerivedValue")]
-[JsonSerializable(typeof(Memory.ObjectCacheDataPayload))]
-[JsonSerializable(typeof(Memory.AdmissionDataPayload), TypeInfoPropertyName = "AdmissionDataPayload")]
+[JsonSerializable(typeof(DerivedValue))]
+[JsonSerializable(typeof(IdPayload))]
+[JsonSerializable(typeof(ObjectCacheDataPayload))]
+[JsonSerializable(typeof(AdmissionDataPayload), TypeInfoPropertyName = "AdmissionDataPayload")]
 internal sealed partial class UnitTestJsonContext : JsonSerializerContext
 {
     /// <summary>Registers test metadata with the product serializer chain.</summary>

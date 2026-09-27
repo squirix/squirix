@@ -1,6 +1,6 @@
 using Squirix.Server.Attributes;
 
-namespace Squirix.Server.UnitTests;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Test payload for cache value mapping.</summary>
 [Immutable]

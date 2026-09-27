@@ -1,7 +1,7 @@
 using JetBrains.Annotations;
 using Squirix.Server.Attributes;
 
-namespace Squirix.Server.UnitTests.Core;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Derived value for testing runtime type preservation.</summary>
 [Immutable]

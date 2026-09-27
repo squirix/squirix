@@ -6,6 +6,7 @@ using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;

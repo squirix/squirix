@@ -1,7 +1,7 @@
 using System;
 using Squirix.Server.TestKit.IO;
 
-namespace Squirix.Server.UnitTests.Architecture;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Resolves repository layout paths for source-based architecture tests.</summary>
 internal static class RepositoryPaths
