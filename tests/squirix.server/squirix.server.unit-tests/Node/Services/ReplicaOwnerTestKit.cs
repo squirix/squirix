@@ -117,6 +117,25 @@ internal static class ReplicaOwnerTestKit
             _ = await log.AppendAsync(new FollowerLogAppendRequest("n1", currentTerm, index, 1, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty), cancellationToken);
     }
 
+    /// <summary>Raises the owned group log's current term without appending an entry, as a new leader term that has not written yet.</summary>
+    /// <param name="registry">The open registry of the owner.</param>
+    /// <param name="currentTerm">The new current term.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">The owned group log is not open or refused the term.</exception>
+    internal static async Task RaiseTermAsync(ReplicaGroupRegistry registry, ulong currentTerm, CancellationToken cancellationToken)
+    {
+        if (!registry.TryGetLog("n1", out var log))
+            throw new InvalidOperationException("The owned group log is not open.");
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var raised = await log.AppendAsync(
+            new FollowerLogAppendRequest("n1", currentTerm, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, ReadOnlyMemory<FollowerLogEntry>.Empty),
+            cancellationToken);
+        if (!raised.Success)
+            throw new InvalidOperationException($"The owned group log refused term {currentTerm}: {raised.RefusalCode}.");
+    }
+
     internal static async Task<FollowerLogStatus> StatusAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
         registry.TryGetLog("n1", out var log) ? await log.GetStatusAsync(cancellationToken)
             : throw new InvalidOperationException("The owned group log is not open.");
